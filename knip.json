@@ -1,0 +1,6 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "project": ["src/**/*.ts"],
+  "ignore": ["**/dist/**", "**/build/**"],
+  "ignoreBinaries": ["open", "xdg-open", "start", "tmux"]
+}
