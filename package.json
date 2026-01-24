@@ -1,0 +1,21 @@
+{
+  "name": "ralph-review",
+  "version": "0.1.0",
+  "description": "AI-powered code review CLI tool",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "ralph-review": "./bin/ralph-review",
+    "rr": "./bin/ralph-review"
+  },
+  "scripts": {
+    "build": "bun build src/cli.ts --outfile bin/ralph-review --compile",
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  }
+}
