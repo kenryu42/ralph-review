@@ -16,11 +16,9 @@ describe("agents", () => {
         expect(agentConfig).toHaveProperty("command");
         expect(agentConfig).toHaveProperty("buildArgs");
         expect(agentConfig).toHaveProperty("buildEnv");
-        expect(agentConfig).toHaveProperty("parseOutput");
         expect(typeof agentConfig.command).toBe("string");
         expect(typeof agentConfig.buildArgs).toBe("function");
         expect(typeof agentConfig.buildEnv).toBe("function");
-        expect(typeof agentConfig.parseOutput).toBe("function");
       }
     });
   });
@@ -64,20 +62,6 @@ describe("agents", () => {
       const args = AGENTS.opencode.buildArgs("fixer", "apply changes", undefined);
       expect(args[0]).toBe("run");
       expect(args.some((a: string) => a.includes("apply changes"))).toBe(true);
-    });
-  });
-
-  describe("parseOutput", () => {
-    test("codex parseOutput detects issues", () => {
-      // By default, assume issues unless explicitly clean
-      const result = AGENTS.codex.parseOutput("Some output line");
-      // Null means no determination yet
-      expect(result).toBeNull();
-    });
-
-    test("codex parseOutput detects clean output", () => {
-      const result = AGENTS.codex.parseOutput("No issues found");
-      expect(result).toEqual({ hasIssues: false });
     });
   });
 

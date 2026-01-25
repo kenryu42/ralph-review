@@ -61,6 +61,8 @@ describe("init command", () => {
         reviewerModel: "gpt-4",
         implementorAgent: "claude",
         implementorModel: "",
+        maxIterations: 5,
+        iterationTimeoutMinutes: 30,
       });
 
       expect(config.reviewer.agent).toBe("codex");
@@ -77,10 +79,26 @@ describe("init command", () => {
         reviewerModel: "",
         implementorAgent: "opencode",
         implementorModel: "",
+        maxIterations: 10,
+        iterationTimeoutMinutes: 15,
       });
 
       expect(config.reviewer.model).toBeUndefined();
       expect(config.fixer.model).toBeUndefined();
+    });
+
+    test("converts timeout minutes to milliseconds", () => {
+      const config = buildConfig({
+        reviewerAgent: "codex",
+        reviewerModel: "",
+        implementorAgent: "codex",
+        implementorModel: "",
+        maxIterations: 3,
+        iterationTimeoutMinutes: 10,
+      });
+
+      expect(config.maxIterations).toBe(3);
+      expect(config.iterationTimeout).toBe(600000); // 10 min * 60 * 1000
     });
   });
 });
