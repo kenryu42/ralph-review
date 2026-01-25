@@ -77,7 +77,7 @@ export interface RunState {
 }
 
 /**
- * Result of a single iteration (either review or implementation)
+ * Result of a single iteration (either review or fix)
  */
 export interface IterationResult {
   success: boolean;
@@ -97,11 +97,11 @@ export interface AgentConfig {
 }
 
 /**
- * Log entry for storing review/implementation output
+ * Log entry for storing review/fix output
  */
 export interface LogEntry {
   timestamp: number;
-  type: "review" | "implement" | "system" | "error";
+  type: "review" | "fix" | "system" | "error";
   content: string;
   iteration: number;
 }

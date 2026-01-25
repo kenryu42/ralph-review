@@ -1,6 +1,6 @@
 /**
  * Log storage for ralph-review
- * Stores review and implementation output as JSONL files
+ * Stores review and fix output as JSONL files
  */
 
 import { mkdir, readdir, stat } from "node:fs/promises";

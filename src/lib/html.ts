@@ -41,7 +41,7 @@ function getTypeIcon(type: LogEntry["type"]): string {
   switch (type) {
     case "review":
       return "🔍";
-    case "implement":
+    case "fix":
       return "🔧";
     case "system":
       return "⚙️";
@@ -149,7 +149,7 @@ export function generateLogHtml(entries: LogEntry[]): string {
       font-size: 0.9em;
     }
     .entry-review .entry-header { border-left: 4px solid #00d4ff; }
-    .entry-implement .entry-header { border-left: 4px solid #00ff88; }
+    .entry-fix .entry-header { border-left: 4px solid #00ff88; }
     .entry-system .entry-header { border-left: 4px solid #888; }
     .type {
       font-weight: bold;

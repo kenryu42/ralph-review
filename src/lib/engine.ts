@@ -1,6 +1,6 @@
 /**
  * Iteration engine for ralph-review
- * Orchestrates the review -> implement cycle
+ * Orchestrates the review -> fix cycle
  */
 
 import { runAgent } from "./agents";
@@ -132,11 +132,11 @@ export function fixerFoundNoIssues(fixerOutput: string): boolean {
  * Uses exact prompt from check-review.md
  */
 export function createFixerPrompt(reviewOutput: string): string {
-  return `You are a **second-opinion verification reviewer + implementer**.
+  return `You are a **second-opinion verification reviewer + fixer**.
 
 Goal:
 1) Verify the review's claims against the actual code/diff.
-2) If there is anything to APPLY, **immediately implement the fixes** (or output a unified diff) in the same response.
+2) If there is anything to APPLY, **immediately fix the fixes** (or output a unified diff) in the same response.
 3) If there is nothing to APPLY, output the stop marker and end.
 
 ## Inputs
@@ -163,7 +163,7 @@ D) **AUTO-APPLY BEHAVIOR (IMPORTANT)**
    - First, verify all claims and categorize them into APPLY/SKIP/NEEDINFO.
    - Then, based on the APPLY list determined during verification:
      - If APPLY is non-empty (valid issues exist):
-       - Immediately produce a **Fix Package** and implement it:
+       - Immediately produce a **Fix Package** and fix it:
          - If you have access to the codebase/workspace: **edit files now**.
          - Otherwise: output a **unified diff** patch that can be applied.
        - Do NOT ask the user "should I fix it?" - proceed.
@@ -396,44 +396,44 @@ export async function runReviewCycle(
     const fixerPrompt = createFixerPrompt(reviewResult.output);
 
     // Run fixer with retry
-    const implementResult = await runAgentWithRetry("fixer", config, fixerPrompt);
+    const fixResult = await runAgentWithRetry("fixer", config, fixerPrompt);
 
     // Log fixer output
     await appendLog(sessionPath, {
       timestamp: Date.now(),
-      type: "implement",
-      content: implementResult.output,
+      type: "fix",
+      content: fixResult.output,
       iteration,
     });
 
     if (onIteration) {
-      onIteration(iteration, "fixer", implementResult);
+      onIteration(iteration, "fixer", fixResult);
     }
 
     // Handle fixer failure (fatal after retries exhausted)
-    if (!implementResult.success) {
+    if (!fixResult.success) {
       const warning = formatAgentFailureWarning(
         "fixer",
-        implementResult.exitCode,
+        fixResult.exitCode,
         retryConfig.maxRetries
       );
       console.log(warning);
       await appendLog(sessionPath, {
         timestamp: Date.now(),
         type: "error",
-        content: `FIXER FAILED after ${retryConfig.maxRetries} retries. Exit code: ${implementResult.exitCode}\n\n${warning}`,
+        content: `FIXER FAILED after ${retryConfig.maxRetries} retries. Exit code: ${fixResult.exitCode}\n\n${warning}`,
         iteration,
       });
       return {
         success: false,
         iterations: iteration,
-        reason: `Fixer failed with exit code ${implementResult.exitCode} after ${retryConfig.maxRetries} retries. Code may be in a broken state!`,
+        reason: `Fixer failed with exit code ${fixResult.exitCode} after ${retryConfig.maxRetries} retries. Code may be in a broken state!`,
         sessionPath,
       };
     }
 
     // Check if fixer found no issues to fix (stop condition)
-    if (fixerFoundNoIssues(implementResult.output)) {
+    if (fixerFoundNoIssues(fixResult.output)) {
       console.log("✅ No issues to fix - code is clean!");
       await appendLog(sessionPath, {
         timestamp: Date.now(),

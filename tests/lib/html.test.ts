@@ -58,8 +58,8 @@ describe("html", () => {
         },
         {
           timestamp: Date.now(),
-          type: "implement",
-          content: "Iteration 1 implement",
+          type: "fix",
+          content: "Iteration 1 fix",
           iteration: 1,
         },
         {

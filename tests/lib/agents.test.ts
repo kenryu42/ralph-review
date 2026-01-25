@@ -45,9 +45,9 @@ describe("agents", () => {
     });
 
     test("builds fixer args correctly", () => {
-      const args = AGENTS.claude.buildArgs("fixer", "implement the fix", undefined);
+      const args = AGENTS.claude.buildArgs("fixer", "fix the fix", undefined);
       expect(args).toContain("-p");
-      expect(args.some((a: string) => a.includes("implement the fix"))).toBe(true);
+      expect(args.some((a: string) => a.includes("fix the fix"))).toBe(true);
     });
   });
 

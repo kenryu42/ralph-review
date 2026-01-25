@@ -57,7 +57,7 @@ describe("logger", () => {
 
       await appendLog(sessionPath, {
         timestamp: Date.now(),
-        type: "implement",
+        type: "fix",
         content: "Entry 2",
         iteration: 1,
       });
