@@ -65,8 +65,8 @@ describe("init command", () => {
 
       expect(config.reviewer.agent).toBe("codex");
       expect(config.reviewer.model).toBe("gpt-4");
-      expect(config.implementor.agent).toBe("claude");
-      expect(config.implementor.model).toBeUndefined();
+      expect(config.fixer.agent).toBe("claude");
+      expect(config.fixer.model).toBeUndefined();
       expect(config.maxIterations).toBe(5);
       expect(config.iterationTimeout).toBe(1800000);
     });
@@ -80,7 +80,7 @@ describe("init command", () => {
       });
 
       expect(config.reviewer.model).toBeUndefined();
-      expect(config.implementor.model).toBeUndefined();
+      expect(config.fixer.model).toBeUndefined();
     });
   });
 });

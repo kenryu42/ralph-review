@@ -5,7 +5,7 @@ AI-powered code review CLI that automates review cycles using your choice of AI 
 ## Features
 
 - 🤖 **Multi-agent support**: Use Codex, Claude, or OpenCode for reviewing and implementing fixes
-- 🔄 **Automated review cycles**: Reviewer finds issues → Implementor fixes → repeat until clean
+- 🔄 **Automated review cycles**: Reviewer finds issues → Fixer fixes → repeat until clean
 - 📺 **Background execution**: Runs in tmux so you can continue working
 - 📊 **HTML log viewer**: Browse review history in your browser
 - ⚡ **Simple CLI**: Just `rr run` to start
@@ -59,13 +59,13 @@ npm uninstall -g ralph-review
 ### Initial Setup
 
 ```bash
-# Configure your reviewer and implementor agents
+# Configure your reviewer and fixer agents
 rr init
 ```
 
 You'll be prompted to select:
 - **Reviewer agent**: Which AI to use for code review
-- **Implementor agent**: Which AI to use for fixing issues
+- **Fixer agent**: Which AI to use for fixing issues
 
 ### Running Reviews
 
@@ -104,7 +104,7 @@ rr logs <timestamp>
 ## How It Works
 
 1. **Review Phase**: The reviewer agent analyzes your uncommitted changes
-2. **Implementation Phase**: If issues found, the implementor agent fixes them
+2. **Implementation Phase**: If issues found, the fixer agent fixes them
 3. **Repeat**: Continue until no issues or max iterations reached (default: 10)
 
 The tool runs in a tmux session so you can:
@@ -122,7 +122,7 @@ Configuration is stored at `~/.config/ralph-review/config.json`:
     "agent": "codex",
     "model": "gpt-4"
   },
-  "implementor": {
+  "fixer": {
     "agent": "claude"
   },
   "maxIterations": 10,

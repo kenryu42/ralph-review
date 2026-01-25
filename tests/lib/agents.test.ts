@@ -32,8 +32,8 @@ describe("agents", () => {
       expect(args).toContain("--uncommitted");
     });
 
-    test("builds implementor args correctly", () => {
-      const args = AGENTS.codex.buildArgs("implementor", "fix the bug", undefined);
+    test("builds fixer args correctly", () => {
+      const args = AGENTS.codex.buildArgs("fixer", "fix the bug", undefined);
       expect(args[0]).toBe("exec");
       expect(args.some((a: string) => a.includes("fix the bug"))).toBe(true);
     });
@@ -46,8 +46,8 @@ describe("agents", () => {
       expect(args.some((a: string) => a.toLowerCase().includes("review"))).toBe(true);
     });
 
-    test("builds implementor args correctly", () => {
-      const args = AGENTS.claude.buildArgs("implementor", "implement the fix", undefined);
+    test("builds fixer args correctly", () => {
+      const args = AGENTS.claude.buildArgs("fixer", "implement the fix", undefined);
       expect(args).toContain("-p");
       expect(args.some((a: string) => a.includes("implement the fix"))).toBe(true);
     });
@@ -57,11 +57,11 @@ describe("agents", () => {
     test("builds reviewer args correctly", () => {
       const args = AGENTS.opencode.buildArgs("reviewer", "", undefined);
       expect(args[0]).toBe("run");
-      expect(args.some((a: string) => a.includes("codex-review"))).toBe(true);
+      expect(args.some((a: string) => a.includes("review"))).toBe(true);
     });
 
-    test("builds implementor args correctly", () => {
-      const args = AGENTS.opencode.buildArgs("implementor", "apply changes", undefined);
+    test("builds fixer args correctly", () => {
+      const args = AGENTS.opencode.buildArgs("fixer", "apply changes", undefined);
       expect(args[0]).toBe("run");
       expect(args.some((a: string) => a.includes("apply changes"))).toBe(true);
     });

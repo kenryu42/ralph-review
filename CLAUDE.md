@@ -32,7 +32,7 @@ ralph-review is a CLI that automates code review cycles using AI agents (Codex, 
 ### Core Flow
 
 1. **Review Phase**: Reviewer agent analyzes uncommitted changes
-2. **Implementation Phase**: If issues found, implementor agent fixes them
+2. **Implementation Phase**: If issues found, fixer agent fixes them
 3. **Repeat**: Continue until no issues or max iterations reached
 
 ### Key Modules
@@ -51,7 +51,7 @@ ralph-review is a CLI that automates code review cycles using AI agents (Codex, 
 
 Each agent (codex, claude, opencode) is defined in `AGENTS` registry with:
 - `command`: The CLI command to run
-- `buildArgs()`: Constructs arguments based on role (reviewer/implementor)
+- `buildArgs()`: Constructs arguments based on role (reviewer/fixer)
 - `parseOutput()`: Detects "no issues" patterns to stop the loop
 
 ### Commands

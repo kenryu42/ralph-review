@@ -5,7 +5,7 @@ import type { Config, IterationResult } from "@/lib/types";
 // Mock config for testing
 const _mockConfig: Config = {
   reviewer: { agent: "codex" },
-  implementor: { agent: "claude" },
+  fixer: { agent: "claude" },
   maxIterations: 3,
   iterationTimeout: 60000,
 };

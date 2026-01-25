@@ -28,7 +28,7 @@ describe("type guards", () => {
   describe("isAgentRole", () => {
     test("returns true for valid agent roles", () => {
       expect(isAgentRole("reviewer")).toBe(true);
-      expect(isAgentRole("implementor")).toBe(true);
+      expect(isAgentRole("fixer")).toBe(true);
     });
 
     test("returns false for invalid agent roles", () => {
@@ -45,12 +45,12 @@ describe("type definitions", () => {
   test("Config type structure is correct", () => {
     const config: Config = {
       reviewer: { agent: "codex", model: "gpt-4" },
-      implementor: { agent: "claude" },
+      fixer: { agent: "claude" },
       maxIterations: 10,
       iterationTimeout: 600000,
     };
     expect(config.reviewer.agent).toBe("codex");
-    expect(config.implementor.agent).toBe("claude");
+    expect(config.fixer.agent).toBe("claude");
     expect(config.maxIterations).toBe(10);
   });
 

@@ -11,7 +11,7 @@ describe("config", () => {
   // Create a valid test config
   const testConfig: Config = {
     reviewer: { agent: "codex", model: "gpt-4" },
-    implementor: { agent: "claude" },
+    fixer: { agent: "claude" },
     maxIterations: 10,
     iterationTimeout: 600000,
   };
