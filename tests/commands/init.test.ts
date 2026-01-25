@@ -59,8 +59,8 @@ describe("init command", () => {
       const config = buildConfig({
         reviewerAgent: "codex",
         reviewerModel: "gpt-4",
-        implementorAgent: "claude",
-        implementorModel: "",
+        fixerAgent: "claude",
+        fixerModel: "",
         maxIterations: 5,
         iterationTimeoutMinutes: 30,
       });
@@ -77,8 +77,8 @@ describe("init command", () => {
       const config = buildConfig({
         reviewerAgent: "opencode",
         reviewerModel: "",
-        implementorAgent: "opencode",
-        implementorModel: "",
+        fixerAgent: "opencode",
+        fixerModel: "",
         maxIterations: 10,
         iterationTimeoutMinutes: 15,
       });
@@ -91,8 +91,8 @@ describe("init command", () => {
       const config = buildConfig({
         reviewerAgent: "codex",
         reviewerModel: "",
-        implementorAgent: "codex",
-        implementorModel: "",
+        fixerAgent: "codex",
+        fixerModel: "",
         maxIterations: 3,
         iterationTimeoutMinutes: 10,
       });

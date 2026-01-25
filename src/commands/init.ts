@@ -42,8 +42,8 @@ export function checkTmuxInstalled(): boolean {
 interface InitInput {
   reviewerAgent: string;
   reviewerModel: string;
-  implementorAgent: string;
-  implementorModel: string;
+  fixerAgent: string;
+  fixerModel: string;
   maxIterations: number;
   iterationTimeoutMinutes: number;
 }
@@ -58,8 +58,8 @@ export function buildConfig(input: InitInput): Config {
       model: input.reviewerModel || undefined,
     },
     fixer: {
-      agent: input.implementorAgent as AgentType,
-      model: input.implementorModel || undefined,
+      agent: input.fixerAgent as AgentType,
+      model: input.fixerModel || undefined,
     },
     maxIterations: input.maxIterations,
     iterationTimeout: input.iterationTimeoutMinutes * 60 * 1000, // convert to ms
@@ -173,27 +173,27 @@ export async function runInit(): Promise<void> {
   handleCancel(reviewerModel);
 
   // Prompt for fixer agent
-  const implementorAgent = await p.select({
+  const fixerAgent = await p.select({
     message: "Select fixer agent",
     options: [...agentOptions],
   });
 
-  handleCancel(implementorAgent);
+  handleCancel(fixerAgent);
 
   // Check if fixer agent is installed
-  const implementorCmd = getAgentCommand(implementorAgent as AgentType);
-  if (!checkAgentInstalled(implementorCmd)) {
-    p.log.warn(`${implementorCmd} is not installed.`);
+  const fixerCmd = getAgentCommand(fixerAgent as AgentType);
+  if (!checkAgentInstalled(fixerCmd)) {
+    p.log.warn(`${fixerCmd} is not installed.`);
   }
 
   // Prompt for fixer model (optional)
-  const implementorModel = await p.text({
+  const fixerModel = await p.text({
     message: "Fixer model (optional)",
     placeholder: "Press enter for default",
     defaultValue: "",
   });
 
-  handleCancel(implementorModel);
+  handleCancel(fixerModel);
 
   // Prompt for max iterations
   const maxIterationsStr = await p.text({
@@ -232,8 +232,8 @@ export async function runInit(): Promise<void> {
   const config = buildConfig({
     reviewerAgent: reviewerAgent as string,
     reviewerModel: reviewerModel as string,
-    implementorAgent: implementorAgent as string,
-    implementorModel: implementorModel as string,
+    fixerAgent: fixerAgent as string,
+    fixerModel: fixerModel as string,
     maxIterations: Number.parseInt(maxIterationsStr as string, 10),
     iterationTimeoutMinutes: Number.parseInt(iterationTimeoutStr as string, 10),
   });
