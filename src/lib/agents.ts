@@ -3,7 +3,38 @@
  * Defines how to invoke each supported AI coding agent
  */
 
-import type { AgentType, AgentRole, AgentConfig, Config, IterationResult } from "./types";
+import type { AgentConfig, AgentRole, AgentType, Config, IterationResult } from "./types";
+
+/**
+ * Stream output to console while capturing it for parsing
+ * @param stream - The readable stream from process stdout/stderr
+ * @param writeStream - Where to write the output (process.stdout or process.stderr)
+ * @returns The accumulated output as a string
+ */
+async function streamAndCapture(
+  stream: ReadableStream<Uint8Array> | null,
+  writeStream: NodeJS.WriteStream
+): Promise<string> {
+  if (!stream) return "";
+
+  const decoder = new TextDecoder();
+  let output = "";
+
+  for await (const chunk of stream) {
+    const text = decoder.decode(chunk, { stream: true });
+    output += text;
+    writeStream.write(text);
+  }
+
+  // Flush any remaining bytes
+  const remaining = decoder.decode();
+  if (remaining) {
+    output += remaining;
+    writeStream.write(remaining);
+  }
+
+  return output;
+}
 
 /**
  * Registry of supported agents with their configuration
@@ -11,11 +42,11 @@ import type { AgentType, AgentRole, AgentConfig, Config, IterationResult } from 
 export const AGENTS: Record<AgentType, AgentConfig> = {
   codex: {
     command: "codex",
-    buildArgs: (role: AgentRole, prompt: string, model?: string): string[] => {
+    buildArgs: (role: AgentRole, prompt: string, _model?: string): string[] => {
       if (role === "reviewer") {
         return ["review", "--uncommitted"];
       } else {
-        // Implementor mode - use exec with the prompt
+        // Fixer mode - use exec with the prompt
         const args = ["exec"];
         if (prompt) {
           args.push(prompt);
@@ -25,95 +56,45 @@ export const AGENTS: Record<AgentType, AgentConfig> = {
     },
     buildEnv: (): Record<string, string> => {
       return {
-        ...process.env as Record<string, string>,
+        ...(process.env as Record<string, string>),
       };
-    },
-    parseOutput: (line: string): { hasIssues: boolean } | null => {
-      // Check for common "no issues" patterns
-      const cleanPatterns = [
-        /no issues found/i,
-        /no problems detected/i,
-        /all checks passed/i,
-        /lgtm/i,
-        /looks good/i,
-      ];
-      
-      for (const pattern of cleanPatterns) {
-        if (pattern.test(line)) {
-          return { hasIssues: false };
-        }
-      }
-      
-      return null; // No determination yet
     },
   },
 
   claude: {
     command: "claude",
-    buildArgs: (role: AgentRole, prompt: string, model?: string): string[] => {
+    buildArgs: (role: AgentRole, prompt: string, _model?: string): string[] => {
       if (role === "reviewer") {
-        return ["-p", "Review my uncommitted changes. Focus on bugs, security issues, and code quality problems."];
+        return [
+          "-p",
+          "Review my uncommitted changes. Focus on bugs, security issues, and code quality problems.",
+        ];
       } else {
-        // Implementor mode
+        // Fixer mode
         return ["-p", prompt];
       }
     },
     buildEnv: (): Record<string, string> => {
       return {
-        ...process.env as Record<string, string>,
+        ...(process.env as Record<string, string>),
       };
-    },
-    parseOutput: (line: string): { hasIssues: boolean } | null => {
-      const cleanPatterns = [
-        /no issues found/i,
-        /no problems detected/i,
-        /all checks passed/i,
-        /lgtm/i,
-        /looks good/i,
-        /no changes needed/i,
-      ];
-      
-      for (const pattern of cleanPatterns) {
-        if (pattern.test(line)) {
-          return { hasIssues: false };
-        }
-      }
-      
-      return null;
     },
   },
 
   opencode: {
     command: "opencode",
-    buildArgs: (role: AgentRole, prompt: string, model?: string): string[] => {
+    buildArgs: (role: AgentRole, prompt: string, _model?: string): string[] => {
       if (role === "reviewer") {
-        return ["run", "/codex-review"];
+        return ["run", "/review"];
       } else {
-        // Implementor mode
+        // Fixer mode
         return ["run", prompt];
       }
     },
     buildEnv: (): Record<string, string> => {
       return {
-        ...process.env as Record<string, string>,
+        ...(process.env as Record<string, string>),
       };
-    },
-    parseOutput: (line: string): { hasIssues: boolean } | null => {
-      const cleanPatterns = [
-        /no issues found/i,
-        /no problems detected/i,
-        /all checks passed/i,
-        /lgtm/i,
-        /looks good/i,
-      ];
-      
-      for (const pattern of cleanPatterns) {
-        if (pattern.test(line)) {
-          return { hasIssues: false };
-        }
-      }
-      
-      return null;
     },
   },
 };
@@ -128,18 +109,18 @@ export async function runAgent(
   timeout: number = config.iterationTimeout
 ): Promise<IterationResult> {
   const startTime = Date.now();
-  const agentSettings = role === "reviewer" ? config.reviewer : config.implementor;
+  const agentSettings = role === "reviewer" ? config.reviewer : config.fixer;
   const agentConfig = AGENTS[agentSettings.agent];
-  
+
   const command = agentConfig.command;
   const args = agentConfig.buildArgs(role, prompt, agentSettings.model);
   const env = agentConfig.buildEnv();
-  
+
   let output = "";
-  let hasIssues = true; // Assume issues until proven otherwise
+  const hasIssues = true; // Assume issues until proven otherwise
   let exitCode = 1;
   let timedOut = false;
-  
+
   try {
     // Create abort controller for timeout
     const controller = new AbortController();
@@ -147,37 +128,26 @@ export async function runAgent(
       controller.abort();
       timedOut = true;
     }, timeout);
-    
+
     const proc = Bun.spawn([command, ...args], {
       env,
       stdout: "pipe",
       stderr: "pipe",
       signal: controller.signal,
     });
-    
-    // Read stdout and stderr using Bun's text() method
+
+    // Stream output to console while capturing it
     const [stdout, stderr] = await Promise.all([
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
+      streamAndCapture(proc.stdout, process.stdout),
+      streamAndCapture(proc.stderr, process.stderr),
     ]);
-    
+
     output = stdout + (stderr ? `\n[stderr]\n${stderr}` : "");
-    
+
     // Wait for process to exit
     exitCode = await proc.exited;
-    
+
     clearTimeout(timeoutId);
-    
-    // Parse output to detect if there are issues
-    const lines = output.split("\n");
-    for (const line of lines) {
-      const result = agentConfig.parseOutput(line);
-      if (result !== null) {
-        hasIssues = result.hasIssues;
-        break;
-      }
-    }
-    
   } catch (error) {
     if (timedOut) {
       output = `[Timeout after ${timeout}ms]\n${output}`;
@@ -186,9 +156,9 @@ export async function runAgent(
       output = `[Error: ${error}]\n${output}`;
     }
   }
-  
+
   const duration = Date.now() - startTime;
-  
+
   return {
     success: exitCode === 0,
     hasIssues,

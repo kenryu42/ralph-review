@@ -2,13 +2,13 @@
  * Configuration storage layer for ralph-review
  */
 
-import { join } from "path";
-import { homedir } from "os";
-import { mkdir } from "fs/promises";
+import { mkdir } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import type { Config } from "./types";
 
 // Default paths
-export const CONFIG_DIR = join(homedir(), ".config", "ralph-review");
+const CONFIG_DIR = join(homedir(), ".config", "ralph-review");
 export const CONFIG_PATH = join(CONFIG_DIR, "config.json");
 export const STATE_PATH = join(CONFIG_DIR, "state.json");
 export const LOCK_PATH = join(CONFIG_DIR, "run.lock");
@@ -24,16 +24,13 @@ export async function ensureConfigDir(dir: string = CONFIG_DIR): Promise<void> {
 /**
  * Save configuration to disk
  */
-export async function saveConfig(
-  config: Config,
-  path: string = CONFIG_PATH
-): Promise<void> {
+export async function saveConfig(config: Config, path: string = CONFIG_PATH): Promise<void> {
   // Ensure parent directory exists
   const parentDir = path.substring(0, path.lastIndexOf("/"));
   if (parentDir) {
     await mkdir(parentDir, { recursive: true });
   }
-  
+
   await Bun.write(path, JSON.stringify(config, null, 2));
 }
 
@@ -41,15 +38,13 @@ export async function saveConfig(
  * Load configuration from disk
  * Returns null if file doesn't exist
  */
-export async function loadConfig(
-  path: string = CONFIG_PATH
-): Promise<Config | null> {
+export async function loadConfig(path: string = CONFIG_PATH): Promise<Config | null> {
   const file = Bun.file(path);
-  
+
   if (!(await file.exists())) {
     return null;
   }
-  
+
   try {
     const content = await file.text();
     return JSON.parse(content) as Config;
@@ -61,9 +56,7 @@ export async function loadConfig(
 /**
  * Check if configuration file exists
  */
-export async function configExists(
-  path: string = CONFIG_PATH
-): Promise<boolean> {
+export async function configExists(path: string = CONFIG_PATH): Promise<boolean> {
   return await Bun.file(path).exists();
 }
 
@@ -71,6 +64,6 @@ export async function configExists(
  * Default configuration values
  */
 export const DEFAULT_CONFIG: Partial<Config> = {
-  maxIterations: 10,
-  iterationTimeout: 600000, // 10 minutes in ms
+  maxIterations: 5,
+  iterationTimeout: 1800000, // 30 minutes in ms
 };

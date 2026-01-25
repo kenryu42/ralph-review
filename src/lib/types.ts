@@ -6,13 +6,13 @@
 export type AgentType = "codex" | "claude" | "opencode";
 
 // Roles an agent can play
-export type AgentRole = "reviewer" | "implementor";
+export type AgentRole = "reviewer" | "fixer";
 
 // Valid agent types for type guard
 const VALID_AGENT_TYPES: readonly AgentType[] = ["codex", "claude", "opencode"];
 
 // Valid agent roles for type guard
-const VALID_AGENT_ROLES: readonly AgentRole[] = ["reviewer", "implementor"];
+const VALID_AGENT_ROLES: readonly AgentRole[] = ["reviewer", "fixer"];
 
 /**
  * Type guard to check if a value is a valid AgentType
@@ -29,7 +29,7 @@ export function isAgentRole(value: unknown): value is AgentRole {
 }
 
 /**
- * Configuration for a specific agent (reviewer or implementor)
+ * Configuration for a specific agent (reviewer or fixer)
  */
 export interface AgentSettings {
   agent: AgentType;
@@ -37,13 +37,32 @@ export interface AgentSettings {
 }
 
 /**
+ * Retry configuration for agent execution
+ */
+export interface RetryConfig {
+  maxRetries: number; // Number of retry attempts (default: 3)
+  baseDelayMs: number; // Base delay for exponential backoff (default: 1000)
+  maxDelayMs: number; // Maximum delay cap (default: 30000)
+}
+
+/**
+ * Default retry configuration
+ */
+export const DEFAULT_RETRY_CONFIG: RetryConfig = {
+  maxRetries: 3,
+  baseDelayMs: 1000,
+  maxDelayMs: 30000,
+};
+
+/**
  * Main configuration stored in ~/.config/ralph-review/config.json
  */
 export interface Config {
   reviewer: AgentSettings;
-  implementor: AgentSettings;
+  fixer: AgentSettings;
   maxIterations: number;
   iterationTimeout: number; // in milliseconds
+  retry?: RetryConfig; // Optional retry config, uses DEFAULT_RETRY_CONFIG if not set
 }
 
 /**
@@ -75,7 +94,6 @@ export interface AgentConfig {
   command: string;
   buildArgs: (role: AgentRole, prompt: string, model?: string) => string[];
   buildEnv: () => Record<string, string>;
-  parseOutput: (line: string) => { hasIssues: boolean } | null;
 }
 
 /**
@@ -83,7 +101,7 @@ export interface AgentConfig {
  */
 export interface LogEntry {
   timestamp: number;
-  type: "review" | "implement" | "system";
+  type: "review" | "implement" | "system" | "error";
   content: string;
   iteration: number;
 }

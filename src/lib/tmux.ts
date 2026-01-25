@@ -104,13 +104,6 @@ export async function getSessionOutput(name: string, lines: number = 50): Promis
 }
 
 /**
- * Send keys to a tmux session
- */
-export async function sendKeys(name: string, keys: string): Promise<void> {
-  await $`tmux send-keys -t ${name} ${keys}`;
-}
-
-/**
  * Send Ctrl+C to a tmux session
  */
 export async function sendInterrupt(name: string): Promise<void> {
