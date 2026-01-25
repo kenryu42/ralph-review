@@ -3,10 +3,10 @@
  * Stores review and implementation output as JSONL files
  */
 
-import { join } from "path";
-import { mkdir, readdir, stat } from "fs/promises";
-import type { LogEntry } from "./types";
+import { mkdir, readdir, stat } from "node:fs/promises";
+import { join } from "node:path";
 import { LOGS_DIR } from "./config";
+import type { LogEntry } from "./types";
 
 /**
  * Create a new log session directory
@@ -32,13 +32,10 @@ function getLogFilePath(sessionPath: string): string {
  * Append a log entry to the session log
  * Uses JSONL format (newline-delimited JSON)
  */
-export async function appendLog(
-  sessionPath: string,
-  entry: LogEntry
-): Promise<void> {
+export async function appendLog(sessionPath: string, entry: LogEntry): Promise<void> {
   const logPath = getLogFilePath(sessionPath);
-  const line = JSON.stringify(entry) + "\n";
-  
+  const line = `${JSON.stringify(entry)}\n`;
+
   // Append to file
   const file = Bun.file(logPath);
   let content = "";
@@ -54,14 +51,14 @@ export async function appendLog(
 export async function readLog(sessionPath: string): Promise<LogEntry[]> {
   const logPath = getLogFilePath(sessionPath);
   const file = Bun.file(logPath);
-  
+
   if (!(await file.exists())) {
     return [];
   }
-  
+
   const content = await file.text();
   const lines = content.trim().split("\n").filter(Boolean);
-  
+
   return lines.map((line) => JSON.parse(line) as LogEntry);
 }
 
@@ -78,13 +75,11 @@ export interface LogSession {
  * List all log sessions
  * Returns sorted by timestamp descending (most recent first)
  */
-export async function listLogSessions(
-  logsDir: string = LOGS_DIR
-): Promise<LogSession[]> {
+export async function listLogSessions(logsDir: string = LOGS_DIR): Promise<LogSession[]> {
   try {
     const entries = await readdir(logsDir, { withFileTypes: true });
     const sessions: LogSession[] = [];
-    
+
     for (const entry of entries) {
       if (entry.isDirectory()) {
         const sessionPath = join(logsDir, entry.name);
@@ -96,10 +91,10 @@ export async function listLogSessions(
         });
       }
     }
-    
+
     // Sort by timestamp descending
     sessions.sort((a, b) => b.timestamp - a.timestamp);
-    
+
     return sessions;
   } catch {
     return [];
@@ -109,9 +104,7 @@ export async function listLogSessions(
 /**
  * Get the most recent log session
  */
-export async function getLatestLogSession(
-  logsDir: string = LOGS_DIR
-): Promise<LogSession | null> {
+export async function getLatestLogSession(logsDir: string = LOGS_DIR): Promise<LogSession | null> {
   const sessions = await listLogSessions(logsDir);
-  return sessions.length > 0 ? sessions[0]! : null;
+  return sessions.length > 0 ? (sessions[0] ?? null) : null;
 }

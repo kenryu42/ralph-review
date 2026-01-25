@@ -3,9 +3,9 @@
  * Creates static HTML files for viewing logs in browser
  */
 
-import { join } from "path";
-import type { LogEntry } from "./types";
+import { join } from "node:path";
 import { readLog } from "./logger";
+import type { LogEntry } from "./types";
 
 /**
  * Escape HTML special characters
@@ -23,7 +23,7 @@ function escapeHtml(text: string): string {
  * Strip ANSI escape codes
  */
 function stripAnsi(text: string): string {
-  // eslint-disable-next-line no-control-regex
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: Intentional - matching ANSI escape codes requires control character \x1B
   return text.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, "");
 }
 
@@ -61,7 +61,7 @@ export function generateLogHtml(entries: LogEntry[]): string {
   }
 
   let entriesHtml = "";
-  
+
   if (entries.length === 0) {
     entriesHtml = '<p class="empty">No log entries</p>';
   } else {
