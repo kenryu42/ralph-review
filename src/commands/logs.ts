@@ -2,18 +2,18 @@
  * Logs command - view review logs in browser
  */
 
+import { platform } from "node:os";
+import * as p from "@clack/prompts";
 import { $ } from "bun";
-import { platform } from "os";
-import { listLogSessions, getLatestLogSession } from "../lib/logger";
-import { writeLogHtml, getHtmlPath } from "../lib/html";
-import { LOGS_DIR } from "../lib/config";
+import { getHtmlPath, writeLogHtml } from "@/lib/html";
+import { getLatestLogSession, listLogSessions } from "@/lib/logger";
 
 /**
  * Open a file in the default browser
  */
 async function openInBrowser(filePath: string): Promise<void> {
   const os = platform();
-  
+
   try {
     if (os === "darwin") {
       await $`open ${filePath}`.quiet();
@@ -22,10 +22,10 @@ async function openInBrowser(filePath: string): Promise<void> {
     } else if (os === "win32") {
       await $`start ${filePath}`.quiet();
     } else {
-      console.log(`Open this file in your browser: ${filePath}`);
+      p.log.info(`Open this file in your browser: ${filePath}`);
     }
   } catch {
-    console.log(`Open this file in your browser: ${filePath}`);
+    p.log.info(`Open this file in your browser: ${filePath}`);
   }
 }
 
@@ -43,56 +43,65 @@ export async function runLogs(args: string[]): Promise<void> {
   // Handle --list flag
   if (args.includes("--list") || args.includes("-l")) {
     const sessions = await listLogSessions();
-    
+
     if (sessions.length === 0) {
-      console.log("No logs found.");
-      console.log('Start a review with "rr run" first.');
+      p.log.info("No logs found.");
+      p.log.message('Start a review with "rr run" first.');
       return;
     }
-    
-    console.log("📋 Log Sessions\n");
+
+    p.intro("Log Sessions");
+
     for (const session of sessions) {
-      console.log(`  ${session.name}`);
-      console.log(`    Modified: ${formatDate(session.timestamp)}`);
-      console.log(`    Path: ${session.path}\n`);
+      p.log.step(session.name);
+      p.log.message(`  Modified: ${formatDate(session.timestamp)}`);
+      p.log.message(`  Path: ${session.path}`);
     }
     return;
   }
-  
+
   // Handle specific timestamp argument
   const timestampArg = args.find((a) => !a.startsWith("-"));
-  
+
   if (timestampArg) {
     // Find session matching the timestamp
     const sessions = await listLogSessions();
     const session = sessions.find((s) => s.name.includes(timestampArg));
-    
+
     if (!session) {
-      console.error(`Log session not found: ${timestampArg}`);
-      console.log('Use "rr logs --list" to see available sessions.');
+      p.log.error(`Log session not found: ${timestampArg}`);
+      p.log.message('Use "rr logs --list" to see available sessions.');
       process.exit(1);
     }
-    
+
     // Generate HTML and open
+    const s = p.spinner();
+    s.start("Generating HTML...");
     await writeLogHtml(session.path);
+    s.stop("Done");
+
     const htmlPath = getHtmlPath(session.path);
-    console.log(`Opening log: ${session.name}`);
+    p.log.success(`Opening log: ${session.name}`);
     await openInBrowser(htmlPath);
     return;
   }
-  
+
   // Default: open most recent log
   const latestSession = await getLatestLogSession();
-  
+
   if (!latestSession) {
-    console.log("No logs found.");
-    console.log('Start a review with "rr run" first.');
+    p.log.info("No logs found.");
+    p.log.message('Start a review with "rr run" first.');
     return;
   }
-  
+
   // Generate HTML and open
+  const s = p.spinner();
+  s.start("Generating HTML...");
   await writeLogHtml(latestSession.path);
+  s.stop("Done");
+
   const htmlPath = getHtmlPath(latestSession.path);
-  console.log(`Opening latest log: ${latestSession.name}`);
+  p.log.success(`Opening latest log: ${latestSession.name}`);
   await openInBrowser(htmlPath);
 }

@@ -2,9 +2,10 @@
  * Status command - show current review status
  */
 
-import type { RunState } from "../lib/types";
-import { STATE_PATH, LOCK_PATH } from "../lib/config";
-import { listRalphSessions, getSessionOutput, sessionExists } from "../lib/tmux";
+import * as p from "@clack/prompts";
+import { STATE_PATH } from "@/lib/config";
+import { getSessionOutput, listRalphSessions } from "@/lib/tmux";
+import type { RunState } from "@/lib/types";
 import { lockfileExists } from "./run";
 
 /**
@@ -29,7 +30,7 @@ function formatDuration(ms: number): string {
   const seconds = Math.floor(ms / 1000);
   const minutes = Math.floor(seconds / 60);
   const hours = Math.floor(minutes / 60);
-  
+
   if (hours > 0) {
     return `${hours}h ${minutes % 60}m`;
   } else if (minutes > 0) {
@@ -47,46 +48,42 @@ export async function runStatus(): Promise<void> {
   const sessions = await listRalphSessions();
   const hasLockfile = await lockfileExists();
   const state = await loadState();
-  
+
   if (sessions.length === 0 && !hasLockfile) {
-    console.log("No active review session.");
-    
+    p.log.info("No active review session.");
+
     if (state) {
-      console.log(`\nLast run: ${state.status}`);
-      console.log(`Iterations: ${state.iteration}`);
+      p.log.message(`Last run: ${state.status}`);
+      p.log.message(`Iterations: ${state.iteration}`);
     }
-    
-    console.log('\nStart a review with "rr run"');
+
+    p.log.message('Start a review with "rr run"');
     return;
   }
-  
-  console.log("📊 Review Status\n");
-  
-  if (sessions.length > 0) {
-    const sessionName = sessions[sessions.length - 1]!;
-    console.log(`Session: ${sessionName}`);
-    console.log(`Status: 🟢 Running`);
-    
+
+  p.intro("Review Status");
+
+  const sessionName = sessions.at(-1);
+  if (sessionName) {
+    p.log.step(`Session: ${sessionName}`);
+    p.log.success("Status: Running");
+
     if (state) {
       const elapsed = Date.now() - state.startTime;
-      console.log(`Iteration: ${state.iteration}`);
-      console.log(`Elapsed: ${formatDuration(elapsed)}`);
-      
+      p.log.message(`Iteration: ${state.iteration}`);
+      p.log.message(`Elapsed: ${formatDuration(elapsed)}`);
+
       // Get recent output
       const output = await getSessionOutput(sessionName, 10);
       if (output) {
-        console.log("\nRecent output:");
-        console.log("─".repeat(40));
-        console.log(output.split("\n").slice(-5).join("\n"));
-        console.log("─".repeat(40));
+        const recentLines = output.split("\n").slice(-5).join("\n");
+        p.note(recentLines, "Recent output");
       }
     }
-    
-    console.log('\nCommands:');
-    console.log('  rr attach  - View live progress');
-    console.log('  rr stop    - Stop the review');
+
+    p.note("rr attach  - View live progress\n" + "rr stop    - Stop the review", "Commands");
   } else if (hasLockfile) {
-    console.log("Status: ⚠️  Lockfile exists but no session found");
-    console.log('Run "rr stop" to clean up');
+    p.log.warn("Lockfile exists but no session found");
+    p.log.message('Run "rr stop" to clean up');
   }
 }

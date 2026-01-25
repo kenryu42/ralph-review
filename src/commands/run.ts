@@ -3,13 +3,14 @@
  * Starts the review cycle in background or foreground
  */
 
+import { rm } from "node:fs/promises";
+import * as p from "@clack/prompts";
 import { $ } from "bun";
-import { rm } from "fs/promises";
-import type { Config, RunState } from "../lib/types";
-import { loadConfig, configExists, ensureConfigDir, LOCK_PATH, STATE_PATH, CONFIG_DIR } from "../lib/config";
-import { isAgentAvailable } from "../lib/agents";
-import { runReviewCycle } from "../lib/engine";
-import { isTmuxInstalled, generateSessionName, createSession, sessionExists } from "../lib/tmux";
+import { isAgentAvailable } from "@/lib/agents";
+import { configExists, ensureConfigDir, LOCK_PATH, loadConfig, STATE_PATH } from "@/lib/config";
+import { runReviewCycle } from "@/lib/engine";
+import { createSession, generateSessionName, isTmuxInstalled } from "@/lib/tmux";
+import type { Config, RunState } from "@/lib/types";
 
 /**
  * Check if current directory is a git repository
@@ -70,7 +71,7 @@ export async function removeLockfile(path: string = LOCK_PATH): Promise<void> {
 /**
  * Save run state
  */
-export async function saveState(state: RunState, path: string = STATE_PATH): Promise<void> {
+async function saveState(state: RunState, path: string = STATE_PATH): Promise<void> {
   await ensureConfigDir();
   await Bun.write(path, JSON.stringify(state, null, 2));
 }
@@ -111,50 +112,42 @@ export async function validatePrerequisites(): Promise<string[]> {
     );
   }
 
-  // Check implementor agent is available
-  if (!isAgentAvailable(config.implementor.agent)) {
-    errors.push(
-      `Implementor agent "${config.implementor.agent}" is not installed. Install it and try again.`
-    );
+  // Check fixer agent is available
+  if (!isAgentAvailable(config.fixer.agent)) {
+    errors.push(`Fixer agent "${config.fixer.agent}" is not installed. Install it and try again.`);
   }
 
   // Check lockfile (review already in progress)
   if (await lockfileExists()) {
-    errors.push(
-      'Review already in progress. Use "rr status" to check or "rr stop" to terminate.'
-    );
+    errors.push('Review already in progress. Use "rr status" to check or "rr stop" to terminate.');
   }
 
   return errors;
 }
 
 /**
- * Run review-only mode (foreground, single review)
+ * Parse --max=N option from args
+ * Returns the value or undefined if not provided
  */
-async function runReviewOnly(config: Config): Promise<void> {
-  console.log("🔍 Running single review (no implementation)...\n");
-
-  const { runAgent } = await import("../lib/agents");
-  const result = await runAgent("reviewer", config);
-
-  console.log(result.output);
-
-  if (result.hasIssues) {
-    console.log("\n⚠️  Issues found. Run 'rr run' for full review cycle.");
-  } else {
-    console.log("\n✅ No issues found.");
+function parseMaxIterations(args: string[]): number | undefined {
+  for (const arg of args) {
+    if (arg.startsWith("--max=")) {
+      const value = parseInt(arg.split("=")[1] ?? "", 10);
+      if (!Number.isNaN(value) && value > 0) {
+        return value;
+      }
+    }
   }
-
-  process.exit(result.success ? 0 : 1);
+  return undefined;
 }
 
 /**
  * Run full review cycle in tmux background
  */
-async function runInBackground(config: Config): Promise<void> {
+async function runInBackground(_config: Config, maxIterations?: number): Promise<void> {
   // Check tmux is installed
   if (!isTmuxInstalled()) {
-    console.error("❌ tmux is not installed. Install with: brew install tmux");
+    p.log.error("tmux is not installed. Install with: brew install tmux");
     process.exit(1);
   }
 
@@ -175,19 +168,22 @@ async function runInBackground(config: Config): Promise<void> {
   // Build the command to run in tmux
   // We need to run the CLI with an internal flag
   const cliPath = process.argv[1]; // Path to current CLI
-  const command = `${process.execPath} ${cliPath} _run-foreground`;
+  const maxIterArg = maxIterations ? ` --max=${maxIterations}` : "";
+  const command = `${process.execPath} ${cliPath} _run-foreground${maxIterArg}`;
 
   try {
     await createSession(sessionName, command);
-    console.log(`\n🚀 Review started in background session: ${sessionName}`);
-    console.log("\nCommands:");
-    console.log("  rr attach  - View live progress");
-    console.log("  rr status  - Check status");
-    console.log("  rr stop    - Stop the review");
-    console.log("  rr logs    - View logs in browser\n");
+    p.log.success(`Review started in background session: ${sessionName}`);
+    p.note(
+      "rr attach  - View live progress\n" +
+        "rr status  - Check status\n" +
+        "rr stop    - Stop the review\n" +
+        "rr logs    - View logs in browser",
+      "Commands"
+    );
   } catch (error) {
     await removeLockfile();
-    console.error("❌ Failed to start background session:", error);
+    p.log.error(`Failed to start background session: ${error}`);
     process.exit(1);
   }
 }
@@ -195,17 +191,23 @@ async function runInBackground(config: Config): Promise<void> {
 /**
  * Internal: Run review cycle in foreground (called from tmux)
  */
-export async function runForeground(): Promise<void> {
+export async function runForeground(args: string[] = []): Promise<void> {
   const config = await loadConfig();
   if (!config) {
-    console.error("Failed to load config");
+    p.log.error("Failed to load config");
     process.exit(1);
   }
 
-  console.log("\n🔄 Starting review cycle...\n");
+  // Apply --max override if provided
+  const maxIterations = parseMaxIterations(args);
+  if (maxIterations !== undefined) {
+    config.maxIterations = maxIterations;
+  }
+
+  p.intro("ralph-review cycle");
 
   try {
-    const result = await runReviewCycle(config, (iteration, role, iterResult) => {
+    const result = await runReviewCycle(config, (iteration, _role, iterResult) => {
       // Update state on each iteration
       const state: RunState = {
         sessionName: "",
@@ -218,9 +220,11 @@ export async function runForeground(): Promise<void> {
     });
 
     console.log(`\n${"=".repeat(50)}`);
-    console.log(`Review cycle complete!`);
-    console.log(`Iterations: ${result.iterations}`);
-    console.log(`Result: ${result.success ? "✅ Success" : "❌ " + result.reason}`);
+    if (result.success) {
+      p.log.success(`Review cycle complete! (${result.iterations} iterations)`);
+    } else {
+      p.log.error(`Review stopped: ${result.reason} (${result.iterations} iterations)`);
+    }
     console.log(`${"=".repeat(50)}\n`);
 
     // Update final state
@@ -241,44 +245,24 @@ export async function runForeground(): Promise<void> {
  * Main run command handler
  */
 export async function runRun(args: string[]): Promise<void> {
-  const reviewOnly = args.includes("--review-only");
+  const maxIterations = parseMaxIterations(args);
 
   // Validate prerequisites
   const errors = await validatePrerequisites();
 
-  // For review-only, we don't need lockfile check
-  if (reviewOnly) {
-    const filteredErrors = errors.filter(
-      (e) => !e.includes("already in progress")
-    );
-    if (filteredErrors.length > 0) {
-      console.error("❌ Cannot run review:\n");
-      filteredErrors.forEach((e) => console.error(`  • ${e}`));
-      process.exit(1);
-    }
-
-    const config = await loadConfig();
-    if (!config) {
-      console.error("Failed to load configuration");
-      process.exit(1);
-    }
-
-    await runReviewOnly(config);
-    return;
-  }
-
-  // Full mode - all errors apply
   if (errors.length > 0) {
-    console.error("❌ Cannot run review:\n");
-    errors.forEach((e) => console.error(`  • ${e}`));
+    p.log.error("Cannot run review:");
+    errors.forEach((e) => {
+      p.log.message(`  ${e}`);
+    });
     process.exit(1);
   }
 
   const config = await loadConfig();
   if (!config) {
-    console.error("Failed to load configuration");
+    p.log.error("Failed to load configuration");
     process.exit(1);
   }
 
-  await runInBackground(config);
+  await runInBackground(config, maxIterations);
 }

@@ -4,12 +4,13 @@
  * AI-powered code review tool
  */
 
-import { runInit } from "./commands/init";
-import { runRun, runForeground } from "./commands/run";
+import * as p from "@clack/prompts";
 import { runAttach } from "./commands/attach";
+import { runInit } from "./commands/init";
+import { runLogs } from "./commands/logs";
+import { runForeground, runRun } from "./commands/run";
 import { runStatus } from "./commands/status";
 import { runStop } from "./commands/stop";
-import { runLogs } from "./commands/logs";
 
 /**
  * Parsed command line arguments
@@ -70,9 +71,9 @@ USAGE:
   rr <command> [options]
 
 COMMANDS:
-  init              Configure reviewer and implementor agents
+  init              Configure reviewer and fixer agents
   run               Start review cycle in background (tmux)
-  run --review-only Run single review without implementation
+  run --max=N       Set max iterations (default: 5)
   attach            Attach to running review session
   status            Show current review progress
   stop              Stop running review session
@@ -88,6 +89,7 @@ OPTIONS:
 EXAMPLES:
   rr init           # Set up agents (first time)
   rr run            # Start background review
+  rr run --max=3    # Run with 3 iterations max
   rr attach         # Watch live progress
   rr status         # Quick status check
   rr logs           # View results in browser
@@ -123,7 +125,7 @@ async function main(): Promise<void> {
 
       case "_run-foreground":
         // Internal command used by tmux
-        await runForeground();
+        await runForeground(args);
         break;
 
       case "attach":
@@ -143,18 +145,20 @@ async function main(): Promise<void> {
         break;
 
       default:
-        console.error(`Unknown command: ${command}`);
-        console.log("\n" + printUsage());
+        p.log.error(`Unknown command: ${command}`);
+        console.log(`\n${printUsage()}`);
         process.exit(1);
     }
   } catch (error) {
-    console.error("Error:", error);
+    p.log.error(`Error: ${error}`);
     process.exit(1);
   }
 }
 
 // Run if this is the main module
-main().catch((error) => {
-  console.error("Fatal error:", error);
-  process.exit(1);
-});
+if (import.meta.main) {
+  main().catch((error) => {
+    p.log.error(`Fatal error: ${error}`);
+    process.exit(1);
+  });
+}

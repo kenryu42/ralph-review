@@ -2,7 +2,8 @@
  * Attach command - attach to running review session
  */
 
-import { listRalphSessions, attachSession, sessionExists } from "../lib/tmux";
+import * as p from "@clack/prompts";
+import { attachSession, listRalphSessions, sessionExists } from "@/lib/tmux";
 
 /**
  * Main attach command handler
@@ -10,23 +11,28 @@ import { listRalphSessions, attachSession, sessionExists } from "../lib/tmux";
 export async function runAttach(): Promise<void> {
   // Find running ralph sessions
   const sessions = await listRalphSessions();
-  
+
   if (sessions.length === 0) {
-    console.log("No active review session found.");
-    console.log('Start a review with "rr run"');
+    p.log.warn("No active review session found.");
+    p.log.message('Start a review with "rr run"');
     process.exit(1);
   }
-  
+
   // Use the most recent session (last in list, usually highest timestamp)
-  const sessionName = sessions[sessions.length - 1]!;
-  
-  if (!(await sessionExists(sessionName))) {
-    console.log(`Session ${sessionName} no longer exists.`);
+  const sessionName = sessions.at(-1);
+  if (!sessionName) {
+    p.log.warn("No active review session found.");
+    p.log.message('Start a review with "rr run"');
     process.exit(1);
   }
-  
-  console.log(`Attaching to session: ${sessionName}`);
-  console.log("(Detach with Ctrl-B d)\n");
-  
+
+  if (!(await sessionExists(sessionName))) {
+    p.log.error(`Session ${sessionName} no longer exists.`);
+    process.exit(1);
+  }
+
+  p.log.step(`Attaching to session: ${sessionName}`);
+  p.note("Detach with Ctrl-B d", "Tip");
+
   await attachSession(sessionName);
 }
