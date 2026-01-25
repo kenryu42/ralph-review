@@ -8,7 +8,11 @@
     "jsx": "react-jsx",
     "allowJs": true,
 
-    // Bundler mode
+    // Module Resolution & Aliases
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"]
+    },
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
