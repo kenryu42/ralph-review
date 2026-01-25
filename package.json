@@ -1,21 +1,61 @@
 {
   "name": "ralph-review",
   "version": "0.1.0",
-  "description": "AI-powered code review CLI tool",
+  "description": "AI-powered code review CLI tool that automates review cycles using AI coding agents",
   "license": "MIT",
   "type": "module",
-  "bin": {
-    "ralph-review": "./bin/ralph-review",
-    "rr": "./bin/ralph-review"
+  "author": "Ralph Review Team",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yourusername/ralph-review.git"
   },
+  "homepage": "https://github.com/yourusername/ralph-review#readme",
+  "bugs": {
+    "url": "https://github.com/yourusername/ralph-review/issues"
+  },
+  "os": [
+    "!win32"
+  ],
+  "keywords": [
+    "cli",
+    "code-review",
+    "ai",
+    "codex",
+    "claude",
+    "opencode",
+    "automation",
+    "developer-tools"
+  ],
+  "engines": {
+    "bun": ">=1.0.0"
+  },
+  "bin": {
+    "ralph-review": "./src/cli.ts",
+    "rr": "./src/cli.ts"
+  },
+  "files": [
+    "src/cli.ts",
+    "src/commands",
+    "src/lib"
+  ],
   "scripts": {
-    "build": "bun build src/cli.ts --outfile bin/ralph-review --compile",
-    "test": "bun test"
+    "rr": "bun run src/cli.ts",
+    "test": "bun test",
+    "prepublishOnly": "bun test",
+    "knip": "knip-bun",
+    "lint": "biome check --write .",
+    "check": "bun run knip && bun run lint && AGENT=1 bun test",
+    "ci": "biome ci ."
   },
   "devDependencies": {
-    "@types/bun": "latest"
+    "@biomejs/biome": "^2.3.12",
+    "@types/bun": "latest",
+    "knip": "^5.82.1"
   },
   "peerDependencies": {
     "typescript": "^5"
+  },
+  "dependencies": {
+    "@clack/prompts": "^0.11.0"
   }
 }
