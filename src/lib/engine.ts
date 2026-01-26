@@ -5,8 +5,15 @@
 
 import { runAgent } from "./agents";
 import { appendLog, createLogSession } from "./logger";
-import type { AgentRole, Config, IterationResult, LogEntry, RetryConfig } from "./types";
-import { DEFAULT_RETRY_CONFIG } from "./types";
+import type {
+  AgentRole,
+  Config,
+  FixSummary,
+  IterationResult,
+  LogEntry,
+  RetryConfig,
+} from "./types";
+import { DEFAULT_RETRY_CONFIG, isFixSummary } from "./types";
 
 /**
  * Calculate retry delay with jitter exponential backoff
@@ -128,6 +135,35 @@ export function fixerFoundNoIssues(fixerOutput: string): boolean {
 }
 
 /**
+ * Extract JSON block from fixer output
+ * Looks for ```json\n...\n``` block and returns the JSON string
+ */
+export function extractFixSummaryJson(output: string): string | null {
+  // Match ```json followed by content until closing ```
+  const match = output.match(/```json\s*\n([\s\S]*?)\n```/);
+  if (!match?.[1]) {
+    return null;
+  }
+  return match[1].trim();
+}
+
+/**
+ * Parse a JSON string into a FixSummary
+ * Returns null if parsing fails or structure is invalid
+ */
+export function parseFixSummary(jsonString: string): FixSummary | null {
+  try {
+    const parsed: unknown = JSON.parse(jsonString);
+    if (isFixSummary(parsed)) {
+      return parsed;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Create the fixer prompt from review output
  * Uses exact prompt from check-review.md
  */
@@ -151,8 +187,11 @@ ${reviewOutput}
 - Terminal readability: no wide tables; short lines; consistent indentation.
 
 ## Task
-A) Extract the review into numbered, atomic claims.
-B) For each claim decide:
+A) Scan the ENTIRE review and extract ACTIONABLE ISSUE CLAIMS.
+   - Actionable = suggests something needs to be CHANGED, FIXED, or IMPROVED
+   - NOT actionable = descriptive facts ("452 additions"), summaries, change counts, file lists, acknowledgments
+   - Read carefully: even if the conclusion says "all checks pass", look for concerns raised in the reasoning
+B) For each actionable claim decide:
    - Verdict: CORRECT / INCORRECT / PARTIAL / UNVERIFIABLE
    - Severity: HIGH / MED / LOW / NIT
    - Action: APPLY / SKIP / NEED INFO
@@ -181,6 +220,25 @@ The stop marker decision is made DURING VERIFICATION, BEFORE any fixes are appli
 
 ## Output format (terminal friendly; follow exactly)
 
+### Format A: No Actionable Issues
+Use when you scanned the entire review and found NO actionable claims to verify.
+
+DECISION: NO CHANGES NEEDED
+REASON: <1-2 sentence summary: e.g., "Review confirms all checks pass. No actionable issues identified.">
+
+\`\`\`json
+{
+  "decision": "NO_CHANGES_NEEDED",
+  "fixes": [],
+  "skipped": []
+}
+\`\`\`
+
+${FIXER_NO_ISSUES_MARKER}
+
+### Format B: Issues to Verify (actionable claims found)
+Use when the review contains specific issues or suggestions to verify.
+
 DECISION: <NO CHANGES NEEDED | APPLY SELECTIVELY | APPLY MOST>
 APPLY:    <# list like #1 #4, or "none">
 SKIP:     <# list or "none">
@@ -208,6 +266,41 @@ FIX PACKAGE (AUTO-RUN; only if APPLY is non-empty)
   Patch:
     - <step-by-step patch plan>
     - If possible, include a unified diff.
+
+## Machine-Readable Summary (REQUIRED)
+After your human-readable output above, include a JSON summary block.
+This MUST be valid JSON wrapped in triple backticks with the json language tag.
+
+\`\`\`json
+{
+  "decision": "<NO_CHANGES_NEEDED | APPLY_SELECTIVELY | APPLY_MOST>",
+  "fixes": [
+    {
+      "id": 1,
+      "title": "<one-line title>",
+      "severity": "<HIGH | MED | LOW | NIT>",
+      "file": "<affected file path or null>",
+      "claim": "<what the review suggested>",
+      "evidence": "<file:line or concrete behavior>",
+      "fix": "<what was changed>"
+    }
+  ],
+  "skipped": [
+    {
+      "id": 2,
+      "title": "<one-line title>",
+      "reason": "<why skipped>"
+    }
+  ]
+}
+\`\`\`
+
+Rules for JSON:
+- Include ALL items from APPLY in the "fixes" array
+- Include ALL items from SKIP in the "skipped" array  
+- Use empty arrays [] if no fixes or no skipped items
+- The "file" field can be null if not applicable
+- Severity must be exactly: HIGH, MED, LOW, or NIT
 
 ## CRITICAL: Stop Marker
 Output the marker ONLY when verification determines APPLY is empty (no valid issues to fix).
@@ -398,13 +491,26 @@ export async function runReviewCycle(
     // Run fixer with retry
     const fixResult = await runAgentWithRetry("fixer", config, fixerPrompt);
 
-    // Log fixer output
-    await appendLog(sessionPath, {
+    // Try to extract and parse fix summary from fixer output
+    const jsonString = extractFixSummaryJson(fixResult.output);
+    const fixSummary = jsonString ? parseFixSummary(jsonString) : null;
+
+    // Log if JSON extraction failed (but continue gracefully)
+    if (!fixSummary && fixResult.success) {
+      console.log("  ⚠️  Could not parse fix summary JSON from fixer output");
+    }
+
+    // Log fixer output with optional fix summary
+    const fixLogEntry: LogEntry = {
       timestamp: Date.now(),
       type: "fix",
       content: fixResult.output,
       iteration,
-    });
+    };
+    if (fixSummary) {
+      fixLogEntry.fixes = fixSummary;
+    }
+    await appendLog(sessionPath, fixLogEntry);
 
     if (onIteration) {
       onIteration(iteration, "fixer", fixResult);
