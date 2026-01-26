@@ -3,7 +3,6 @@
  * Starts the review cycle in background or foreground
  */
 
-import { rm } from "node:fs/promises";
 import * as p from "@clack/prompts";
 import { $ } from "bun";
 import { isAgentAvailable } from "@/lib/agents";
@@ -108,7 +107,7 @@ export async function createLockfile(path: string = LOCK_PATH, sessionName: stri
  */
 export async function removeLockfile(path: string = LOCK_PATH): Promise<void> {
   try {
-    await rm(path);
+    await Bun.file(path).delete();
   } catch {
     // Ignore if doesn't exist
   }
