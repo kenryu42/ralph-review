@@ -2,17 +2,89 @@ import { afterEach, describe, expect, test } from "bun:test";
 import {
   createSession,
   generateSessionName,
+  isInsideTmux,
   isTmuxInstalled,
   killSession,
   listSessions,
+  sanitizeBasename,
   sessionExists,
 } from "@/lib/tmux";
 
 describe("tmux", () => {
+  describe("sanitizeBasename", () => {
+    test("keeps alphanumeric chars unchanged", () => {
+      expect(sanitizeBasename("my-project")).toBe("my-project");
+      expect(sanitizeBasename("myProject123")).toBe("myProject123");
+    });
+
+    test("replaces dots with dash", () => {
+      expect(sanitizeBasename("my.project")).toBe("my-project");
+    });
+
+    test("replaces spaces with dash", () => {
+      expect(sanitizeBasename("my project")).toBe("my-project");
+    });
+
+    test("collapses consecutive invalid chars to single dash", () => {
+      expect(sanitizeBasename("a...b")).toBe("a-b");
+      expect(sanitizeBasename("a   b")).toBe("a-b");
+      expect(sanitizeBasename("a.-.b")).toBe("a-b");
+    });
+
+    test("truncates to 20 chars", () => {
+      const result = sanitizeBasename("very-long-project-name-here-exceeds-limit");
+      expect(result.length).toBeLessThanOrEqual(20);
+    });
+
+    test("returns 'project' for empty string", () => {
+      expect(sanitizeBasename("")).toBe("project");
+    });
+
+    test("returns 'project' for all-invalid chars", () => {
+      expect(sanitizeBasename("###")).toBe("project");
+      expect(sanitizeBasename("...")).toBe("project");
+    });
+
+    test("removes leading and trailing dashes", () => {
+      expect(sanitizeBasename(".project.")).toBe("project");
+      expect(sanitizeBasename("---name---")).toBe("name");
+    });
+  });
+
   describe("isTmuxInstalled", () => {
     test("returns boolean", () => {
       const result = isTmuxInstalled();
       expect(typeof result).toBe("boolean");
+    });
+  });
+
+  describe("isInsideTmux", () => {
+    test("returns boolean", () => {
+      const result = isInsideTmux();
+      expect(typeof result).toBe("boolean");
+    });
+
+    test("returns false when TMUX env is not set", () => {
+      // In test environment, TMUX is typically not set
+      const originalTmux = process.env.TMUX;
+      delete process.env.TMUX;
+      const result = isInsideTmux();
+      expect(result).toBe(false);
+      // Restore
+      if (originalTmux) process.env.TMUX = originalTmux;
+    });
+
+    test("returns true when TMUX env is set", () => {
+      const originalTmux = process.env.TMUX;
+      process.env.TMUX = "/tmp/tmux-501/default,12345,0";
+      const result = isInsideTmux();
+      expect(result).toBe(true);
+      // Restore
+      if (originalTmux) {
+        process.env.TMUX = originalTmux;
+      } else {
+        delete process.env.TMUX;
+      }
     });
   });
 
@@ -35,6 +107,24 @@ describe("tmux", () => {
       const name = generateSessionName();
       // tmux session names should only contain alphanumeric, underscore, dash
       expect(/^[a-zA-Z0-9_-]+$/.test(name)).toBe(true);
+    });
+
+    test("includes basename when provided", () => {
+      const name = generateSessionName("my-project");
+      expect(name.startsWith("rr-my-project-")).toBe(true);
+    });
+
+    test("sanitizes basename in output", () => {
+      const name = generateSessionName("my.project");
+      expect(name).toMatch(/^rr-my-project-\d+$/);
+    });
+
+    test("uses cwd basename by default", () => {
+      const name = generateSessionName();
+      // Should include some identifier from cwd (not just rr-timestamp)
+      // Format: rr-{sanitized-basename}-{timestamp}
+      const parts = name.split("-");
+      expect(parts.length).toBeGreaterThanOrEqual(3); // rr, basename part(s), timestamp
     });
   });
 

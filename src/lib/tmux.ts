@@ -3,7 +3,33 @@
  * Handles background execution of review cycles
  */
 
+import { basename } from "node:path";
 import { $ } from "bun";
+
+/**
+ * Sanitize a directory basename for use in tmux session names.
+ * Only allows [a-zA-Z0-9_-], replaces invalid chars with dash,
+ * collapses consecutive dashes, truncates to 20 chars.
+ */
+export function sanitizeBasename(basename: string): string {
+  // Replace invalid characters with dash
+  let sanitized = basename.replace(/[^a-zA-Z0-9_-]+/g, "-");
+
+  // Collapse consecutive dashes
+  sanitized = sanitized.replace(/-+/g, "-");
+
+  // Remove leading and trailing dashes
+  sanitized = sanitized.replace(/^-+|-+$/g, "");
+
+  // Truncate to 20 characters
+  sanitized = sanitized.slice(0, 20);
+
+  // Remove trailing dash after truncation
+  sanitized = sanitized.replace(/-+$/, "");
+
+  // Return "project" if empty or all-invalid
+  return sanitized || "project";
+}
 
 /**
  * Check if tmux is installed on the system
@@ -13,11 +39,20 @@ export function isTmuxInstalled(): boolean {
 }
 
 /**
- * Generate a unique session name
- * Format: rr-{timestamp}
+ * Check if currently running inside a tmux session
  */
-export function generateSessionName(): string {
-  return `rr-${Date.now()}`;
+export function isInsideTmux(): boolean {
+  return Boolean(process.env.TMUX);
+}
+
+/**
+ * Generate a unique session name
+ * Format: rr-{sanitized-basename}-{timestamp}
+ * @param projectName - Optional project name to include in session name. Defaults to cwd basename.
+ */
+export function generateSessionName(projectName?: string): string {
+  const name = projectName ?? basename(process.cwd());
+  return `rr-${sanitizeBasename(name)}-${Date.now()}`;
 }
 
 /**
