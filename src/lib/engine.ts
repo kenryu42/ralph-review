@@ -4,14 +4,15 @@
  */
 
 import { runAgent } from "./agents";
-import { appendLog, createLogSession } from "./logger";
+import { appendLog, createLogSession, getGitBranch } from "./logger";
 import type {
   AgentRole,
   Config,
   FixSummary,
+  IterationEntry,
   IterationResult,
-  LogEntry,
   RetryConfig,
+  SystemEntry,
 } from "./types";
 import { DEFAULT_RETRY_CONFIG, isFixSummary } from "./types";
 
@@ -393,33 +394,45 @@ export async function runReviewCycle(
   resetInterrupt();
   setupSignalHandler();
 
-  // Create log session with timestamp-based name
-  const sessionName = new Date().toISOString().replace(/[:.]/g, "-");
-  const sessionPath = await createLogSession(undefined, sessionName);
+  // Get project info for log session
+  const projectPath = process.cwd();
+  const gitBranch = await getGitBranch(projectPath);
 
-  // Log cycle start
-  const startEntry: LogEntry = {
-    timestamp: Date.now(),
+  // Create log session with project-based naming
+  const sessionPath = await createLogSession(undefined, projectPath, gitBranch);
+
+  // Log cycle start with system entry
+  const systemEntry: SystemEntry = {
     type: "system",
-    content: `Review cycle started. Max iterations: ${config.maxIterations}`,
-    iteration: 0,
+    timestamp: Date.now(),
+    projectPath,
+    gitBranch,
+    reviewer: config.reviewer,
+    fixer: config.fixer,
+    maxIterations: config.maxIterations,
   };
-  await appendLog(sessionPath, startEntry);
+  await appendLog(sessionPath, systemEntry);
 
   let iteration = 0;
   let lastReviewResult: IterationResult | null = null;
 
   while (iteration < config.maxIterations) {
     iteration++;
+    const iterationStartTime = Date.now();
 
     // Check for interrupt before starting
     if (wasInterrupted()) {
-      await appendLog(sessionPath, {
+      const entry: IterationEntry = {
+        type: "iteration",
         timestamp: Date.now(),
-        type: "system",
-        content: "Review cycle interrupted before iteration start",
         iteration,
-      });
+        duration: Date.now() - iterationStartTime,
+        error: {
+          phase: "reviewer",
+          message: "Review cycle interrupted before iteration start",
+        },
+      };
+      await appendLog(sessionPath, entry);
       return determineCycleResult(
         lastReviewResult?.hasIssues ?? true,
         iteration - 1,
@@ -437,14 +450,6 @@ export async function runReviewCycle(
     const reviewResult = await runAgentWithRetry("reviewer", config);
     lastReviewResult = reviewResult;
 
-    // Log reviewer output
-    await appendLog(sessionPath, {
-      timestamp: Date.now(),
-      type: "review",
-      content: reviewResult.output,
-      iteration,
-    });
-
     if (onIteration) {
       onIteration(iteration, "reviewer", reviewResult);
     }
@@ -457,12 +462,18 @@ export async function runReviewCycle(
         retryConfig.maxRetries
       );
       console.log(warning);
-      await appendLog(sessionPath, {
+      const entry: IterationEntry = {
+        type: "iteration",
         timestamp: Date.now(),
-        type: "error",
-        content: `REVIEWER FAILED after ${retryConfig.maxRetries} retries. Exit code: ${reviewResult.exitCode}\n\n${warning}`,
         iteration,
-      });
+        duration: Date.now() - iterationStartTime,
+        error: {
+          phase: "reviewer",
+          message: `Reviewer failed after ${retryConfig.maxRetries} retries`,
+          exitCode: reviewResult.exitCode,
+        },
+      };
+      await appendLog(sessionPath, entry);
       return {
         success: false,
         iterations: iteration,
@@ -473,12 +484,17 @@ export async function runReviewCycle(
 
     // Check for interrupt before fixer
     if (wasInterrupted()) {
-      await appendLog(sessionPath, {
+      const entry: IterationEntry = {
+        type: "iteration",
         timestamp: Date.now(),
-        type: "system",
-        content: "Review cycle interrupted before fixer",
         iteration,
-      });
+        duration: Date.now() - iterationStartTime,
+        error: {
+          phase: "reviewer",
+          message: "Review cycle interrupted before fixer",
+        },
+      };
+      await appendLog(sessionPath, entry);
       return determineCycleResult(true, iteration, config.maxIterations, true, sessionPath);
     }
 
@@ -500,18 +516,6 @@ export async function runReviewCycle(
       console.log("  ⚠️  Could not parse fix summary JSON from fixer output");
     }
 
-    // Log fixer output with optional fix summary
-    const fixLogEntry: LogEntry = {
-      timestamp: Date.now(),
-      type: "fix",
-      content: fixResult.output,
-      iteration,
-    };
-    if (fixSummary) {
-      fixLogEntry.fixes = fixSummary;
-    }
-    await appendLog(sessionPath, fixLogEntry);
-
     if (onIteration) {
       onIteration(iteration, "fixer", fixResult);
     }
@@ -524,12 +528,18 @@ export async function runReviewCycle(
         retryConfig.maxRetries
       );
       console.log(warning);
-      await appendLog(sessionPath, {
+      const entry: IterationEntry = {
+        type: "iteration",
         timestamp: Date.now(),
-        type: "error",
-        content: `FIXER FAILED after ${retryConfig.maxRetries} retries. Exit code: ${fixResult.exitCode}\n\n${warning}`,
         iteration,
-      });
+        duration: Date.now() - iterationStartTime,
+        error: {
+          phase: "fixer",
+          message: `Fixer failed after ${retryConfig.maxRetries} retries`,
+          exitCode: fixResult.exitCode,
+        },
+      };
+      await appendLog(sessionPath, entry);
       return {
         success: false,
         iterations: iteration,
@@ -538,15 +548,26 @@ export async function runReviewCycle(
       };
     }
 
+    // Log iteration result with fix summary (only on success)
+    const iterationEntry: IterationEntry = {
+      type: "iteration",
+      timestamp: Date.now(),
+      iteration,
+      duration: Date.now() - iterationStartTime,
+      fixes: fixSummary ?? undefined,
+    };
+    // Add error if parsing failed but fixer succeeded
+    if (!fixSummary) {
+      iterationEntry.error = {
+        phase: "fixer",
+        message: "Could not parse fix summary JSON from fixer output",
+      };
+    }
+    await appendLog(sessionPath, iterationEntry);
+
     // Check if fixer found no issues to fix (stop condition)
     if (fixerFoundNoIssues(fixResult.output)) {
       console.log("✅ No issues to fix - code is clean!");
-      await appendLog(sessionPath, {
-        timestamp: Date.now(),
-        type: "system",
-        content: "Fixer determined no issues to fix - cycle complete",
-        iteration,
-      });
       return determineCycleResult(false, iteration, config.maxIterations, false, sessionPath);
     }
 
@@ -555,12 +576,6 @@ export async function runReviewCycle(
 
   // Max iterations reached after completing the last full iteration
   console.log(`⚠️  Max iterations (${config.maxIterations}) reached`);
-  await appendLog(sessionPath, {
-    timestamp: Date.now(),
-    type: "system",
-    content: `Max iterations (${config.maxIterations}) reached`,
-    iteration,
-  });
   return determineCycleResult(
     lastReviewResult?.hasIssues ?? true,
     iteration,

@@ -4,7 +4,12 @@
 
 import * as p from "@clack/prompts";
 import { STATE_PATH } from "@/lib/config";
-import { getLatestLogSession, readLog } from "@/lib/logger";
+import {
+  type DerivedRunStatus,
+  deriveRunStatus,
+  getLatestProjectLogSession,
+  readLog,
+} from "@/lib/logger";
 import { getSessionOutput, listRalphSessions } from "@/lib/tmux";
 import type { FixEntry, RunState, Severity } from "@/lib/types";
 import { lockfileExists } from "./run";
@@ -49,7 +54,7 @@ async function loadFixEntries(sessionPath: string): Promise<FixEntry[]> {
   const fixes: FixEntry[] = [];
 
   for (const entry of entries) {
-    if (entry.type === "fix" && entry.fixes) {
+    if (entry.type === "iteration" && entry.fixes) {
       fixes.push(...entry.fixes.fixes);
     }
   }
@@ -82,6 +87,22 @@ function formatFixEntries(fixes: FixEntry[]): string {
 }
 
 /**
+ * Format derived status for display
+ */
+function formatStatus(status: DerivedRunStatus): string {
+  switch (status) {
+    case "completed":
+      return "completed";
+    case "failed":
+      return "failed";
+    case "interrupted":
+      return "interrupted";
+    default:
+      return "unknown";
+  }
+}
+
+/**
  * Main status command handler
  */
 export async function runStatus(): Promise<void> {
@@ -90,20 +111,30 @@ export async function runStatus(): Promise<void> {
   const hasLockfile = await lockfileExists();
   const state = await loadState();
 
+  // Get the latest log session for the CURRENT project
+  const currentProject = process.cwd();
+  const latestSession = await getLatestProjectLogSession(undefined, currentProject);
+
   if (sessions.length === 0 && !hasLockfile) {
     p.log.info("No active review session.");
 
-    if (state) {
-      p.log.message(`Last run: ${state.status}`);
-      p.log.message(`Iterations: ${state.iteration}`);
+    if (latestSession) {
+      // Derive status from log entries (project-specific)
+      const entries = await readLog(latestSession.path);
+      const status = deriveRunStatus(entries);
+
+      // Get iteration count and max from log entries
+      const iterations = entries.filter((e) => e.type === "iteration");
+      const systemEntry = entries.find((e) => e.type === "system");
+      const maxIterations = systemEntry?.type === "system" ? systemEntry.maxIterations : "?";
+
+      p.log.message(`Last run: ${formatStatus(status)}`);
+      p.log.message(`Iterations: ${iterations.length}/${maxIterations}`);
 
       // Show fix summary from last run
-      const latestSession = await getLatestLogSession();
-      if (latestSession) {
-        const fixes = await loadFixEntries(latestSession.path);
-        const summary = formatFixEntries(fixes);
-        p.note(summary, `Fixes Applied (${fixes.length} total)`);
-      }
+      const fixes = await loadFixEntries(latestSession.path);
+      const summary = formatFixEntries(fixes);
+      p.note(summary, `Fixes Applied (${fixes.length} total)`);
     }
 
     p.log.message('Start a review with "rr run"');
@@ -123,7 +154,6 @@ export async function runStatus(): Promise<void> {
       p.log.message(`Elapsed: ${formatDuration(elapsed)}`);
 
       // Show fixes applied so far
-      const latestSession = await getLatestLogSession();
       if (latestSession) {
         const fixes = await loadFixEntries(latestSession.path);
         if (fixes.length > 0) {

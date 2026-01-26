@@ -189,15 +189,43 @@ export interface AgentConfig {
 }
 
 /**
- * Log entry for storing review/fix output
+ * Error details for a failed iteration
  */
-export interface LogEntry {
-  timestamp: number;
-  type: "review" | "fix" | "system" | "error";
-  content: string;
-  iteration: number;
-  fixes?: FixSummary;
+export interface IterationError {
+  phase: "reviewer" | "fixer";
+  message: string;
+  exitCode?: number;
 }
+
+/**
+ * System entry - logged once per run with configuration info
+ */
+export interface SystemEntry {
+  type: "system";
+  timestamp: number;
+  projectPath: string;
+  gitBranch?: string;
+  reviewer: AgentSettings;
+  fixer: AgentSettings;
+  maxIterations: number;
+}
+
+/**
+ * Iteration entry - logged once per iteration with results
+ */
+export interface IterationEntry {
+  type: "iteration";
+  timestamp: number;
+  iteration: number;
+  duration?: number;
+  fixes?: FixSummary;
+  error?: IterationError;
+}
+
+/**
+ * Log entry - union of all entry types
+ */
+export type LogEntry = SystemEntry | IterationEntry;
 
 /**
  * A single fix applied by the fixer
