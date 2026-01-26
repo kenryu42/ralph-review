@@ -61,6 +61,23 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
+ * Print a distinctly formatted header with a box
+ */
+function printHeader(text: string, colorCode: string = "\x1b[36m") {
+  const border = "─".repeat(58);
+  const reset = "\x1b[0m";
+  const bold = "\x1b[1m";
+
+  console.log("");
+  console.log(`  ${bold}${colorCode}╭${border}╮${reset}`);
+  console.log(`  ${bold}${colorCode}│${" ".repeat(58)}│${reset}`);
+  console.log(`  ${bold}${colorCode}│  ${text.padEnd(56)}│${reset}`);
+  console.log(`  ${bold}${colorCode}│${" ".repeat(58)}│${reset}`);
+  console.log(`  ${bold}${colorCode}╰${border}╯${reset}`);
+  console.log("");
+}
+
+/**
  * Run an agent with retry logic
  * Returns the result after retries are exhausted or success
  */
@@ -443,7 +460,7 @@ export async function runReviewCycle(
     }
 
     console.log(`\n📋 Iteration ${iteration}/${config.maxIterations}`);
-    console.log("Running reviewer...");
+    printHeader("🔍  Running reviewer...", "\x1b[36m"); // Cyan
 
     // Run reviewer with retry
     const retryConfig = config.retry ?? DEFAULT_RETRY_CONFIG;
@@ -499,7 +516,7 @@ export async function runReviewCycle(
     }
 
     // Always run fixer after reviewer to verify findings and apply fixes
-    console.log("Running fixer to verify and apply fixes...");
+    printHeader("🛠️  Running fixer to verify and apply fixes...", "\x1b[35m"); // Magenta
 
     // Create fixer prompt from review output
     const fixerPrompt = createFixerPrompt(reviewResult.output);
@@ -571,7 +588,7 @@ export async function runReviewCycle(
       return determineCycleResult(false, iteration, config.maxIterations, false, sessionPath);
     }
 
-    console.log("Fixes applied. Re-running reviewer...");
+    printHeader("🔄  Fixes applied. Re-running reviewer...", "\x1b[36m"); // Cyan
   }
 
   // Max iterations reached after completing the last full iteration
