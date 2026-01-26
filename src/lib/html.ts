@@ -90,7 +90,7 @@ function renderIterationEntry(entry: IterationEntry): string {
         <details class="fixes-list">
           <summary>Fixed Issues (${fixes.length})</summary>
           <ul>
-            ${fixes.map((f) => `<li><span class="severity severity-${f.severity.toLowerCase()}">${f.severity}</span> ${escapeHtml(f.title)}${f.file ? ` <code>${escapeHtml(f.file)}</code>` : ""}</li>`).join("")}
+            ${fixes.map((f) => `<li><span class="priority priority-${f.priority.toLowerCase()}">${f.priority}</span> ${escapeHtml(f.title)}${f.file ? ` <code>${escapeHtml(f.file)}</code>` : ""}</li>`).join("")}
           </ul>
         </details>
       `
@@ -227,7 +227,7 @@ export function generateLogHtml(entries: LogEntry[]): string {
     .fixes-list li, .skipped-list li {
       margin: 5px 0;
     }
-    .severity {
+    .priority {
       display: inline-block;
       padding: 2px 6px;
       border-radius: 3px;
@@ -235,10 +235,10 @@ export function generateLogHtml(entries: LogEntry[]): string {
       font-weight: bold;
       margin-right: 5px;
     }
-    .severity-high { background: #ff4444; color: white; }
-    .severity-med { background: #ffaa00; color: black; }
-    .severity-low { background: #00d4ff; color: black; }
-    .severity-nit { background: #888; color: white; }
+    .priority-p1 { background: #ff4444; color: white; }
+    .priority-p2 { background: #ffaa00; color: black; }
+    .priority-p3 { background: #00d4ff; color: black; }
+    .priority-p4 { background: #888; color: white; }
     code {
       background: #0f3460;
       padding: 2px 6px;

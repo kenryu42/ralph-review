@@ -211,7 +211,7 @@ A) Scan the ENTIRE review and extract ACTIONABLE ISSUE CLAIMS.
    - Read carefully: even if the conclusion says "all checks pass", look for concerns raised in the reasoning
 B) For each actionable claim decide:
    - Verdict: CORRECT / INCORRECT / PARTIAL / UNVERIFIABLE
-   - Severity: HIGH / MED / LOW / NIT
+   - Priority: P1 / P2 / P3 / P4
    - Action: APPLY / SKIP / NEED INFO
    - Evidence: concrete pointers (file:line / symbol / behavior).
 C) Summarize decision:
@@ -263,7 +263,7 @@ SKIP:     <# list or "none">
 NEEDINFO: <# list or "none">  (brief missing info per item)
 
 APPLY NOW (only if APPLY is non-empty)
-  [#N][SEV] <one-line title>
+   [#N][PRIORITY] <one-line title>
     Claim: <what the review suggested>
     Evidence: <file:line-range and/or concrete behavior>
     Fix: <minimal change; include snippet if small>
@@ -271,7 +271,7 @@ APPLY NOW (only if APPLY is non-empty)
     Risks: <what could break + how to verify>
 
 SKIP (only if SKIP is non-empty)
-  [#N][SEV] <one-line title>
+   [#N][PRIORITY] <one-line title>
     Claim: ...
     Reason: ...
 
@@ -296,7 +296,7 @@ This MUST be valid JSON wrapped in triple backticks with the json language tag.
     {
       "id": 1,
       "title": "<one-line title>",
-      "severity": "<HIGH | MED | LOW | NIT>",
+      "priority": "<P1 | P2 | P3 | P4>",
       "file": "<affected file path or null>",
       "claim": "<what the review suggested>",
       "evidence": "<file:line or concrete behavior>",
@@ -318,7 +318,7 @@ Rules for JSON:
 - Include ALL items from SKIP in the "skipped" array  
 - Use empty arrays [] if no fixes or no skipped items
 - The "file" field can be null if not applicable
-- Severity must be exactly: HIGH, MED, LOW, or NIT
+- Priority must be exactly: P1, P2, P3, or P4
 
 ## CRITICAL: Stop Marker
 Output the marker ONLY when verification determines APPLY is empty (no valid issues to fix).

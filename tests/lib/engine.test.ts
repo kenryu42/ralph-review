@@ -221,7 +221,7 @@ End of output.`;
           {
             id: 1,
             title: "Fix null check",
-            severity: "HIGH",
+            priority: "P1",
             file: "auth.ts",
             claim: "Missing null check",
             evidence: "auth.ts:42",
@@ -240,7 +240,7 @@ End of output.`;
       expect(result).not.toBeNull();
       expect(result?.decision).toBe("APPLY_SELECTIVELY");
       expect(result?.fixes).toHaveLength(1);
-      expect(result?.fixes[0]?.severity).toBe("HIGH");
+      expect(result?.fixes[0]?.priority).toBe("P1");
       expect(result?.skipped).toHaveLength(1);
     });
 
@@ -301,7 +301,7 @@ End of output.`;
           {
             id: 1,
             title: "Fix",
-            severity: "LOW",
+            priority: "P3",
             claim: "claim",
             evidence: "evidence",
             fix: "fix",
@@ -321,7 +321,7 @@ End of output.`;
           {
             id: 1,
             title: "Fix",
-            severity: "LOW",
+            priority: "P3",
             file: null,
             claim: "claim",
             evidence: "evidence",

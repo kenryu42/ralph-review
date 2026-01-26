@@ -28,11 +28,11 @@ export function isAgentRole(value: unknown): value is AgentRole {
   return typeof value === "string" && VALID_AGENT_ROLES.includes(value as AgentRole);
 }
 
-// Severity levels for fix entries
-export type Severity = "HIGH" | "MED" | "LOW" | "NIT";
+// Priority levels for fix entries
+export type Priority = "P1" | "P2" | "P3" | "P4";
 
-// Valid severities for type guard
-const VALID_SEVERITIES: readonly Severity[] = ["HIGH", "MED", "LOW", "NIT"];
+// Valid priorities for type guard
+const VALID_PRIORITIES: readonly Priority[] = ["P1", "P2", "P3", "P4"];
 
 // Valid fix summary decisions
 const VALID_FIX_DECISIONS = ["NO_CHANGES_NEEDED", "APPLY_SELECTIVELY", "APPLY_MOST"] as const;
@@ -96,8 +96,8 @@ function isFixEntry(value: unknown): value is FixEntry {
   return (
     typeof obj.id === "number" &&
     typeof obj.title === "string" &&
-    typeof obj.severity === "string" &&
-    VALID_SEVERITIES.includes(obj.severity as Severity) &&
+    typeof obj.priority === "string" &&
+    VALID_PRIORITIES.includes(obj.priority as Priority) &&
     (obj.file === undefined || obj.file === null || typeof obj.file === "string") &&
     typeof obj.claim === "string" &&
     typeof obj.evidence === "string" &&
@@ -233,7 +233,7 @@ export type LogEntry = SystemEntry | IterationEntry;
 export interface FixEntry {
   id: number;
   title: string;
-  severity: Severity;
+  priority: Priority;
   file?: string | null;
   claim: string;
   evidence: string;

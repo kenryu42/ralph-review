@@ -89,6 +89,17 @@ export async function attachSession(name: string): Promise<void> {
 }
 
 /**
+ * Send interrupt signal (Ctrl-C) to a tmux session
+ */
+export async function sendInterrupt(name: string): Promise<void> {
+  try {
+    await $`tmux send-keys -t ${name} C-c`.quiet();
+  } catch {
+    // Session might not exist, ignore error
+  }
+}
+
+/**
  * Kill a tmux session
  */
 export async function killSession(name: string): Promise<void> {
@@ -136,11 +147,4 @@ export async function getSessionOutput(name: string, lines: number = 50): Promis
   } catch {
     return "";
   }
-}
-
-/**
- * Send Ctrl+C to a tmux session
- */
-export async function sendInterrupt(name: string): Promise<void> {
-  await $`tmux send-keys -t ${name} C-c`;
 }

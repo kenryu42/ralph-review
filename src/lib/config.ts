@@ -10,8 +10,6 @@ import type { Config } from "./types";
 // Default paths
 const CONFIG_DIR = join(homedir(), ".config", "ralph-review");
 export const CONFIG_PATH = join(CONFIG_DIR, "config.json");
-export const STATE_PATH = join(CONFIG_DIR, "state.json");
-export const LOCK_PATH = join(CONFIG_DIR, "run.lock");
 export const LOGS_DIR = join(CONFIG_DIR, "logs");
 
 /**

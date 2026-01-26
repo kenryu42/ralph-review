@@ -71,7 +71,7 @@ describe("html", () => {
             {
               id: 1,
               title: "Fix null check",
-              severity: "HIGH",
+              priority: "P1",
               file: "auth.ts",
               claim: "Missing null check",
               evidence: "auth.ts:42",
@@ -91,7 +91,7 @@ describe("html", () => {
       const html = generateLogHtml([iterEntry]);
       expect(html).toContain("Iteration 1");
       expect(html).toContain("Fix null check");
-      expect(html).toContain("HIGH");
+      expect(html).toContain("P1");
       expect(html).toContain("auth.ts");
       expect(html).toContain("Minor style issue");
     });
