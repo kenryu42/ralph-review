@@ -7,11 +7,50 @@ import {
   hasUncommittedChanges,
   isGitRepo,
   lockfileExists,
+  parseRunOptions,
   removeLockfile,
   validatePrerequisites,
 } from "@/commands/run";
 
 describe("run command", () => {
+  describe("parseRunOptions", () => {
+    test("defaults to interactive mode (background: false)", () => {
+      const result = parseRunOptions([]);
+      expect(result.background).toBe(false);
+      expect(result.list).toBe(false);
+    });
+
+    test("parses --background flag", () => {
+      const result = parseRunOptions(["--background"]);
+      expect(result.background).toBe(true);
+    });
+
+    test("parses -b shorthand", () => {
+      const result = parseRunOptions(["-b"]);
+      expect(result.background).toBe(true);
+    });
+
+    test("parses --list flag", () => {
+      const result = parseRunOptions(["--list"]);
+      expect(result.list).toBe(true);
+    });
+
+    test("parses -ls shorthand", () => {
+      const result = parseRunOptions(["-ls"]);
+      expect(result.list).toBe(true);
+    });
+
+    test("parses --max=N option", () => {
+      const result = parseRunOptions(["--max=5"]);
+      expect(result.maxIterations).toBe(5);
+    });
+
+    test("throws on conflicting --background and --list", () => {
+      expect(() => parseRunOptions(["--background", "--list"])).toThrow();
+      expect(() => parseRunOptions(["-b", "-ls"])).toThrow();
+    });
+  });
+
   describe("validatePrerequisites", () => {
     test("returns errors array", async () => {
       // This will likely return errors in test environment

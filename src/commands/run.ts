@@ -9,8 +9,54 @@ import { $ } from "bun";
 import { isAgentAvailable } from "@/lib/agents";
 import { configExists, ensureConfigDir, LOCK_PATH, loadConfig, STATE_PATH } from "@/lib/config";
 import { runReviewCycle } from "@/lib/engine";
-import { createSession, generateSessionName, isTmuxInstalled } from "@/lib/tmux";
+import {
+  attachSession,
+  createSession,
+  generateSessionName,
+  isInsideTmux,
+  isTmuxInstalled,
+  listRalphSessions,
+} from "@/lib/tmux";
 import type { Config, RunState } from "@/lib/types";
+
+/**
+ * Options parsed from run command arguments
+ */
+export interface RunOptions {
+  background: boolean;
+  list: boolean;
+  maxIterations?: number;
+}
+
+/**
+ * Parse run command options from arguments
+ * @throws Error if conflicting flags are provided
+ */
+export function parseRunOptions(args: string[]): RunOptions {
+  let background = false;
+  let list = false;
+  let maxIterations: number | undefined;
+
+  for (const arg of args) {
+    if (arg === "--background" || arg === "-b") {
+      background = true;
+    } else if (arg === "--list" || arg === "-ls") {
+      list = true;
+    } else if (arg.startsWith("--max=")) {
+      const value = parseInt(arg.split("=")[1] ?? "", 10);
+      if (!Number.isNaN(value) && value > 0) {
+        maxIterations = value;
+      }
+    }
+  }
+
+  // Check for conflicting flags
+  if (background && list) {
+    throw new Error("Cannot use --background and --list together");
+  }
+
+  return { background, list, maxIterations };
+}
 
 /**
  * Check if current directory is a git repository
@@ -142,6 +188,21 @@ function parseMaxIterations(args: string[]): number | undefined {
 }
 
 /**
+ * List all running ralph-review sessions
+ */
+async function listActiveSessions(): Promise<void> {
+  const sessions = await listRalphSessions();
+  if (sessions.length === 0) {
+    p.log.info("No active review sessions.");
+  } else {
+    p.log.info("Active review sessions:");
+    for (const session of sessions) {
+      console.log(session);
+    }
+  }
+}
+
+/**
  * Run full review cycle in tmux background
  */
 async function runInBackground(_config: Config, maxIterations?: number): Promise<void> {
@@ -184,6 +245,51 @@ async function runInBackground(_config: Config, maxIterations?: number): Promise
   } catch (error) {
     await removeLockfile();
     p.log.error(`Failed to start background session: ${error}`);
+    process.exit(1);
+  }
+}
+
+/**
+ * Run full review cycle in tmux and immediately attach (interactive mode)
+ */
+async function runInteractive(_config: Config, maxIterations?: number): Promise<void> {
+  // Check tmux is installed
+  if (!isTmuxInstalled()) {
+    p.log.error("tmux is not installed. Install with: brew install tmux");
+    process.exit(1);
+  }
+
+  const sessionName = generateSessionName();
+
+  // Create lockfile
+  await createLockfile(LOCK_PATH, sessionName);
+
+  // Save initial state
+  const state: RunState = {
+    sessionName,
+    startTime: Date.now(),
+    iteration: 0,
+    status: "running",
+  };
+  await saveState(state);
+
+  // Build the command to run in tmux
+  const cliPath = process.argv[1]; // Path to current CLI
+  const maxIterArg = maxIterations ? ` --max=${maxIterations}` : "";
+  const command = `${process.execPath} ${cliPath} _run-foreground${maxIterArg}`;
+
+  try {
+    await createSession(sessionName, command);
+    p.log.success(`Review started: ${sessionName}`);
+
+    // Show detach hint BEFORE attaching
+    p.note("Detach with: Ctrl-B d", "tmux tip");
+
+    // Immediately attach to the session
+    await attachSession(sessionName);
+  } catch (error) {
+    await removeLockfile();
+    p.log.error(`Failed to start session: ${error}`);
     process.exit(1);
   }
 }
@@ -245,7 +351,20 @@ export async function runForeground(args: string[] = []): Promise<void> {
  * Main run command handler
  */
 export async function runRun(args: string[]): Promise<void> {
-  const maxIterations = parseMaxIterations(args);
+  // Parse options
+  let options: RunOptions;
+  try {
+    options = parseRunOptions(args);
+  } catch (error) {
+    p.log.error(`${error}`);
+    process.exit(1);
+  }
+
+  // Handle --list flag (no prerequisites needed)
+  if (options.list) {
+    await listActiveSessions();
+    return;
+  }
 
   // Validate prerequisites
   const errors = await validatePrerequisites();
@@ -264,5 +383,16 @@ export async function runRun(args: string[]): Promise<void> {
     process.exit(1);
   }
 
-  await runInBackground(config, maxIterations);
+  // Check if inside tmux - force background mode with warning
+  if (isInsideTmux() && !options.background) {
+    p.log.warn("Running inside tmux session. Using background mode to avoid nesting.");
+    options.background = true;
+  }
+
+  // Run in background or interactive mode based on flag
+  if (options.background) {
+    await runInBackground(config, options.maxIterations);
+  } else {
+    await runInteractive(config, options.maxIterations);
+  }
 }
