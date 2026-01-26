@@ -5,9 +5,19 @@
 
 import * as p from "@clack/prompts";
 import { $ } from "bun";
+import { getCommandDef } from "@/cli";
 import { isAgentAvailable } from "@/lib/agents";
-import { configExists, ensureConfigDir, LOCK_PATH, loadConfig, STATE_PATH } from "@/lib/config";
+import { parseCommand } from "@/lib/cli-parser";
+import { configExists, loadConfig } from "@/lib/config";
 import { runReviewCycle } from "@/lib/engine";
+import {
+  cleanupStaleLockfile,
+  createLockfile,
+  lockfileExists,
+  removeLockfile,
+  updateLockfile,
+} from "@/lib/lockfile";
+import { getGitBranch } from "@/lib/logger";
 import {
   attachSession,
   createSession,
@@ -16,7 +26,7 @@ import {
   isTmuxInstalled,
   listRalphSessions,
 } from "@/lib/tmux";
-import type { Config, RunState } from "@/lib/types";
+import type { Config } from "@/lib/types";
 
 /**
  * Options parsed from run command arguments
@@ -24,37 +34,7 @@ import type { Config, RunState } from "@/lib/types";
 export interface RunOptions {
   background: boolean;
   list: boolean;
-  maxIterations?: number;
-}
-
-/**
- * Parse run command options from arguments
- * @throws Error if conflicting flags are provided
- */
-export function parseRunOptions(args: string[]): RunOptions {
-  let background = false;
-  let list = false;
-  let maxIterations: number | undefined;
-
-  for (const arg of args) {
-    if (arg === "--background" || arg === "-b") {
-      background = true;
-    } else if (arg === "--list" || arg === "-ls") {
-      list = true;
-    } else if (arg.startsWith("--max=")) {
-      const value = parseInt(arg.split("=")[1] ?? "", 10);
-      if (!Number.isNaN(value) && value > 0) {
-        maxIterations = value;
-      }
-    }
-  }
-
-  // Check for conflicting flags
-  if (background && list) {
-    throw new Error("Cannot use --background and --list together");
-  }
-
-  return { background, list, maxIterations };
+  max?: number;
 }
 
 /**
@@ -80,45 +60,6 @@ export async function hasUncommittedChanges(): Promise<boolean> {
   } catch {
     return false;
   }
-}
-
-/**
- * Check if lockfile exists
- */
-export async function lockfileExists(path: string = LOCK_PATH): Promise<boolean> {
-  return await Bun.file(path).exists();
-}
-
-/**
- * Create lockfile with session info
- */
-export async function createLockfile(path: string = LOCK_PATH, sessionName: string): Promise<void> {
-  const lockData = {
-    sessionName,
-    startTime: Date.now(),
-    pid: process.pid,
-  };
-  await ensureConfigDir();
-  await Bun.write(path, JSON.stringify(lockData, null, 2));
-}
-
-/**
- * Remove lockfile
- */
-export async function removeLockfile(path: string = LOCK_PATH): Promise<void> {
-  try {
-    await Bun.file(path).delete();
-  } catch {
-    // Ignore if doesn't exist
-  }
-}
-
-/**
- * Save run state
- */
-async function saveState(state: RunState, path: string = STATE_PATH): Promise<void> {
-  await ensureConfigDir();
-  await Bun.write(path, JSON.stringify(state, null, 2));
 }
 
 /**
@@ -162,28 +103,22 @@ export async function validatePrerequisites(): Promise<string[]> {
     errors.push(`Fixer agent "${config.fixer.agent}" is not installed. Install it and try again.`);
   }
 
-  // Check lockfile (review already in progress)
-  if (await lockfileExists()) {
-    errors.push('Review already in progress. Use "rr status" to check or "rr stop" to terminate.');
+  // Get project and branch for lockfile check
+  const projectPath = process.cwd();
+  const branch = await getGitBranch(projectPath);
+
+  // Clean up stale lockfile if exists (PID dead)
+  await cleanupStaleLockfile(undefined, projectPath, branch);
+
+  // Check lockfile (review already in progress for this project+branch)
+  if (await lockfileExists(undefined, projectPath, branch)) {
+    const branchInfo = branch ? ` on branch "${branch}"` : "";
+    errors.push(
+      `Review already in progress${branchInfo}. Use "rr status" to check or "rr stop" to terminate.`
+    );
   }
 
   return errors;
-}
-
-/**
- * Parse --max=N option from args
- * Returns the value or undefined if not provided
- */
-function parseMaxIterations(args: string[]): number | undefined {
-  for (const arg of args) {
-    if (arg.startsWith("--max=")) {
-      const value = parseInt(arg.split("=")[1] ?? "", 10);
-      if (!Number.isNaN(value) && value > 0) {
-        return value;
-      }
-    }
-  }
-  return undefined;
 }
 
 /**
@@ -211,25 +146,19 @@ async function runInBackground(_config: Config, maxIterations?: number): Promise
     process.exit(1);
   }
 
+  const projectPath = process.cwd();
+  const branch = await getGitBranch(projectPath);
   const sessionName = generateSessionName();
 
-  // Create lockfile
-  await createLockfile(LOCK_PATH, sessionName);
-
-  // Save initial state
-  const state: RunState = {
-    sessionName,
-    startTime: Date.now(),
-    iteration: 0,
-    status: "running",
-  };
-  await saveState(state);
+  // Create lockfile for this project+branch
+  await createLockfile(undefined, projectPath, branch, sessionName);
 
   // Build the command to run in tmux
-  // We need to run the CLI with an internal flag
+  // Pass project path and branch via environment variables
   const cliPath = process.argv[1]; // Path to current CLI
   const maxIterArg = maxIterations ? ` --max=${maxIterations}` : "";
-  const command = `${process.execPath} ${cliPath} _run-foreground${maxIterArg}`;
+  const envVars = `RR_PROJECT_PATH="${projectPath}" RR_GIT_BRANCH="${branch ?? ""}"`;
+  const command = `${envVars} ${process.execPath} ${cliPath} _run-foreground${maxIterArg}`;
 
   try {
     await createSession(sessionName, command);
@@ -242,7 +171,7 @@ async function runInBackground(_config: Config, maxIterations?: number): Promise
       "Commands"
     );
   } catch (error) {
-    await removeLockfile();
+    await removeLockfile(undefined, projectPath, branch);
     p.log.error(`Failed to start background session: ${error}`);
     process.exit(1);
   }
@@ -258,24 +187,19 @@ async function runInteractive(_config: Config, maxIterations?: number): Promise<
     process.exit(1);
   }
 
+  const projectPath = process.cwd();
+  const branch = await getGitBranch(projectPath);
   const sessionName = generateSessionName();
 
-  // Create lockfile
-  await createLockfile(LOCK_PATH, sessionName);
-
-  // Save initial state
-  const state: RunState = {
-    sessionName,
-    startTime: Date.now(),
-    iteration: 0,
-    status: "running",
-  };
-  await saveState(state);
+  // Create lockfile for this project+branch
+  await createLockfile(undefined, projectPath, branch, sessionName);
 
   // Build the command to run in tmux
+  // Pass project path and branch via environment variables
   const cliPath = process.argv[1]; // Path to current CLI
   const maxIterArg = maxIterations ? ` --max=${maxIterations}` : "";
-  const command = `${process.execPath} ${cliPath} _run-foreground${maxIterArg}`;
+  const envVars = `RR_PROJECT_PATH="${projectPath}" RR_GIT_BRANCH="${branch ?? ""}"`;
+  const command = `${envVars} ${process.execPath} ${cliPath} _run-foreground${maxIterArg}`;
 
   try {
     await createSession(sessionName, command);
@@ -287,7 +211,7 @@ async function runInteractive(_config: Config, maxIterations?: number): Promise<
     // Immediately attach to the session
     await attachSession(sessionName);
   } catch (error) {
-    await removeLockfile();
+    await removeLockfile(undefined, projectPath, branch);
     p.log.error(`Failed to start session: ${error}`);
     process.exit(1);
   }
@@ -303,25 +227,33 @@ export async function runForeground(args: string[] = []): Promise<void> {
     process.exit(1);
   }
 
-  // Apply --max override if provided
-  const maxIterations = parseMaxIterations(args);
-  if (maxIterations !== undefined) {
-    config.maxIterations = maxIterations;
+  // Get project path and branch from environment variables (set by parent process)
+  const projectPath = process.env.RR_PROJECT_PATH || process.cwd();
+  const branch = process.env.RR_GIT_BRANCH || undefined;
+
+  // Parse --max option using the _run-foreground command def
+  const foregroundDef = getCommandDef("_run-foreground");
+  if (foregroundDef) {
+    try {
+      const { values } = parseCommand<{ max?: number }>(foregroundDef, args);
+      if (values.max !== undefined) {
+        config.maxIterations = values.max;
+      }
+    } catch {
+      // Ignore parse errors for internal command
+    }
   }
+
+  // Update lockfile with this foreground process's PID and "running" status
+  // so it's not seen as stale (the launcher set status to "pending")
+  await updateLockfile(undefined, projectPath, branch, { pid: process.pid, status: "running" });
 
   p.intro("ralph-review cycle");
 
   try {
-    const result = await runReviewCycle(config, (iteration, _role, iterResult) => {
-      // Update state on each iteration
-      const state: RunState = {
-        sessionName: "",
-        startTime: Date.now(),
-        iteration,
-        status: "running",
-        lastOutput: iterResult.output.slice(-500),
-      };
-      saveState(state).catch(() => {});
+    const result = await runReviewCycle(config, (iteration, _role, _iterResult) => {
+      // Update lockfile with iteration progress
+      updateLockfile(undefined, projectPath, branch, { iteration }).catch(() => {});
     });
 
     console.log(`\n${"=".repeat(50)}`);
@@ -331,18 +263,9 @@ export async function runForeground(args: string[] = []): Promise<void> {
       p.log.error(`Review stopped: ${result.reason} (${result.iterations} iterations)`);
     }
     console.log(`${"=".repeat(50)}\n`);
-
-    // Update final state
-    const finalState: RunState = {
-      sessionName: "",
-      startTime: Date.now(),
-      iteration: result.iterations,
-      status: result.success ? "completed" : "failed",
-    };
-    await saveState(finalState);
   } finally {
-    // Clean up lockfile
-    await removeLockfile();
+    // Clean up lockfile for this project+branch
+    await removeLockfile(undefined, projectPath, branch);
   }
 }
 
@@ -350,12 +273,31 @@ export async function runForeground(args: string[] = []): Promise<void> {
  * Main run command handler
  */
 export async function runRun(args: string[]): Promise<void> {
-  // Parse options
+  // Parse options using command definition
+  const runDef = getCommandDef("run");
+  if (!runDef) {
+    p.log.error("Internal error: run command definition not found");
+    process.exit(1);
+  }
+
   let options: RunOptions;
   try {
-    options = parseRunOptions(args);
+    const { values } = parseCommand<RunOptions>(runDef, args);
+    options = values;
   } catch (error) {
     p.log.error(`${error}`);
+    process.exit(1);
+  }
+
+  // Validate max iterations if provided
+  if (options.max !== undefined && options.max <= 0) {
+    p.log.error("--max must be a positive number");
+    process.exit(1);
+  }
+
+  // Check for conflicting flags
+  if (options.background && options.list) {
+    p.log.error("Cannot use --background and --list together");
     process.exit(1);
   }
 
@@ -390,8 +332,8 @@ export async function runRun(args: string[]): Promise<void> {
 
   // Run in background or interactive mode based on flag
   if (options.background) {
-    await runInBackground(config, options.maxIterations);
+    await runInBackground(config, options.max);
   } else {
-    await runInteractive(config, options.maxIterations);
+    await runInteractive(config, options.max);
   }
 }

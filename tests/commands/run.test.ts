@@ -2,52 +2,64 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { getCommandDef } from "@/cli";
 import {
-  createLockfile,
   hasUncommittedChanges,
   isGitRepo,
-  lockfileExists,
-  parseRunOptions,
-  removeLockfile,
+  type RunOptions,
   validatePrerequisites,
 } from "@/commands/run";
+import { parseCommand } from "@/lib/cli-parser";
+import { createLockfile, lockfileExists, removeLockfile } from "@/lib/lockfile";
 
 describe("run command", () => {
-  describe("parseRunOptions", () => {
+  describe("option parsing via cli-parser", () => {
+    const runDef = getCommandDef("run");
+    if (!runDef) throw new Error("run command def not found");
+
     test("defaults to interactive mode (background: false)", () => {
-      const result = parseRunOptions([]);
-      expect(result.background).toBe(false);
-      expect(result.list).toBe(false);
+      const { values } = parseCommand<RunOptions>(runDef, []);
+      expect(values.background).toBe(false);
+      expect(values.list).toBe(false);
     });
 
     test("parses --background flag", () => {
-      const result = parseRunOptions(["--background"]);
-      expect(result.background).toBe(true);
+      const { values } = parseCommand<RunOptions>(runDef, ["--background"]);
+      expect(values.background).toBe(true);
     });
 
     test("parses -b shorthand", () => {
-      const result = parseRunOptions(["-b"]);
-      expect(result.background).toBe(true);
+      const { values } = parseCommand<RunOptions>(runDef, ["-b"]);
+      expect(values.background).toBe(true);
     });
 
     test("parses --list flag", () => {
-      const result = parseRunOptions(["--list"]);
-      expect(result.list).toBe(true);
+      const { values } = parseCommand<RunOptions>(runDef, ["--list"]);
+      expect(values.list).toBe(true);
     });
 
-    test("parses -ls shorthand", () => {
-      const result = parseRunOptions(["-ls"]);
-      expect(result.list).toBe(true);
+    test("parses -l shorthand (not -ls)", () => {
+      const { values } = parseCommand<RunOptions>(runDef, ["-l"]);
+      expect(values.list).toBe(true);
+    });
+
+    test("rejects -ls as invalid multi-char short option", () => {
+      expect(() => parseCommand<RunOptions>(runDef, ["-ls"])).toThrow();
     });
 
     test("parses --max=N option", () => {
-      const result = parseRunOptions(["--max=5"]);
-      expect(result.maxIterations).toBe(5);
+      const { values } = parseCommand<RunOptions>(runDef, ["--max=5"]);
+      expect(values.max).toBe(5);
     });
 
-    test("throws on conflicting --background and --list", () => {
-      expect(() => parseRunOptions(["--background", "--list"])).toThrow();
-      expect(() => parseRunOptions(["-b", "-ls"])).toThrow();
+    test("parses --max N option", () => {
+      const { values } = parseCommand<RunOptions>(runDef, ["--max", "5"]);
+      expect(values.max).toBe(5);
+    });
+
+    test("parses -m N shorthand", () => {
+      const { values } = parseCommand<RunOptions>(runDef, ["-m", "3"]);
+      expect(values.max).toBe(3);
     });
   });
 
@@ -79,7 +91,7 @@ describe("run command", () => {
     });
   });
 
-  describe("createLockfile / removeLockfile", () => {
+  describe("lockfile functions from @/lib/lockfile", () => {
     let tempDir: string;
 
     beforeEach(async () => {
@@ -91,30 +103,26 @@ describe("run command", () => {
     });
 
     test("createLockfile creates file", async () => {
-      const lockPath = join(tempDir, "run.lock");
-      await createLockfile(lockPath, "test-session");
-      const exists = await Bun.file(lockPath).exists();
+      await createLockfile(tempDir, "/test/project", "main", "test-session");
+      const exists = await lockfileExists(tempDir, "/test/project", "main");
       expect(exists).toBe(true);
     });
 
     test("lockfileExists returns true when exists", async () => {
-      const lockPath = join(tempDir, "run.lock");
-      await createLockfile(lockPath, "test-session");
-      const exists = await lockfileExists(lockPath);
+      await createLockfile(tempDir, "/test/project", "main", "test-session");
+      const exists = await lockfileExists(tempDir, "/test/project", "main");
       expect(exists).toBe(true);
     });
 
     test("lockfileExists returns false when not exists", async () => {
-      const lockPath = join(tempDir, "nonexistent.lock");
-      const exists = await lockfileExists(lockPath);
+      const exists = await lockfileExists(tempDir, "/nonexistent/path", "main");
       expect(exists).toBe(false);
     });
 
     test("removeLockfile removes file", async () => {
-      const lockPath = join(tempDir, "run.lock");
-      await createLockfile(lockPath, "test-session");
-      await removeLockfile(lockPath);
-      const exists = await Bun.file(lockPath).exists();
+      await createLockfile(tempDir, "/test/project", "main", "test-session");
+      await removeLockfile(tempDir, "/test/project", "main");
+      const exists = await lockfileExists(tempDir, "/test/project", "main");
       expect(exists).toBe(false);
     });
   });

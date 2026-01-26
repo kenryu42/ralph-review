@@ -11,6 +11,65 @@ import { runLogs } from "./commands/logs";
 import { runForeground, runRun } from "./commands/run";
 import { runStatus } from "./commands/status";
 import { runStop } from "./commands/stop";
+import { type CommandDef, formatCommandHelp, formatMainHelp } from "./lib/cli-parser";
+
+/**
+ * Command definitions for CLI
+ */
+export const COMMANDS: CommandDef[] = [
+  {
+    name: "init",
+    description: "Configure reviewer and fixer agents",
+    examples: ["rr init"],
+  },
+  {
+    name: "run",
+    description: "Start review cycle",
+    options: [
+      { name: "background", alias: "b", type: "boolean", description: "Run in background" },
+      { name: "list", alias: "l", type: "boolean", description: "List active sessions" },
+      { name: "max", alias: "m", type: "number", description: "Max iterations" },
+    ],
+    examples: ["rr run", "rr run -b", "rr run --max=3", "rr run -l"],
+  },
+  {
+    name: "attach",
+    description: "Attach to running review session",
+    positional: [{ name: "session", description: "Session name to attach to" }],
+    examples: ["rr attach", "rr attach ralph-2024-01-01_12-00"],
+  },
+  {
+    name: "status",
+    description: "Show current review progress",
+    examples: ["rr status"],
+  },
+  {
+    name: "stop",
+    description: "Stop running review session",
+    options: [{ name: "all", alias: "A", type: "boolean", description: "Stop all sessions" }],
+    examples: ["rr stop", "rr stop --all"],
+  },
+  {
+    name: "logs",
+    description: "View review logs in browser",
+    options: [{ name: "list", alias: "l", type: "boolean", description: "List all log sessions" }],
+    positional: [{ name: "timestamp", description: "Specific log timestamp to view" }],
+    examples: ["rr logs", "rr logs --list", "rr logs 2024-01-01_12-00"],
+  },
+  {
+    name: "_run-foreground",
+    description: "Internal: run review cycle in tmux foreground",
+    hidden: true,
+    options: [{ name: "max", type: "number", description: "Max iterations" }],
+  },
+];
+
+/**
+ * Get command definition by name
+ */
+export function getCommandDef(name: string): CommandDef | undefined {
+  return COMMANDS.find((c) => c.name === name);
+}
 
 /**
  * Parsed command line arguments
@@ -61,44 +120,19 @@ export function getVersion(): string {
 }
 
 /**
- * Print usage information
+ * Print usage information (main help)
  */
 export function printUsage(): string {
-  return `
-ralph-review - AI-powered code review CLI
+  return formatMainHelp(COMMANDS, getVersion());
+}
 
-USAGE:
-  rr <command> [options]
-
-COMMANDS:
-  init                  Configure reviewer and fixer agents
-  run                   Start review cycle
-  run --background, -b  Run in background
-  run --list, -ls       List active review sessions
-  run --max=N           Set max iterations (default: 5)
-  attach                Attach to most recent review session
-  attach <session>      Attach to specific session by name
-  status                Show current review progress
-  stop                  Stop running review session
-  stop --force          Force kill session immediately
-  logs                  Open latest log in browser
-  logs --list           List all log sessions
-  logs <timestamp>      Open specific log session
-
-OPTIONS:
-  -h, --help          Show this help message
-  -v, --version       Show version number
-
-EXAMPLES:
-  rr init             # Set up agents (first time)
-  rr run              # Start and attach to review session
-  rr run -b           # Start in background
-  rr run --list       # Show active sessions
-  rr run --max=3      # Run with 3 iterations max
-  rr attach           # Attach to latest session
-  rr status           # Quick status check
-  rr logs             # View results in browser
-`.trim();
+/**
+ * Print command-specific help
+ */
+export function printCommandHelp(commandName: string): string | undefined {
+  const def = getCommandDef(commandName);
+  if (!def) return undefined;
+  return formatCommandHelp(def);
 }
 
 /**
@@ -113,8 +147,20 @@ async function main(): Promise<void> {
     return;
   }
 
-  if (showHelp || !command) {
+  // No command: show main help
+  if (!command) {
     console.log(printUsage());
+    return;
+  }
+
+  // Command-level help: rr <command> --help
+  if (showHelp) {
+    const commandHelp = printCommandHelp(command);
+    if (commandHelp) {
+      console.log(commandHelp);
+    } else {
+      console.log(printUsage());
+    }
     return;
   }
 

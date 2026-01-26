@@ -3,6 +3,8 @@
  */
 
 import * as p from "@clack/prompts";
+import { getCommandDef } from "@/cli";
+import { parseCommand } from "@/lib/cli-parser";
 import { attachSession, listRalphSessions, sessionExists } from "@/lib/tmux";
 
 /**
@@ -10,8 +12,24 @@ import { attachSession, listRalphSessions, sessionExists } from "@/lib/tmux";
  * @param args - Optional array containing session name to attach to
  */
 export async function runAttach(args: string[] = []): Promise<void> {
+  // Parse options (attach has no flags, only positional)
+  const attachDef = getCommandDef("attach");
+  if (!attachDef) {
+    p.log.error("Internal error: attach command definition not found");
+    process.exit(1);
+  }
+
+  let positional: string[];
+  try {
+    const result = parseCommand(attachDef, args);
+    positional = result.positional;
+  } catch (error) {
+    p.log.error(`${error}`);
+    process.exit(1);
+  }
+
   // Check if a specific session name was provided
-  const targetSession = args[0];
+  const targetSession = positional[0];
 
   if (targetSession) {
     // Attach to specific session

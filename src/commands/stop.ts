@@ -3,79 +3,123 @@
  */
 
 import * as p from "@clack/prompts";
-import { STATE_PATH } from "@/lib/config";
+import { getCommandDef } from "@/cli";
+import { parseCommand } from "@/lib/cli-parser";
+import {
+  listAllActiveSessions,
+  readLockfile,
+  removeAllLockfiles,
+  removeLockfile,
+} from "@/lib/lockfile";
+import { getGitBranch } from "@/lib/logger";
 import { killSession, listRalphSessions, sendInterrupt } from "@/lib/tmux";
-import type { RunState } from "@/lib/types";
-import { removeLockfile } from "./run";
 
 /**
- * Update state to stopped
+ * Options for stop command
  */
-async function updateStateStopped(): Promise<void> {
-  const file = Bun.file(STATE_PATH);
-  if (await file.exists()) {
-    try {
-      const state = JSON.parse(await file.text()) as RunState;
-      state.status = "stopped";
-      await Bun.write(STATE_PATH, JSON.stringify(state, null, 2));
-    } catch (error) {
-      p.log.error(`Failed to update state: ${error}`);
-    }
-  }
+interface StopOptions {
+  all: boolean;
 }
 
 /**
  * Main stop command handler
  */
 export async function runStop(args: string[]): Promise<void> {
-  const force = args.includes("--force") || args.includes("-f");
+  // Parse options
+  const stopDef = getCommandDef("stop");
+  if (!stopDef) {
+    p.log.error("Internal error: stop command definition not found");
+    process.exit(1);
+  }
 
-  // Find running ralph sessions
+  let options: StopOptions;
+  try {
+    const { values } = parseCommand<StopOptions>(stopDef, args);
+    options = values;
+  } catch (error) {
+    p.log.error(`${error}`);
+    process.exit(1);
+  }
+
+  if (options.all) {
+    // Stop all ralph sessions
+    await stopAllSessions();
+  } else {
+    // Stop session for current project+branch
+    await stopCurrentSession();
+  }
+}
+
+/**
+ * Stop all ralph-review sessions
+ */
+async function stopAllSessions(): Promise<void> {
   const sessions = await listRalphSessions();
 
   if (sessions.length === 0) {
-    // Clean up lockfile anyway
-    await removeLockfile();
-    p.log.info("No active review session found.");
-    p.log.message("Cleaned up lockfile.");
+    p.log.info("No active review sessions.");
+    // Clean up any orphaned lockfiles
+    await removeAllLockfiles();
     return;
   }
 
-  const sessionName = sessions.at(-1);
-  if (!sessionName) {
-    p.log.error("Unexpected: session list empty after length check");
-    return;
-  }
+  p.log.step(`Stopping ${sessions.length} session(s)...`);
 
-  if (force) {
-    // Force kill immediately
-    p.log.step(`Force stopping session: ${sessionName}`);
-    await killSession(sessionName);
-  } else {
-    // Send interrupt first, wait, then kill
-    p.log.step(`Stopping session: ${sessionName}`);
-
-    const s = p.spinner();
-    s.start("Sending interrupt signal...");
-
+  for (const sessionName of sessions) {
+    // Send SIGINT first for graceful shutdown
     await sendInterrupt(sessionName);
-
-    // Wait a bit for graceful shutdown
-    await new Promise((resolve) => setTimeout(resolve, 2000));
-
-    // Check if still running
-    const stillRunning = await listRalphSessions();
-    if (stillRunning.includes(sessionName)) {
-      s.message("Session still running, force killing...");
-      await killSession(sessionName);
-    }
-
-    s.stop("Session terminated");
   }
 
-  // Clean up
-  await removeLockfile();
-  await updateStateStopped();
+  // Wait briefly for graceful shutdown
+  await new Promise((resolve) => setTimeout(resolve, 1000));
+
+  for (const sessionName of sessions) {
+    await killSession(sessionName);
+    p.log.message(`  Stopped: ${sessionName}`);
+  }
+
+  // Clean up all lockfiles
+  await removeAllLockfiles();
+
+  p.log.success(`Stopped ${sessions.length} session(s).`);
+}
+
+/**
+ * Stop session for current project+branch
+ */
+async function stopCurrentSession(): Promise<void> {
+  const projectPath = process.cwd();
+  const branch = await getGitBranch(projectPath);
+
+  // Read lockfile to get session name
+  const lockData = await readLockfile(undefined, projectPath, branch);
+
+  if (!lockData) {
+    const branchInfo = branch ? ` on branch "${branch}"` : "";
+    p.log.info(`No active review session for this project${branchInfo}.`);
+
+    // Show hint if there are other sessions running
+    const allSessions = await listAllActiveSessions();
+    if (allSessions.length > 0) {
+      p.log.message(`\nThere are ${allSessions.length} other session(s) running.`);
+      p.log.message('Use "rr stop --all" to stop all sessions, or "rr status" to see details.');
+    }
+    return;
+  }
+
+  p.log.step(`Stopping session: ${lockData.sessionName}`);
+
+  // Send SIGINT first for graceful shutdown
+  await sendInterrupt(lockData.sessionName);
+
+  // Wait briefly for graceful shutdown
+  await new Promise((resolve) => setTimeout(resolve, 1000));
+
+  // Kill the tmux session
+  await killSession(lockData.sessionName);
+
+  // Remove the lockfile
+  await removeLockfile(undefined, projectPath, branch);
 
   p.log.success("Review stopped.");
 }

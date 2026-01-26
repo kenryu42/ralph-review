@@ -3,30 +3,30 @@
  */
 
 import * as p from "@clack/prompts";
-import { STATE_PATH } from "@/lib/config";
+import { type ActiveSession, listAllActiveSessions, readLockfile } from "@/lib/lockfile";
 import {
   type DerivedRunStatus,
   deriveRunStatus,
+  getGitBranch,
   getLatestProjectLogSession,
   readLog,
 } from "@/lib/logger";
-import { getSessionOutput, listRalphSessions } from "@/lib/tmux";
-import type { FixEntry, RunState, Severity } from "@/lib/types";
-import { lockfileExists } from "./run";
+import { getSessionOutput } from "@/lib/tmux";
+import type { FixEntry, Priority, SkippedEntry } from "@/lib/types";
 
 /**
- * Load run state from disk
+ * Spinner character to indicate active/running sessions
  */
-async function loadState(): Promise<RunState | null> {
-  const file = Bun.file(STATE_PATH);
-  if (!(await file.exists())) {
-    return null;
+const SPINNER_CHAR = "⠶";
+
+/**
+ * Truncate a string to maxLength, adding "..." if truncated
+ */
+function truncate(str: string, maxLength: number): string {
+  if (str.length <= maxLength) {
+    return str;
   }
-  try {
-    return JSON.parse(await file.text()) as RunState;
-  } catch {
-    return null;
-  }
+  return `${str.slice(0, maxLength)}...`;
 }
 
 /**
@@ -47,29 +47,39 @@ function formatDuration(ms: number): string {
 }
 
 /**
- * Load fix entries from the most recent log session
+ * Result of loading entries from a log session
  */
-async function loadFixEntries(sessionPath: string): Promise<FixEntry[]> {
+interface LoadedEntries {
+  fixes: FixEntry[];
+  skipped: SkippedEntry[];
+}
+
+/**
+ * Load fix and skipped entries from the most recent log session
+ */
+async function loadEntries(sessionPath: string): Promise<LoadedEntries> {
   const entries = await readLog(sessionPath);
   const fixes: FixEntry[] = [];
+  const skipped: SkippedEntry[] = [];
 
   for (const entry of entries) {
     if (entry.type === "iteration" && entry.fixes) {
       fixes.push(...entry.fixes.fixes);
+      skipped.push(...entry.fixes.skipped);
     }
   }
 
-  return fixes;
+  return { fixes, skipped };
 }
 
 /**
- * Severity order for sorting (higher severity first)
+ * Priority order for sorting (higher priority first)
  */
-const SEVERITY_ORDER: Record<Severity, number> = {
-  HIGH: 0,
-  MED: 1,
-  LOW: 2,
-  NIT: 3,
+const PRIORITY_ORDER: Record<Priority, number> = {
+  P1: 0,
+  P2: 1,
+  P3: 2,
+  P4: 3,
 };
 
 /**
@@ -80,10 +90,23 @@ function formatFixEntries(fixes: FixEntry[]): string {
     return "  No fixes applied";
   }
 
-  // Sort by severity
-  const sorted = [...fixes].sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]);
+  // Sort by priority
+  const sorted = [...fixes].sort((a, b) => PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority]);
 
-  return sorted.map((fix) => `  [#${fix.id}][${fix.severity}] ${fix.title}`).join("\n");
+  return sorted
+    .map((fix) => `  [#${fix.id}][${fix.priority}] ${truncate(fix.title, 25)}`)
+    .join("\n");
+}
+
+/**
+ * Format skipped entries for display
+ */
+function formatSkippedEntries(skipped: SkippedEntry[]): string {
+  if (skipped.length === 0) {
+    return "  No items skipped";
+  }
+
+  return skipped.map((s) => `  [#${s.id}] ${s.title} - ${truncate(s.reason, 25)}`).join("\n");
 }
 
 /**
@@ -103,27 +126,47 @@ function formatStatus(status: DerivedRunStatus): string {
 }
 
 /**
+ * Extract a short project name from the full path
+ */
+function getShortProjectName(projectPath: string): string {
+  const parts = projectPath.split("/");
+  return parts[parts.length - 1] || projectPath;
+}
+
+/**
+ * Format a single active session for display
+ */
+function formatActiveSession(session: ActiveSession, isCurrentProject: boolean): string {
+  const projectName = getShortProjectName(session.projectPath);
+  const branchStr = session.branch === "default" ? "(no branch)" : session.branch;
+  const marker = isCurrentProject ? " *" : "";
+
+  return `  ${SPINNER_CHAR} ${projectName} [${branchStr}]${marker}`;
+}
+
+/**
  * Main status command handler
  */
 export async function runStatus(): Promise<void> {
-  // Check for running sessions
-  const sessions = await listRalphSessions();
-  const hasLockfile = await lockfileExists();
-  const state = await loadState();
+  // Get all active sessions
+  const activeSessions = await listAllActiveSessions();
 
-  // Get the latest log session for the CURRENT project
+  // Get current project info
   const currentProject = process.cwd();
-  const latestSession = await getLatestProjectLogSession(undefined, currentProject);
+  const currentBranch = await getGitBranch(currentProject);
 
-  if (sessions.length === 0 && !hasLockfile) {
-    p.log.info("No active review session.");
+  // Check if current project has an active session
+  const currentLockData = await readLockfile(undefined, currentProject, currentBranch);
 
+  if (activeSessions.length === 0) {
+    p.log.info("No active review sessions.");
+
+    // Show last run info for current project
+    const latestSession = await getLatestProjectLogSession(undefined, currentProject);
     if (latestSession) {
-      // Derive status from log entries (project-specific)
       const entries = await readLog(latestSession.path);
       const status = deriveRunStatus(entries);
 
-      // Get iteration count and max from log entries
       const iterations = entries.filter((e) => e.type === "iteration");
       const systemEntry = entries.find((e) => e.type === "system");
       const maxIterations = systemEntry?.type === "system" ? systemEntry.maxIterations : "?";
@@ -131,48 +174,69 @@ export async function runStatus(): Promise<void> {
       p.log.message(`Last run: ${formatStatus(status)}`);
       p.log.message(`Iterations: ${iterations.length}/${maxIterations}`);
 
-      // Show fix summary from last run
-      const fixes = await loadFixEntries(latestSession.path);
-      const summary = formatFixEntries(fixes);
-      p.note(summary, `Fixes Applied (${fixes.length} total)`);
+      const { fixes, skipped } = await loadEntries(latestSession.path);
+      const fixesSummary = formatFixEntries(fixes);
+      p.note(fixesSummary, `Fixes Applied (${fixes.length} total)`);
+
+      if (skipped.length > 0) {
+        const skippedSummary = formatSkippedEntries(skipped);
+        p.note(skippedSummary, `Skipped Items (${skipped.length} total)`);
+      }
     }
 
     p.log.message('Start a review with "rr run"');
     return;
   }
 
+  // Show all active sessions
   p.intro("Review Status");
 
-  const sessionName = sessions.at(-1);
-  if (sessionName) {
-    p.log.step(`Session: ${sessionName}`);
-    p.log.success("Status: Running");
+  p.log.step(`Active Sessions (${activeSessions.length})`);
 
-    if (state) {
-      const elapsed = Date.now() - state.startTime;
-      p.log.message(`Iteration: ${state.iteration}`);
-      p.log.message(`Elapsed: ${formatDuration(elapsed)}`);
+  for (const session of activeSessions) {
+    const isCurrentProject =
+      session.projectPath === currentProject &&
+      (session.branch === (currentBranch ?? "default") || session.branch === currentBranch);
+    console.log(formatActiveSession(session, isCurrentProject));
+  }
 
-      // Show fixes applied so far
-      if (latestSession) {
-        const fixes = await loadFixEntries(latestSession.path);
-        if (fixes.length > 0) {
-          const summary = formatFixEntries(fixes);
-          p.note(summary, `Fixes Applied (${fixes.length} so far)`);
-        }
+  if (activeSessions.length > 1) {
+    p.log.message("\n  * = current project/branch");
+  }
+
+  // Show detailed info for current project's session if running
+  if (currentLockData) {
+    console.log("");
+    p.log.step("Current Session Details");
+
+    const elapsed = Date.now() - currentLockData.startTime;
+    p.log.message(`Session: ${currentLockData.sessionName}`);
+    p.log.message(`Elapsed: ${formatDuration(elapsed)}`);
+    if (currentLockData.iteration !== undefined) {
+      p.log.message(`Iteration: ${currentLockData.iteration}`);
+    }
+
+    // Show fixes applied so far
+    const latestSession = await getLatestProjectLogSession(undefined, currentProject);
+    if (latestSession) {
+      const { fixes, skipped } = await loadEntries(latestSession.path);
+      if (fixes.length > 0) {
+        const fixesSummary = formatFixEntries(fixes);
+        p.note(fixesSummary, `Fixes Applied (${fixes.length} so far)`);
       }
-
-      // Get recent output
-      const output = await getSessionOutput(sessionName, 10);
-      if (output) {
-        const recentLines = output.split("\n").slice(-5).join("\n");
-        p.note(recentLines, "Recent output");
+      if (skipped.length > 0) {
+        const skippedSummary = formatSkippedEntries(skipped);
+        p.note(skippedSummary, `Skipped Items (${skipped.length} so far)`);
       }
     }
 
-    p.note("rr attach  - View live progress\n" + "rr stop    - Stop the review", "Commands");
-  } else if (hasLockfile) {
-    p.log.warn("Lockfile exists but no session found");
-    p.log.message('Run "rr stop" to clean up');
+    // Get recent output
+    const output = await getSessionOutput(currentLockData.sessionName, 10);
+    if (output) {
+      const recentLines = output.split("\n").slice(-5).join("\n");
+      p.note(recentLines, "Recent output");
+    }
   }
+
+  p.note("rr attach  - View live progress\n" + "rr stop    - Stop the review", "Commands");
 }

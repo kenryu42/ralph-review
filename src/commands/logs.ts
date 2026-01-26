@@ -5,8 +5,17 @@
 import { platform } from "node:os";
 import * as p from "@clack/prompts";
 import { $ } from "bun";
+import { getCommandDef } from "@/cli";
+import { parseCommand } from "@/lib/cli-parser";
 import { getHtmlPath, writeLogHtml } from "@/lib/html";
 import { getLatestLogSession, listLogSessions } from "@/lib/logger";
+
+/**
+ * Options for logs command
+ */
+interface LogsOptions {
+  list: boolean;
+}
 
 /**
  * Open a file in the default browser
@@ -40,8 +49,26 @@ function formatDate(timestamp: number): string {
  * Main logs command handler
  */
 export async function runLogs(args: string[]): Promise<void> {
+  // Parse options
+  const logsDef = getCommandDef("logs");
+  if (!logsDef) {
+    p.log.error("Internal error: logs command definition not found");
+    process.exit(1);
+  }
+
+  let options: LogsOptions;
+  let positional: string[];
+  try {
+    const result = parseCommand<LogsOptions>(logsDef, args);
+    options = result.values;
+    positional = result.positional;
+  } catch (error) {
+    p.log.error(`${error}`);
+    process.exit(1);
+  }
+
   // Handle --list flag
-  if (args.includes("--list") || args.includes("-l")) {
+  if (options.list) {
     const sessions = await listLogSessions();
 
     if (sessions.length === 0) {
@@ -60,8 +87,8 @@ export async function runLogs(args: string[]): Promise<void> {
     return;
   }
 
-  // Handle specific timestamp argument
-  const timestampArg = args.find((a) => !a.startsWith("-"));
+  // Handle specific timestamp argument from positional args
+  const timestampArg = positional[0];
 
   if (timestampArg) {
     // Find session matching the timestamp
