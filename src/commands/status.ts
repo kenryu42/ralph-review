@@ -4,8 +4,9 @@
 
 import * as p from "@clack/prompts";
 import { STATE_PATH } from "@/lib/config";
+import { getLatestLogSession, readLog } from "@/lib/logger";
 import { getSessionOutput, listRalphSessions } from "@/lib/tmux";
-import type { RunState } from "@/lib/types";
+import type { FixEntry, RunState, Severity } from "@/lib/types";
 import { lockfileExists } from "./run";
 
 /**
@@ -41,6 +42,46 @@ function formatDuration(ms: number): string {
 }
 
 /**
+ * Load fix entries from the most recent log session
+ */
+async function loadFixEntries(sessionPath: string): Promise<FixEntry[]> {
+  const entries = await readLog(sessionPath);
+  const fixes: FixEntry[] = [];
+
+  for (const entry of entries) {
+    if (entry.type === "fix" && entry.fixes) {
+      fixes.push(...entry.fixes.fixes);
+    }
+  }
+
+  return fixes;
+}
+
+/**
+ * Severity order for sorting (higher severity first)
+ */
+const SEVERITY_ORDER: Record<Severity, number> = {
+  HIGH: 0,
+  MED: 1,
+  LOW: 2,
+  NIT: 3,
+};
+
+/**
+ * Format fix entries for display
+ */
+function formatFixEntries(fixes: FixEntry[]): string {
+  if (fixes.length === 0) {
+    return "  No fixes applied";
+  }
+
+  // Sort by severity
+  const sorted = [...fixes].sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]);
+
+  return sorted.map((fix) => `  [#${fix.id}][${fix.severity}] ${fix.title}`).join("\n");
+}
+
+/**
  * Main status command handler
  */
 export async function runStatus(): Promise<void> {
@@ -55,6 +96,14 @@ export async function runStatus(): Promise<void> {
     if (state) {
       p.log.message(`Last run: ${state.status}`);
       p.log.message(`Iterations: ${state.iteration}`);
+
+      // Show fix summary from last run
+      const latestSession = await getLatestLogSession();
+      if (latestSession) {
+        const fixes = await loadFixEntries(latestSession.path);
+        const summary = formatFixEntries(fixes);
+        p.note(summary, `Fixes Applied (${fixes.length} total)`);
+      }
     }
 
     p.log.message('Start a review with "rr run"');
@@ -72,6 +121,16 @@ export async function runStatus(): Promise<void> {
       const elapsed = Date.now() - state.startTime;
       p.log.message(`Iteration: ${state.iteration}`);
       p.log.message(`Elapsed: ${formatDuration(elapsed)}`);
+
+      // Show fixes applied so far
+      const latestSession = await getLatestLogSession();
+      if (latestSession) {
+        const fixes = await loadFixEntries(latestSession.path);
+        if (fixes.length > 0) {
+          const summary = formatFixEntries(fixes);
+          p.note(summary, `Fixes Applied (${fixes.length} so far)`);
+        }
+      }
 
       // Get recent output
       const output = await getSessionOutput(sessionName, 10);
