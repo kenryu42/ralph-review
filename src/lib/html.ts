@@ -45,6 +45,8 @@ function getTypeIcon(type: LogEntry["type"]): string {
       return "🔧";
     case "system":
       return "⚙️";
+    case "error":
+      return "❌";
   }
 }
 
