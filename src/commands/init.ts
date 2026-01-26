@@ -118,7 +118,7 @@ function formatConfigDisplay(config: Config): string {
  * Main init command handler
  */
 export async function runInit(): Promise<void> {
-  p.intro("ralph-review setup");
+  p.intro("Ralph Review Setup");
 
   // Check if config already exists
   if (await configExists()) {
