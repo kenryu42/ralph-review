@@ -3,9 +3,11 @@ import {
   calculateRetryDelay,
   createFixerPrompt,
   determineCycleResult,
+  extractFixSummaryJson,
   FIXER_NO_ISSUES_MARKER,
   fixerFoundNoIssues,
   formatAgentFailureWarning,
+  parseFixSummary,
 } from "@/lib/engine";
 import type { Config, RetryConfig } from "@/lib/types";
 
@@ -154,6 +156,183 @@ End of review.`;
     test("includes code check reminder in warning", () => {
       const warning = formatAgentFailureWarning("fixer", 1, 3);
       expect(warning.toLowerCase()).toMatch(/check|verify|code|broken/i);
+    });
+  });
+
+  describe("extractFixSummaryJson", () => {
+    test("extracts JSON block from fixer output", () => {
+      const output = `DECISION: APPLY_SELECTIVELY
+APPLY: #1
+
+Some analysis here.
+
+\`\`\`json
+{"decision": "APPLY_SELECTIVELY", "fixes": [], "skipped": []}
+\`\`\`
+
+End of output.`;
+      const result = extractFixSummaryJson(output);
+      expect(result).toBe('{"decision": "APPLY_SELECTIVELY", "fixes": [], "skipped": []}');
+    });
+
+    test("returns null when no JSON block present", () => {
+      const output = "DECISION: NO CHANGES NEEDED\nNo JSON here.";
+      const result = extractFixSummaryJson(output);
+      expect(result).toBeNull();
+    });
+
+    test("handles malformed delimiters gracefully", () => {
+      const output = "```json\n{incomplete";
+      const result = extractFixSummaryJson(output);
+      expect(result).toBeNull();
+    });
+
+    test("extracts first JSON block when multiple present", () => {
+      const output = `\`\`\`json
+{"first": true}
+\`\`\`
+
+\`\`\`json
+{"second": true}
+\`\`\``;
+      const result = extractFixSummaryJson(output);
+      expect(result).toBe('{"first": true}');
+    });
+
+    test("handles JSON with newlines inside", () => {
+      const output = `\`\`\`json
+{
+  "decision": "NO_CHANGES_NEEDED",
+  "fixes": [],
+  "skipped": []
+}
+\`\`\``;
+      const result = extractFixSummaryJson(output);
+      expect(result).toContain('"decision": "NO_CHANGES_NEEDED"');
+      expect(result).not.toBeNull();
+    });
+  });
+
+  describe("parseFixSummary", () => {
+    test("parses valid JSON into FixSummary", () => {
+      const json = JSON.stringify({
+        decision: "APPLY_SELECTIVELY",
+        fixes: [
+          {
+            id: 1,
+            title: "Fix null check",
+            severity: "HIGH",
+            file: "auth.ts",
+            claim: "Missing null check",
+            evidence: "auth.ts:42",
+            fix: "Added null check",
+          },
+        ],
+        skipped: [
+          {
+            id: 2,
+            title: "Minor style issue",
+            reason: "Not worth changing",
+          },
+        ],
+      });
+      const result = parseFixSummary(json);
+      expect(result).not.toBeNull();
+      expect(result?.decision).toBe("APPLY_SELECTIVELY");
+      expect(result?.fixes).toHaveLength(1);
+      expect(result?.fixes[0]?.severity).toBe("HIGH");
+      expect(result?.skipped).toHaveLength(1);
+    });
+
+    test("returns null for invalid JSON", () => {
+      const result = parseFixSummary("{invalid json");
+      expect(result).toBeNull();
+    });
+
+    test("returns null for wrong structure", () => {
+      const json = JSON.stringify({ wrong: "structure" });
+      const result = parseFixSummary(json);
+      expect(result).toBeNull();
+    });
+
+    test("returns null when fixes is not an array", () => {
+      const json = JSON.stringify({
+        decision: "NO_CHANGES_NEEDED",
+        fixes: "not an array",
+        skipped: [],
+      });
+      const result = parseFixSummary(json);
+      expect(result).toBeNull();
+    });
+
+    test("returns null for invalid decision value", () => {
+      const json = JSON.stringify({
+        decision: "INVALID_DECISION",
+        fixes: [],
+        skipped: [],
+      });
+      const result = parseFixSummary(json);
+      expect(result).toBeNull();
+    });
+
+    test("returns null for invalid severity in fix entry", () => {
+      const json = JSON.stringify({
+        decision: "APPLY_SELECTIVELY",
+        fixes: [
+          {
+            id: 1,
+            title: "Fix",
+            severity: "CRITICAL", // Invalid severity
+            claim: "claim",
+            evidence: "evidence",
+            fix: "fix",
+          },
+        ],
+        skipped: [],
+      });
+      const result = parseFixSummary(json);
+      expect(result).toBeNull();
+    });
+
+    test("accepts fix entry with omitted file field (undefined)", () => {
+      const json = JSON.stringify({
+        decision: "APPLY_SELECTIVELY",
+        fixes: [
+          {
+            id: 1,
+            title: "Fix",
+            severity: "LOW",
+            claim: "claim",
+            evidence: "evidence",
+            fix: "fix",
+          },
+        ],
+        skipped: [],
+      });
+      const result = parseFixSummary(json);
+      expect(result).not.toBeNull();
+      expect(result?.fixes[0]?.file).toBeUndefined();
+    });
+
+    test("accepts fix entry with explicit file: null", () => {
+      const json = JSON.stringify({
+        decision: "APPLY_SELECTIVELY",
+        fixes: [
+          {
+            id: 1,
+            title: "Fix",
+            severity: "LOW",
+            file: null,
+            claim: "claim",
+            evidence: "evidence",
+            fix: "fix",
+          },
+        ],
+        skipped: [],
+      });
+      const result = parseFixSummary(json);
+      expect(result).not.toBeNull();
+      expect(result?.fixes[0]?.file).toBeNull();
     });
   });
 });
