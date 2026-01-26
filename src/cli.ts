@@ -71,28 +71,33 @@ USAGE:
   rr <command> [options]
 
 COMMANDS:
-  init              Configure reviewer and fixer agents
-  run               Start review cycle in background (tmux)
-  run --max=N       Set max iterations (default: 5)
-  attach            Attach to running review session
-  status            Show current review progress
-  stop              Stop running review session
-  stop --force      Force kill session immediately
-  logs              Open latest log in browser
-  logs --list       List all log sessions
-  logs <timestamp>  Open specific log session
+  init                  Configure reviewer and fixer agents
+  run                   Start review cycle
+  run --background, -b  Run in background
+  run --list, -ls       List active review sessions
+  run --max=N           Set max iterations (default: 5)
+  attach                Attach to most recent review session
+  attach <session>      Attach to specific session by name
+  status                Show current review progress
+  stop                  Stop running review session
+  stop --force          Force kill session immediately
+  logs                  Open latest log in browser
+  logs --list           List all log sessions
+  logs <timestamp>      Open specific log session
 
 OPTIONS:
-  -h, --help        Show this help message
-  -v, --version     Show version number
+  -h, --help          Show this help message
+  -v, --version       Show version number
 
 EXAMPLES:
-  rr init           # Set up agents (first time)
-  rr run            # Start background review
-  rr run --max=3    # Run with 3 iterations max
-  rr attach         # Watch live progress
-  rr status         # Quick status check
-  rr logs           # View results in browser
+  rr init             # Set up agents (first time)
+  rr run              # Start and attach to review session
+  rr run -b           # Start in background
+  rr run --list       # Show active sessions
+  rr run --max=3      # Run with 3 iterations max
+  rr attach           # Attach to latest session
+  rr status           # Quick status check
+  rr logs             # View results in browser
 `.trim();
 }
 
@@ -129,7 +134,7 @@ async function main(): Promise<void> {
         break;
 
       case "attach":
-        await runAttach();
+        await runAttach(args);
         break;
 
       case "status":

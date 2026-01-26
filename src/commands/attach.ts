@@ -7,9 +7,27 @@ import { attachSession, listRalphSessions, sessionExists } from "@/lib/tmux";
 
 /**
  * Main attach command handler
+ * @param args - Optional array containing session name to attach to
  */
-export async function runAttach(): Promise<void> {
-  // Find running ralph sessions
+export async function runAttach(args: string[] = []): Promise<void> {
+  // Check if a specific session name was provided
+  const targetSession = args[0];
+
+  if (targetSession) {
+    // Attach to specific session
+    if (!(await sessionExists(targetSession))) {
+      p.log.error(`Session '${targetSession}' not found.`);
+      p.log.message('Use "rr run --list" to see active sessions.');
+      process.exit(1);
+    }
+
+    p.log.step(`Attaching to session: ${targetSession}`);
+    p.note("Detach with: Ctrl-B d", "tmux tip");
+    await attachSession(targetSession);
+    return;
+  }
+
+  // Find running ralph sessions (default behavior - most recent)
   const sessions = await listRalphSessions();
 
   if (sessions.length === 0) {
@@ -32,7 +50,7 @@ export async function runAttach(): Promise<void> {
   }
 
   p.log.step(`Attaching to session: ${sessionName}`);
-  p.note("Detach with Ctrl-B d", "Tip");
+  p.note("Detach with: Ctrl-B d", "tmux tip");
 
   await attachSession(sessionName);
 }
