@@ -134,3 +134,177 @@ export interface ResultEvent {
   num_turns: number;
   total_cost_usd?: number;
 }
+
+// ============================================================================
+// Droid Stream Types
+// ============================================================================
+
+/**
+ * Type definitions for Droid's streaming JSONL output format
+ * Used when running Droid with --output-format stream-json
+ */
+
+/**
+ * Top-level Droid event union - discriminated by 'type' field
+ */
+export type DroidStreamEvent =
+  | DroidSystemInitEvent
+  | DroidMessageEvent
+  | DroidToolCallEvent
+  | DroidToolResultEvent
+  | DroidCompletionEvent;
+
+/**
+ * Droid system initialization event
+ */
+export interface DroidSystemInitEvent {
+  type: "system";
+  subtype: "init";
+  session_id: string;
+  model: string;
+  cwd: string;
+  tools: string[];
+  reasoning_effort?: string;
+}
+
+/**
+ * Droid message event - user or assistant messages
+ */
+export interface DroidMessageEvent {
+  type: "message";
+  role: "user" | "assistant";
+  id: string;
+  text: string;
+  timestamp: number;
+  session_id: string;
+}
+
+/**
+ * Droid tool call event
+ */
+export interface DroidToolCallEvent {
+  type: "tool_call";
+  id: string;
+  messageId: string;
+  toolId: string;
+  toolName: string;
+  parameters: unknown;
+  timestamp: number;
+  session_id: string;
+}
+
+/**
+ * Droid tool result event
+ */
+export interface DroidToolResultEvent {
+  type: "tool_result";
+  id: string;
+  messageId: string;
+  toolId: string;
+  isError: boolean;
+  value: string;
+  timestamp?: number;
+  session_id: string;
+}
+
+/**
+ * Droid completion event - final result
+ */
+export interface DroidCompletionEvent {
+  type: "completion";
+  finalText: string;
+  numTurns: number;
+  durationMs: number;
+  session_id: string;
+  timestamp: number;
+  usage?: {
+    input_tokens?: number;
+    output_tokens?: number;
+    thinking_tokens?: number;
+    cache_read_input_tokens?: number;
+    cache_creation_input_tokens?: number;
+  };
+}
+
+// ============================================================================
+// Gemini Stream Types
+// ============================================================================
+
+/**
+ * Type definitions for Gemini CLI's streaming JSONL output format
+ * Used when running Gemini with --output-format stream-json
+ *
+ * NOTE: Gemini streams assistant messages as deltas that need to be concatenated
+ */
+
+/**
+ * Top-level Gemini event union - discriminated by 'type' field
+ */
+export type GeminiStreamEvent =
+  | GeminiInitEvent
+  | GeminiMessageEvent
+  | GeminiToolUseEvent
+  | GeminiToolResultEvent
+  | GeminiResultEvent;
+
+/**
+ * Gemini initialization event
+ */
+export interface GeminiInitEvent {
+  type: "init";
+  timestamp: string;
+  session_id: string;
+  model: string;
+}
+
+/**
+ * Gemini message event - user or assistant messages
+ * Assistant messages with delta: true are streaming chunks that need concatenation
+ */
+export interface GeminiMessageEvent {
+  type: "message";
+  timestamp: string;
+  role: "user" | "assistant";
+  content: string;
+  delta?: boolean;
+}
+
+/**
+ * Gemini tool use event
+ */
+export interface GeminiToolUseEvent {
+  type: "tool_use";
+  timestamp: string;
+  tool_name: string;
+  tool_id: string;
+  parameters: unknown;
+}
+
+/**
+ * Gemini tool result event
+ */
+export interface GeminiToolResultEvent {
+  type: "tool_result";
+  timestamp: string;
+  tool_id: string;
+  status: "success" | "error" | string;
+  output: string;
+}
+
+/**
+ * Gemini result event - final stats
+ */
+export interface GeminiResultEvent {
+  type: "result";
+  timestamp: string;
+  status: "success" | "error" | string;
+  stats?: {
+    total_tokens?: number;
+    input_tokens?: number;
+    output_tokens?: number;
+    cached?: number;
+    input?: number;
+    duration_ms?: number;
+    tool_calls?: number;
+  };
+}
