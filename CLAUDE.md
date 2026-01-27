@@ -74,3 +74,5 @@ See `AGENTS.md` for detailed style guidelines. Key points:
 ## Before Committing
 
 Run `bun run check` to ensure all checks pass.
+
+**Never commit changes unless Liew explicitly asks you to.** Wait for explicit instructions like "commit this" or "make a commit" before running any git commit commands.
