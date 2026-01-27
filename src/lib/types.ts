@@ -3,13 +3,13 @@
  */
 
 // Agent types supported by the tool
-export type AgentType = "codex" | "claude" | "opencode";
+export type AgentType = "codex" | "claude" | "opencode" | "droid" | "gemini";
 
 // Roles an agent can play
 export type AgentRole = "reviewer" | "fixer";
 
 // Valid agent types for type guard
-const VALID_AGENT_TYPES: readonly AgentType[] = ["codex", "claude", "opencode"];
+const VALID_AGENT_TYPES: readonly AgentType[] = ["codex", "claude", "opencode", "droid", "gemini"];
 
 // Valid agent roles for type guard
 const VALID_AGENT_ROLES: readonly AgentRole[] = ["reviewer", "fixer"];

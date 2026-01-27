@@ -4,7 +4,15 @@
  */
 
 import { createFixerPrompt, FIXER_NO_ISSUES_MARKER } from "@/lib/prompts";
-import { extractClaudeResult, formatClaudeReviewForFixer, runAgent } from "./agents";
+import {
+  extractClaudeResult,
+  extractDroidResult,
+  extractGeminiResult,
+  formatClaudeReviewForFixer,
+  formatDroidReviewForFixer,
+  formatGeminiReviewForFixer,
+  runAgent,
+} from "./agents";
 import { appendLog, createLogSession, getGitBranch } from "./logger";
 import type {
   AgentRole,
@@ -369,10 +377,20 @@ export async function runReviewCycle(
     printHeader("Running fixer to verify and apply fixes...", "\x1b[35m"); // Magenta
 
     // Create fixer prompt from review output
-    // For Claude reviewer, format the JSONL output into readable text
+    // For Claude/Droid reviewer, format the JSONL output into readable text
     let reviewText = reviewResult.output;
     if (config.reviewer.agent === "claude") {
       const formatted = formatClaudeReviewForFixer(reviewResult.output);
+      if (formatted) {
+        reviewText = formatted;
+      }
+    } else if (config.reviewer.agent === "droid") {
+      const formatted = formatDroidReviewForFixer(reviewResult.output);
+      if (formatted) {
+        reviewText = formatted;
+      }
+    } else if (config.reviewer.agent === "gemini") {
+      const formatted = formatGeminiReviewForFixer(reviewResult.output);
       if (formatted) {
         reviewText = formatted;
       }
@@ -383,10 +401,16 @@ export async function runReviewCycle(
     const fixResult = await runAgentWithRetry("fixer", config, fixerPrompt);
 
     // Try to extract and parse fix summary from fixer output
-    // For Claude, first extract the result text from JSONL, then look for JSON block
+    // For Claude/Droid, first extract the result text from JSONL, then look for JSON block
     let jsonString: string | null;
     if (config.fixer.agent === "claude") {
       const resultText = extractClaudeResult(fixResult.output);
+      jsonString = resultText ? extractFixSummaryJson(resultText) : null;
+    } else if (config.fixer.agent === "droid") {
+      const resultText = extractDroidResult(fixResult.output);
+      jsonString = resultText ? extractFixSummaryJson(resultText) : null;
+    } else if (config.fixer.agent === "gemini") {
+      const resultText = extractGeminiResult(fixResult.output);
       jsonString = resultText ? extractFixSummaryJson(resultText) : null;
     } else {
       jsonString = extractFixSummaryJson(fixResult.output);

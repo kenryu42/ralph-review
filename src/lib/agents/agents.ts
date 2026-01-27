@@ -5,13 +5,15 @@
 
 import type { AgentConfig, AgentRole, AgentType, Config, IterationResult } from "@/lib/types";
 import { formatClaudeEventForDisplay, parseClaudeStreamEvent } from "./claude-stream";
+import { formatDroidEventForDisplay, parseDroidStreamEvent } from "./droid-stream";
+import { formatGeminiEventForDisplay, parseGeminiStreamEvent } from "./gemini-stream";
 
 /**
  * Stream output to console while capturing it for parsing
- * For Claude agent, parses JSONL and formats for readable display
+ * For Claude/Droid agents, parses JSONL and formats for readable display
  * @param stream - The readable stream from process stdout/stderr
  * @param writeStream - Where to write the output (process.stdout or process.stderr)
- * @param agentType - The type of agent (used for Claude-specific formatting)
+ * @param agentType - The type of agent (used for JSONL formatting)
  * @returns The accumulated output as a string
  */
 async function streamAndCapture(
@@ -25,12 +27,15 @@ async function streamAndCapture(
   let output = "";
   let lineBuffer = "";
 
+  // Check if this agent uses JSONL output
+  const usesJsonl = agentType === "claude" || agentType === "droid" || agentType === "gemini";
+
   for await (const chunk of stream) {
     const text = decoder.decode(chunk, { stream: true });
     output += text;
 
-    if (agentType === "claude") {
-      // Buffer and process complete lines for Claude JSONL
+    if (usesJsonl) {
+      // Buffer and process complete lines for JSONL
       lineBuffer += text;
       const lines = lineBuffer.split("\n");
 
@@ -41,18 +46,16 @@ async function streamAndCapture(
       for (const line of lines) {
         if (!line.trim()) continue;
 
-        const event = parseClaudeStreamEvent(line);
-        if (event) {
-          const formatted = formatClaudeEventForDisplay(event);
-          if (formatted) {
-            writeStream.write(`${formatted}
+        const formatted = formatJsonlLine(line, agentType);
+        if (formatted !== null && formatted !== "") {
+          writeStream.write(`${formatted}
 
 `);
-          }
-        } else {
+        } else if (formatted === null) {
           // Preserve non-JSON output (warnings/errors) for observability
           writeStream.write(`${line}\n`);
         }
+        // When formatted === "", skip silently (intentionally suppressed event)
       }
     } else {
       writeStream.write(text);
@@ -65,23 +68,22 @@ async function streamAndCapture(
     output += remaining;
   }
 
-  if (agentType === "claude") {
+  if (usesJsonl) {
     if (remaining) {
       lineBuffer += remaining;
     }
     // Process any remaining line, even without a trailing newline
     if (lineBuffer.trim()) {
-      const event = parseClaudeStreamEvent(lineBuffer);
-      if (event) {
-        const formatted = formatClaudeEventForDisplay(event);
-        if (formatted) {
-          writeStream.write(`${formatted}
+      const formatted = formatJsonlLine(lineBuffer, agentType);
+      if (formatted !== null && formatted !== "") {
+        writeStream.write(`${formatted}
 
 `);
-        }
-      } else {
+      } else if (formatted === null) {
+        // Preserve non-JSON output (warnings/errors) for observability
         writeStream.write(`${lineBuffer}\n`);
       }
+      // When formatted === "", skip silently (intentionally suppressed event)
     }
   } else if (remaining) {
     writeStream.write(remaining);
@@ -91,17 +93,56 @@ async function streamAndCapture(
 }
 
 /**
+ * Format a JSONL line for display based on agent type
+ * Returns the formatted string, empty string to skip display, or null if not valid JSON
+ */
+function formatJsonlLine(line: string, agentType?: AgentType): string | null {
+  if (agentType === "claude") {
+    const event = parseClaudeStreamEvent(line);
+    if (event) {
+      return formatClaudeEventForDisplay(event) ?? "";
+    }
+    return null;
+  }
+
+  if (agentType === "droid") {
+    const event = parseDroidStreamEvent(line);
+    if (event) {
+      return formatDroidEventForDisplay(event) ?? "";
+    }
+    return null;
+  }
+
+  if (agentType === "gemini") {
+    const event = parseGeminiStreamEvent(line);
+    if (event) {
+      return formatGeminiEventForDisplay(event) ?? "";
+    }
+    return null;
+  }
+
+  return null;
+}
+
+/**
  * Registry of supported agents with their configuration
  */
 export const AGENTS: Record<AgentType, AgentConfig> = {
   codex: {
     command: "codex",
-    buildArgs: (role: AgentRole, prompt: string, _model?: string): string[] => {
+    buildArgs: (role: AgentRole, prompt: string, model?: string): string[] => {
       if (role === "reviewer") {
-        return ["review", "--uncommitted"];
+        const args = ["review", "--uncommitted"];
+        if (model) {
+          args.push("--model", model);
+        }
+        return args;
       } else {
         // Fixer mode - use exec with the prompt
-        const args = ["exec", "--full-auto"];
+        const args = ["exec", "--full-auto", "--config", "model_reasoning_effort=high"];
+        if (model) {
+          args.push("--model", model);
+        }
         if (prompt) {
           args.push(prompt);
         }
@@ -117,9 +158,15 @@ export const AGENTS: Record<AgentType, AgentConfig> = {
 
   claude: {
     command: "claude",
-    buildArgs: (role: AgentRole, prompt: string, _model?: string): string[] => {
+    buildArgs: (role: AgentRole, prompt: string, model?: string): string[] => {
+      const baseArgs: string[] = [];
+      if (model) {
+        baseArgs.push("--model", model);
+      }
+
       if (role === "reviewer") {
         return [
+          ...baseArgs,
           "-p",
           "Review my uncommitted changes. Focus on bugs, security issues, and code quality problems.",
           "--dangerously-skip-permissions",
@@ -130,6 +177,7 @@ export const AGENTS: Record<AgentType, AgentConfig> = {
       } else {
         // Fixer mode
         return [
+          ...baseArgs,
           "-p",
           prompt,
           "--dangerously-skip-permissions",
@@ -148,13 +196,83 @@ export const AGENTS: Record<AgentType, AgentConfig> = {
 
   opencode: {
     command: "opencode",
-    buildArgs: (role: AgentRole, prompt: string, _model?: string): string[] => {
+    buildArgs: (role: AgentRole, prompt: string, model?: string): string[] => {
       if (role === "reviewer") {
-        return ["run", "/review"];
+        const args = ["run"];
+        if (model) {
+          args.push("--model", model);
+        }
+        args.push("/review");
+        return args;
       } else {
         // Fixer mode
-        return ["run", prompt];
+        const args = ["run"];
+        if (model) {
+          args.push("--model", model);
+        }
+        args.push(prompt);
+        return args;
       }
+    },
+    buildEnv: (): Record<string, string> => {
+      return {
+        ...(process.env as Record<string, string>),
+      };
+    },
+  },
+
+  droid: {
+    command: "droid",
+    buildArgs: (role: AgentRole, prompt: string, model?: string): string[] => {
+      const effectiveModel = model ?? "gpt-5.2-codex";
+      if (role === "reviewer") {
+        return [
+          "exec",
+          "--model",
+          effectiveModel,
+          "--reasoning-effort",
+          "high",
+          "--output-format",
+          "stream-json",
+          "/review current changes",
+        ];
+      } else {
+        // Fixer mode
+        return [
+          "exec",
+          "--auto",
+          "medium",
+          "--model",
+          effectiveModel,
+          "--reasoning-effort",
+          "high",
+          "--output-format",
+          "stream-json",
+          prompt,
+        ];
+      }
+    },
+    buildEnv: (): Record<string, string> => {
+      return {
+        ...(process.env as Record<string, string>),
+      };
+    },
+  },
+
+  gemini: {
+    command: "gemini",
+    buildArgs: (role: AgentRole, prompt: string, model?: string): string[] => {
+      const args = ["--yolo"];
+      if (model) {
+        args.push("--model", model);
+      }
+      args.push("--output-format", "stream-json");
+      if (role === "reviewer") {
+        args.push("--prompt", "review the uncommitted changes");
+      } else {
+        args.push("--prompt", prompt);
+      }
+      return args;
     },
     buildEnv: (): Record<string, string> => {
       return {
