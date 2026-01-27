@@ -3,33 +3,87 @@
  * Defines how to invoke each supported AI coding agent
  */
 
-import type { AgentConfig, AgentRole, AgentType, Config, IterationResult } from "./types";
+import type { AgentConfig, AgentRole, AgentType, Config, IterationResult } from "@/lib/types";
+import { formatClaudeEventForDisplay, parseClaudeStreamEvent } from "./claude-stream";
 
 /**
  * Stream output to console while capturing it for parsing
+ * For Claude agent, parses JSONL and formats for readable display
  * @param stream - The readable stream from process stdout/stderr
  * @param writeStream - Where to write the output (process.stdout or process.stderr)
+ * @param agentType - The type of agent (used for Claude-specific formatting)
  * @returns The accumulated output as a string
  */
 async function streamAndCapture(
   stream: ReadableStream<Uint8Array> | null,
-  writeStream: NodeJS.WriteStream
+  writeStream: NodeJS.WriteStream,
+  agentType?: AgentType
 ): Promise<string> {
   if (!stream) return "";
 
   const decoder = new TextDecoder();
   let output = "";
+  let lineBuffer = "";
 
   for await (const chunk of stream) {
     const text = decoder.decode(chunk, { stream: true });
     output += text;
-    writeStream.write(text);
+
+    if (agentType === "claude") {
+      // Buffer and process complete lines for Claude JSONL
+      lineBuffer += text;
+      const lines = lineBuffer.split("\n");
+
+      // Keep the last incomplete line in the buffer
+      lineBuffer = lines.pop() ?? "";
+
+      // Process complete lines
+      for (const line of lines) {
+        if (!line.trim()) continue;
+
+        const event = parseClaudeStreamEvent(line);
+        if (event) {
+          const formatted = formatClaudeEventForDisplay(event);
+          if (formatted) {
+            writeStream.write(`${formatted}
+
+`);
+          }
+        } else {
+          // Preserve non-JSON output (warnings/errors) for observability
+          writeStream.write(`${line}\n`);
+        }
+      }
+    } else {
+      writeStream.write(text);
+    }
   }
 
   // Flush any remaining bytes
   const remaining = decoder.decode();
   if (remaining) {
     output += remaining;
+  }
+
+  if (agentType === "claude") {
+    if (remaining) {
+      lineBuffer += remaining;
+    }
+    // Process any remaining line, even without a trailing newline
+    if (lineBuffer.trim()) {
+      const event = parseClaudeStreamEvent(lineBuffer);
+      if (event) {
+        const formatted = formatClaudeEventForDisplay(event);
+        if (formatted) {
+          writeStream.write(`${formatted}
+
+`);
+        }
+      } else {
+        writeStream.write(`${lineBuffer}\n`);
+      }
+    }
+  } else if (remaining) {
     writeStream.write(remaining);
   }
 
@@ -47,7 +101,7 @@ export const AGENTS: Record<AgentType, AgentConfig> = {
         return ["review", "--uncommitted"];
       } else {
         // Fixer mode - use exec with the prompt
-        const args = ["exec"];
+        const args = ["exec", "--full-auto"];
         if (prompt) {
           args.push(prompt);
         }
@@ -68,10 +122,21 @@ export const AGENTS: Record<AgentType, AgentConfig> = {
         return [
           "-p",
           "Review my uncommitted changes. Focus on bugs, security issues, and code quality problems.",
+          "--dangerously-skip-permissions",
+          "--verbose",
+          "--output-format",
+          "stream-json",
         ];
       } else {
         // Fixer mode
-        return ["-p", prompt];
+        return [
+          "-p",
+          prompt,
+          "--dangerously-skip-permissions",
+          "--verbose",
+          "--output-format",
+          "stream-json",
+        ];
       }
     },
     buildEnv: (): Record<string, string> => {
@@ -138,7 +203,7 @@ export async function runAgent(
 
     // Stream output to console while capturing it
     const [stdout, stderr] = await Promise.all([
-      streamAndCapture(proc.stdout, process.stdout),
+      streamAndCapture(proc.stdout, process.stdout, agentSettings.agent),
       streamAndCapture(proc.stderr, process.stderr),
     ]);
 
