@@ -8,7 +8,16 @@
 import { appendFile, mkdir, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { LOGS_DIR } from "./config";
-import type { LogEntry } from "./types";
+import type {
+  DashboardData,
+  DerivedRunStatus,
+  IterationEntry,
+  LogEntry,
+  Priority,
+  ProjectStats,
+  SessionStats,
+  SystemEntry,
+} from "./types";
 
 /**
  * Sanitize a string for use in a filename
@@ -199,14 +208,6 @@ export async function listProjectLogSessions(
 }
 
 /**
- * Get the most recent log session
- */
-export async function getLatestLogSession(logsDir: string = LOGS_DIR): Promise<LogSession | null> {
-  const sessions = await listLogSessions(logsDir);
-  return sessions.length > 0 ? (sessions[0] ?? null) : null;
-}
-
-/**
  * Get the most recent log session for a specific project
  */
 export async function getLatestProjectLogSession(
@@ -216,11 +217,6 @@ export async function getLatestProjectLogSession(
   const sessions = await listProjectLogSessions(logsDir, projectPath);
   return sessions.length > 0 ? (sessions[0] ?? null) : null;
 }
-
-/**
- * Run status derived from log entries
- */
-export type DerivedRunStatus = "completed" | "failed" | "interrupted" | "unknown";
 
 /**
  * Derive run status from log entries
@@ -257,4 +253,177 @@ export function deriveRunStatus(entries: LogEntry[]): DerivedRunStatus {
 
   // No errors = completed (whether fixes were applied or code was already clean)
   return "completed";
+}
+
+/**
+ * Create empty priority counts object
+ */
+function emptyPriorityCounts(): Record<Priority, number> {
+  return { P1: 0, P2: 0, P3: 0, P4: 0 };
+}
+
+/**
+ * Compute statistics for a single session
+ */
+export async function computeSessionStats(session: LogSession): Promise<SessionStats> {
+  const entries = await readLog(session.path);
+  const status = deriveRunStatus(entries);
+
+  // Find system entry for git branch
+  const systemEntry = entries.find((e): e is SystemEntry => e.type === "system");
+  const gitBranch = systemEntry?.gitBranch;
+
+  // Find iteration entries
+  const iterations = entries.filter((e): e is IterationEntry => e.type === "iteration");
+
+  // Aggregate fix counts
+  let totalFixes = 0;
+  let totalSkipped = 0;
+  const priorityCounts = emptyPriorityCounts();
+
+  for (const iter of iterations) {
+    if (iter.fixes) {
+      totalFixes += iter.fixes.fixes.length;
+      totalSkipped += iter.fixes.skipped.length;
+
+      for (const fix of iter.fixes.fixes) {
+        priorityCounts[fix.priority]++;
+      }
+    }
+  }
+
+  return {
+    sessionPath: session.path,
+    sessionName: session.name,
+    timestamp: session.timestamp,
+    gitBranch,
+    status,
+    totalFixes,
+    totalSkipped,
+    priorityCounts,
+    iterations: iterations.length,
+    entries,
+  };
+}
+
+/**
+ * Compute statistics for a project (collection of sessions)
+ */
+export async function computeProjectStats(
+  projectName: string,
+  sessions: LogSession[]
+): Promise<ProjectStats> {
+  const sessionStats = await Promise.all(sessions.map(computeSessionStats));
+
+  // Derive display name from original project path (first available SystemEntry)
+  // Falls back to sanitized projectName if no SystemEntry found
+  let displayName = projectName;
+  for (const stats of sessionStats) {
+    const systemEntry = stats.entries.find((e): e is SystemEntry => e.type === "system");
+    if (!systemEntry?.projectPath) {
+      continue;
+    }
+
+    // Extract basename (last path segment) from original path
+    const segments = systemEntry.projectPath.split(/[/\\]/);
+    displayName = segments.at(-1) || projectName;
+    break;
+  }
+
+  let totalFixes = 0;
+  let totalSkipped = 0;
+  const priorityCounts = emptyPriorityCounts();
+  let successCount = 0;
+
+  for (const stats of sessionStats) {
+    totalFixes += stats.totalFixes;
+    totalSkipped += stats.totalSkipped;
+
+    for (const priority of ["P1", "P2", "P3", "P4"] as Priority[]) {
+      priorityCounts[priority] += stats.priorityCounts[priority];
+    }
+
+    if (stats.status === "completed") {
+      successCount++;
+    }
+  }
+
+  return {
+    projectName,
+    displayName,
+    totalFixes,
+    totalSkipped,
+    priorityCounts,
+    sessionCount: sessions.length,
+    successCount,
+    sessions: sessionStats,
+  };
+}
+
+/**
+ * Build dashboard data from all projects
+ */
+export async function buildDashboardData(
+  logsDir: string = LOGS_DIR,
+  currentProjectPath?: string
+): Promise<DashboardData> {
+  const requestedProject = currentProjectPath ? getProjectName(currentProjectPath) : undefined;
+
+  // Get all sessions and group by project
+  const allSessions = await listLogSessions(logsDir);
+  const sessionsByProject = new Map<string, LogSession[]>();
+
+  for (const session of allSessions) {
+    const existing = sessionsByProject.get(session.projectName) || [];
+    existing.push(session);
+    sessionsByProject.set(session.projectName, existing);
+  }
+
+  // Compute stats for each project
+  const projects: ProjectStats[] = [];
+  for (const [projectName, sessions] of sessionsByProject) {
+    const stats = await computeProjectStats(projectName, sessions);
+    projects.push(stats);
+  }
+
+  // Sort projects by total fixes (most active first)
+  projects.sort((a, b) => b.totalFixes - a.totalFixes);
+
+  // Compute global stats
+  let totalFixes = 0;
+  let totalSkipped = 0;
+  const priorityCounts = emptyPriorityCounts();
+  let totalSessions = 0;
+  let totalSuccessful = 0;
+
+  for (const project of projects) {
+    totalFixes += project.totalFixes;
+    totalSkipped += project.totalSkipped;
+    totalSessions += project.sessionCount;
+
+    for (const priority of ["P1", "P2", "P3", "P4"] as Priority[]) {
+      priorityCounts[priority] += project.priorityCounts[priority];
+    }
+
+    totalSuccessful += project.successCount;
+  }
+
+  const successRate = totalSessions > 0 ? Math.round((totalSuccessful / totalSessions) * 100) : 0;
+  const currentProject =
+    requestedProject && projects.some((project) => project.projectName === requestedProject)
+      ? requestedProject
+      : undefined;
+
+  return {
+    generatedAt: Date.now(),
+    currentProject,
+    globalStats: {
+      totalFixes,
+      totalSkipped,
+      priorityCounts,
+      totalSessions,
+      successRate,
+    },
+    projects,
+  };
 }

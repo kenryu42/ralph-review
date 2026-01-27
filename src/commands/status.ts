@@ -4,15 +4,9 @@
 
 import * as p from "@clack/prompts";
 import { type ActiveSession, listAllActiveSessions, readLockfile } from "@/lib/lockfile";
-import {
-  type DerivedRunStatus,
-  deriveRunStatus,
-  getGitBranch,
-  getLatestProjectLogSession,
-  readLog,
-} from "@/lib/logger";
+import { deriveRunStatus, getGitBranch, getLatestProjectLogSession, readLog } from "@/lib/logger";
 import { getSessionOutput } from "@/lib/tmux";
-import type { FixEntry, Priority, SkippedEntry } from "@/lib/types";
+import type { DerivedRunStatus, FixEntry, Priority, SkippedEntry } from "@/lib/types";
 
 /**
  * Spinner character to indicate active/running sessions

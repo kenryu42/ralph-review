@@ -167,7 +167,7 @@ async function runInBackground(_config: Config, maxIterations?: number): Promise
       "rr attach  - View live progress\n" +
         "rr status  - Check status\n" +
         "rr stop    - Stop the review\n" +
-        "rr logs    - View logs in browser",
+        "rr dash    - View logs in browser",
       "Commands"
     );
   } catch (error) {
@@ -248,7 +248,7 @@ export async function runForeground(args: string[] = []): Promise<void> {
   // so it's not seen as stale (the launcher set status to "pending")
   await updateLockfile(undefined, projectPath, branch, { pid: process.pid, status: "running" });
 
-  p.intro("ralph-review cycle");
+  p.intro("Ralph Review Loop");
 
   try {
     const result = await runReviewCycle(config, (iteration, _role, _iterResult) => {

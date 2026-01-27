@@ -6,8 +6,8 @@
 
 import * as p from "@clack/prompts";
 import { runAttach } from "./commands/attach";
+import { runDash } from "./commands/dash";
 import { runInit } from "./commands/init";
-import { runLogs } from "./commands/logs";
 import { runForeground, runRun } from "./commands/run";
 import { runStatus } from "./commands/status";
 import { runStop } from "./commands/stop";
@@ -50,11 +50,12 @@ export const COMMANDS: CommandDef[] = [
     examples: ["rr stop", "rr stop --all"],
   },
   {
-    name: "logs",
-    description: "View review logs in browser",
-    options: [{ name: "list", alias: "l", type: "boolean", description: "List all log sessions" }],
-    positional: [{ name: "timestamp", description: "Specific log timestamp to view" }],
-    examples: ["rr logs", "rr logs --list", "rr logs 2024-01-01_12-00"],
+    name: "dash",
+    description: "Open productivity dashboard in browser",
+    options: [
+      { name: "list", alias: "l", type: "boolean", description: "List all review sessions" },
+    ],
+    examples: ["rr dash", "rr dash --list"],
   },
   {
     name: "_run-foreground",
@@ -191,8 +192,8 @@ async function main(): Promise<void> {
         await runStop(args);
         break;
 
-      case "logs":
-        await runLogs(args);
+      case "dash":
+        await runDash(args);
         break;
 
       default:
