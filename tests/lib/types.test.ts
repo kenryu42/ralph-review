@@ -13,6 +13,7 @@ describe("type guards", () => {
       expect(isAgentType("codex")).toBe(true);
       expect(isAgentType("claude")).toBe(true);
       expect(isAgentType("opencode")).toBe(true);
+      expect(isAgentType("droid")).toBe(true);
     });
 
     test("returns false for invalid agent types", () => {

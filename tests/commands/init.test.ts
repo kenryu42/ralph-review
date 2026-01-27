@@ -5,6 +5,7 @@ import { join } from "node:path";
 import {
   buildConfig,
   checkAgentInstalled,
+  checkAllAgents,
   checkTmuxInstalled,
   validateAgentSelection,
 } from "@/commands/init";
@@ -51,6 +52,29 @@ describe("init command", () => {
     test("returns boolean for tmux check", () => {
       const result = checkTmuxInstalled();
       expect(typeof result).toBe("boolean");
+    });
+  });
+
+  describe("checkAllAgents", () => {
+    test("returns availability object for all agent types", () => {
+      const result = checkAllAgents();
+
+      expect(typeof result.codex).toBe("boolean");
+      expect(typeof result.opencode).toBe("boolean");
+      expect(typeof result.claude).toBe("boolean");
+      expect(typeof result.droid).toBe("boolean");
+    });
+
+    test("returns object with all five agent types", () => {
+      const result = checkAllAgents();
+      const keys = Object.keys(result);
+
+      expect(keys).toContain("codex");
+      expect(keys).toContain("opencode");
+      expect(keys).toContain("claude");
+      expect(keys).toContain("droid");
+      expect(keys).toContain("gemini");
+      expect(keys.length).toBe(5);
     });
   });
 
