@@ -4,6 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   appendLog,
+  buildDashboardData,
+  computeProjectStats,
+  computeSessionStats,
   createLogSession,
   generateLogFilename,
   getGitBranch,
@@ -273,6 +276,419 @@ describe("logger", () => {
       expect(sessions.length).toBe(2);
       // Now uses full sanitized path
       expect(sessions.every((s) => s.projectName === "path-to-project-a")).toBe(true);
+    });
+  });
+
+  describe("computeSessionStats", () => {
+    test("computes stats from session with fixes", async () => {
+      const logPath = await createLogSession(tempDir, "/path/to/project", "main");
+
+      const systemEntry: SystemEntry = {
+        type: "system",
+        timestamp: Date.now(),
+        projectPath: "/path/to/project",
+        gitBranch: "main",
+        reviewer: { agent: "codex" },
+        fixer: { agent: "claude" },
+        maxIterations: 5,
+      };
+
+      const iterEntry: IterationEntry = {
+        type: "iteration",
+        timestamp: Date.now(),
+        iteration: 1,
+        fixes: {
+          decision: "APPLY_SELECTIVELY",
+          fixes: [
+            {
+              id: 1,
+              title: "Fix null check",
+              priority: "P1",
+              file: "auth.ts",
+              claim: "Missing null check",
+              evidence: "auth.ts:42",
+              fix: "Added null check",
+            },
+            {
+              id: 2,
+              title: "Add validation",
+              priority: "P2",
+              file: "form.ts",
+              claim: "Missing validation",
+              evidence: "form.ts:10",
+              fix: "Added validation",
+            },
+          ],
+          skipped: [{ id: 3, title: "Minor style", reason: "Not important" }],
+        },
+      };
+
+      await appendLog(logPath, systemEntry);
+      await appendLog(logPath, iterEntry);
+
+      const session = {
+        path: logPath,
+        name: "test.jsonl",
+        projectName: "path-to-project",
+        timestamp: Date.now(),
+      };
+      const stats = await computeSessionStats(session);
+
+      expect(stats.totalFixes).toBe(2);
+      expect(stats.totalSkipped).toBe(1);
+      expect(stats.priorityCounts.P1).toBe(1);
+      expect(stats.priorityCounts.P2).toBe(1);
+      expect(stats.priorityCounts.P3).toBe(0);
+      expect(stats.priorityCounts.P4).toBe(0);
+      expect(stats.iterations).toBe(1);
+      expect(stats.status).toBe("completed");
+      expect(stats.gitBranch).toBe("main");
+    });
+
+    test("computes stats from session with error", async () => {
+      const logPath = await createLogSession(tempDir, "/path/to/project");
+
+      const systemEntry: SystemEntry = {
+        type: "system",
+        timestamp: Date.now(),
+        projectPath: "/path/to/project",
+        reviewer: { agent: "codex" },
+        fixer: { agent: "claude" },
+        maxIterations: 5,
+      };
+
+      const iterEntry: IterationEntry = {
+        type: "iteration",
+        timestamp: Date.now(),
+        iteration: 1,
+        error: {
+          phase: "reviewer",
+          message: "Agent crashed",
+          exitCode: 1,
+        },
+      };
+
+      await appendLog(logPath, systemEntry);
+      await appendLog(logPath, iterEntry);
+
+      const session = {
+        path: logPath,
+        name: "test.jsonl",
+        projectName: "path-to-project",
+        timestamp: Date.now(),
+      };
+      const stats = await computeSessionStats(session);
+
+      expect(stats.totalFixes).toBe(0);
+      expect(stats.status).toBe("failed");
+    });
+
+    test("handles empty log", async () => {
+      const logPath = await createLogSession(tempDir, "/path/to/project");
+
+      const session = {
+        path: logPath,
+        name: "test.jsonl",
+        projectName: "path-to-project",
+        timestamp: Date.now(),
+      };
+      const stats = await computeSessionStats(session);
+
+      expect(stats.totalFixes).toBe(0);
+      expect(stats.totalSkipped).toBe(0);
+      expect(stats.iterations).toBe(0);
+      expect(stats.status).toBe("unknown");
+    });
+  });
+
+  describe("computeProjectStats", () => {
+    test("aggregates stats from multiple sessions", async () => {
+      // Create first session with P1 fix
+      const logPath1 = await createLogSession(tempDir, "/path/to/project", "main");
+      await appendLog(logPath1, {
+        type: "system",
+        timestamp: Date.now(),
+        projectPath: "/path/to/project",
+        gitBranch: "main",
+        reviewer: { agent: "codex" },
+        fixer: { agent: "claude" },
+        maxIterations: 5,
+      } as SystemEntry);
+      await appendLog(logPath1, {
+        type: "iteration",
+        timestamp: Date.now(),
+        iteration: 1,
+        fixes: {
+          decision: "APPLY_SELECTIVELY",
+          fixes: [
+            {
+              id: 1,
+              title: "Fix 1",
+              priority: "P1",
+              file: "a.ts",
+              claim: "",
+              evidence: "",
+              fix: "",
+            },
+          ],
+          skipped: [],
+        },
+      } as IterationEntry);
+
+      await new Promise((r) => setTimeout(r, 10));
+
+      // Create second session with P2 and P3 fixes
+      const logPath2 = await createLogSession(tempDir, "/path/to/project", "feature");
+      await appendLog(logPath2, {
+        type: "system",
+        timestamp: Date.now(),
+        projectPath: "/path/to/project",
+        gitBranch: "feature",
+        reviewer: { agent: "codex" },
+        fixer: { agent: "claude" },
+        maxIterations: 5,
+      } as SystemEntry);
+      await appendLog(logPath2, {
+        type: "iteration",
+        timestamp: Date.now(),
+        iteration: 1,
+        fixes: {
+          decision: "APPLY_MOST",
+          fixes: [
+            {
+              id: 1,
+              title: "Fix 2",
+              priority: "P2",
+              file: "b.ts",
+              claim: "",
+              evidence: "",
+              fix: "",
+            },
+            {
+              id: 2,
+              title: "Fix 3",
+              priority: "P3",
+              file: "c.ts",
+              claim: "",
+              evidence: "",
+              fix: "",
+            },
+          ],
+          skipped: [{ id: 3, title: "Skip 1", reason: "minor" }],
+        },
+      } as IterationEntry);
+
+      const sessions = await listProjectLogSessions(tempDir, "/path/to/project");
+      const projectStats = await computeProjectStats("path-to-project", sessions);
+
+      expect(projectStats.totalFixes).toBe(3);
+      expect(projectStats.totalSkipped).toBe(1);
+      expect(projectStats.priorityCounts.P1).toBe(1);
+      expect(projectStats.priorityCounts.P2).toBe(1);
+      expect(projectStats.priorityCounts.P3).toBe(1);
+      expect(projectStats.sessionCount).toBe(2);
+      expect(projectStats.successCount).toBe(2);
+      expect(projectStats.displayName).toBe("project");
+    });
+
+    test("derives displayName from older sessions when latest lacks system entry", async () => {
+      const projectPath = "/path/to/project";
+
+      const logWithSystem = await createLogSession(tempDir, projectPath, "main");
+      await appendLog(logWithSystem, {
+        type: "system",
+        timestamp: Date.now(),
+        projectPath,
+        gitBranch: "main",
+        reviewer: { agent: "codex" },
+        fixer: { agent: "claude" },
+        maxIterations: 5,
+      } as SystemEntry);
+      await appendLog(logWithSystem, {
+        type: "iteration",
+        timestamp: Date.now(),
+        iteration: 1,
+      } as IterationEntry);
+
+      await new Promise((r) => setTimeout(r, 10));
+
+      const logWithoutSystem = await createLogSession(tempDir, projectPath, "feature");
+      await appendLog(logWithoutSystem, {
+        type: "iteration",
+        timestamp: Date.now(),
+        iteration: 1,
+      } as IterationEntry);
+
+      const sessions = await listProjectLogSessions(tempDir, projectPath);
+      const projectStats = await computeProjectStats("path-to-project", sessions);
+
+      expect(projectStats.displayName).toBe("project");
+    });
+  });
+
+  describe("buildDashboardData", () => {
+    test("builds dashboard data from logs directory", async () => {
+      // Create sessions for two projects
+      const logPathA = await createLogSession(tempDir, "/work/project-a", "main");
+      await appendLog(logPathA, {
+        type: "system",
+        timestamp: Date.now(),
+        projectPath: "/work/project-a",
+        gitBranch: "main",
+        reviewer: { agent: "codex" },
+        fixer: { agent: "claude" },
+        maxIterations: 5,
+      } as SystemEntry);
+      await appendLog(logPathA, {
+        type: "iteration",
+        timestamp: Date.now(),
+        iteration: 1,
+        fixes: {
+          decision: "APPLY_SELECTIVELY",
+          fixes: [
+            {
+              id: 1,
+              title: "Fix A1",
+              priority: "P1",
+              file: "a.ts",
+              claim: "",
+              evidence: "",
+              fix: "",
+            },
+            {
+              id: 2,
+              title: "Fix A2",
+              priority: "P1",
+              file: "a2.ts",
+              claim: "",
+              evidence: "",
+              fix: "",
+            },
+          ],
+          skipped: [],
+        },
+      } as IterationEntry);
+
+      await new Promise((r) => setTimeout(r, 10));
+
+      const logPathB = await createLogSession(tempDir, "/work/project-b", "develop");
+      await appendLog(logPathB, {
+        type: "system",
+        timestamp: Date.now(),
+        projectPath: "/work/project-b",
+        gitBranch: "develop",
+        reviewer: { agent: "codex" },
+        fixer: { agent: "claude" },
+        maxIterations: 5,
+      } as SystemEntry);
+      await appendLog(logPathB, {
+        type: "iteration",
+        timestamp: Date.now(),
+        iteration: 1,
+        fixes: {
+          decision: "APPLY_MOST",
+          fixes: [
+            {
+              id: 1,
+              title: "Fix B1",
+              priority: "P2",
+              file: "b.ts",
+              claim: "",
+              evidence: "",
+              fix: "",
+            },
+          ],
+          skipped: [],
+        },
+      } as IterationEntry);
+
+      const dashboard = await buildDashboardData(tempDir, "/work/project-a");
+
+      expect(dashboard.currentProject).toBe("work-project-a");
+      expect(dashboard.globalStats.totalFixes).toBe(3);
+      expect(dashboard.globalStats.totalSessions).toBe(2);
+      expect(dashboard.globalStats.priorityCounts.P1).toBe(2);
+      expect(dashboard.globalStats.priorityCounts.P2).toBe(1);
+      expect(dashboard.globalStats.successRate).toBe(100);
+      expect(dashboard.projects.length).toBe(2);
+    });
+
+    test("handles empty logs directory", async () => {
+      const dashboard = await buildDashboardData(tempDir);
+
+      expect(dashboard.globalStats.totalFixes).toBe(0);
+      expect(dashboard.globalStats.totalSessions).toBe(0);
+      expect(dashboard.globalStats.successRate).toBe(0);
+      expect(dashboard.projects.length).toBe(0);
+    });
+
+    test("clears currentProject when requested project has no sessions", async () => {
+      const logPath = await createLogSession(tempDir, "/work/project-a", "main");
+      await appendLog(logPath, {
+        type: "system",
+        timestamp: Date.now(),
+        projectPath: "/work/project-a",
+        gitBranch: "main",
+        reviewer: { agent: "codex" },
+        fixer: { agent: "claude" },
+        maxIterations: 5,
+      } as SystemEntry);
+      await appendLog(logPath, {
+        type: "iteration",
+        timestamp: Date.now(),
+        iteration: 1,
+        fixes: { decision: "APPLY_SELECTIVELY", fixes: [], skipped: [] },
+      } as IterationEntry);
+
+      const dashboard = await buildDashboardData(tempDir, "/work/project-c");
+
+      expect(dashboard.currentProject).toBeUndefined();
+      expect(dashboard.projects.length).toBe(1);
+    });
+
+    test("calculates correct success rate with failures", async () => {
+      // Create one successful session
+      const logPath1 = await createLogSession(tempDir, "/work/project", "main");
+      await appendLog(logPath1, {
+        type: "system",
+        timestamp: Date.now(),
+        projectPath: "/work/project",
+        gitBranch: "main",
+        reviewer: { agent: "codex" },
+        fixer: { agent: "claude" },
+        maxIterations: 5,
+      } as SystemEntry);
+      await appendLog(logPath1, {
+        type: "iteration",
+        timestamp: Date.now(),
+        iteration: 1,
+        fixes: { decision: "APPLY_SELECTIVELY", fixes: [], skipped: [] },
+      } as IterationEntry);
+
+      await new Promise((r) => setTimeout(r, 10));
+
+      // Create one failed session
+      const logPath2 = await createLogSession(tempDir, "/work/project", "feature");
+      await appendLog(logPath2, {
+        type: "system",
+        timestamp: Date.now(),
+        projectPath: "/work/project",
+        gitBranch: "feature",
+        reviewer: { agent: "codex" },
+        fixer: { agent: "claude" },
+        maxIterations: 5,
+      } as SystemEntry);
+      await appendLog(logPath2, {
+        type: "iteration",
+        timestamp: Date.now(),
+        iteration: 1,
+        error: { phase: "reviewer", message: "Failed" },
+      } as IterationEntry);
+
+      const dashboard = await buildDashboardData(tempDir);
+
+      expect(dashboard.globalStats.totalSessions).toBe(2);
+      expect(dashboard.globalStats.successRate).toBe(50);
     });
   });
 });

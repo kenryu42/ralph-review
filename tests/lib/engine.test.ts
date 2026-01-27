@@ -1,14 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import {
   calculateRetryDelay,
-  createFixerPrompt,
   determineCycleResult,
   extractFixSummaryJson,
-  FIXER_NO_ISSUES_MARKER,
   fixerFoundNoIssues,
   formatAgentFailureWarning,
   parseFixSummary,
 } from "@/lib/engine";
+import { createFixerPrompt, FIXER_NO_ISSUES_MARKER } from "@/lib/prompts";
 import type { Config, RetryConfig } from "@/lib/types";
 
 // Mock config for testing

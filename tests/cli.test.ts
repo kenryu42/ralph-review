@@ -54,7 +54,7 @@ describe("cli", () => {
       expect(usage).toContain("attach");
       expect(usage).toContain("status");
       expect(usage).toContain("stop");
-      expect(usage).toContain("logs");
+      expect(usage).toContain("dash");
     });
 
     test("excludes hidden commands from main help", () => {
@@ -77,7 +77,7 @@ describe("cli", () => {
       expect(names).toContain("attach");
       expect(names).toContain("status");
       expect(names).toContain("stop");
-      expect(names).toContain("logs");
+      expect(names).toContain("dash");
       expect(names).toContain("_run-foreground");
     });
 

@@ -2,9 +2,22 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { generateLogHtml, getHtmlPath, writeLogHtml } from "@/lib/html";
+import {
+  generateDashboardHtml,
+  generateLogHtml,
+  getDashboardPath,
+  getHtmlPath,
+  writeDashboardHtml,
+  writeLogHtml,
+} from "@/lib/html";
 import { appendLog, createLogSession } from "@/lib/logger";
-import type { IterationEntry, LogEntry, SystemEntry } from "@/lib/types";
+import type {
+  DashboardData,
+  IterationEntry,
+  LogEntry,
+  SessionStats,
+  SystemEntry,
+} from "@/lib/types";
 
 describe("html", () => {
   let tempDir: string;
@@ -192,6 +205,193 @@ describe("html", () => {
       const content = await Bun.file(htmlPath).text();
       expect(content).toContain("<!DOCTYPE html>");
       expect(content).toContain("/test/my-project");
+    });
+  });
+
+  describe("getDashboardPath", () => {
+    test("returns dashboard.html path in logs directory", () => {
+      const path = getDashboardPath("/path/to/logs");
+      expect(path).toBe("/path/to/logs/dashboard.html");
+    });
+  });
+
+  describe("generateDashboardHtml", () => {
+    const createTestDashboardData = (): DashboardData => ({
+      generatedAt: Date.now(),
+      currentProject: "work-project-a",
+      globalStats: {
+        totalFixes: 42,
+        totalSkipped: 5,
+        priorityCounts: { P1: 10, P2: 15, P3: 12, P4: 5 },
+        totalSessions: 8,
+        successRate: 87,
+      },
+      projects: [
+        {
+          projectName: "work-project-a",
+          displayName: "project-a",
+          totalFixes: 25,
+          totalSkipped: 3,
+          priorityCounts: { P1: 8, P2: 10, P3: 5, P4: 2 },
+          sessionCount: 5,
+          successCount: 4,
+          sessions: [
+            {
+              sessionPath: "/logs/work-project-a/session1.jsonl",
+              sessionName: "2026-01-27T10-00-00_main.jsonl",
+              timestamp: Date.now(),
+              gitBranch: "main",
+              status: "completed",
+              totalFixes: 10,
+              totalSkipped: 1,
+              priorityCounts: { P1: 3, P2: 4, P3: 2, P4: 1 },
+              iterations: 2,
+              entries: [],
+            } as SessionStats,
+          ],
+        },
+        {
+          projectName: "work-project-b",
+          displayName: "project-b",
+          totalFixes: 17,
+          totalSkipped: 2,
+          priorityCounts: { P1: 2, P2: 5, P3: 7, P4: 3 },
+          sessionCount: 3,
+          successCount: 3,
+          sessions: [],
+        },
+      ],
+    });
+
+    test("generates valid HTML structure", () => {
+      const data = createTestDashboardData();
+      const html = generateDashboardHtml(data);
+
+      expect(html).toContain("<!DOCTYPE html>");
+      expect(html).toContain("<html");
+      expect(html).toContain("</html>");
+    });
+
+    test("includes dashboard title", () => {
+      const data = createTestDashboardData();
+      const html = generateDashboardHtml(data);
+
+      expect(html).toContain("RALPH // Code Review Dashboard");
+    });
+
+    test("shows total fixes prominently", () => {
+      const data = createTestDashboardData();
+      const html = generateDashboardHtml(data);
+
+      expect(html).toContain("42");
+      expect(html).toContain("Issues Resolved");
+    });
+
+    test("includes priority breakdown", () => {
+      const data = createTestDashboardData();
+      const html = generateDashboardHtml(data);
+
+      expect(html).toContain("P1");
+      expect(html).toContain("10");
+      expect(html).toContain("P2");
+      expect(html).toContain("15");
+    });
+
+    test("includes all projects in sidebar", () => {
+      const data = createTestDashboardData();
+      const html = generateDashboardHtml(data);
+
+      expect(html).toContain("project-a");
+      expect(html).toContain("project-b");
+    });
+
+    test("marks current project as selected", () => {
+      const data = createTestDashboardData();
+      const html = generateDashboardHtml(data);
+
+      // The current project data should be embedded
+      expect(html).toContain("work-project-a");
+      expect(html).toContain("currentProject");
+    });
+
+    test("shows success rate", () => {
+      const data = createTestDashboardData();
+      const html = generateDashboardHtml(data);
+
+      expect(html).toContain("87%");
+      expect(html).toContain("Success Rate");
+    });
+
+    test("handles empty projects", () => {
+      const data: DashboardData = {
+        generatedAt: Date.now(),
+        globalStats: {
+          totalFixes: 0,
+          totalSkipped: 0,
+          priorityCounts: { P1: 0, P2: 0, P3: 0, P4: 0 },
+          totalSessions: 0,
+          successRate: 0,
+        },
+        projects: [],
+      };
+      const html = generateDashboardHtml(data);
+
+      expect(html).toContain("<!DOCTYPE html>");
+      expect(html).toContain("0");
+    });
+
+    test("embeds dashboard data as JSON", () => {
+      const data = createTestDashboardData();
+      const html = generateDashboardHtml(data);
+
+      // Data should be embedded for client-side JS navigation
+      expect(html).toContain("dashboardData");
+      // Data is embedded directly as JSON object, not via JSON.parse
+      expect(html).toContain("const dashboardData =");
+    });
+  });
+
+  describe("writeDashboardHtml", () => {
+    test("creates dashboard.html file", async () => {
+      const data: DashboardData = {
+        generatedAt: Date.now(),
+        globalStats: {
+          totalFixes: 5,
+          totalSkipped: 1,
+          priorityCounts: { P1: 2, P2: 2, P3: 1, P4: 0 },
+          totalSessions: 2,
+          successRate: 100,
+        },
+        projects: [],
+      };
+
+      const dashboardPath = join(tempDir, "dashboard.html");
+      await writeDashboardHtml(dashboardPath, data);
+
+      const exists = await Bun.file(dashboardPath).exists();
+      expect(exists).toBe(true);
+    });
+
+    test("dashboard file contains correct data", async () => {
+      const data: DashboardData = {
+        generatedAt: Date.now(),
+        globalStats: {
+          totalFixes: 42,
+          totalSkipped: 3,
+          priorityCounts: { P1: 10, P2: 15, P3: 12, P4: 5 },
+          totalSessions: 5,
+          successRate: 80,
+        },
+        projects: [],
+      };
+
+      const dashboardPath = join(tempDir, "dashboard.html");
+      await writeDashboardHtml(dashboardPath, data);
+
+      const content = await Bun.file(dashboardPath).text();
+      expect(content).toContain("<!DOCTYPE html>");
+      expect(content).toContain("42");
+      expect(content).toContain("80%");
     });
   });
 });
