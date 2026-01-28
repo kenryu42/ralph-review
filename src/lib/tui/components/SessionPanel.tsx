@@ -13,6 +13,7 @@ import type {
   SessionStats,
   SkippedEntry,
 } from "@/lib/types";
+import { Spinner } from "./Spinner";
 
 interface SessionPanelProps {
   session: LockData | null;
@@ -163,6 +164,11 @@ export function SessionPanel({
         >
           <text fg="#9ca3af">No active session</text>
 
+          <text fg="#6b7280">Start a review with "rr run"</text>
+
+          {/* Spacer to push Config to bottom */}
+          <box flexGrow={1} />
+
           {/* Config */}
           <box flexDirection="column">
             <text fg="#9ca3af">Config:</text>
@@ -179,8 +185,6 @@ export function SessionPanel({
               Timeout per iteration: {Math.round(config.iterationTimeout / 60000)}m
             </text>
           </box>
-
-          <text fg="#6b7280">Start a review with "rr run"</text>
         </box>
       );
     }
@@ -228,6 +232,9 @@ export function SessionPanel({
           </box>
         )}
 
+        {/* Spacer to push Config to bottom */}
+        <box flexGrow={1} />
+
         {/* Config */}
         <box flexDirection="column">
           <text fg="#9ca3af">Config:</text>
@@ -244,8 +251,6 @@ export function SessionPanel({
             Timeout per iteration: {Math.round(config.iterationTimeout / 60000)}m
           </text>
         </box>
-
-        <text fg="#6b7280">Start a review with "rr run"</text>
       </box>
     );
   }
@@ -268,6 +273,7 @@ export function SessionPanel({
       {/* Status */}
       <box flexDirection="row" gap={1}>
         <text fg="#9ca3af">Status:</text>
+        {session.status === "running" && <Spinner color={statusColor} />}
         <text fg={statusColor}>
           <strong>{statusText}</strong>
         </text>
