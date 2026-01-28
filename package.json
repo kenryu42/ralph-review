@@ -31,10 +31,12 @@
   },
   "bin": {
     "ralph-review": "./src/cli.ts",
-    "rr": "./src/cli.ts"
+    "rr": "./src/cli.ts",
+    "rrr": "./src/cli-rrr.ts"
   },
   "files": [
     "src/cli.ts",
+    "src/cli-rrr.ts",
     "src/commands",
     "src/lib"
   ],
