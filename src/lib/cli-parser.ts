@@ -302,7 +302,7 @@ export function formatMainHelp(commands: CommandDef[], version: string): string 
   lines.push("");
   lines.push("USAGE:");
   lines.push("  rr <command> [options]");
-  lines.push("  rrr           Shortcut for 'rr run -b'");
+  lines.push("  rrr           Quick alias for 'rr run'");
   lines.push("");
   lines.push("COMMANDS:");
 

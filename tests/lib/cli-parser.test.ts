@@ -12,18 +12,18 @@ const commandWithValues: CommandDef = {
   name: "run",
   description: "Run something",
   options: [
-    { name: "background", alias: "b", type: "boolean", description: "Run in background" },
+    { name: "force", alias: "f", type: "boolean", description: "Force operation" },
     { name: "list", alias: "l", type: "boolean", description: "List items" },
     { name: "max", alias: "m", type: "number", description: "Max iterations", default: 5 },
     { name: "output", alias: "o", type: "string", description: "Output file" },
   ],
-  examples: ["rr run", "rr run -b", "rr run --max=3"],
+  examples: ["rr run", "rr run --max=3"],
 };
 
 const commandWithPositional: CommandDef = {
-  name: "attach",
-  description: "Attach to session",
-  positional: [{ name: "session", description: "Session name to attach to" }],
+  name: "connect",
+  description: "Connect to session",
+  positional: [{ name: "session", description: "Session name to connect to" }],
 };
 
 const commandWithRequiredOption: CommandDef = {
@@ -59,8 +59,8 @@ describe("cli-parser", () => {
       });
 
       test("parses multiple boolean flags", () => {
-        const result = parseCommand(commandWithValues, ["-b", "--list"]);
-        expect(result.values.background).toBe(true);
+        const result = parseCommand(commandWithValues, ["-f", "--list"]);
+        expect(result.values.force).toBe(true);
         expect(result.values.list).toBe(true);
       });
     });
@@ -116,8 +116,8 @@ describe("cli-parser", () => {
       });
 
       test("captures positional mixed with flags", () => {
-        const result = parseCommand(commandWithValues, ["--background", "arg1", "arg2"]);
-        expect(result.values.background).toBe(true);
+        const result = parseCommand(commandWithValues, ["--list", "arg1", "arg2"]);
+        expect(result.values.list).toBe(true);
         expect(result.positional).toEqual(["arg1", "arg2"]);
       });
 
@@ -236,7 +236,7 @@ describe("cli-parser", () => {
     test("shows examples when provided", () => {
       const help = formatCommandHelp(commandWithValues);
       expect(help).toContain("rr run");
-      expect(help).toContain("rr run -b");
+      expect(help).toContain("rr run --max=3");
     });
 
     test("shows positional arguments", () => {

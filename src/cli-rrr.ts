@@ -1,7 +1,6 @@
 #!/usr/bin/env bun
 /**
- * rrr - Shortcut for `rr run -b`
- * Starts a background review session with -b (background) flag always set
+ * rrr - Quick alias for rr run
  */
 
 import { printCommandHelp } from "./cli";
@@ -11,11 +10,10 @@ const userArgs = process.argv.slice(2);
 
 // Handle --help specially
 if (userArgs.includes("--help") || userArgs.includes("-h")) {
-  console.log("rrr - Shortcut for 'rr run -b'\n");
+  console.log("rrr - Quick alias for 'rr run'\n");
   console.log("USAGE:");
   console.log("  rrr [options]\n");
-  console.log("This command always runs in background mode (-b).");
-  console.log("All other options are passed through to 'rr run'.\n");
+  console.log("All options are passed through to 'rr run'.\n");
   const help = printCommandHelp("run");
   if (help) {
     // Extract just the OPTIONS section from run help
@@ -27,11 +25,7 @@ if (userArgs.includes("--help") || userArgs.includes("-h")) {
   process.exit(0);
 }
 
-// Forward user args but always include -b (unless already present)
-const hasBackground = userArgs.includes("-b") || userArgs.includes("--background");
-const args = hasBackground ? userArgs : ["-b", ...userArgs];
-
-runRun(args).catch((error) => {
+runRun(userArgs).catch((error) => {
   console.error(`Error: ${error}`);
   process.exit(1);
 });
