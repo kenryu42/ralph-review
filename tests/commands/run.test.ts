@@ -17,21 +17,6 @@ describe("run command", () => {
     const runDef = getCommandDef("run");
     if (!runDef) throw new Error("run command def not found");
 
-    test("defaults to interactive mode (background: false)", () => {
-      const { values } = parseCommand<RunOptions>(runDef, []);
-      expect(values.background).toBe(false);
-    });
-
-    test("parses --background flag", () => {
-      const { values } = parseCommand<RunOptions>(runDef, ["--background"]);
-      expect(values.background).toBe(true);
-    });
-
-    test("parses -b shorthand", () => {
-      const { values } = parseCommand<RunOptions>(runDef, ["-b"]);
-      expect(values.background).toBe(true);
-    });
-
     test("parses --max=N option", () => {
       const { values } = parseCommand<RunOptions>(runDef, ["--max=5"]);
       expect(values.max).toBe(5);

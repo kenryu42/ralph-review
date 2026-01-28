@@ -193,7 +193,7 @@ function handleCancel(value: unknown): asserts value is string {
 /**
  * Get display name for an agent type
  */
-function getAgentDisplayName(agent: AgentType): string {
+export function getAgentDisplayName(agent: AgentType): string {
   const option = agentOptions.find((opt) => opt.value === agent);
   return option?.label ?? agent;
 }
@@ -201,7 +201,7 @@ function getAgentDisplayName(agent: AgentType): string {
 /**
  * Get display name for a model
  */
-function getModelDisplayName(agent: AgentType, model: string): string {
+export function getModelDisplayName(agent: AgentType, model: string): string {
   let options: readonly { value: string; label: string }[];
 
   switch (agent) {

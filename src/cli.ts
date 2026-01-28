@@ -5,7 +5,6 @@
  */
 
 import * as p from "@clack/prompts";
-import { runAttach } from "./commands/attach";
 import { runDash } from "./commands/dash";
 import { runInit } from "./commands/init";
 import { runList } from "./commands/list";
@@ -26,11 +25,8 @@ export const COMMANDS: CommandDef[] = [
   {
     name: "run",
     description: "Start review cycle",
-    options: [
-      { name: "background", alias: "b", type: "boolean", description: "Run in background" },
-      { name: "max", alias: "m", type: "number", description: "Max iterations" },
-    ],
-    examples: ["rr run", "rr run -b", "rr run --max=3"],
+    options: [{ name: "max", alias: "m", type: "number", description: "Max iterations" }],
+    examples: ["rr run", "rr run --max=3"],
   },
   {
     name: "list",
@@ -39,20 +35,16 @@ export const COMMANDS: CommandDef[] = [
     examples: ["rr list", "rr ls"],
   },
   {
-    name: "attach",
-    description: "Attach to running review session",
-    positional: [{ name: "session", description: "Session name to attach to" }],
-    examples: ["rr attach", "rr attach ralph-2024-01-01_12-00"],
-  },
-  {
     name: "status",
-    description: "Show current review progress",
+    description: "Show review status",
     examples: ["rr status"],
   },
   {
     name: "stop",
     description: "Stop running review session",
-    options: [{ name: "all", alias: "A", type: "boolean", description: "Stop all sessions" }],
+    options: [
+      { name: "all", alias: "A", type: "boolean", description: "Stop all running review sessions" },
+    ],
     examples: ["rr stop", "rr stop --all"],
   },
   {
@@ -187,10 +179,6 @@ async function main(): Promise<void> {
       case "_run-foreground":
         // Internal command used by tmux
         await runForeground(args);
-        break;
-
-      case "attach":
-        await runAttach(args);
         break;
 
       case "status":

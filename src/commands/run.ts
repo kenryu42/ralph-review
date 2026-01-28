@@ -18,20 +18,13 @@ import {
   updateLockfile,
 } from "@/lib/lockfile";
 import { getGitBranch } from "@/lib/logger";
-import {
-  attachSession,
-  createSession,
-  generateSessionName,
-  isInsideTmux,
-  isTmuxInstalled,
-} from "@/lib/tmux";
+import { createSession, generateSessionName, isInsideTmux, isTmuxInstalled } from "@/lib/tmux";
 import type { Config } from "@/lib/types";
 
 /**
  * Options parsed from run command arguments
  */
 export interface RunOptions {
-  background: boolean;
   max?: number;
 }
 
@@ -147,56 +140,10 @@ async function runInBackground(_config: Config, maxIterations?: number): Promise
   try {
     await createSession(sessionName, command);
     p.log.success(`Review started in background session: ${sessionName}`);
-    p.note(
-      "rr attach  - View live progress\n" +
-        "rr status  - Check status\n" +
-        "rr stop    - Stop the review",
-      "Commands"
-    );
+    p.note("rr status  - Check status\n" + "rr stop    - Stop the review", "Commands");
   } catch (error) {
     await removeLockfile(undefined, projectPath, branch);
     p.log.error(`Failed to start background session: ${error}`);
-    process.exit(1);
-  }
-}
-
-/**
- * Run full review cycle in tmux and immediately attach (interactive mode)
- */
-async function runInteractive(_config: Config, maxIterations?: number): Promise<void> {
-  // Check tmux is installed
-  if (!isTmuxInstalled()) {
-    p.log.error("tmux is not installed. Install with: brew install tmux");
-    process.exit(1);
-  }
-
-  const projectPath = process.cwd();
-  const branch = await getGitBranch(projectPath);
-  const sessionName = generateSessionName();
-
-  // Create lockfile for this project+branch
-  await createLockfile(undefined, projectPath, branch, sessionName);
-
-  // Build the command to run in tmux
-  // Pass project path and branch via environment variables
-  // Always use main cli.ts, not whatever entry point was used (e.g., cli-rrr.ts)
-  const cliPath = `${import.meta.dir}/../cli.ts`;
-  const maxIterArg = maxIterations ? ` --max=${maxIterations}` : "";
-  const envVars = `RR_PROJECT_PATH="${projectPath}" RR_GIT_BRANCH="${branch ?? ""}"`;
-  const command = `${envVars} ${process.execPath} ${cliPath} _run-foreground${maxIterArg}`;
-
-  try {
-    await createSession(sessionName, command);
-    p.log.success(`Review started: ${sessionName}`);
-
-    // Show detach hint BEFORE attaching
-    p.note("Detach with: Ctrl-B d", "tmux tip");
-
-    // Immediately attach to the session
-    await attachSession(sessionName);
-  } catch (error) {
-    await removeLockfile(undefined, projectPath, branch);
-    p.log.error(`Failed to start session: ${error}`);
     process.exit(1);
   }
 }
@@ -296,16 +243,10 @@ export async function runRun(args: string[]): Promise<void> {
     process.exit(1);
   }
 
-  // Check if inside tmux - force background mode with warning
-  if (isInsideTmux() && !options.background) {
-    p.log.warn("Running inside tmux session. Using background mode to avoid nesting.");
-    options.background = true;
+  // Check if inside tmux - warn about nesting
+  if (isInsideTmux()) {
+    p.log.warn("Running inside tmux session. Review will start in a nested session.");
   }
 
-  // Run in background or interactive mode based on flag
-  if (options.background) {
-    await runInBackground(config, options.max);
-  } else {
-    await runInteractive(config, options.max);
-  }
+  await runInBackground(config, options.max);
 }

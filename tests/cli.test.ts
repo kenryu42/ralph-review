@@ -52,7 +52,6 @@ describe("cli", () => {
       expect(usage).toContain("init");
       expect(usage).toContain("run");
       expect(usage).toContain("list");
-      expect(usage).toContain("attach");
       expect(usage).toContain("status");
       expect(usage).toContain("stop");
       expect(usage).toContain("dash");
@@ -76,7 +75,6 @@ describe("cli", () => {
       expect(names).toContain("init");
       expect(names).toContain("run");
       expect(names).toContain("list");
-      expect(names).toContain("attach");
       expect(names).toContain("status");
       expect(names).toContain("stop");
       expect(names).toContain("dash");
@@ -87,7 +85,6 @@ describe("cli", () => {
       const runCmd = COMMANDS.find((c) => c.name === "run");
       expect(runCmd).toBeDefined();
       const optionNames = runCmd?.options?.map((o) => o.name) ?? [];
-      expect(optionNames).toContain("background");
       expect(optionNames).toContain("max");
       expect(optionNames).not.toContain("list");
     });
@@ -122,8 +119,6 @@ describe("cli", () => {
     test("returns help for valid command", () => {
       const help = printCommandHelp("run");
       expect(help).toBeDefined();
-      expect(help).toContain("--background");
-      expect(help).toContain("-b");
       expect(help).toContain("--max");
     });
 
@@ -144,12 +139,6 @@ describe("cli", () => {
     test("returns undefined for invalid command", () => {
       const help = printCommandHelp("nonexistent");
       expect(help).toBeUndefined();
-    });
-
-    test("shows positional arguments in attach command help", () => {
-      const help = printCommandHelp("attach");
-      expect(help).toBeDefined();
-      expect(help).toContain("<session>");
     });
   });
 });
