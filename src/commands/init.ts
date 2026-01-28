@@ -133,6 +133,7 @@ const droidModelOptions = [
   { value: "gemini-3-pro-preview", label: "Gemini 3 Pro" },
   { value: "gemini-3-flash-preview", label: "Gemini 3 Flash" },
   { value: "glm-4.7", label: "Droid Core (GLM-4.7)" },
+  { value: "kimi-k2.5", label: "Droid Core (Kimi K2.5)" },
 ] as const;
 
 const geminiModelOptions = [
