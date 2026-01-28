@@ -228,6 +228,8 @@ export const AGENTS: Record<AgentType, AgentConfig> = {
       if (role === "reviewer") {
         return [
           "exec",
+          "--auto",
+          "medium",
           "--model",
           effectiveModel,
           "--reasoning-effort",
