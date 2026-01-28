@@ -20,7 +20,6 @@ describe("run command", () => {
     test("defaults to interactive mode (background: false)", () => {
       const { values } = parseCommand<RunOptions>(runDef, []);
       expect(values.background).toBe(false);
-      expect(values.list).toBe(false);
     });
 
     test("parses --background flag", () => {
@@ -31,20 +30,6 @@ describe("run command", () => {
     test("parses -b shorthand", () => {
       const { values } = parseCommand<RunOptions>(runDef, ["-b"]);
       expect(values.background).toBe(true);
-    });
-
-    test("parses --list flag", () => {
-      const { values } = parseCommand<RunOptions>(runDef, ["--list"]);
-      expect(values.list).toBe(true);
-    });
-
-    test("parses -l shorthand (not -ls)", () => {
-      const { values } = parseCommand<RunOptions>(runDef, ["-l"]);
-      expect(values.list).toBe(true);
-    });
-
-    test("rejects -ls as invalid multi-char short option", () => {
-      expect(() => parseCommand<RunOptions>(runDef, ["-ls"])).toThrow();
     });
 
     test("parses --max=N option", () => {

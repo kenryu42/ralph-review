@@ -24,7 +24,6 @@ import {
   generateSessionName,
   isInsideTmux,
   isTmuxInstalled,
-  listRalphSessions,
 } from "@/lib/tmux";
 import type { Config } from "@/lib/types";
 
@@ -33,7 +32,6 @@ import type { Config } from "@/lib/types";
  */
 export interface RunOptions {
   background: boolean;
-  list: boolean;
   max?: number;
 }
 
@@ -122,21 +120,6 @@ export async function validatePrerequisites(): Promise<string[]> {
 }
 
 /**
- * List all running ralph-review sessions
- */
-async function listActiveSessions(): Promise<void> {
-  const sessions = await listRalphSessions();
-  if (sessions.length === 0) {
-    p.log.info("No active review sessions.");
-  } else {
-    p.log.info("Active review sessions:");
-    for (const session of sessions) {
-      console.log(session);
-    }
-  }
-}
-
-/**
  * Run full review cycle in tmux background
  */
 async function runInBackground(_config: Config, maxIterations?: number): Promise<void> {
@@ -155,7 +138,8 @@ async function runInBackground(_config: Config, maxIterations?: number): Promise
 
   // Build the command to run in tmux
   // Pass project path and branch via environment variables
-  const cliPath = process.argv[1]; // Path to current CLI
+  // Always use main cli.ts, not whatever entry point was used (e.g., cli-rrr.ts)
+  const cliPath = `${import.meta.dir}/../cli.ts`;
   const maxIterArg = maxIterations ? ` --max=${maxIterations}` : "";
   const envVars = `RR_PROJECT_PATH="${projectPath}" RR_GIT_BRANCH="${branch ?? ""}"`;
   const command = `${envVars} ${process.execPath} ${cliPath} _run-foreground${maxIterArg}`;
@@ -166,8 +150,7 @@ async function runInBackground(_config: Config, maxIterations?: number): Promise
     p.note(
       "rr attach  - View live progress\n" +
         "rr status  - Check status\n" +
-        "rr stop    - Stop the review\n" +
-        "rr dash    - View logs in browser",
+        "rr stop    - Stop the review",
       "Commands"
     );
   } catch (error) {
@@ -196,7 +179,8 @@ async function runInteractive(_config: Config, maxIterations?: number): Promise<
 
   // Build the command to run in tmux
   // Pass project path and branch via environment variables
-  const cliPath = process.argv[1]; // Path to current CLI
+  // Always use main cli.ts, not whatever entry point was used (e.g., cli-rrr.ts)
+  const cliPath = `${import.meta.dir}/../cli.ts`;
   const maxIterArg = maxIterations ? ` --max=${maxIterations}` : "";
   const envVars = `RR_PROJECT_PATH="${projectPath}" RR_GIT_BRANCH="${branch ?? ""}"`;
   const command = `${envVars} ${process.execPath} ${cliPath} _run-foreground${maxIterArg}`;
@@ -293,18 +277,6 @@ export async function runRun(args: string[]): Promise<void> {
   if (options.max !== undefined && options.max <= 0) {
     p.log.error("--max must be a positive number");
     process.exit(1);
-  }
-
-  // Check for conflicting flags
-  if (options.background && options.list) {
-    p.log.error("Cannot use --background and --list together");
-    process.exit(1);
-  }
-
-  // Handle --list flag (no prerequisites needed)
-  if (options.list) {
-    await listActiveSessions();
-    return;
   }
 
   // Validate prerequisites

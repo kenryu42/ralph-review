@@ -51,6 +51,7 @@ describe("cli", () => {
       expect(usage).toContain("ralph-review");
       expect(usage).toContain("init");
       expect(usage).toContain("run");
+      expect(usage).toContain("list");
       expect(usage).toContain("attach");
       expect(usage).toContain("status");
       expect(usage).toContain("stop");
@@ -74,6 +75,7 @@ describe("cli", () => {
       const names = COMMANDS.map((c) => c.name);
       expect(names).toContain("init");
       expect(names).toContain("run");
+      expect(names).toContain("list");
       expect(names).toContain("attach");
       expect(names).toContain("status");
       expect(names).toContain("stop");
@@ -86,14 +88,14 @@ describe("cli", () => {
       expect(runCmd).toBeDefined();
       const optionNames = runCmd?.options?.map((o) => o.name) ?? [];
       expect(optionNames).toContain("background");
-      expect(optionNames).toContain("list");
       expect(optionNames).toContain("max");
+      expect(optionNames).not.toContain("list");
     });
 
-    test("run command uses -l alias (not -ls)", () => {
-      const runCmd = COMMANDS.find((c) => c.name === "run");
-      const listOpt = runCmd?.options?.find((o) => o.name === "list");
-      expect(listOpt?.alias).toBe("l");
+    test("list command has ls alias", () => {
+      const listCmd = COMMANDS.find((c) => c.name === "list");
+      expect(listCmd).toBeDefined();
+      expect(listCmd?.aliases).toContain("ls");
     });
   });
 
@@ -102,6 +104,12 @@ describe("cli", () => {
       const def = getCommandDef("run");
       expect(def).toBeDefined();
       expect(def?.name).toBe("run");
+    });
+
+    test("returns command definition when given alias", () => {
+      const def = getCommandDef("ls");
+      expect(def).toBeDefined();
+      expect(def?.name).toBe("list");
     });
 
     test("returns undefined for invalid command", () => {
@@ -116,8 +124,21 @@ describe("cli", () => {
       expect(help).toBeDefined();
       expect(help).toContain("--background");
       expect(help).toContain("-b");
-      expect(help).toContain("--list");
-      expect(help).toContain("-l");
+      expect(help).toContain("--max");
+    });
+
+    test("returns help for list command", () => {
+      const help = printCommandHelp("list");
+      expect(help).toBeDefined();
+      expect(help).toContain("rr list");
+      expect(help).toContain("rr ls");
+    });
+
+    test("returns help when given alias (ls -> list)", () => {
+      const help = printCommandHelp("ls");
+      expect(help).toBeDefined();
+      expect(help).toContain("rr list");
+      expect(help).toContain("rr ls");
     });
 
     test("returns undefined for invalid command", () => {

@@ -35,7 +35,7 @@ export async function runAttach(args: string[] = []): Promise<void> {
     // Attach to specific session
     if (!(await sessionExists(targetSession))) {
       p.log.error(`Session '${targetSession}' not found.`);
-      p.log.message('Use "rr run --list" to see active sessions.');
+      p.log.message('Use "rr list" to see active sessions.');
       process.exit(1);
     }
 

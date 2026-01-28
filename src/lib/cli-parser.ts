@@ -29,6 +29,7 @@ export interface PositionalDef {
  */
 export interface CommandDef {
   name: string;
+  aliases?: string[]; // e.g., ["ls"] for "list"
   description: string;
   options?: OptionDef[];
   positional?: PositionalDef[];
@@ -297,19 +298,25 @@ export function formatCommandHelp(def: CommandDef): string {
 export function formatMainHelp(commands: CommandDef[], version: string): string {
   const lines: string[] = [];
 
-  lines.push(`ralph-review v${version} - AI-powered code review CLI`);
+  lines.push(`ralph-review v${version} - Ralph Wiggum Code Review Orchestrator`);
   lines.push("");
   lines.push("USAGE:");
   lines.push("  rr <command> [options]");
+  lines.push("  rrr           Shortcut for 'rr run -b'");
   lines.push("");
   lines.push("COMMANDS:");
 
   // Filter out hidden commands and format
   const publicCommands = commands.filter((c) => !c.hidden);
-  const maxNameLen = Math.max(...publicCommands.map((c) => c.name.length));
+
+  // Calculate max display name length (including aliases like "list (ls)")
+  const getDisplayName = (cmd: CommandDef): string =>
+    cmd.aliases?.length ? `${cmd.name} (${cmd.aliases.join(", ")})` : cmd.name;
+  const maxNameLen = Math.max(...publicCommands.map((c) => getDisplayName(c).length));
 
   for (const cmd of publicCommands) {
-    lines.push(`  ${cmd.name.padEnd(maxNameLen + 2)} ${cmd.description}`);
+    const displayName = getDisplayName(cmd);
+    lines.push(`  ${displayName.padEnd(maxNameLen + 2)} ${cmd.description}`);
   }
 
   lines.push("");

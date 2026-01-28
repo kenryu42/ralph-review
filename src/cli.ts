@@ -8,6 +8,7 @@ import * as p from "@clack/prompts";
 import { runAttach } from "./commands/attach";
 import { runDash } from "./commands/dash";
 import { runInit } from "./commands/init";
+import { runList } from "./commands/list";
 import { runForeground, runRun } from "./commands/run";
 import { runStatus } from "./commands/status";
 import { runStop } from "./commands/stop";
@@ -27,10 +28,15 @@ export const COMMANDS: CommandDef[] = [
     description: "Start review cycle",
     options: [
       { name: "background", alias: "b", type: "boolean", description: "Run in background" },
-      { name: "list", alias: "l", type: "boolean", description: "List active sessions" },
       { name: "max", alias: "m", type: "number", description: "Max iterations" },
     ],
-    examples: ["rr run", "rr run -b", "rr run --max=3", "rr run -l"],
+    examples: ["rr run", "rr run -b", "rr run --max=3"],
+  },
+  {
+    name: "list",
+    aliases: ["ls"],
+    description: "List active review sessions",
+    examples: ["rr list", "rr ls"],
   },
   {
     name: "attach",
@@ -66,10 +72,10 @@ export const COMMANDS: CommandDef[] = [
 ];
 
 /**
- * Get command definition by name
+ * Get command definition by name or alias
  */
 export function getCommandDef(name: string): CommandDef | undefined {
-  return COMMANDS.find((c) => c.name === name);
+  return COMMANDS.find((c) => c.name === name || c.aliases?.includes(name));
 }
 
 /**
@@ -165,8 +171,11 @@ async function main(): Promise<void> {
     return;
   }
 
+  // Resolve command aliases (e.g., "ls" -> "list")
+  const resolvedCommand = COMMANDS.find((c) => c.aliases?.includes(command))?.name ?? command;
+
   try {
-    switch (command) {
+    switch (resolvedCommand) {
       case "init":
         await runInit();
         break;
@@ -194,6 +203,10 @@ async function main(): Promise<void> {
 
       case "dash":
         await runDash(args);
+        break;
+
+      case "list":
+        await runList();
         break;
 
       default:
