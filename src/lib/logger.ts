@@ -227,7 +227,7 @@ export async function getLatestProjectLogSession(
  * - interrupted: user stopped it
  * - unknown: no iteration entries found
  */
-export function deriveRunStatus(entries: LogEntry[]): DerivedRunStatus {
+function deriveRunStatus(entries: LogEntry[]): DerivedRunStatus {
   // Find all iteration entries
   const iterations = entries.filter(
     (e): e is import("./types").IterationEntry => e.type === "iteration"

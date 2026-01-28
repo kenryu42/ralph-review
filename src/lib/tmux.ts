@@ -75,20 +75,6 @@ export async function createSession(name: string, command: string): Promise<void
 }
 
 /**
- * Attach to an existing tmux session
- * This will take over the terminal
- */
-export async function attachSession(name: string): Promise<void> {
-  // Use exec to replace the current process
-  const proc = Bun.spawn(["tmux", "attach-session", "-t", name], {
-    stdin: "inherit",
-    stdout: "inherit",
-    stderr: "inherit",
-  });
-  await proc.exited;
-}
-
-/**
  * Send interrupt signal (Ctrl-C) to a tmux session
  */
 export async function sendInterrupt(name: string): Promise<void> {
@@ -138,12 +124,30 @@ export async function listRalphSessions(): Promise<string[]> {
  * Get the most recent output from a tmux session's pane
  */
 export async function getSessionOutput(name: string, lines: number = 50): Promise<string> {
+  const safeLines = Number.isFinite(lines) && lines > 0 ? Math.floor(lines) : 50;
+  const timeoutMs = 750;
+
   try {
-    const result = await $`tmux capture-pane -t ${name} -p -S -${lines}`.quiet();
-    if (result.exitCode !== 0) {
+    const proc = Bun.spawn(["tmux", "capture-pane", "-t", name, "-p", "-S", `-${safeLines}`], {
+      stdout: "pipe",
+      stderr: "ignore",
+    });
+
+    let timedOut = false;
+    const timeoutId = setTimeout(() => {
+      timedOut = true;
+      proc.kill();
+    }, timeoutMs);
+
+    await proc.exited.catch(() => {});
+    clearTimeout(timeoutId);
+
+    if (timedOut || proc.exitCode !== 0 || !proc.stdout) {
       return "";
     }
-    return result.text().trim();
+
+    const output = await new Response(proc.stdout).text();
+    return output.trim();
   } catch {
     return "";
   }

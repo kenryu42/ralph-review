@@ -134,7 +134,7 @@ export const AGENTS: Record<AgentType, AgentConfig> = {
       if (role === "reviewer") {
         const args = ["review", "--uncommitted"];
         if (model) {
-          args.push("--model", model);
+          args.unshift("--model", model);
         }
         return args;
       } else {

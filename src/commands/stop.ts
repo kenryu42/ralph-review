@@ -102,7 +102,9 @@ async function stopCurrentSession(): Promise<void> {
     const allSessions = await listAllActiveSessions();
     if (allSessions.length > 0) {
       p.log.message(`\nThere are ${allSessions.length} other session(s) running.`);
-      p.log.message('Use "rr stop --all" to stop all sessions, or "rr status" to see details.');
+      p.log.message(
+        'Use "rr stop --all" to stop all running review sessions, or "rr status" to see details.'
+      );
     }
     return;
   }
