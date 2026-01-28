@@ -1,0 +1,199 @@
+/**
+ * Hook for managing dashboard state with automatic refresh
+ */
+
+import { useCallback, useEffect, useRef, useState } from "react";
+import { loadConfig } from "@/lib/config";
+import { listAllActiveSessions, readLockfile } from "@/lib/lockfile";
+import {
+  computeProjectStats,
+  computeSessionStats,
+  getLatestProjectLogSession,
+  getProjectName,
+  listProjectLogSessions,
+  readLog,
+} from "@/lib/logger";
+import { getSessionOutput } from "@/lib/tmux";
+import type {
+  FixEntry,
+  IterationEntry,
+  ProjectStats,
+  SessionStats,
+  SkippedEntry,
+  SystemEntry,
+} from "@/lib/types";
+import type { DashboardState } from "./types";
+
+const DEFAULT_REFRESH_INTERVAL = 1000;
+const TMUX_REFRESH_INTERVAL = 300;
+
+/**
+ * Hook that manages dashboard state with periodic polling
+ */
+export function useDashboardState(
+  projectPath: string,
+  branch?: string,
+  refreshInterval: number = DEFAULT_REFRESH_INTERVAL
+): DashboardState {
+  const [state, setState] = useState<DashboardState>({
+    sessions: [],
+    currentSession: null,
+    logEntries: [],
+    fixes: [],
+    skipped: [],
+    tmuxOutput: "",
+    elapsed: 0,
+    maxIterations: 0,
+    error: null,
+    isLoading: true,
+    lastSessionStats: null,
+    projectStats: null,
+    config: null,
+  });
+
+  // Use ref to avoid stale closure issues
+  const stateRef = useRef(state);
+  stateRef.current = state;
+
+  // Guard against overlapping refresh calls
+  const isRefreshingRef = useRef(false);
+  const lastTmuxCaptureRef = useRef(0);
+  const lastTmuxOutputRef = useRef("");
+  const lastTmuxSessionRef = useRef<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    // Skip if already refreshing to prevent overlap
+    if (isRefreshingRef.current) return;
+    isRefreshingRef.current = true;
+
+    try {
+      // Fetch all data in parallel
+      const [sessions, lockData, logSession, config] = await Promise.all([
+        listAllActiveSessions(),
+        readLockfile(undefined, projectPath, branch),
+        getLatestProjectLogSession(undefined, projectPath),
+        loadConfig().catch(() => null),
+      ]);
+
+      // Read log entries if we have a log session
+      let logEntries = stateRef.current.logEntries;
+      if (logSession) {
+        logEntries = await readLog(logSession.path);
+      }
+
+      // Extract fixes and skipped from entries
+      const fixes: FixEntry[] = [];
+      const skipped: SkippedEntry[] = [];
+      let maxIterations = 0;
+
+      for (const entry of logEntries) {
+        if (entry.type === "system") {
+          maxIterations = (entry as SystemEntry).maxIterations;
+        } else if (entry.type === "iteration") {
+          const iterEntry = entry as IterationEntry;
+          if (iterEntry.fixes) {
+            fixes.push(...iterEntry.fixes.fixes);
+            skipped.push(...iterEntry.fixes.skipped);
+          }
+        }
+      }
+
+      // Get tmux output if we have a session
+      let tmuxOutput = lastTmuxOutputRef.current;
+      const sessionName = lockData?.sessionName ?? null;
+      const now = Date.now();
+
+      if (!sessionName) {
+        tmuxOutput = "";
+        lastTmuxOutputRef.current = "";
+        lastTmuxSessionRef.current = null;
+        lastTmuxCaptureRef.current = 0;
+      } else {
+        const sessionChanged = sessionName !== lastTmuxSessionRef.current;
+        const shouldCapture =
+          sessionChanged || now - lastTmuxCaptureRef.current >= TMUX_REFRESH_INTERVAL;
+
+        if (shouldCapture) {
+          // Capture enough lines to fill most terminal sizes
+          tmuxOutput = await getSessionOutput(sessionName, 100);
+          lastTmuxOutputRef.current = tmuxOutput;
+          lastTmuxSessionRef.current = sessionName;
+          lastTmuxCaptureRef.current = now;
+        }
+      }
+
+      // Calculate elapsed time
+      const elapsed = lockData ? Date.now() - lockData.startTime : 0;
+
+      // Compute stats when no active session
+      let lastSessionStats: SessionStats | null = null;
+      let projectStats: ProjectStats | null = null;
+
+      if (!lockData) {
+        // Get all sessions for this project
+        const projectSessions = await listProjectLogSessions(undefined, projectPath);
+        const latestSession = projectSessions[0];
+
+        if (latestSession) {
+          // Compute last session stats from most recent
+          lastSessionStats = await computeSessionStats(latestSession);
+
+          // Compute project lifetime stats
+          projectStats = await computeProjectStats(getProjectName(projectPath), projectSessions);
+        }
+      }
+
+      setState({
+        sessions,
+        currentSession: lockData,
+        logEntries,
+        fixes,
+        skipped,
+        tmuxOutput,
+        elapsed,
+        maxIterations,
+        error: null,
+        isLoading: false,
+        lastSessionStats,
+        projectStats,
+        config,
+      });
+    } catch (error) {
+      setState((prev: DashboardState) => ({
+        ...prev,
+        error: error instanceof Error ? error.message : "Unknown error",
+        isLoading: false,
+      }));
+    } finally {
+      isRefreshingRef.current = false;
+    }
+  }, [projectPath, branch]);
+
+  // Initial fetch
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  // Periodic refresh
+  useEffect(() => {
+    const interval = setInterval(refresh, refreshInterval);
+    return () => clearInterval(interval);
+  }, [refresh, refreshInterval]);
+
+  // Update elapsed time every second (separate from data refresh)
+  useEffect(() => {
+    if (!state.currentSession) return;
+
+    const startTime = state.currentSession.startTime;
+    const interval = setInterval(() => {
+      setState((prev: DashboardState) => ({
+        ...prev,
+        elapsed: Date.now() - startTime,
+      }));
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [state.currentSession]);
+
+  return state;
+}
