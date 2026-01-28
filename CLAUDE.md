@@ -59,7 +59,7 @@ Each agent (codex, claude, opencode) is defined in `AGENTS` registry with:
 Commands in `src/commands/` map 1:1 to CLI subcommands:
 - `init.ts` - Configure agents interactively
 - `run.ts` - Start review cycle (spawns tmux, then `_run-foreground`)
-- `attach.ts`, `status.ts`, `stop.ts` - Session management
+- `status.ts`, `stop.ts` - Session management
 - `logs.ts` - Open HTML log viewer
 
 ## Code Style
@@ -75,4 +75,6 @@ See `AGENTS.md` for detailed style guidelines. Key points:
 
 Run `bun run check` to ensure all checks pass.
 
-**Never commit changes unless Liew explicitly asks you to.** Wait for explicit instructions like "commit this" or "make a commit" before running any git commit commands.
+**Always use `bun run check` to verify changes.** Do not run `bun run lint`, `bun test`, or `bun run knip` separately - use `bun run check` which runs all of them together.
+
+**Never commit changes unless explicitly asked.** Wait for explicit instructions like "commit this" or "make a commit" before running any git commit commands.

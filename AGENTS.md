@@ -143,7 +143,7 @@ describe("parseArgs", () => {
 ```
 src/
 ├── cli.ts              # Entry point, argument parsing
-├── commands/           # CLI subcommands (init, run, stop, attach, status, logs)
+├── commands/           # CLI subcommands (init, run, stop, status, logs)
 └── lib/                # Core logic
     ├── types.ts        # Type definitions (AgentType, Config, etc.)
     ├── config.ts       # Config file management

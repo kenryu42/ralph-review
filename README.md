@@ -77,9 +77,6 @@ rr run
 ### Managing Sessions
 
 ```bash
-# Attach to running review session
-rr attach
-
 # Check current status
 rr status
 
@@ -109,7 +106,6 @@ rr logs <timestamp>
 
 The tool runs in a tmux session so you can:
 - Continue working in your terminal
-- Attach anytime to watch progress
 - View results in HTML format
 
 ## Configuration
@@ -136,7 +132,6 @@ Configuration is stored at `~/.config/ralph-review/config.json`:
 |---------|-------------|
 | `rr init` | Configure agents |
 | `rr run` | Start background review cycle |
-| `rr attach` | Attach to tmux session |
 | `rr status` | Show current status |
 | `rr stop` | Graceful stop |
 | `rr stop --force` | Force kill |
