@@ -69,7 +69,7 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
       sendInterrupt(sessionName)
         .then(() => new Promise((resolve) => setTimeout(resolve, 1000)))
         .then(() => killSession(sessionName))
-        .then(() => removeLockfile(undefined, projectPath, branch))
+        .then(() => removeLockfile(undefined, projectPath))
         .catch(() => {
           // Ignore errors - session may already be stopped
         });

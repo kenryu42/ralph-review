@@ -32,7 +32,7 @@ const TMUX_REFRESH_INTERVAL = 300;
  */
 export function useDashboardState(
   projectPath: string,
-  branch?: string,
+  _branch?: string,
   refreshInterval: number = DEFAULT_REFRESH_INTERVAL
 ): DashboardState {
   const [state, setState] = useState<DashboardState>({
@@ -70,7 +70,7 @@ export function useDashboardState(
       // Fetch all data in parallel
       const [sessions, lockData, logSession, config] = await Promise.all([
         listAllActiveSessions(),
-        readLockfile(undefined, projectPath, branch),
+        readLockfile(undefined, projectPath),
         getLatestProjectLogSession(undefined, projectPath),
         loadConfig().catch(() => null),
       ]);
@@ -167,7 +167,7 @@ export function useDashboardState(
     } finally {
       isRefreshingRef.current = false;
     }
-  }, [projectPath, branch]);
+  }, [projectPath]);
 
   // Initial fetch
   useEffect(() => {

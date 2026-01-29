@@ -94,18 +94,16 @@ export async function validatePrerequisites(): Promise<string[]> {
     errors.push(`Fixer agent "${config.fixer.agent}" is not installed. Install it and try again.`);
   }
 
-  // Get project and branch for lockfile check
+  // Get project path for lockfile check
   const projectPath = process.cwd();
-  const branch = await getGitBranch(projectPath);
 
   // Clean up stale lockfile if exists (PID dead)
-  await cleanupStaleLockfile(undefined, projectPath, branch);
+  await cleanupStaleLockfile(undefined, projectPath);
 
-  // Check lockfile (review already in progress for this project+branch)
-  if (await lockfileExists(undefined, projectPath, branch)) {
-    const branchInfo = branch ? ` on branch "${branch}"` : "";
+  // Check lockfile (review already in progress for this project)
+  if (await lockfileExists(undefined, projectPath)) {
     errors.push(
-      `Review already in progress${branchInfo}. Use "rr status" to check or "rr stop" to terminate.`
+      `Review already in progress for this project. Use "rr status" to check or "rr stop" to terminate.`
     );
   }
 
@@ -126,8 +124,8 @@ async function runInBackground(_config: Config, maxIterations?: number): Promise
   const branch = await getGitBranch(projectPath);
   const sessionName = generateSessionName();
 
-  // Create lockfile for this project+branch
-  await createLockfile(undefined, projectPath, branch, sessionName);
+  // Create lockfile for this project
+  await createLockfile(undefined, projectPath, sessionName, branch);
 
   // Build the command to run in tmux
   // Pass project path and branch via environment variables
@@ -142,7 +140,7 @@ async function runInBackground(_config: Config, maxIterations?: number): Promise
     p.log.success(`Review started in background session: ${sessionName}`);
     p.note("rr status  - Check status\n" + "rr stop    - Stop the review", "Commands");
   } catch (error) {
-    await removeLockfile(undefined, projectPath, branch);
+    await removeLockfile(undefined, projectPath);
     p.log.error(`Failed to start background session: ${error}`);
     process.exit(1);
   }
@@ -158,9 +156,8 @@ export async function runForeground(args: string[] = []): Promise<void> {
     process.exit(1);
   }
 
-  // Get project path and branch from environment variables (set by parent process)
+  // Get project path from environment variable (set by parent process)
   const projectPath = process.env.RR_PROJECT_PATH || process.cwd();
-  const branch = process.env.RR_GIT_BRANCH || undefined;
 
   // Parse --max option using the _run-foreground command def
   const foregroundDef = getCommandDef("_run-foreground");
@@ -177,14 +174,14 @@ export async function runForeground(args: string[] = []): Promise<void> {
 
   // Update lockfile with this foreground process's PID and "running" status
   // so it's not seen as stale (the launcher set status to "pending")
-  await updateLockfile(undefined, projectPath, branch, { pid: process.pid, status: "running" });
+  await updateLockfile(undefined, projectPath, { pid: process.pid, status: "running" });
 
   p.intro("Ralph Review Loop");
 
   try {
     const result = await runReviewCycle(config, (iteration, _role, _iterResult) => {
       // Update lockfile with iteration progress
-      updateLockfile(undefined, projectPath, branch, { iteration }).catch(() => {});
+      updateLockfile(undefined, projectPath, { iteration }).catch(() => {});
     });
 
     console.log(`\n${"=".repeat(50)}`);
@@ -195,8 +192,8 @@ export async function runForeground(args: string[] = []): Promise<void> {
     }
     console.log(`${"=".repeat(50)}\n`);
   } finally {
-    // Clean up lockfile for this project+branch
-    await removeLockfile(undefined, projectPath, branch);
+    // Clean up lockfile for this project
+    await removeLockfile(undefined, projectPath);
   }
 }
 

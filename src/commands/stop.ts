@@ -11,7 +11,6 @@ import {
   removeAllLockfiles,
   removeLockfile,
 } from "@/lib/lockfile";
-import { getGitBranch } from "@/lib/logger";
 import { killSession, listRalphSessions, sendInterrupt } from "@/lib/tmux";
 
 /**
@@ -85,18 +84,16 @@ async function stopAllSessions(): Promise<void> {
 }
 
 /**
- * Stop session for current project+branch
+ * Stop session for current project
  */
 async function stopCurrentSession(): Promise<void> {
   const projectPath = process.cwd();
-  const branch = await getGitBranch(projectPath);
 
   // Read lockfile to get session name
-  const lockData = await readLockfile(undefined, projectPath, branch);
+  const lockData = await readLockfile(undefined, projectPath);
 
   if (!lockData) {
-    const branchInfo = branch ? ` on branch "${branch}"` : "";
-    p.log.info(`No active review session for this project${branchInfo}.`);
+    p.log.info(`No active review session for this project.`);
 
     // Show hint if there are other sessions running
     const allSessions = await listAllActiveSessions();
@@ -121,7 +118,7 @@ async function stopCurrentSession(): Promise<void> {
   await killSession(lockData.sessionName);
 
   // Remove the lockfile
-  await removeLockfile(undefined, projectPath, branch);
+  await removeLockfile(undefined, projectPath);
 
   p.log.success("Review stopped.");
 }

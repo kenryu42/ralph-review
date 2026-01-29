@@ -73,26 +73,26 @@ describe("run command", () => {
     });
 
     test("createLockfile creates file", async () => {
-      await createLockfile(tempDir, "/test/project", "main", "test-session");
-      const exists = await lockfileExists(tempDir, "/test/project", "main");
+      await createLockfile(tempDir, "/test/project", "test-session", "main");
+      const exists = await lockfileExists(tempDir, "/test/project");
       expect(exists).toBe(true);
     });
 
     test("lockfileExists returns true when exists", async () => {
-      await createLockfile(tempDir, "/test/project", "main", "test-session");
-      const exists = await lockfileExists(tempDir, "/test/project", "main");
+      await createLockfile(tempDir, "/test/project", "test-session", "main");
+      const exists = await lockfileExists(tempDir, "/test/project");
       expect(exists).toBe(true);
     });
 
     test("lockfileExists returns false when not exists", async () => {
-      const exists = await lockfileExists(tempDir, "/nonexistent/path", "main");
+      const exists = await lockfileExists(tempDir, "/nonexistent/path");
       expect(exists).toBe(false);
     });
 
     test("removeLockfile removes file", async () => {
-      await createLockfile(tempDir, "/test/project", "main", "test-session");
-      await removeLockfile(tempDir, "/test/project", "main");
-      const exists = await lockfileExists(tempDir, "/test/project", "main");
+      await createLockfile(tempDir, "/test/project", "test-session", "main");
+      await removeLockfile(tempDir, "/test/project");
+      const exists = await lockfileExists(tempDir, "/test/project");
       expect(exists).toBe(false);
     });
   });
