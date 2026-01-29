@@ -276,10 +276,11 @@ export async function computeSessionStats(session: LogSession): Promise<SessionS
   // Find iteration entries
   const iterations = entries.filter((e): e is IterationEntry => e.type === "iteration");
 
-  // Aggregate fix counts
+  // Aggregate fix counts and duration
   let totalFixes = 0;
   let totalSkipped = 0;
   const priorityCounts = emptyPriorityCounts();
+  let totalDuration: number | undefined;
 
   for (const iter of iterations) {
     if (iter.fixes) {
@@ -289,6 +290,10 @@ export async function computeSessionStats(session: LogSession): Promise<SessionS
       for (const fix of iter.fixes.fixes) {
         priorityCounts[fix.priority]++;
       }
+    }
+
+    if (iter.duration !== undefined) {
+      totalDuration = (totalDuration ?? 0) + iter.duration;
     }
   }
 
@@ -302,6 +307,7 @@ export async function computeSessionStats(session: LogSession): Promise<SessionS
     totalSkipped,
     priorityCounts,
     iterations: iterations.length,
+    totalDuration,
     entries,
   };
 }

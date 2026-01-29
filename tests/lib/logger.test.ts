@@ -399,6 +399,130 @@ describe("logger", () => {
       expect(stats.iterations).toBe(0);
       expect(stats.status).toBe("unknown");
     });
+
+    test("accumulates totalDuration from iteration entries", async () => {
+      const logPath = await createLogSession(tempDir, "/path/to/project", "main");
+
+      const systemEntry: SystemEntry = {
+        type: "system",
+        timestamp: Date.now(),
+        projectPath: "/path/to/project",
+        gitBranch: "main",
+        reviewer: { agent: "codex" },
+        fixer: { agent: "claude" },
+        maxIterations: 5,
+      };
+
+      const iter1: IterationEntry = {
+        type: "iteration",
+        timestamp: Date.now(),
+        iteration: 1,
+        duration: 5000,
+      };
+
+      const iter2: IterationEntry = {
+        type: "iteration",
+        timestamp: Date.now(),
+        iteration: 2,
+        duration: 10000,
+      };
+
+      const iter3: IterationEntry = {
+        type: "iteration",
+        timestamp: Date.now(),
+        iteration: 3,
+        duration: 3000,
+      };
+
+      await appendLog(logPath, systemEntry);
+      await appendLog(logPath, iter1);
+      await appendLog(logPath, iter2);
+      await appendLog(logPath, iter3);
+
+      const session = {
+        path: logPath,
+        name: "test.jsonl",
+        projectName: "path-to-project",
+        timestamp: Date.now(),
+      };
+      const stats = await computeSessionStats(session);
+
+      expect(stats.totalDuration).toBe(18000);
+    });
+
+    test("handles iterations without duration", async () => {
+      const logPath = await createLogSession(tempDir, "/path/to/project");
+
+      const systemEntry: SystemEntry = {
+        type: "system",
+        timestamp: Date.now(),
+        projectPath: "/path/to/project",
+        reviewer: { agent: "codex" },
+        fixer: { agent: "claude" },
+        maxIterations: 5,
+      };
+
+      const iter1: IterationEntry = {
+        type: "iteration",
+        timestamp: Date.now(),
+        iteration: 1,
+        duration: 5000,
+      };
+
+      const iter2: IterationEntry = {
+        type: "iteration",
+        timestamp: Date.now(),
+        iteration: 2,
+        // No duration field
+      };
+
+      await appendLog(logPath, systemEntry);
+      await appendLog(logPath, iter1);
+      await appendLog(logPath, iter2);
+
+      const session = {
+        path: logPath,
+        name: "test.jsonl",
+        projectName: "path-to-project",
+        timestamp: Date.now(),
+      };
+      const stats = await computeSessionStats(session);
+
+      expect(stats.totalDuration).toBe(5000);
+    });
+
+    test("returns undefined totalDuration when no iteration has duration", async () => {
+      const logPath = await createLogSession(tempDir, "/path/to/project");
+
+      const systemEntry: SystemEntry = {
+        type: "system",
+        timestamp: Date.now(),
+        projectPath: "/path/to/project",
+        reviewer: { agent: "codex" },
+        fixer: { agent: "claude" },
+        maxIterations: 5,
+      };
+
+      const iter1: IterationEntry = {
+        type: "iteration",
+        timestamp: Date.now(),
+        iteration: 1,
+        // No duration
+      };
+
+      await appendLog(logPath, systemEntry);
+      await appendLog(logPath, iter1);
+
+      const session = {
+        path: logPath,
+        name: "test.jsonl",
+        projectName: "path-to-project",
+        timestamp: Date.now(),
+      };
+      const stats = await computeSessionStats(session);
+
+      expect(stats.totalDuration).toBeUndefined();
+    });
   });
 
   describe("computeProjectStats", () => {

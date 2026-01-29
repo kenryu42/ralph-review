@@ -276,6 +276,7 @@ export interface SessionStats {
   totalSkipped: number;
   priorityCounts: Record<Priority, number>;
   iterations: number;
+  totalDuration?: number;
   entries: LogEntry[];
 }
 

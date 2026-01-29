@@ -5,9 +5,9 @@
  */
 
 import * as p from "@clack/prompts";
-import { runDash } from "./commands/dash";
 import { runInit } from "./commands/init";
 import { runList } from "./commands/list";
+import { runLogs } from "./commands/logs";
 import { runForeground, runRun } from "./commands/run";
 import { runStatus } from "./commands/status";
 import { runStop } from "./commands/stop";
@@ -26,7 +26,7 @@ export const COMMANDS: CommandDef[] = [
     name: "run",
     description: "Start review cycle",
     options: [{ name: "max", alias: "m", type: "number", description: "Max iterations" }],
-    examples: ["rr run", "rr run --max=3"],
+    examples: ["rr run", "rr run --max 3"],
   },
   {
     name: "list",
@@ -48,12 +48,25 @@ export const COMMANDS: CommandDef[] = [
     examples: ["rr stop", "rr stop --all"],
   },
   {
-    name: "dash",
-    description: "Open productivity dashboard in browser",
+    name: "logs",
+    description: "View review logs",
     options: [
-      { name: "list", alias: "l", type: "boolean", description: "List all review sessions" },
+      { name: "html", type: "boolean", description: "Open dashboard in browser" },
+      { name: "json", type: "boolean", description: "Output as JSON" },
+      {
+        name: "last",
+        alias: "n",
+        type: "number",
+        description: "Number of sessions to show",
+        default: 1,
+      },
+      {
+        name: "global",
+        type: "boolean",
+        description: "Show all sessions across all projects (requires --json)",
+      },
     ],
-    examples: ["rr dash", "rr dash --list"],
+    examples: ["rr logs", "rr logs -n 5", "rr logs --json", "rr logs --json --global"],
   },
   {
     name: "_run-foreground",
@@ -189,8 +202,8 @@ async function main(): Promise<void> {
         await runStop(args);
         break;
 
-      case "dash":
-        await runDash(args);
+      case "logs":
+        await runLogs(args);
         break;
 
       case "list":

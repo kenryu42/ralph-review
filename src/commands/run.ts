@@ -133,7 +133,7 @@ async function runInBackground(_config: Config, maxIterations?: number): Promise
   // Pass project path and branch via environment variables
   // Always use main cli.ts, not whatever entry point was used (e.g., cli-rrr.ts)
   const cliPath = `${import.meta.dir}/../cli.ts`;
-  const maxIterArg = maxIterations ? ` --max=${maxIterations}` : "";
+  const maxIterArg = maxIterations ? ` --max ${maxIterations}` : "";
   const envVars = `RR_PROJECT_PATH="${projectPath}" RR_GIT_BRANCH="${branch ?? ""}"`;
   const command = `${envVars} ${process.execPath} ${cliPath} _run-foreground${maxIterArg}`;
 
