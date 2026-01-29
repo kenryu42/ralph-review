@@ -1,14 +1,14 @@
 /**
  * Lockfile management for ralph-review
- * Supports per-project, per-branch lockfiles for concurrent sessions
+ * Supports per-project lockfiles for concurrent sessions
  *
- * Lockfile path: ~/.config/ralph-review/logs/<sanitized-project>/<sanitized-branch>.lock
+ * Lockfile path: ~/.config/ralph-review/logs/<sanitized-project>.lock
  */
 
-import { mkdir, readdir } from "node:fs/promises";
+import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { LOGS_DIR } from "./config";
-import { getProjectName, sanitizeForFilename } from "./logger";
+import { getProjectName } from "./logger";
 
 /**
  * Default branch name when git branch is unavailable (detached HEAD, not a git repo)
@@ -36,36 +36,26 @@ export interface ActiveSession extends LockData {
 }
 
 /**
- * Get the lockfile path for a project and branch
+ * Get the lockfile path for a project
  *
  * @param logsDir - Base logs directory (default: ~/.config/ralph-review/logs)
  * @param projectPath - Absolute path to the project
- * @param branch - Git branch name (uses "default" if undefined/empty)
  */
-export function getLockPath(
-  logsDir: string = LOGS_DIR,
-  projectPath: string,
-  branch?: string
-): string {
+export function getLockPath(logsDir: string = LOGS_DIR, projectPath: string): string {
   const projectName = getProjectName(projectPath);
-  const branchName = branch?.trim() || DEFAULT_BRANCH;
-  const sanitizedBranch = sanitizeForFilename(branchName);
-  return join(logsDir, projectName, `${sanitizedBranch}.lock`);
+  return join(logsDir, `${projectName}.lock`);
 }
 
 /**
- * Create a lockfile for a project/branch session
+ * Create a lockfile for a project session
  */
 export async function createLockfile(
   logsDir: string = LOGS_DIR,
   projectPath: string,
-  branch: string | undefined,
-  sessionName: string
+  sessionName: string,
+  branch?: string
 ): Promise<void> {
-  const lockPath = getLockPath(logsDir, projectPath, branch);
-  const lockDir = lockPath.substring(0, lockPath.lastIndexOf("/"));
-
-  await mkdir(lockDir, { recursive: true });
+  const lockPath = getLockPath(logsDir, projectPath);
 
   const lockData: LockData = {
     sessionName,
@@ -85,10 +75,9 @@ export async function createLockfile(
  */
 export async function readLockfile(
   logsDir: string = LOGS_DIR,
-  projectPath: string,
-  branch?: string
+  projectPath: string
 ): Promise<LockData | null> {
-  const lockPath = getLockPath(logsDir, projectPath, branch);
+  const lockPath = getLockPath(logsDir, projectPath);
   const file = Bun.file(lockPath);
 
   if (!(await file.exists())) {
@@ -104,14 +93,13 @@ export async function readLockfile(
 }
 
 /**
- * Remove lockfile for a project/branch
+ * Remove lockfile for a project
  */
 export async function removeLockfile(
   logsDir: string = LOGS_DIR,
-  projectPath: string,
-  branch?: string
+  projectPath: string
 ): Promise<void> {
-  const lockPath = getLockPath(logsDir, projectPath, branch);
+  const lockPath = getLockPath(logsDir, projectPath);
   try {
     await Bun.file(lockPath).delete();
   } catch {
@@ -125,28 +113,26 @@ export async function removeLockfile(
 export async function updateLockfile(
   logsDir: string = LOGS_DIR,
   projectPath: string,
-  branch: string | undefined,
   updates: Partial<LockData>
 ): Promise<void> {
-  const existing = await readLockfile(logsDir, projectPath, branch);
+  const existing = await readLockfile(logsDir, projectPath);
   if (!existing) {
     return; // No lockfile to update
   }
 
   const updated: LockData = { ...existing, ...updates };
-  const lockPath = getLockPath(logsDir, projectPath, branch);
+  const lockPath = getLockPath(logsDir, projectPath);
   await Bun.write(lockPath, JSON.stringify(updated, null, 2));
 }
 
 /**
- * Check if lockfile exists for a project/branch
+ * Check if lockfile exists for a project
  */
 export async function lockfileExists(
   logsDir: string = LOGS_DIR,
-  projectPath: string,
-  branch?: string
+  projectPath: string
 ): Promise<boolean> {
-  const lockPath = getLockPath(logsDir, projectPath, branch);
+  const lockPath = getLockPath(logsDir, projectPath);
   return await Bun.file(lockPath).exists();
 }
 
@@ -199,12 +185,8 @@ function isLockDataStale(lockData: LockData): boolean {
  * - Status is "pending" but older than PENDING_LOCKFILE_MAX_AGE_MS
  * - Status is "running" (or undefined for legacy) and PID is dead
  */
-async function isLockfileStale(
-  logsDir: string = LOGS_DIR,
-  projectPath: string,
-  branch?: string
-): Promise<boolean> {
-  const lockData = await readLockfile(logsDir, projectPath, branch);
+async function isLockfileStale(logsDir: string = LOGS_DIR, projectPath: string): Promise<boolean> {
+  const lockData = await readLockfile(logsDir, projectPath);
   if (!lockData) {
     return false; // No lockfile = not stale
   }
@@ -218,12 +200,11 @@ async function isLockfileStale(
  */
 export async function cleanupStaleLockfile(
   logsDir: string = LOGS_DIR,
-  projectPath: string,
-  branch?: string
+  projectPath: string
 ): Promise<boolean> {
-  const isStale = await isLockfileStale(logsDir, projectPath, branch);
+  const isStale = await isLockfileStale(logsDir, projectPath);
   if (isStale) {
-    await removeLockfile(logsDir, projectPath, branch);
+    await removeLockfile(logsDir, projectPath);
     return true;
   }
   return false;
@@ -237,40 +218,29 @@ export async function listAllActiveSessions(logsDir: string = LOGS_DIR): Promise
   const sessions: ActiveSession[] = [];
 
   try {
-    const projectDirs = await readdir(logsDir, { withFileTypes: true });
+    const entries = await readdir(logsDir, { withFileTypes: true });
 
-    for (const projectDir of projectDirs) {
-      if (!projectDir.isDirectory()) continue;
+    for (const entry of entries) {
+      // Only look at .lock files directly in logsDir (flat structure)
+      if (!entry.isFile() || !entry.name.endsWith(".lock")) continue;
 
-      const projectPath = join(logsDir, projectDir.name);
+      const lockPath = join(logsDir, entry.name);
 
       try {
-        const files = await readdir(projectPath, { withFileTypes: true });
+        const content = await Bun.file(lockPath).text();
+        const lockData = JSON.parse(content) as LockData;
 
-        for (const file of files) {
-          if (!file.isFile() || !file.name.endsWith(".lock")) continue;
-
-          const lockPath = join(projectPath, file.name);
-
-          try {
-            const content = await Bun.file(lockPath).text();
-            const lockData = JSON.parse(content) as LockData;
-
-            // Skip stale sessions (using same logic as isLockfileStale)
-            if (isLockDataStale(lockData)) {
-              continue;
-            }
-
-            sessions.push({
-              ...lockData,
-              lockPath,
-            });
-          } catch {
-            // Invalid lockfile, skip
-          }
+        // Skip stale sessions (using same logic as isLockfileStale)
+        if (isLockDataStale(lockData)) {
+          continue;
         }
+
+        sessions.push({
+          ...lockData,
+          lockPath,
+        });
       } catch {
-        // Can't read project dir, skip
+        // Invalid lockfile, skip
       }
     }
   } catch {
@@ -285,28 +255,17 @@ export async function listAllActiveSessions(logsDir: string = LOGS_DIR): Promise
  */
 export async function removeAllLockfiles(logsDir: string = LOGS_DIR): Promise<void> {
   try {
-    const projectDirs = await readdir(logsDir, { withFileTypes: true });
+    const entries = await readdir(logsDir, { withFileTypes: true });
 
-    for (const projectDir of projectDirs) {
-      if (!projectDir.isDirectory()) continue;
+    for (const entry of entries) {
+      // Only look at .lock files directly in logsDir (flat structure)
+      if (!entry.isFile() || !entry.name.endsWith(".lock")) continue;
 
-      const projectPath = join(logsDir, projectDir.name);
-
+      const lockPath = join(logsDir, entry.name);
       try {
-        const files = await readdir(projectPath, { withFileTypes: true });
-
-        for (const file of files) {
-          if (!file.isFile() || !file.name.endsWith(".lock")) continue;
-
-          const lockPath = join(projectPath, file.name);
-          try {
-            await Bun.file(lockPath).delete();
-          } catch {
-            // Ignore deletion errors
-          }
-        }
+        await Bun.file(lockPath).delete();
       } catch {
-        // Can't read project dir, skip
+        // Ignore deletion errors
       }
     }
   } catch {

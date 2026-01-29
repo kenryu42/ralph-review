@@ -26,20 +26,19 @@ describe("lockfile", () => {
   });
 
   describe("getLockPath", () => {
-    test("returns path with sanitized project and branch", () => {
-      const result = getLockPath(tempLogsDir, "/Users/foo/my-project", "feature/add-stuff");
-      expect(result).toContain("users-foo-my-project");
-      expect(result).toContain("feature-add-stuff.lock");
+    test("returns path with sanitized project name and .lock extension", () => {
+      const result = getLockPath(tempLogsDir, "/Users/foo/my-project");
+      expect(result).toContain("users-foo-my-project.lock");
+      // Should be flat, not nested in a branch directory
+      expect(result).toBe(`${tempLogsDir}/users-foo-my-project.lock`);
     });
 
-    test("uses 'default' when branch is undefined", () => {
-      const result = getLockPath(tempLogsDir, "/Users/foo/my-project", undefined);
-      expect(result).toContain("default.lock");
-    });
-
-    test("uses 'default' when branch is empty string", () => {
-      const result = getLockPath(tempLogsDir, "/Users/foo/my-project", "");
-      expect(result).toContain("default.lock");
+    test("handles different project paths", () => {
+      const result1 = getLockPath(tempLogsDir, "/project/alpha");
+      const result2 = getLockPath(tempLogsDir, "/project/beta");
+      expect(result1).not.toBe(result2);
+      expect(result1).toContain("project-alpha.lock");
+      expect(result2).toContain("project-beta.lock");
     });
   });
 
@@ -48,9 +47,9 @@ describe("lockfile", () => {
       const projectPath = "/Users/test/project";
       const branch = "main";
 
-      await createLockfile(tempLogsDir, projectPath, branch, "rr-test-123");
+      await createLockfile(tempLogsDir, projectPath, "rr-test-123", branch);
 
-      const data = await readLockfile(tempLogsDir, projectPath, branch);
+      const data = await readLockfile(tempLogsDir, projectPath);
       expect(data).not.toBeNull();
       expect(data?.sessionName).toBe("rr-test-123");
       expect(data?.projectPath).toBe(projectPath);
@@ -60,8 +59,19 @@ describe("lockfile", () => {
       expect(typeof data?.startTime).toBe("number");
     });
 
+    test("creates lockfile without branch (uses default)", async () => {
+      const projectPath = "/Users/test/project-no-branch";
+
+      await createLockfile(tempLogsDir, projectPath, "rr-test-456");
+
+      const data = await readLockfile(tempLogsDir, projectPath);
+      expect(data).not.toBeNull();
+      expect(data?.sessionName).toBe("rr-test-456");
+      expect(data?.branch).toBe("default");
+    });
+
     test("readLockfile returns null when file does not exist", async () => {
-      const data = await readLockfile(tempLogsDir, "/nonexistent/path", "main");
+      const data = await readLockfile(tempLogsDir, "/nonexistent/path");
       expect(data).toBeNull();
     });
   });
@@ -69,38 +79,34 @@ describe("lockfile", () => {
   describe("removeLockfile", () => {
     test("removes existing lockfile", async () => {
       const projectPath = "/Users/test/project";
-      const branch = "main";
 
-      await createLockfile(tempLogsDir, projectPath, branch, "rr-test-123");
-      await removeLockfile(tempLogsDir, projectPath, branch);
+      await createLockfile(tempLogsDir, projectPath, "rr-test-123", "main");
+      await removeLockfile(tempLogsDir, projectPath);
 
-      const data = await readLockfile(tempLogsDir, projectPath, branch);
+      const data = await readLockfile(tempLogsDir, projectPath);
       expect(data).toBeNull();
     });
 
     test("does not throw when lockfile does not exist", async () => {
-      await expect(
-        removeLockfile(tempLogsDir, "/nonexistent/path", "main")
-      ).resolves.toBeUndefined();
+      await expect(removeLockfile(tempLogsDir, "/nonexistent/path")).resolves.toBeUndefined();
     });
   });
 
   describe("updateLockfile", () => {
     test("updates iteration in existing lockfile", async () => {
       const projectPath = "/Users/test/project";
-      const branch = "main";
 
-      await createLockfile(tempLogsDir, projectPath, branch, "rr-test-123");
-      await updateLockfile(tempLogsDir, projectPath, branch, { iteration: 3 });
+      await createLockfile(tempLogsDir, projectPath, "rr-test-123", "main");
+      await updateLockfile(tempLogsDir, projectPath, { iteration: 3 });
 
-      const data = await readLockfile(tempLogsDir, projectPath, branch);
+      const data = await readLockfile(tempLogsDir, projectPath);
       expect(data?.iteration).toBe(3);
       expect(data?.sessionName).toBe("rr-test-123"); // preserved
     });
 
     test("does nothing when lockfile does not exist", async () => {
       await expect(
-        updateLockfile(tempLogsDir, "/nonexistent/path", "main", { iteration: 1 })
+        updateLockfile(tempLogsDir, "/nonexistent/path", { iteration: 1 })
       ).resolves.toBeUndefined();
     });
   });
@@ -119,12 +125,9 @@ describe("lockfile", () => {
   describe("cleanupStaleLockfile", () => {
     test("removes lockfile when PID is dead", async () => {
       const projectPath = "/Users/test/project";
-      const branch = "main";
 
       // Create lockfile manually with dead PID
-      const lockPath = getLockPath(tempLogsDir, projectPath, branch);
-      const projectDir = lockPath.substring(0, lockPath.lastIndexOf("/"));
-      await mkdir(projectDir, { recursive: true });
+      const lockPath = getLockPath(tempLogsDir, projectPath);
       await Bun.write(
         lockPath,
         JSON.stringify({
@@ -132,43 +135,39 @@ describe("lockfile", () => {
           startTime: Date.now(),
           pid: 999999999, // dead PID
           projectPath,
-          branch,
+          branch: "main",
         })
       );
 
-      const cleaned = await cleanupStaleLockfile(tempLogsDir, projectPath, branch);
+      const cleaned = await cleanupStaleLockfile(tempLogsDir, projectPath);
       expect(cleaned).toBe(true);
 
-      const data = await readLockfile(tempLogsDir, projectPath, branch);
+      const data = await readLockfile(tempLogsDir, projectPath);
       expect(data).toBeNull();
     });
 
     test("keeps lockfile when PID is alive", async () => {
       const projectPath = "/Users/test/project";
-      const branch = "main";
 
-      await createLockfile(tempLogsDir, projectPath, branch, "rr-test-123");
+      await createLockfile(tempLogsDir, projectPath, "rr-test-123", "main");
 
-      const cleaned = await cleanupStaleLockfile(tempLogsDir, projectPath, branch);
+      const cleaned = await cleanupStaleLockfile(tempLogsDir, projectPath);
       expect(cleaned).toBe(false);
 
-      const data = await readLockfile(tempLogsDir, projectPath, branch);
+      const data = await readLockfile(tempLogsDir, projectPath);
       expect(data).not.toBeNull();
     });
 
     test("returns false when lockfile does not exist", async () => {
-      const cleaned = await cleanupStaleLockfile(tempLogsDir, "/nonexistent/path", "main");
+      const cleaned = await cleanupStaleLockfile(tempLogsDir, "/nonexistent/path");
       expect(cleaned).toBe(false);
     });
 
     test("keeps pending lockfile during grace period even with dead PID", async () => {
       const projectPath = "/Users/test/project-pending";
-      const branch = "main";
 
       // Create lockfile manually with dead PID but pending status and recent timestamp
-      const lockPath = getLockPath(tempLogsDir, projectPath, branch);
-      const projectDir = lockPath.substring(0, lockPath.lastIndexOf("/"));
-      await mkdir(projectDir, { recursive: true });
+      const lockPath = getLockPath(tempLogsDir, projectPath);
       await Bun.write(
         lockPath,
         JSON.stringify({
@@ -176,27 +175,24 @@ describe("lockfile", () => {
           startTime: Date.now(), // Just created
           pid: 999999999, // Dead PID - would normally be stale
           projectPath,
-          branch,
+          branch: "main",
           status: "pending",
         })
       );
 
       // Should NOT clean up because it's pending and within grace period
-      const cleaned = await cleanupStaleLockfile(tempLogsDir, projectPath, branch);
+      const cleaned = await cleanupStaleLockfile(tempLogsDir, projectPath);
       expect(cleaned).toBe(false);
 
-      const data = await readLockfile(tempLogsDir, projectPath, branch);
+      const data = await readLockfile(tempLogsDir, projectPath);
       expect(data).not.toBeNull();
     });
 
     test("removes old pending lockfile that exceeded grace period", async () => {
       const projectPath = "/Users/test/project-old-pending";
-      const branch = "main";
 
       // Create lockfile manually with dead PID, pending status but old timestamp
-      const lockPath = getLockPath(tempLogsDir, projectPath, branch);
-      const projectDir = lockPath.substring(0, lockPath.lastIndexOf("/"));
-      await mkdir(projectDir, { recursive: true });
+      const lockPath = getLockPath(tempLogsDir, projectPath);
       await Bun.write(
         lockPath,
         JSON.stringify({
@@ -204,16 +200,16 @@ describe("lockfile", () => {
           startTime: Date.now() - 60_000, // 60 seconds ago (> 30 second grace period)
           pid: 999999999, // Dead PID
           projectPath,
-          branch,
+          branch: "main",
           status: "pending",
         })
       );
 
       // Should clean up because pending lockfile exceeded grace period
-      const cleaned = await cleanupStaleLockfile(tempLogsDir, projectPath, branch);
+      const cleaned = await cleanupStaleLockfile(tempLogsDir, projectPath);
       expect(cleaned).toBe(true);
 
-      const data = await readLockfile(tempLogsDir, projectPath, branch);
+      const data = await readLockfile(tempLogsDir, projectPath);
       expect(data).toBeNull();
     });
   });
@@ -225,8 +221,8 @@ describe("lockfile", () => {
     });
 
     test("lists active sessions across multiple projects", async () => {
-      await createLockfile(tempLogsDir, "/project/one", "main", "rr-one-123");
-      await createLockfile(tempLogsDir, "/project/two", "develop", "rr-two-456");
+      await createLockfile(tempLogsDir, "/project/one", "rr-one-123", "main");
+      await createLockfile(tempLogsDir, "/project/two", "rr-two-456", "develop");
 
       const sessions = await listAllActiveSessions(tempLogsDir);
       expect(sessions.length).toBe(2);
@@ -238,12 +234,10 @@ describe("lockfile", () => {
 
     test("excludes stale sessions with dead PIDs", async () => {
       // Create active session
-      await createLockfile(tempLogsDir, "/project/active", "main", "rr-active-123");
+      await createLockfile(tempLogsDir, "/project/active", "rr-active-123", "main");
 
       // Create stale session with dead PID
-      const staleLockPath = getLockPath(tempLogsDir, "/project/stale", "main");
-      const staleDir = staleLockPath.substring(0, staleLockPath.lastIndexOf("/"));
-      await mkdir(staleDir, { recursive: true });
+      const staleLockPath = getLockPath(tempLogsDir, "/project/stale");
       await Bun.write(
         staleLockPath,
         JSON.stringify({
@@ -262,9 +256,7 @@ describe("lockfile", () => {
 
     test("includes pending sessions during grace period even with dead PID", async () => {
       // Create pending session with dead PID (simulating tmux startup)
-      const pendingLockPath = getLockPath(tempLogsDir, "/project/pending", "main");
-      const pendingDir = pendingLockPath.substring(0, pendingLockPath.lastIndexOf("/"));
-      await mkdir(pendingDir, { recursive: true });
+      const pendingLockPath = getLockPath(tempLogsDir, "/project/pending");
       await Bun.write(
         pendingLockPath,
         JSON.stringify({
@@ -284,9 +276,7 @@ describe("lockfile", () => {
 
     test("excludes old pending sessions that exceeded grace period", async () => {
       // Create old pending session that exceeded grace period
-      const oldPendingLockPath = getLockPath(tempLogsDir, "/project/old-pending", "main");
-      const oldPendingDir = oldPendingLockPath.substring(0, oldPendingLockPath.lastIndexOf("/"));
-      await mkdir(oldPendingDir, { recursive: true });
+      const oldPendingLockPath = getLockPath(tempLogsDir, "/project/old-pending");
       await Bun.write(
         oldPendingLockPath,
         JSON.stringify({
