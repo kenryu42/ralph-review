@@ -12,10 +12,6 @@ import type {
   DroidToolResultEvent,
 } from "./types";
 
-// ============================================================================
-// Configuration
-// ============================================================================
-
 export const droidConfig: AgentConfig = {
   command: "droid",
   buildArgs: (role: AgentRole, prompt: string, model?: string): string[] => {
@@ -36,7 +32,6 @@ export const droidConfig: AgentConfig = {
         reviewPrompt,
       ];
     } else {
-      // Fixer mode
       return [
         "exec",
         "--auto",
@@ -58,13 +53,9 @@ export const droidConfig: AgentConfig = {
   },
 };
 
-// ============================================================================
-// Stream Parsing
-// ============================================================================
-
 /**
- * Parse a single JSONL line into a DroidStreamEvent
- * Returns null if the line is invalid or not a recognized event type
+ * Parse a single JSONL line into a DroidStreamEvent.
+ * Returns null if the line is invalid or not a recognized event type.
  */
 export function parseDroidStreamEvent(line: string): DroidStreamEvent | null {
   if (!line.trim()) {
@@ -84,19 +75,14 @@ export function parseDroidStreamEvent(line: string): DroidStreamEvent | null {
       return null;
     }
 
-    // Return as the appropriate event type based on 'type' field
     return parsed as DroidStreamEvent;
   } catch {
     return null;
   }
 }
 
-// ============================================================================
-// Helper Functions
-// ============================================================================
-
 /**
- * Strip <system-reminder> tags and their content from text
+ * Strip <system-reminder> tags and their content from text.
  */
 function stripSystemReminders(text: unknown): string {
   const normalized = typeof text === "string" ? text : String(text ?? "");
@@ -105,17 +91,11 @@ function stripSystemReminders(text: unknown): string {
     .trim();
 }
 
-// ============================================================================
-// Formatting
-// ============================================================================
-
 function formatMessageEvent(event: DroidMessageEvent): string | null {
-  // Skip user messages
   if (event.role === "user") {
     return null;
   }
 
-  // Assistant messages are displayed as-is
   return event.text;
 }
 
@@ -139,7 +119,6 @@ function formatCompletionEvent(event: DroidCompletionEvent): string {
 export function formatDroidEventForDisplay(event: DroidStreamEvent): string | null {
   switch (event.type) {
     case "system":
-      // Don't display system init events
       return null;
 
     case "message":
@@ -159,13 +138,9 @@ export function formatDroidEventForDisplay(event: DroidStreamEvent): string | nu
   }
 }
 
-// ============================================================================
-// Result Extraction
-// ============================================================================
-
 /**
- * Extract the final result text from Droid's JSONL output
- * Finds the last 'completion' event and returns its finalText field
+ * Extract the final result text from Droid's JSONL output.
+ * Finds the last 'completion' event and returns its finalText field.
  */
 export function extractDroidResult(output: string): string | null {
   if (!output.trim()) {
@@ -186,7 +161,7 @@ export function extractDroidResult(output: string): string | null {
 }
 
 /**
- * Formatter for streamAndCapture - wraps the display formatter
+ * Formatter for streamAndCapture. Wraps the display formatter.
  */
 export function formatDroidLine(line: string): string | null {
   const event = parseDroidStreamEvent(line);

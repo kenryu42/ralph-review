@@ -135,10 +135,6 @@ export interface ResultEvent {
   total_cost_usd?: number;
 }
 
-// ============================================================================
-// Droid Stream Types
-// ============================================================================
-
 /**
  * Type definitions for Droid's streaming JSONL output format
  * Used when running Droid with --output-format stream-json
@@ -226,10 +222,6 @@ export interface DroidCompletionEvent {
   };
 }
 
-// ============================================================================
-// Gemini Stream Types
-// ============================================================================
-
 /**
  * Type definitions for Gemini CLI's streaming JSONL output format
  * Used when running Gemini with --output-format stream-json
@@ -308,10 +300,6 @@ export interface GeminiResultEvent {
     tool_calls?: number;
   };
 }
-
-// ============================================================================
-// Codex Stream Types
-// ============================================================================
 
 /**
  * Type definitions for Codex CLI's streaming JSONL output format

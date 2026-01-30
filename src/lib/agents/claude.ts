@@ -13,10 +13,6 @@ import type {
   UserEvent,
 } from "./types";
 
-// ============================================================================
-// Configuration
-// ============================================================================
-
 export const claudeConfig: AgentConfig = {
   command: "claude",
   buildArgs: (role: AgentRole, prompt: string, model?: string): string[] => {
@@ -59,13 +55,9 @@ export const claudeConfig: AgentConfig = {
   },
 };
 
-// ============================================================================
-// Stream Parsing
-// ============================================================================
-
 /**
- * Parse a single JSONL line into a ClaudeStreamEvent
- * Returns null if the line is invalid or not a recognized event type
+ * Parse a single JSONL line into a ClaudeStreamEvent.
+ * Returns null if the line is invalid or not a recognized event type.
  */
 export function parseClaudeStreamEvent(line: string): ClaudeStreamEvent | null {
   if (!line.trim()) {
@@ -75,7 +67,6 @@ export function parseClaudeStreamEvent(line: string): ClaudeStreamEvent | null {
   try {
     const parsed: unknown = JSON.parse(line);
 
-    // Must be an object with a type field
     if (typeof parsed !== "object" || parsed === null) {
       return null;
     }
@@ -85,17 +76,11 @@ export function parseClaudeStreamEvent(line: string): ClaudeStreamEvent | null {
       return null;
     }
 
-    // Return as the appropriate event type based on 'type' field
-    // The caller can use type guards to narrow further
     return parsed as ClaudeStreamEvent;
   } catch {
     return null;
   }
 }
-
-// ============================================================================
-// Runtime Guards
-// ============================================================================
 
 function hasMessageContentArray(event: ClaudeStreamEvent): event is AssistantEvent | UserEvent {
   const maybeMessage = (event as { message?: { content?: unknown } }).message;
@@ -113,10 +98,6 @@ function isUserEvent(event: ClaudeStreamEvent): event is UserEvent {
 function isResultEvent(event: ClaudeStreamEvent): event is ResultEvent {
   return event.type === "result" && typeof (event as { result?: unknown }).result === "string";
 }
-
-// ============================================================================
-// Formatting
-// ============================================================================
 
 function formatContentBlock(block: AssistantContentBlock): string {
   switch (block.type) {
@@ -184,7 +165,6 @@ function formatResultEvent(event: ResultEvent): string {
 export function formatClaudeEventForDisplay(event: ClaudeStreamEvent): string | null {
   switch (event.type) {
     case "system":
-      // Don't display system init events
       return null;
 
     case "assistant":
@@ -201,13 +181,9 @@ export function formatClaudeEventForDisplay(event: ClaudeStreamEvent): string | 
   }
 }
 
-// ============================================================================
-// Result Extraction
-// ============================================================================
-
 /**
- * Extract the final result text from Claude's JSONL output
- * Finds the last 'result' event and returns its result field
+ * Extract the final result text from Claude's JSONL output.
+ * Finds the last 'result' event and returns its result field.
  */
 export function extractClaudeResult(output: string): string | null {
   if (!output.trim()) {
@@ -228,7 +204,7 @@ export function extractClaudeResult(output: string): string | null {
 }
 
 /**
- * Formatter for streamAndCapture - wraps the display formatter
+ * Formatter for streamAndCapture. Wraps the display formatter.
  */
 export function formatClaudeLine(line: string): string | null {
   const event = parseClaudeStreamEvent(line);

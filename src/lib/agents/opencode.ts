@@ -5,10 +5,6 @@
 
 import type { AgentConfig, AgentRole } from "@/lib/types";
 
-// ============================================================================
-// Configuration
-// ============================================================================
-
 export const opencodeConfig: AgentConfig = {
   command: "opencode",
   buildArgs: (role: AgentRole, prompt: string, model?: string): string[] => {
@@ -21,7 +17,6 @@ export const opencodeConfig: AgentConfig = {
       args.push(prompt || "/review");
       return args;
     } else {
-      // Fixer mode
       const args = ["run"];
       if (model) {
         args.push("--model", model);
@@ -37,9 +32,4 @@ export const opencodeConfig: AgentConfig = {
   },
 };
 
-// ============================================================================
-// Result Extraction
-// ============================================================================
-
-// Result extraction for OpenCode is done inline in the AGENTS registry
-// since it's just: output.trim() || null
+// Result extraction is done inline in the AGENTS registry.

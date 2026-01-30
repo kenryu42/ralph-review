@@ -12,10 +12,6 @@ import type {
   GeminiToolUseEvent,
 } from "./types";
 
-// ============================================================================
-// Configuration
-// ============================================================================
-
 export const geminiConfig: AgentConfig = {
   command: "gemini",
   buildArgs: (role: AgentRole, prompt: string, model?: string): string[] => {
@@ -39,20 +35,15 @@ export const geminiConfig: AgentConfig = {
   },
 };
 
-// ============================================================================
-// Stream Parsing
-// ============================================================================
-
 /**
- * Parse a single JSONL line into a GeminiStreamEvent
- * Returns null if the line is invalid or not a recognized event type
+ * Parse a single JSONL line into a GeminiStreamEvent.
+ * Returns null if the line is invalid or not a recognized event type.
  */
 export function parseGeminiStreamEvent(line: string): GeminiStreamEvent | null {
   if (!line.trim()) {
     return null;
   }
 
-  // Skip non-JSON lines (log output like "YOLO mode is enabled")
   if (!line.startsWith("{")) {
     return null;
   }
@@ -60,7 +51,6 @@ export function parseGeminiStreamEvent(line: string): GeminiStreamEvent | null {
   try {
     const parsed: unknown = JSON.parse(line);
 
-    // Must be an object with a type field
     if (typeof parsed !== "object" || parsed === null) {
       return null;
     }
@@ -70,19 +60,14 @@ export function parseGeminiStreamEvent(line: string): GeminiStreamEvent | null {
       return null;
     }
 
-    // Return as the appropriate event type based on 'type' field
     return parsed as GeminiStreamEvent;
   } catch {
     return null;
   }
 }
 
-// ============================================================================
-// Helper Functions
-// ============================================================================
-
 /**
- * Strip <system-reminder> tags and their content from text
+ * Strip <system-reminder> tags and their content from text.
  */
 function stripSystemReminders(text: string): string {
   return text
@@ -90,17 +75,11 @@ function stripSystemReminders(text: string): string {
     .trim();
 }
 
-// ============================================================================
-// Formatting
-// ============================================================================
-
 function formatMessageEvent(event: GeminiMessageEvent): string | null {
-  // Skip user messages
   if (event.role === "user") {
     return null;
   }
 
-  // Assistant messages are displayed as-is (delta content)
   return event.content;
 }
 
@@ -127,7 +106,6 @@ function formatResultEvent(event: GeminiResultEvent): string {
 export function formatGeminiEventForDisplay(event: GeminiStreamEvent): string | null {
   switch (event.type) {
     case "init":
-      // Don't display init events
       return null;
 
     case "message":
@@ -147,14 +125,9 @@ export function formatGeminiEventForDisplay(event: GeminiStreamEvent): string | 
   }
 }
 
-// ============================================================================
-// Result Extraction
-// ============================================================================
-
 /**
- * Extract the final result text from Gemini's JSONL output
- * Concatenates all assistant message deltas to form the complete response
- * Returns null if no assistant messages found
+ * Extract the final result text from Gemini's JSONL output.
+ * Concatenates all assistant message deltas to form the complete response.
  */
 export function extractGeminiResult(output: string): string | null {
   if (!output.trim()) {
@@ -181,7 +154,7 @@ export function extractGeminiResult(output: string): string | null {
 }
 
 /**
- * Formatter for streamAndCapture - wraps the display formatter
+ * Formatter for streamAndCapture. Wraps the display formatter.
  */
 export function formatGeminiLine(line: string): string | null {
   const event = parseGeminiStreamEvent(line);

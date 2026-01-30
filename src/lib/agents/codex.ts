@@ -12,10 +12,6 @@ import type {
   CodexStreamEvent,
 } from "./types";
 
-// ============================================================================
-// Configuration
-// ============================================================================
-
 export const codexConfig: AgentConfig = {
   command: "codex",
   buildArgs: (role: AgentRole, prompt: string, model?: string): string[] => {
@@ -34,7 +30,6 @@ export const codexConfig: AgentConfig = {
       }
       return args;
     } else {
-      // Fixer mode - use exec with the prompt
       const args = ["exec", "--full-auto", "--config", "model_reasoning_effort=high"];
       if (model) {
         args.push("--model", model);
@@ -52,13 +47,9 @@ export const codexConfig: AgentConfig = {
   },
 };
 
-// ============================================================================
-// Stream Parsing
-// ============================================================================
-
 /**
- * Parse a single JSONL line into a CodexStreamEvent
- * Returns null if the line is invalid or not a recognized event type
+ * Parse a single JSONL line into a CodexStreamEvent.
+ * Returns null if the line is invalid or not a recognized event type.
  */
 export function parseCodexStreamEvent(line: string): CodexStreamEvent | null {
   if (!line.trim()) {
@@ -68,7 +59,6 @@ export function parseCodexStreamEvent(line: string): CodexStreamEvent | null {
   try {
     const parsed: unknown = JSON.parse(line);
 
-    // Must be an object with a type field
     if (typeof parsed !== "object" || parsed === null) {
       return null;
     }
@@ -78,35 +68,24 @@ export function parseCodexStreamEvent(line: string): CodexStreamEvent | null {
       return null;
     }
 
-    // Return as the appropriate event type based on 'type' field
     return parsed as CodexStreamEvent;
   } catch {
     return null;
   }
 }
 
-// ============================================================================
-// Helper Functions
-// ============================================================================
-
 /**
- * Extract the shell command from Codex's full command string
+ * Extract the shell command from Codex's full command string.
  * Codex wraps commands like: /bin/zsh -lc 'git status'
  * We want to show just: git status
  */
 function extractShellCommand(fullCommand: string): string {
-  // Match the content inside single quotes after shell invocation
   const match = fullCommand.match(/(?:\/bin\/\w+|-lc)\s+'([^']+)'$/);
   if (match?.[1]) {
     return match[1];
   }
-  // Fallback: return the full command if pattern doesn't match
   return fullCommand;
 }
-
-// ============================================================================
-// Formatting
-// ============================================================================
 
 function formatReasoningForDisplay(item: CodexReasoningItem): string {
   return `[Thinking] ${item.text}`;
@@ -130,15 +109,12 @@ function formatItemStartedForDisplay(
 
   switch (item.type) {
     case "reasoning":
-      // Don't show reasoning until completed
       return null;
 
     case "command_execution":
-      // Show the command being executed
       return `--- Command: ${extractShellCommand(item.command)} ---`;
 
     case "agent_message":
-      // Don't show until completed
       return null;
 
     default:
@@ -175,7 +151,6 @@ export function formatCodexEventForDisplay(event: CodexStreamEvent): string | nu
     case "thread.started":
     case "turn.started":
     case "turn.completed":
-      // Don't display these control events
       return null;
 
     case "item.started":
@@ -189,13 +164,9 @@ export function formatCodexEventForDisplay(event: CodexStreamEvent): string | nu
   }
 }
 
-// ============================================================================
-// Result Extraction
-// ============================================================================
-
 /**
- * Extract the final result text from Codex's JSONL output
- * Finds the last 'agent_message' item and returns its text field
+ * Extract the final result text from Codex's JSONL output.
+ * Finds the last 'agent_message' item and returns its text field.
  */
 export function extractCodexResult(output: string): string | null {
   if (!output.trim()) {
@@ -219,7 +190,7 @@ export function extractCodexResult(output: string): string | null {
 }
 
 /**
- * Formatter for streamAndCapture - wraps the display formatter
+ * Formatter for streamAndCapture. Wraps the display formatter.
  */
 export function formatCodexLine(line: string): string | null {
   const event = parseCodexStreamEvent(line);
