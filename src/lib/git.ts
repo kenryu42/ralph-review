@@ -20,10 +20,33 @@ function runGitForStdout(cwd: string, args: string[]): string | undefined {
 }
 
 /**
+ * Async version of runGitForStdout for non-blocking git operations.
+ */
+async function runGitForStdoutAsync(cwd: string, args: string[]): Promise<string | undefined> {
+  const proc = Bun.spawn(["git", ...args], {
+    cwd,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const exitCode = await proc.exited;
+  if (exitCode !== 0) return undefined;
+  return (await new Response(proc.stdout).text()).trim();
+}
+
+/**
  * Verify that the given path is inside a git work tree.
  */
-function ensureGitRepository(path: string): boolean {
+export function ensureGitRepository(path: string): boolean {
   const output = runGitForStdout(path, ["rev-parse", "--is-inside-work-tree"]);
+  return output === "true";
+}
+
+/**
+ * Async version of ensureGitRepository for non-blocking checks.
+ * Preferred for use in UI refresh loops.
+ */
+export async function ensureGitRepositoryAsync(path: string): Promise<boolean> {
+  const output = await runGitForStdoutAsync(path, ["rev-parse", "--is-inside-work-tree"]);
   return output === "true";
 }
 

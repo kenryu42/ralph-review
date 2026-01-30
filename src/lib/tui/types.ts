@@ -42,6 +42,8 @@ export interface DashboardState {
   projectStats: ProjectStats | null;
   /** Current configuration */
   config: Config | null;
+  /** Whether the project path is inside a git repository */
+  isGitRepo: boolean;
 }
 
 /**

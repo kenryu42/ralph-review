@@ -70,12 +70,11 @@ describe("type definitions", () => {
   test("IterationResult type structure is correct", () => {
     const result: IterationResult = {
       success: true,
-      hasIssues: false,
       output: "No issues found",
       exitCode: 0,
       duration: 5000,
     };
     expect(result.success).toBe(true);
-    expect(result.hasIssues).toBe(false);
+    expect(result.output).toBe("No issues found");
   });
 });

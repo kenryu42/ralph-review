@@ -4,6 +4,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { loadConfig } from "@/lib/config";
+import { ensureGitRepositoryAsync } from "@/lib/git";
 import { listAllActiveSessions, readLockfile } from "@/lib/lockfile";
 import {
   computeProjectStats,
@@ -49,6 +50,7 @@ export function useDashboardState(
     lastSessionStats: null,
     projectStats: null,
     config: null,
+    isGitRepo: true,
   });
 
   // Use ref to avoid stale closure issues
@@ -67,8 +69,9 @@ export function useDashboardState(
     isRefreshingRef.current = true;
 
     try {
-      // Fetch all data in parallel
-      const [sessions, lockData, logSession, config] = await Promise.all([
+      // Fetch all data in parallel (including async git check)
+      const [isGitRepo, sessions, lockData, logSession, config] = await Promise.all([
+        ensureGitRepositoryAsync(projectPath),
         listAllActiveSessions(),
         readLockfile(undefined, projectPath),
         getLatestProjectLogSession(undefined, projectPath),
@@ -157,6 +160,7 @@ export function useDashboardState(
         lastSessionStats,
         projectStats,
         config,
+        isGitRepo,
       });
     } catch (error) {
       setState((prev: DashboardState) => ({

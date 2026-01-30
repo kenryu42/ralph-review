@@ -2,10 +2,8 @@
  * SessionPanel component - displays session status, iterations, and fixes
  */
 
-import { getAgentDisplayName, getModelDisplayName } from "@/commands/init";
 import type { LockData } from "@/lib/lockfile";
 import type {
-  Config,
   DerivedRunStatus,
   FixEntry,
   Priority,
@@ -23,7 +21,7 @@ interface SessionPanelProps {
   isLoading: boolean;
   lastSessionStats: SessionStats | null;
   projectStats: ProjectStats | null;
-  config: Config | null;
+  isGitRepo: boolean;
 }
 
 /**
@@ -97,19 +95,6 @@ function countByPriority(fixes: FixEntry[]): Record<Priority, number> {
   return counts;
 }
 
-/**
- * Format agent config for display (e.g., "Codex (GPT-5.2 Codex)")
- */
-function formatAgentConfig(config: Config, role: "reviewer" | "fixer"): string {
-  const settings = role === "reviewer" ? config.reviewer : config.fixer;
-  const agentName = getAgentDisplayName(settings.agent);
-  if (settings.model) {
-    const modelName = getModelDisplayName(settings.agent, settings.model);
-    return `${agentName} (${modelName})`;
-  }
-  return agentName;
-}
-
 export function SessionPanel({
   session,
   fixes,
@@ -118,10 +103,10 @@ export function SessionPanel({
   isLoading,
   lastSessionStats,
   projectStats,
-  config,
+  isGitRepo,
 }: SessionPanelProps) {
   // Minimum width to prevent text wrapping
-  const minWidth = 30;
+  const minWidth = 40;
 
   if (isLoading) {
     return (
@@ -132,24 +117,6 @@ export function SessionPanel({
   }
 
   if (!session) {
-    // No config - prompt to run init
-    if (!config) {
-      return (
-        <box
-          border
-          borderColor="#374151"
-          padding={1}
-          flexGrow={1}
-          minWidth={minWidth}
-          flexDirection="column"
-          gap={1}
-        >
-          <text fg="#9ca3af">No active session</text>
-          <text fg="#f97316">Not configured - run "rr init"</text>
-        </box>
-      );
-    }
-
     // Has config but no previous sessions
     if (!lastSessionStats) {
       return (
@@ -162,29 +129,17 @@ export function SessionPanel({
           flexDirection="column"
           gap={1}
         >
+          {!isGitRepo && (
+            <box flexDirection="column" paddingBottom={1}>
+              <text fg="#f97316">
+                <strong>Not a git repository</strong>
+              </text>
+              <text fg="#6b7280">Run "git init" to initialize</text>
+            </box>
+          )}
           <text fg="#9ca3af">No active session</text>
 
           <text fg="#6b7280">Start a review with "rr run"</text>
-
-          {/* Spacer to push Config to bottom */}
-          <box flexGrow={1} />
-
-          {/* Config */}
-          <box flexDirection="column">
-            <text fg="#9ca3af">Config:</text>
-            <text fg="#6b7280" paddingLeft={2}>
-              Reviewer: {formatAgentConfig(config, "reviewer")}
-            </text>
-            <text fg="#6b7280" paddingLeft={2}>
-              Fixer: {formatAgentConfig(config, "fixer")}
-            </text>
-            <text fg="#6b7280" paddingLeft={2}>
-              Max iterations: {config.maxIterations}
-            </text>
-            <text fg="#6b7280" paddingLeft={2}>
-              Timeout per iteration: {Math.round(config.iterationTimeout / 60000)}m
-            </text>
-          </box>
         </box>
       );
     }
@@ -203,6 +158,14 @@ export function SessionPanel({
         flexDirection="column"
         gap={1}
       >
+        {!isGitRepo && (
+          <box flexDirection="column" paddingBottom={1}>
+            <text fg="#f97316">
+              <strong>Not a git repository</strong>
+            </text>
+            <text fg="#6b7280">Run "git init" to initialize</text>
+          </box>
+        )}
         <text fg="#9ca3af">No active session</text>
 
         {/* Last run */}
@@ -231,26 +194,6 @@ export function SessionPanel({
             </text>
           </box>
         )}
-
-        {/* Spacer to push Config to bottom */}
-        <box flexGrow={1} />
-
-        {/* Config */}
-        <box flexDirection="column">
-          <text fg="#9ca3af">Config:</text>
-          <text fg="#6b7280" paddingLeft={2}>
-            Reviewer: {formatAgentConfig(config, "reviewer")}
-          </text>
-          <text fg="#6b7280" paddingLeft={2}>
-            Fixer: {formatAgentConfig(config, "fixer")}
-          </text>
-          <text fg="#6b7280" paddingLeft={2}>
-            Max iterations: {config.maxIterations}
-          </text>
-          <text fg="#6b7280" paddingLeft={2}>
-            Timeout per iteration: {Math.round(config.iterationTimeout / 60000)}m
-          </text>
-        </box>
       </box>
     );
   }

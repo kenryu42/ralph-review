@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { mergeBaseWithHead } from "@/lib/git";
+import { ensureGitRepository, mergeBaseWithHead } from "@/lib/git";
 
 /**
  * Helper to run git commands in a directory
@@ -51,6 +51,28 @@ function commit(repoPath: string, filename: string, message: string): void {
   runGitIn(repoPath, ["add", filename]);
   runGitIn(repoPath, ["commit", "-m", message]);
 }
+
+describe("ensureGitRepository", () => {
+  let tempDir: string;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "git-test-"));
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  test("returns true for a git repository", () => {
+    initTestRepo(tempDir);
+    expect(ensureGitRepository(tempDir)).toBe(true);
+  });
+
+  test("returns false for a non-git directory", () => {
+    // tempDir without git init
+    expect(ensureGitRepository(tempDir)).toBe(false);
+  });
+});
 
 describe("mergeBaseWithHead", () => {
   let tempDir: string;

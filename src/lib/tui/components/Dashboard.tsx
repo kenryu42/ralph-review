@@ -85,6 +85,8 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
           branch={branch}
           elapsed={state.elapsed}
           session={state.currentSession}
+          projectPath={projectPath}
+          config={state.config}
         />
         <box flexGrow={1} padding={2}>
           <text fg="#ef4444">Error: {state.error}</text>
@@ -101,6 +103,8 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
         branch={branch}
         elapsed={state.elapsed}
         session={state.currentSession}
+        projectPath={projectPath}
+        config={state.config}
       />
       <box flexDirection="row" flexGrow={1} gap={1} padding={1}>
         <SessionPanel
@@ -111,7 +115,7 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
           isLoading={state.isLoading}
           lastSessionStats={state.lastSessionStats}
           projectStats={state.projectStats}
-          config={state.config}
+          isGitRepo={state.isGitRepo}
         />
         <OutputPanel
           output={state.tmuxOutput}
