@@ -127,30 +127,25 @@ function resolveUpstreamIfRemoteAhead(repoRoot: string, branch: string): string 
  * @returns The merge-base commit SHA, or undefined
  */
 export function mergeBaseWithHead(repoPath: string, branch: string): string | undefined {
-  // 1. Verify we're in a git repository
   if (!ensureGitRepository(repoPath)) {
     return undefined;
   }
 
-  // 2. Resolve repository root
   const repoRoot = resolveRepositoryRoot(repoPath);
   if (!repoRoot) {
     return undefined;
   }
 
-  // 3. Resolve HEAD
   const head = resolveHead(repoRoot);
   if (!head) {
     return undefined;
   }
 
-  // 4. Resolve the branch reference
   const branchRef = resolveBranchRef(repoRoot, branch);
   if (!branchRef) {
     return undefined;
   }
 
-  // 5. Check if upstream is ahead - if so, prefer the upstream ref
   const upstream = resolveUpstreamIfRemoteAhead(repoRoot, branch);
   let preferredRef = branchRef;
 
@@ -161,6 +156,5 @@ export function mergeBaseWithHead(repoPath: string, branch: string): string | un
     }
   }
 
-  // 6. Compute the merge-base
   return runGitForStdout(repoRoot, ["merge-base", head, preferredRef]);
 }

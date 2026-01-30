@@ -198,7 +198,6 @@ export async function listProjectLogSessions(
       });
     }
 
-    // Sort by timestamp descending
     sessions.sort((a, b) => b.timestamp - a.timestamp);
 
     return sessions;
@@ -228,7 +227,6 @@ export async function getLatestProjectLogSession(
  * - unknown: no iteration entries found
  */
 function deriveRunStatus(entries: LogEntry[]): DerivedRunStatus {
-  // Find all iteration entries
   const iterations = entries.filter(
     (e): e is import("./types").IterationEntry => e.type === "iteration"
   );
@@ -242,16 +240,13 @@ function deriveRunStatus(entries: LogEntry[]): DerivedRunStatus {
     return "unknown";
   }
 
-  // Check for errors
   if (lastIteration.error) {
-    // Check if it was an interrupt
     if (lastIteration.error.message.toLowerCase().includes("interrupt")) {
       return "interrupted";
     }
     return "failed";
   }
 
-  // No errors = completed (whether fixes were applied or code was already clean)
   return "completed";
 }
 
@@ -269,14 +264,10 @@ export async function computeSessionStats(session: LogSession): Promise<SessionS
   const entries = await readLog(session.path);
   const status = deriveRunStatus(entries);
 
-  // Find system entry for git branch
   const systemEntry = entries.find((e): e is SystemEntry => e.type === "system");
   const gitBranch = systemEntry?.gitBranch;
 
-  // Find iteration entries
   const iterations = entries.filter((e): e is IterationEntry => e.type === "iteration");
-
-  // Aggregate fix counts and duration
   let totalFixes = 0;
   let totalSkipped = 0;
   const priorityCounts = emptyPriorityCounts();
@@ -330,7 +321,6 @@ export async function computeProjectStats(
       continue;
     }
 
-    // Extract basename (last path segment) from original path
     const segments = systemEntry.projectPath.split(/[/\\]/);
     displayName = segments.at(-1) || projectName;
     break;
@@ -375,7 +365,6 @@ export async function buildDashboardData(
 ): Promise<DashboardData> {
   const requestedProject = currentProjectPath ? getProjectName(currentProjectPath) : undefined;
 
-  // Get all sessions and group by project
   const allSessions = await listLogSessions(logsDir);
   const sessionsByProject = new Map<string, LogSession[]>();
 
@@ -385,17 +374,13 @@ export async function buildDashboardData(
     sessionsByProject.set(session.projectName, existing);
   }
 
-  // Compute stats for each project
   const projects: ProjectStats[] = [];
   for (const [projectName, sessions] of sessionsByProject) {
     const stats = await computeProjectStats(projectName, sessions);
     projects.push(stats);
   }
 
-  // Sort projects by total fixes (most active first)
   projects.sort((a, b) => b.totalFixes - a.totalFixes);
-
-  // Compute global stats
   let totalFixes = 0;
   let totalSkipped = 0;
   const priorityCounts = emptyPriorityCounts();

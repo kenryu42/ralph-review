@@ -7,22 +7,22 @@
  * Option definition for a command
  */
 export interface OptionDef {
-  name: string; // Long name: "background" -> --background
-  alias?: string; // Single char: "b" -> -b
+  name: string;
+  alias?: string;
   type: "boolean" | "string" | "number";
   description: string;
   default?: boolean | string | number;
   required?: boolean;
-  placeholder?: string; // Custom placeholder for help text (e.g., "BRANCH" -> <BRANCH>)
+  placeholder?: string;
 }
 
 /**
  * Positional argument definition
  */
 export interface PositionalDef {
-  name: string; // e.g., "session"
+  name: string;
   description: string;
-  required?: boolean; // defaults to false
+  required?: boolean;
 }
 
 /**
@@ -30,12 +30,12 @@ export interface PositionalDef {
  */
 export interface CommandDef {
   name: string;
-  aliases?: string[]; // e.g., ["ls"] for "list"
+  aliases?: string[];
   description: string;
   options?: OptionDef[];
   positional?: PositionalDef[];
   examples?: string[];
-  hidden?: boolean; // For internal commands
+  hidden?: boolean;
 }
 
 /**
@@ -95,7 +95,6 @@ export function parseCommand<T = Record<string, unknown>>(
   const options = def.options ?? [];
   const { byName, byAlias } = buildOptionMaps(options);
 
-  // Initialize values with defaults
   const values: Record<string, unknown> = {};
   for (const opt of options) {
     if (opt.type === "boolean") {
@@ -123,14 +122,12 @@ export function parseCommand<T = Record<string, unknown>>(
       continue;
     }
 
-    // After --, everything is positional
     if (afterDoubleDash) {
       positional.push(arg);
       i++;
       continue;
     }
 
-    // Long option: --name or --name=value
     if (arg.startsWith("--")) {
       const eqIndex = arg.indexOf("=");
       let name: string;
@@ -175,7 +172,6 @@ export function parseCommand<T = Record<string, unknown>>(
       continue;
     }
 
-    // Short option: -x or -x value
     if (arg.startsWith("-") && arg.length > 1) {
       const chars = arg.slice(1);
 
@@ -215,12 +211,10 @@ export function parseCommand<T = Record<string, unknown>>(
       continue;
     }
 
-    // Positional argument
     positional.push(arg);
     i++;
   }
 
-  // Check required options
   for (const opt of options) {
     if (opt.required && values[opt.name] === undefined) {
       throw new Error(`Missing required option: --${opt.name}`);
@@ -236,7 +230,6 @@ export function parseCommand<T = Record<string, unknown>>(
 export function formatCommandHelp(def: CommandDef): string {
   const lines: string[] = [];
 
-  // Usage line
   let usage = `rr ${def.name}`;
   if (def.positional && def.positional.length > 0) {
     for (const pos of def.positional) {
@@ -252,7 +245,6 @@ export function formatCommandHelp(def: CommandDef): string {
   lines.push("USAGE:");
   lines.push(`  ${usage}`);
 
-  // Positional arguments
   if (def.positional && def.positional.length > 0) {
     lines.push("");
     lines.push("ARGUMENTS:");
@@ -262,7 +254,6 @@ export function formatCommandHelp(def: CommandDef): string {
     }
   }
 
-  // Options
   if (def.options && def.options.length > 0) {
     lines.push("");
     lines.push("OPTIONS:");
@@ -282,7 +273,6 @@ export function formatCommandHelp(def: CommandDef): string {
     }
   }
 
-  // Examples
   if (def.examples && def.examples.length > 0) {
     lines.push("");
     lines.push("EXAMPLES:");

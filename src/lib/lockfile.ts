@@ -10,9 +10,6 @@ import { join } from "node:path";
 import { LOGS_DIR } from "./config";
 import { getProjectName } from "./logger";
 
-/**
- * Default branch name when git branch is unavailable (detached HEAD, not a git repo)
- */
 const DEFAULT_BRANCH = "default";
 
 /**
@@ -103,7 +100,7 @@ export async function removeLockfile(
   try {
     await Bun.file(lockPath).delete();
   } catch {
-    // Ignore if doesn't exist
+    // Ignore
   }
 }
 
@@ -148,47 +145,24 @@ export function isProcessAlive(pid: number): boolean {
   }
 }
 
-/**
- * Maximum age for a "pending" lockfile before it's considered stale (30 seconds)
- * This handles the case where tmux fails to start and never updates the lockfile
- */
 const PENDING_LOCKFILE_MAX_AGE_MS = 30_000;
 
-/**
- * Check if lock data represents a stale session
- * Used internally for both isLockfileStale and listAllActiveSessions
- */
 function isLockDataStale(lockData: LockData): boolean {
-  // Pending lockfiles get a grace period before PID check
   if (lockData.status === "pending") {
     const age = Date.now() - lockData.startTime;
     if (age < PENDING_LOCKFILE_MAX_AGE_MS) {
-      return false; // Still within startup grace period
+      return false;
     }
-    // Pending lockfile is too old, treat as stale
     return true;
   }
 
-  // For running/completed/failed/legacy lockfiles, check PID
   return !isProcessAlive(lockData.pid);
 }
 
-/**
- * Check if a lockfile is stale (PID is dead or pending lockfile is too old)
- *
- * A lockfile is NOT stale if:
- * - Status is "pending" and created less than PENDING_LOCKFILE_MAX_AGE_MS ago
- *   (tmux session is starting up and hasn't updated the PID yet)
- * - Status is "running" and PID is alive
- *
- * A lockfile IS stale if:
- * - Status is "pending" but older than PENDING_LOCKFILE_MAX_AGE_MS
- * - Status is "running" (or undefined for legacy) and PID is dead
- */
 async function isLockfileStale(logsDir: string = LOGS_DIR, projectPath: string): Promise<boolean> {
   const lockData = await readLockfile(logsDir, projectPath);
   if (!lockData) {
-    return false; // No lockfile = not stale
+    return false;
   }
 
   return isLockDataStale(lockData);
@@ -221,7 +195,6 @@ export async function listAllActiveSessions(logsDir: string = LOGS_DIR): Promise
     const entries = await readdir(logsDir, { withFileTypes: true });
 
     for (const entry of entries) {
-      // Only look at .lock files directly in logsDir (flat structure)
       if (!entry.isFile() || !entry.name.endsWith(".lock")) continue;
 
       const lockPath = join(logsDir, entry.name);
@@ -230,7 +203,6 @@ export async function listAllActiveSessions(logsDir: string = LOGS_DIR): Promise
         const content = await Bun.file(lockPath).text();
         const lockData = JSON.parse(content) as LockData;
 
-        // Skip stale sessions (using same logic as isLockfileStale)
         if (isLockDataStale(lockData)) {
           continue;
         }
@@ -240,11 +212,11 @@ export async function listAllActiveSessions(logsDir: string = LOGS_DIR): Promise
           lockPath,
         });
       } catch {
-        // Invalid lockfile, skip
+        // Invalid lockfile
       }
     }
   } catch {
-    // Logs dir doesn't exist yet
+    // Logs dir doesn't exist
   }
 
   return sessions;
@@ -258,17 +230,16 @@ export async function removeAllLockfiles(logsDir: string = LOGS_DIR): Promise<vo
     const entries = await readdir(logsDir, { withFileTypes: true });
 
     for (const entry of entries) {
-      // Only look at .lock files directly in logsDir (flat structure)
       if (!entry.isFile() || !entry.name.endsWith(".lock")) continue;
 
       const lockPath = join(logsDir, entry.name);
       try {
         await Bun.file(lockPath).delete();
       } catch {
-        // Ignore deletion errors
+        // Ignore
       }
     }
   } catch {
-    // Logs dir doesn't exist yet
+    // Logs dir doesn't exist
   }
 }

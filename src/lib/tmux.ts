@@ -12,22 +12,11 @@ import { $ } from "bun";
  * collapses consecutive dashes, truncates to 20 chars.
  */
 export function sanitizeBasename(basename: string): string {
-  // Replace invalid characters with dash
   let sanitized = basename.replace(/[^a-zA-Z0-9_-]+/g, "-");
-
-  // Collapse consecutive dashes
   sanitized = sanitized.replace(/-+/g, "-");
-
-  // Remove leading and trailing dashes
   sanitized = sanitized.replace(/^-+|-+$/g, "");
-
-  // Truncate to 20 characters
   sanitized = sanitized.slice(0, 20);
-
-  // Remove trailing dash after truncation
   sanitized = sanitized.replace(/-+$/, "");
-
-  // Return "project" if empty or all-invalid
   return sanitized || "project";
 }
 
@@ -81,7 +70,7 @@ export async function sendInterrupt(name: string): Promise<void> {
   try {
     await $`tmux send-keys -t ${name} C-c`.quiet();
   } catch {
-    // Session might not exist, ignore error
+    // Session might not exist
   }
 }
 
@@ -92,7 +81,7 @@ export async function killSession(name: string): Promise<void> {
   try {
     await $`tmux kill-session -t ${name}`.quiet();
   } catch {
-    // Session might not exist, ignore error
+    // Session might not exist
   }
 }
 

@@ -7,7 +7,6 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Config } from "./types";
 
-// Default paths
 const CONFIG_DIR = join(homedir(), ".config", "ralph-review");
 export const CONFIG_PATH = join(CONFIG_DIR, "config.json");
 export const LOGS_DIR = join(CONFIG_DIR, "logs");
@@ -23,7 +22,6 @@ export async function ensureConfigDir(dir: string = CONFIG_DIR): Promise<void> {
  * Save configuration to disk
  */
 export async function saveConfig(config: Config, path: string = CONFIG_PATH): Promise<void> {
-  // Ensure parent directory exists
   const parentDir = path.substring(0, path.lastIndexOf("/"));
   if (parentDir) {
     await mkdir(parentDir, { recursive: true });

@@ -7,9 +7,6 @@ import { join } from "node:path";
 import { readLog } from "./logger";
 import type { DashboardData, IterationEntry, LogEntry, SystemEntry } from "./types";
 
-/**
- * Escape HTML special characters
- */
 function escapeHtml(text: string): string {
   return text
     .replace(/&/g, "&amp;")
@@ -19,30 +16,18 @@ function escapeHtml(text: string): string {
     .replace(/'/g, "&#039;");
 }
 
-/**
- * Format timestamp for display
- */
 function formatTimestamp(ts: number): string {
   return new Date(ts).toLocaleString();
 }
 
-/**
- * Type guard for SystemEntry
- */
 function isSystemEntry(entry: LogEntry): entry is SystemEntry {
   return entry.type === "system";
 }
 
-/**
- * Type guard for IterationEntry
- */
 function isIterationEntry(entry: LogEntry): entry is IterationEntry {
   return entry.type === "iteration";
 }
 
-/**
- * Render system entry (run configuration)
- */
 function renderSystemEntry(entry: SystemEntry): string {
   return `
     <div class="entry entry-system">
@@ -61,9 +46,6 @@ function renderSystemEntry(entry: SystemEntry): string {
   `;
 }
 
-/**
- * Render iteration entry (fix results)
- */
 function renderIterationEntry(entry: IterationEntry): string {
   let statusIcon = "✅";
   let statusClass = "success";
@@ -135,22 +117,17 @@ function renderIterationEntry(entry: IterationEntry): string {
   `;
 }
 
-/**
- * Generate HTML from log entries
- */
 export function generateLogHtml(entries: LogEntry[]): string {
   let entriesHtml = "";
 
   if (entries.length === 0) {
     entriesHtml = '<p class="empty">No log entries</p>';
   } else {
-    // Render system entry first (if present)
     const systemEntry = entries.find(isSystemEntry);
     if (systemEntry) {
       entriesHtml += renderSystemEntry(systemEntry);
     }
 
-    // Render iteration entries
     const iterationEntries = entries.filter(isIterationEntry);
     for (const entry of iterationEntries) {
       entriesHtml += renderIterationEntry(entry);
@@ -264,10 +241,6 @@ export function generateLogHtml(entries: LogEntry[]): string {
 </html>`;
 }
 
-/**
- * Write HTML log file for a session
- * Places HTML file next to the JSONL log file
- */
 export async function writeLogHtml(logPath: string): Promise<void> {
   const entries = await readLog(logPath);
   const html = generateLogHtml(entries);
@@ -275,26 +248,15 @@ export async function writeLogHtml(logPath: string): Promise<void> {
   await Bun.write(htmlPath, html);
 }
 
-/**
- * Get the HTML file path for a log session
- */
 export function getHtmlPath(logPath: string): string {
   return logPath.replace(/\.jsonl$/, ".html");
 }
 
-/**
- * Get the dashboard HTML file path
- */
 export function getDashboardPath(logsDir: string): string {
   return join(logsDir, "dashboard.html");
 }
 
-/**
- * Generate dashboard HTML from aggregated data
- * Creates a distinctive brutalist/editorial dashboard with working navigation
- */
 export function generateDashboardHtml(data: DashboardData): string {
-  // Escape < to prevent script tag injection when log entries contain </script>
   const dataJson = JSON.stringify(data).replace(/</g, "\\u003c");
 
   return `<!DOCTYPE html>
@@ -1260,9 +1222,6 @@ export function generateDashboardHtml(data: DashboardData): string {
 </html>`;
 }
 
-/**
- * Write dashboard HTML file
- */
 export async function writeDashboardHtml(htmlPath: string, data: DashboardData): Promise<void> {
   const html = generateDashboardHtml(data);
   await Bun.write(htmlPath, html);
