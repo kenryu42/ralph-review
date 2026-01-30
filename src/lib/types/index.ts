@@ -18,10 +18,8 @@ export {
   type AgentRole,
   type AgentType,
   type DerivedRunStatus,
-  type FixDecision,
   isAgentRole,
   isAgentType,
-  type OverallCorrectness,
   type Priority,
 } from "./domain";
 // Fix types and guards
@@ -32,12 +30,11 @@ export type { IterationEntry, LogEntry, SystemEntry } from "./log";
 // Review types and guards
 export {
   type CodexReviewSummary,
-  type Finding,
   isReviewSummary,
   type ReviewSummary,
 } from "./review";
 // Runtime state types
-export type { IterationError, IterationResult, RunState } from "./run";
+export type { IterationResult, RunState } from "./run";
 
 // Statistics types
 export type { DashboardData, ProjectStats, SessionStats } from "./stats";
