@@ -27,10 +27,28 @@ export const COMMANDS: CommandDef[] = [
     description: "Start review cycle",
     options: [
       { name: "max", alias: "m", type: "number", description: "Max iterations" },
-      { name: "branch", alias: "b", type: "string", description: "Base branch to compare against" },
-      { name: "file", alias: "f", type: "string", description: "Custom reviewer prompt file" },
+      {
+        name: "base",
+        alias: "b",
+        type: "string",
+        placeholder: "BRANCH",
+        description: "Base branch to compare against",
+      },
+      {
+        name: "file",
+        alias: "f",
+        type: "string",
+        placeholder: "FILE_PATH",
+        description: "Custom reviewer prompt file",
+      },
+      {
+        name: "uncommitted",
+        alias: "u",
+        type: "boolean",
+        description: "Review staged, unstaged, and untracked changes (default)",
+      },
     ],
-    examples: ["rr run", "rr run --branch main", "rr run --file ./my-prompt.md"],
+    examples: ["rr run", "rr run --base main", "rr run --file ./my-prompt.md"],
   },
   {
     name: "list",

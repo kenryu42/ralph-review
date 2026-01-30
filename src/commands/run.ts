@@ -7,7 +7,7 @@ import { resolve } from "node:path";
 import * as p from "@clack/prompts";
 import { $ } from "bun";
 import { getCommandDef } from "@/cli";
-import { isAgentAvailable } from "@/lib/agents";
+import { AGENTS, isAgentAvailable } from "@/lib/agents";
 import { parseCommand } from "@/lib/cli-parser";
 import { configExists, loadConfig } from "@/lib/config";
 import { runReviewCycle } from "@/lib/engine";
@@ -21,15 +21,16 @@ import {
 import { getGitBranch } from "@/lib/logger";
 import { defaultReviewPrompt } from "@/lib/prompts";
 import { createSession, generateSessionName, isInsideTmux, isTmuxInstalled } from "@/lib/tmux";
-import type { Config } from "@/lib/types";
+import { type Config, isAgentType } from "@/lib/types";
 
 /**
  * Options parsed from run command arguments
  */
 export interface RunOptions {
   max?: number;
-  branch?: string;
+  base?: string;
   file?: string;
+  uncommitted?: boolean;
 }
 
 /**
@@ -88,15 +89,27 @@ export async function validatePrerequisites(baseBranch?: string): Promise<string
   }
 
   // Check reviewer agent is available
-  if (!isAgentAvailable(config.reviewer.agent)) {
-    errors.push(
-      `Reviewer agent "${config.reviewer.agent}" is not installed. Install it and try again.`
-    );
+  if (!isAgentType(config.reviewer.agent)) {
+    errors.push(`Unknown reviewer agent: "${config.reviewer.agent}"`);
+  } else {
+    const reviewerCommand = AGENTS[config.reviewer.agent].config.command;
+    if (!isAgentAvailable(reviewerCommand)) {
+      errors.push(
+        `Reviewer agent "${config.reviewer.agent}" (command: ${reviewerCommand}) is not installed. Install it and try again.`
+      );
+    }
   }
 
   // Check fixer agent is available
-  if (!isAgentAvailable(config.fixer.agent)) {
-    errors.push(`Fixer agent "${config.fixer.agent}" is not installed. Install it and try again.`);
+  if (!isAgentType(config.fixer.agent)) {
+    errors.push(`Unknown fixer agent: "${config.fixer.agent}"`);
+  } else {
+    const fixerCommand = AGENTS[config.fixer.agent].config.command;
+    if (!isAgentAvailable(fixerCommand)) {
+      errors.push(
+        `Fixer agent "${config.fixer.agent}" (command: ${fixerCommand}) is not installed. Install it and try again.`
+      );
+    }
   }
 
   // Get project path for lockfile check
@@ -173,7 +186,7 @@ export async function runForeground(args: string[] = []): Promise<void> {
   // Get project path from environment variable (set by parent process)
   const projectPath = process.env.RR_PROJECT_PATH || process.cwd();
 
-  // Get base branch from environment variable (set by parent process for --branch mode)
+  // Get base branch from environment variable (set by parent process for --base mode)
   const baseBranch = process.env.RR_BASE_BRANCH || undefined;
 
   // Get base prompt from environment variable (base64 encoded)
@@ -249,6 +262,12 @@ export async function runRun(args: string[]): Promise<void> {
     process.exit(1);
   }
 
+  // Validate mutual exclusivity of --base and --uncommitted
+  if (options.base && options.uncommitted) {
+    p.log.error("Cannot use --base and --uncommitted together");
+    process.exit(1);
+  }
+
   // Validate and load custom prompt file if provided
   let basePrompt: string | undefined;
   if (options.file) {
@@ -262,7 +281,7 @@ export async function runRun(args: string[]): Promise<void> {
   }
 
   // Validate prerequisites
-  const errors = await validatePrerequisites(options.branch);
+  const errors = await validatePrerequisites(options.base);
 
   if (errors.length > 0) {
     p.log.error("Cannot run review:");
@@ -283,5 +302,5 @@ export async function runRun(args: string[]): Promise<void> {
     p.log.warn("Running inside tmux session. Review will start in a nested session.");
   }
 
-  await runInBackground(config, options.max, options.branch, basePrompt);
+  await runInBackground(config, options.max, options.base, basePrompt);
 }

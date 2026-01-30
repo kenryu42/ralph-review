@@ -13,6 +13,7 @@ export interface OptionDef {
   description: string;
   default?: boolean | string | number;
   required?: boolean;
+  placeholder?: string; // Custom placeholder for help text (e.g., "BRANCH" -> <BRANCH>)
 }
 
 /**
@@ -268,7 +269,8 @@ export function formatCommandHelp(def: CommandDef): string {
     for (const opt of def.options) {
       const alias = opt.alias ? `-${opt.alias}, ` : "    ";
       const name = `--${opt.name}`;
-      const valueHint = opt.type !== "boolean" ? ` <${opt.type}>` : "";
+      const valueHint =
+        opt.type !== "boolean" ? ` <${opt.placeholder ?? opt.type.toUpperCase()}>` : "";
       const flag = `${alias}${name}${valueHint}`;
 
       const extras: string[] = [];
