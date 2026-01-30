@@ -6,20 +6,13 @@
 import { mergeBaseWithHead } from "@/lib/git";
 import defaultReviewPromptContent from "./defaults/review.md" with { type: "text" };
 
-/**
- * The default reviewer base prompt content.
- */
 const defaultReviewPrompt: string = defaultReviewPromptContent;
 
-/**
- * Instruction appended for reviewing uncommitted changes
- */
+/** Instruction for reviewing working directory changes (staged, unstaged, untracked) */
 const UNCOMMITTED_INSTRUCTION =
   "Review the current code changes (staged, unstaged, and untracked files) and provide prioritized findings.";
 
-/**
- * Instruction appended for reviewing against a base branch (with known merge-base SHA)
- */
+/** Instruction for reviewing commits since merge-base with a base branch */
 const BASE_BRANCH_INSTRUCTION = (baseBranch: string, mergeBaseSha: string) =>
   `Review the code changes against the base branch '${baseBranch}'. The merge base commit for this comparison is ${mergeBaseSha}. Run \`git diff ${mergeBaseSha}\` to inspect the changes relative to ${baseBranch}. Provide prioritized, actionable findings.`;
 
@@ -41,10 +34,7 @@ export interface ReviewerPromptOptions {
 
 /**
  * Create the complete reviewer prompt.
- * Combines the base prompt with review type-specific instructions.
- *
- * @param options - The prompt generation options
- * @returns The complete reviewer prompt string
+ * Combines the base prompt with review type-specific instructions based on review mode.
  */
 export function createReviewerPrompt(options: ReviewerPromptOptions): string {
   const { repoPath, baseBranch } = options;
