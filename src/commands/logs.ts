@@ -1,6 +1,4 @@
-/**
- * Logs command - view review logs in terminal or browser
- */
+/** View review logs (terminal or HTML dashboard) */
 
 import { platform } from "node:os";
 import * as p from "@clack/prompts";
@@ -29,9 +27,6 @@ import type {
   SystemEntry,
 } from "@/lib/types";
 
-/**
- * Options for logs command
- */
 interface LogsOptions {
   html: boolean;
   json: boolean;
@@ -74,9 +69,6 @@ export function markRunningSessions(data: DashboardData, activeSessions: ActiveS
   }
 }
 
-/**
- * Open a file in the default browser
- */
 async function openInBrowser(filePath: string): Promise<void> {
   const os = platform();
 
@@ -95,31 +87,19 @@ async function openInBrowser(filePath: string): Promise<void> {
   }
 }
 
-/**
- * Format timestamp for display
- */
 function formatDate(timestamp: number): string {
   return new Date(timestamp).toLocaleString();
 }
 
-/**
- * Format status for display
- */
 export function formatStatus(status: DerivedRunStatus): string {
   return status;
 }
 
-/**
- * Format priority counts as a summary string
- */
 export function formatPriorityCounts(counts: Record<Priority, number>): string {
   return `P1: ${counts.P1}  P2: ${counts.P2}  P3: ${counts.P3}  P4: ${counts.P4}`;
 }
 
-/**
- * Format duration in milliseconds to a readable string
- * Examples: "5s", "1m 30s", "1h 2m 5s"
- */
+/** Format ms to human-readable duration (e.g., "1m 30s") */
 export function formatDuration(ms: number): string {
   const totalSeconds = Math.floor(ms / 1000);
   const hours = Math.floor(totalSeconds / 3600);
@@ -135,9 +115,6 @@ export function formatDuration(ms: number): string {
   return `${seconds}s`;
 }
 
-/**
- * Extract system entry from session entries to get agent config
- */
 function extractSystemEntry(session: SessionStats): SystemEntry | undefined {
   for (const entry of session.entries) {
     if (entry.type === "system") {
@@ -147,9 +124,6 @@ function extractSystemEntry(session: SessionStats): SystemEntry | undefined {
   return undefined;
 }
 
-/**
- * JSON output structure for a single session (used internally)
- */
 export interface SessionJson {
   project: string;
   branch?: string;
@@ -168,24 +142,15 @@ export interface SessionJson {
   skipped: SkippedEntry[];
 }
 
-/**
- * JSON output structure for project-scoped sessions
- */
 export interface ProjectSessionsJson {
   project: string;
   sessions: SessionJson[];
 }
 
-/**
- * JSON output structure for global sessions
- */
 export interface GlobalSessionsJson {
   sessions: SessionJson[];
 }
 
-/**
- * Build JSON output for a session
- */
 export function buildSessionJson(
   projectName: string,
   session: SessionStats,
@@ -213,9 +178,6 @@ export function buildSessionJson(
   };
 }
 
-/**
- * Build JSON output for multiple project-scoped sessions
- */
 export function buildProjectSessionsJson(
   projectName: string,
   sessions: SessionStats[]
@@ -231,9 +193,6 @@ export function buildProjectSessionsJson(
   };
 }
 
-/**
- * Build JSON output for global sessions (all projects)
- */
 export function buildGlobalSessionsJson(sessions: SessionStats[]): GlobalSessionsJson {
   const sessionJsons = sessions.map((session) => {
     const systemEntry = extractSystemEntry(session);
@@ -248,9 +207,6 @@ export function buildGlobalSessionsJson(sessions: SessionStats[]): GlobalSession
   };
 }
 
-/**
- * Extract all fixes and skipped entries from session entries
- */
 function extractFixesAndSkipped(session: SessionStats): {
   fixes: FixEntry[];
   skipped: SkippedEntry[];
@@ -271,9 +227,6 @@ function extractFixesAndSkipped(session: SessionStats): {
   return { fixes, skipped };
 }
 
-/**
- * Format status with icon for terminal display
- */
 function formatStatusWithIcon(status: DerivedRunStatus): string {
   const icons: Record<DerivedRunStatus, string> = {
     completed: "completed",
@@ -285,16 +238,10 @@ function formatStatusWithIcon(status: DerivedRunStatus): string {
   return icons[status];
 }
 
-/**
- * Format agent settings for display
- */
 function formatAgent(settings: AgentSettings): string {
   return settings.model ? `${settings.agent} (${settings.model})` : settings.agent;
 }
 
-/**
- * Render terminal output for a session
- */
 function renderTerminalSession(
   projectName: string,
   session: SessionStats,
@@ -364,9 +311,6 @@ function renderTerminalSession(
   p.outro("");
 }
 
-/**
- * Main logs command handler
- */
 export async function runLogs(args: string[]): Promise<void> {
   // Parse options
   const logsDef = getCommandDef("logs");

@@ -1,7 +1,4 @@
-/**
- * Run command for ralph-review
- * Starts the review cycle in background or foreground
- */
+/** Start review cycle in tmux background or foreground */
 
 import * as p from "@clack/prompts";
 import { $ } from "bun";
@@ -21,18 +18,12 @@ import { getGitBranch } from "@/lib/logger";
 import { createSession, generateSessionName, isInsideTmux, isTmuxInstalled } from "@/lib/tmux";
 import { type Config, isAgentType } from "@/lib/types";
 
-/**
- * Options parsed from run command arguments
- */
 export interface RunOptions {
   max?: number;
   base?: string;
   uncommitted?: boolean;
 }
 
-/**
- * Check if current directory is a git repository
- */
 export async function isGitRepo(): Promise<boolean> {
   try {
     const result = await $`git rev-parse --git-dir 2>/dev/null`.quiet();
@@ -42,9 +33,6 @@ export async function isGitRepo(): Promise<boolean> {
   }
 }
 
-/**
- * Check if there are uncommitted changes
- */
 export async function hasUncommittedChanges(): Promise<boolean> {
   try {
     // Check for staged, unstaged, or untracked files
@@ -125,9 +113,6 @@ export async function validatePrerequisites(baseBranch?: string): Promise<string
   return errors;
 }
 
-/**
- * Run full review cycle in tmux background
- */
 async function runInBackground(
   _config: Config,
   maxIterations?: number,
@@ -224,9 +209,6 @@ export async function runForeground(args: string[] = []): Promise<void> {
   }
 }
 
-/**
- * Main run command handler
- */
 export async function runRun(args: string[]): Promise<void> {
   // Parse options using command definition
   const runDef = getCommandDef("run");

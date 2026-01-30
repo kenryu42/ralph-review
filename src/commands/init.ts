@@ -1,7 +1,4 @@
-/**
- * Init command for ralph-review
- * Sets up the configuration by prompting user for agent selection
- */
+/** Interactive setup for reviewer/fixer agents and iteration limits */
 
 import * as p from "@clack/prompts";
 import {
@@ -24,28 +21,16 @@ import {
 import type { AgentType, Config } from "@/lib/types";
 import { isAgentType } from "@/lib/types";
 
-/**
- * Agent availability map
- */
 export type AgentAvailability = Record<AgentType, boolean>;
 
-/**
- * Validate that a string is a valid agent type
- */
 export function validateAgentSelection(value: string): boolean {
   return isAgentType(value);
 }
 
-/**
- * Check if a command is installed on the system
- */
 export function checkAgentInstalled(command: string): boolean {
   return Bun.which(command) !== null;
 }
 
-/**
- * Check if tmux is installed
- */
 export function checkTmuxInstalled(): boolean {
   return Bun.which("tmux") !== null;
 }
@@ -64,9 +49,6 @@ export function checkAllAgents(): AgentAvailability {
   };
 }
 
-/**
- * User input collected during init
- */
 interface InitInput {
   reviewerAgent: string;
   reviewerModel: string;
@@ -76,9 +58,6 @@ interface InitInput {
   iterationTimeoutMinutes: number;
 }
 
-/**
- * Build a Config object from user input
- */
 export function buildConfig(input: InitInput): Config {
   return {
     reviewer: {
@@ -94,9 +73,6 @@ export function buildConfig(input: InitInput): Config {
   };
 }
 
-/**
- * Build agent options with disabled state for unavailable agents
- */
 function buildAgentSelectOptions(availability: AgentAvailability) {
   return agentOptions.map((opt) => ({
     value: opt.value,
@@ -106,16 +82,9 @@ function buildAgentSelectOptions(availability: AgentAvailability) {
   }));
 }
 
-/**
- * Cached OpenCode models to avoid fetching multiple times
- */
 let cachedOpencodeModels: { value: string; label: string }[] | null = null;
 
-/**
- * Fetch available models from OpenCode CLI
- * Runs `opencode models` and parses the output, ignoring INFO lines
- * Results are cached to avoid redundant fetches
- */
+/** Fetch models from `opencode models`, ignoring INFO lines. Results cached. */
 async function fetchOpencodeModels(): Promise<{ value: string; label: string }[]> {
   if (cachedOpencodeModels) {
     return cachedOpencodeModels;
@@ -146,9 +115,6 @@ async function fetchOpencodeModels(): Promise<{ value: string; label: string }[]
   return cachedOpencodeModels;
 }
 
-/**
- * Check if user cancelled the prompt
- */
 function handleCancel(value: unknown): asserts value is string {
   if (p.isCancel(value)) {
     p.cancel("Setup cancelled.");
@@ -156,9 +122,6 @@ function handleCancel(value: unknown): asserts value is string {
   }
 }
 
-/**
- * Format config for display
- */
 function formatConfigDisplay(config: Config): string {
   const reviewerName = getAgentDisplayName(config.reviewer.agent);
   const fixerName = getAgentDisplayName(config.fixer.agent);
@@ -178,9 +141,6 @@ function formatConfigDisplay(config: Config): string {
   ].join("\n");
 }
 
-/**
- * Main init command handler
- */
 export async function runInit(): Promise<void> {
   p.intro("Ralph Review Setup");
 

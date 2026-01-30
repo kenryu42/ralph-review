@@ -1,6 +1,4 @@
-/**
- * Stop command - stop running review session
- */
+/** Stop review session (graceful SIGINT, then kill) */
 
 import * as p from "@clack/prompts";
 import { getCommandDef } from "@/cli";
@@ -13,16 +11,10 @@ import {
 } from "@/lib/lockfile";
 import { killSession, listRalphSessions, sendInterrupt } from "@/lib/tmux";
 
-/**
- * Options for stop command
- */
 interface StopOptions {
   all: boolean;
 }
 
-/**
- * Main stop command handler
- */
 export async function runStop(args: string[]): Promise<void> {
   // Parse options
   const stopDef = getCommandDef("stop");
@@ -49,9 +41,6 @@ export async function runStop(args: string[]): Promise<void> {
   }
 }
 
-/**
- * Stop all ralph-review sessions
- */
 async function stopAllSessions(): Promise<void> {
   const sessions = await listRalphSessions();
 
@@ -83,9 +72,6 @@ async function stopAllSessions(): Promise<void> {
   p.log.success(`Stopped ${sessions.length} session(s).`);
 }
 
-/**
- * Stop session for current project
- */
 async function stopCurrentSession(): Promise<void> {
   const projectPath = process.cwd();
 

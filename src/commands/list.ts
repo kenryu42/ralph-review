@@ -1,13 +1,8 @@
-/**
- * List command - list active review sessions
- */
+/** List active tmux review sessions */
 
 import * as p from "@clack/prompts";
 import { listRalphSessions } from "@/lib/tmux";
 
-/**
- * List all running ralph-review sessions
- */
 export async function runList(): Promise<void> {
   const sessions = await listRalphSessions();
   if (sessions.length === 0) {

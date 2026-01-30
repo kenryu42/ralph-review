@@ -1,8 +1,4 @@
 #!/usr/bin/env bun
-/**
- * ralph-review CLI entry point
- * AI-powered code review tool
- */
 
 import * as p from "@clack/prompts";
 import { runInit } from "./commands/init";
@@ -13,9 +9,6 @@ import { runStatus } from "./commands/status";
 import { runStop } from "./commands/stop";
 import { type CommandDef, formatCommandHelp, formatMainHelp } from "./lib/cli-parser";
 
-/**
- * Command definitions for CLI
- */
 export const COMMANDS: CommandDef[] = [
   {
     name: "init",
@@ -91,16 +84,10 @@ export const COMMANDS: CommandDef[] = [
   },
 ];
 
-/**
- * Get command definition by name or alias
- */
 export function getCommandDef(name: string): CommandDef | undefined {
   return COMMANDS.find((c) => c.name === name || c.aliases?.includes(name));
 }
 
-/**
- * Parsed command line arguments
- */
 export interface ParsedArgs {
   command: string;
   args: string[];
@@ -108,9 +95,6 @@ export interface ParsedArgs {
   showVersion: boolean;
 }
 
-/**
- * Parse command line arguments
- */
 export function parseArgs(argv: string[]): ParsedArgs {
   const result: ParsedArgs = {
     command: "",
@@ -134,9 +118,6 @@ export function parseArgs(argv: string[]): ParsedArgs {
   return result;
 }
 
-/**
- * Get version from package.json
- */
 export function getVersion(): string {
   try {
     const pkg = require("../package.json");
@@ -146,25 +127,16 @@ export function getVersion(): string {
   }
 }
 
-/**
- * Print usage information (main help)
- */
 export function printUsage(): string {
   return formatMainHelp(COMMANDS, getVersion());
 }
 
-/**
- * Print command-specific help
- */
 export function printCommandHelp(commandName: string): string | undefined {
   const def = getCommandDef(commandName);
   if (!def) return undefined;
   return formatCommandHelp(def);
 }
 
-/**
- * Main CLI handler
- */
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
   const { command, args, showHelp, showVersion } = parseArgs(argv);
@@ -174,13 +146,11 @@ async function main(): Promise<void> {
     return;
   }
 
-  // No command: show main help
   if (!command) {
     console.log(printUsage());
     return;
   }
 
-  // Command-level help: rr <command> --help
   if (showHelp) {
     const commandHelp = printCommandHelp(command);
     if (commandHelp) {

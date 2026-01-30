@@ -1,14 +1,11 @@
 #!/usr/bin/env bun
-/**
- * rrr - Quick alias for rr run
- */
 
 import { printCommandHelp } from "./cli";
 import { runRun } from "./commands/run";
 
 const userArgs = process.argv.slice(2);
 
-// Handle --help specially
+// Show rrr-specific help that delegates to 'rr run' options
 if (userArgs.includes("--help") || userArgs.includes("-h")) {
   console.log("rrr - Quick alias for 'rr run'\n");
   console.log("USAGE:");
@@ -16,7 +13,6 @@ if (userArgs.includes("--help") || userArgs.includes("-h")) {
   console.log("All options are passed through to 'rr run'.\n");
   const help = printCommandHelp("run");
   if (help) {
-    // Extract just the OPTIONS section from run help
     const optionsMatch = help.match(/OPTIONS:[\s\S]*?(?=\nEXAMPLES:|\n\n|$)/);
     if (optionsMatch) {
       console.log(optionsMatch[0]);
