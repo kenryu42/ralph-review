@@ -1,13 +1,6 @@
-/**
- * Fix-related types and guards
- */
-
 import type { FixDecision, Priority } from "./domain";
 import { VALID_FIX_DECISIONS, VALID_PRIORITIES } from "./domain";
 
-/**
- * A single fix applied by the fixer
- */
 export interface FixEntry {
   id: number;
   title: string;
@@ -18,27 +11,19 @@ export interface FixEntry {
   fix: string;
 }
 
-/**
- * A review item that was skipped (not applied)
- */
+/** A review item skipped by the fixer */
 export interface SkippedEntry {
   id: number;
   title: string;
   reason: string;
 }
 
-/**
- * Summary of fixes applied in an iteration
- */
 export interface FixSummary {
   decision: FixDecision;
   fixes: FixEntry[];
   skipped: SkippedEntry[];
 }
 
-/**
- * Type guard to check if a value is a valid FixEntry
- */
 function isFixEntry(value: unknown): value is FixEntry {
   if (typeof value !== "object" || value === null) {
     return false;
@@ -58,9 +43,6 @@ function isFixEntry(value: unknown): value is FixEntry {
   );
 }
 
-/**
- * Type guard to check if a value is a valid SkippedEntry
- */
 function isSkippedEntry(value: unknown): value is SkippedEntry {
   if (typeof value !== "object" || value === null) {
     return false;
@@ -73,9 +55,6 @@ function isSkippedEntry(value: unknown): value is SkippedEntry {
   );
 }
 
-/**
- * Type guard to check if a value is a valid FixSummary
- */
 export function isFixSummary(value: unknown): value is FixSummary {
   if (typeof value !== "object" || value === null) {
     return false;

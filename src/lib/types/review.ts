@@ -1,29 +1,16 @@
-/**
- * Review-related types and guards
- */
-
 import type { OverallCorrectness } from "./domain";
 import { VALID_OVERALL_CORRECTNESS } from "./domain";
 
-/**
- * Line range within a file
- */
 interface LineRange {
   start: number;
   end: number;
 }
 
-/**
- * Location of code in a file
- */
 interface CodeLocation {
   absolute_file_path: string;
   line_range: LineRange;
 }
 
-/**
- * A single finding from a review
- */
 export interface Finding {
   title: string;
   body: string;
@@ -32,9 +19,6 @@ export interface Finding {
   code_location: CodeLocation;
 }
 
-/**
- * Summary of a code review
- */
 export interface ReviewSummary {
   findings: Finding[];
   overall_correctness: OverallCorrectness;
@@ -49,9 +33,6 @@ export interface CodexReviewSummary {
   text: string;
 }
 
-/**
- * Type guard to check if a value is a valid LineRange
- */
 function isLineRange(value: unknown): value is LineRange {
   if (typeof value !== "object" || value === null) {
     return false;
@@ -67,9 +48,6 @@ function isLineRange(value: unknown): value is LineRange {
   );
 }
 
-/**
- * Type guard to check if a value is a valid CodeLocation
- */
 function isCodeLocation(value: unknown): value is CodeLocation {
   if (typeof value !== "object" || value === null) {
     return false;
@@ -88,9 +66,6 @@ function isCodeLocation(value: unknown): value is CodeLocation {
   return true;
 }
 
-/**
- * Type guard to check if a value is a valid Finding
- */
 function isFinding(value: unknown): value is Finding {
   if (typeof value !== "object" || value === null) {
     return false;
@@ -128,9 +103,6 @@ function isFinding(value: unknown): value is Finding {
   return true;
 }
 
-/**
- * Type guard to check if a value is a valid ReviewSummary
- */
 export function isReviewSummary(value: unknown): value is ReviewSummary {
   if (typeof value !== "object" || value === null) {
     return false;

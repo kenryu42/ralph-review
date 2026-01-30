@@ -1,11 +1,5 @@
-/**
- * Core type definitions for ralph-review CLI
- *
- * This is the main entry point for all types.
- * Individual types are organized into focused modules.
- */
+/** Main type exports for ralph-review CLI */
 
-// Configuration types
 export {
   type AgentConfig,
   type AgentSettings,
@@ -13,7 +7,6 @@ export {
   DEFAULT_RETRY_CONFIG,
   type RetryConfig,
 } from "./config";
-// Domain primitives (public types and guards only)
 export {
   type AgentRole,
   type AgentType,
@@ -22,19 +15,12 @@ export {
   isAgentType,
   type Priority,
 } from "./domain";
-// Fix types and guards
 export { type FixEntry, type FixSummary, isFixSummary, type SkippedEntry } from "./fix";
-// Log entry types
 export type { IterationEntry, LogEntry, SystemEntry } from "./log";
-
-// Review types and guards
 export {
   type CodexReviewSummary,
   isReviewSummary,
   type ReviewSummary,
 } from "./review";
-// Runtime state types
 export type { IterationResult, RunState } from "./run";
-
-// Statistics types
 export type { DashboardData, ProjectStats, SessionStats } from "./stats";

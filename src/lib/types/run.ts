@@ -1,10 +1,3 @@
-/**
- * Runtime state types
- */
-
-/**
- * Current state of a running review session
- */
 export interface RunState {
   sessionName: string;
   startTime: number; // Unix timestamp
@@ -13,9 +6,7 @@ export interface RunState {
   lastOutput?: string;
 }
 
-/**
- * Result of a single iteration (either review or fix)
- */
+/** Outcome of one review-fix cycle iteration */
 export interface IterationResult {
   success: boolean;
   output: string;
@@ -23,9 +14,6 @@ export interface IterationResult {
   duration: number; // in milliseconds
 }
 
-/**
- * Error details for a failed iteration
- */
 export interface IterationError {
   phase: "reviewer" | "fixer";
   message: string;

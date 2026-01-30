@@ -1,15 +1,9 @@
-/**
- * Log entry types
- */
-
 import type { AgentSettings } from "./config";
 import type { FixSummary } from "./fix";
 import type { CodexReviewSummary, ReviewSummary } from "./review";
 import type { IterationError } from "./run";
 
-/**
- * System entry - logged once per run with configuration info
- */
+/** Initial entry with run configuration and git state */
 export interface SystemEntry {
   type: "system";
   timestamp: number;
@@ -20,9 +14,6 @@ export interface SystemEntry {
   maxIterations: number;
 }
 
-/**
- * Iteration entry - logged once per iteration with results
- */
 export interface IterationEntry {
   type: "iteration";
   timestamp: number;
@@ -34,7 +25,5 @@ export interface IterationEntry {
   error?: IterationError;
 }
 
-/**
- * Log entry - union of all entry types
- */
+/** Union of SystemEntry and IterationEntry */
 export type LogEntry = SystemEntry | IterationEntry;
