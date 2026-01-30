@@ -173,7 +173,6 @@ export interface RunState {
  */
 export interface IterationResult {
   success: boolean;
-  hasIssues: boolean;
   output: string;
   exitCode: number;
   duration: number; // in milliseconds
@@ -219,6 +218,7 @@ export interface IterationEntry {
   iteration: number;
   duration?: number;
   review?: ReviewSummary;
+  codexReview?: CodexReviewSummary;
   fixes?: FixSummary;
   error?: IterationError;
 }
@@ -298,6 +298,13 @@ export interface ReviewSummary {
   overall_correctness: OverallCorrectness;
   overall_explanation: string;
   overall_confidence_score: number;
+}
+
+/**
+ * Review summary from Codex agent (plain text format)
+ */
+export interface CodexReviewSummary {
+  text: string;
 }
 
 /**
