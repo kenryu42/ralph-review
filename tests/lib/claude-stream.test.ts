@@ -3,7 +3,7 @@ import {
   extractClaudeResult,
   formatClaudeEventForDisplay,
   parseClaudeStreamEvent,
-} from "@/lib/agents/claude-stream";
+} from "@/lib/agents/claude";
 
 describe("claude-stream", () => {
   describe("parseClaudeStreamEvent", () => {

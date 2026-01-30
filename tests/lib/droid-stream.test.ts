@@ -3,7 +3,7 @@ import {
   extractDroidResult,
   formatDroidEventForDisplay,
   parseDroidStreamEvent,
-} from "@/lib/agents/droid-stream";
+} from "@/lib/agents/droid";
 
 describe("droid-stream", () => {
   describe("parseDroidStreamEvent", () => {

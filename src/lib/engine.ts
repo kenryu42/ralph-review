@@ -9,16 +9,11 @@ import {
   defaultReviewPrompt,
   FIXER_NO_ISSUES_MARKER,
 } from "@/lib/prompts";
-import {
-  extractClaudeResult,
-  extractCodexResult,
-  extractDroidResult,
-  extractGeminiResult,
-  runAgent,
-} from "./agents";
+import { AGENTS, runAgent } from "./agents";
 import { appendLog, createLogSession, getGitBranch } from "./logger";
 import type {
   AgentRole,
+  CodexReviewSummary,
   Config,
   FixSummary,
   IterationEntry,
@@ -55,7 +50,7 @@ export function formatAgentFailureWarning(
 ╔${border}╗
 ║  ⚠️  ${roleName} AGENT FAILED - EXIT CODE ${exitCode}
 ║
-║  Retries exhausted: ${retriesExhausted}/${retriesExhausted}
+║  All ${retriesExhausted} retries exhausted
 ║
 ║  ⚠️  WARNING: Code may be in a BROKEN state!
 ║  The ${role} may have been interrupted mid-execution.
@@ -324,7 +319,7 @@ export async function runReviewCycle(
   await appendLog(sessionPath, systemEntry);
 
   let iteration = 0;
-  let lastReviewResult: IterationResult | null = null;
+  let hasRemainingIssues = true; // Tracks whether issues remain (set to false when fixer finds no issues)
 
   while (iteration < config.maxIterations) {
     iteration++;
@@ -344,7 +339,7 @@ export async function runReviewCycle(
       };
       await appendLog(sessionPath, entry);
       return determineCycleResult(
-        lastReviewResult?.hasIssues ?? true,
+        hasRemainingIssues,
         iteration - 1,
         config.maxIterations,
         true,
@@ -365,7 +360,6 @@ export async function runReviewCycle(
     // Run reviewer with retry
     const retryConfig = config.retry ?? DEFAULT_RETRY_CONFIG;
     const reviewResult = await runAgentWithRetry("reviewer", config, reviewerPrompt);
-    lastReviewResult = reviewResult;
 
     if (onIteration) {
       onIteration(iteration, "reviewer", reviewResult);
@@ -419,59 +413,48 @@ export async function runReviewCycle(
     printHeader("Running fixer to verify and apply fixes...", "\x1b[35m"); // Magenta
 
     // Parse review summary and extract text for fixer
-    // Codex uses its own review format, other agents output ReviewSummary JSON
     let reviewSummary: ReviewSummary | null = null;
-    let reviewTextForFixer: string;
+    let codexReviewSummary: CodexReviewSummary | null = null;
+
+    const agentModule = AGENTS[config.reviewer.agent];
+    // Polymorphic extraction
+    const extractedText = agentModule.extractResult(reviewResult.output);
+    const reviewTextForFixer = extractedText ?? reviewResult.output;
+
+    // Extract JSON block from reviewer output (for parsing and fixer prompt)
+    let reviewJson: string | null = null;
 
     if (config.reviewer.agent === "codex") {
-      // Codex doesn't use ReviewSummary format - extract agent_message text
-      reviewTextForFixer = extractCodexResult(reviewResult.output) ?? reviewResult.output;
-    } else if (config.reviewer.agent === "claude") {
-      const resultText = extractClaudeResult(reviewResult.output);
-      reviewSummary = resultText ? parseReviewSummary(resultText) : null;
-      reviewTextForFixer = resultText ?? reviewResult.output;
-    } else if (config.reviewer.agent === "droid") {
-      const resultText = extractDroidResult(reviewResult.output);
-      reviewSummary = resultText ? parseReviewSummary(resultText) : null;
-      reviewTextForFixer = resultText ?? reviewResult.output;
-    } else if (config.reviewer.agent === "gemini") {
-      const resultText = extractGeminiResult(reviewResult.output);
-      reviewSummary = resultText ? parseReviewSummary(resultText) : null;
-      reviewTextForFixer = resultText ?? reviewResult.output;
+      // Codex outputs plain text, store it directly
+      codexReviewSummary = { text: reviewTextForFixer };
     } else {
-      // opencode - parse directly (no JSONL wrapper)
-      reviewSummary = parseReviewSummary(reviewResult.output);
-      reviewTextForFixer = reviewResult.output;
+      // Other agents should return JSON, potentially wrapped in markdown
+      // Use extractJsonBlock to handle markdown wrapping, fallback to raw text
+      reviewJson = extractedText ? (extractJsonBlock(extractedText) ?? extractedText) : null;
+
+      if (reviewJson) {
+        reviewSummary = parseReviewSummary(reviewJson);
+      }
+
+      // Log if parsing failed (but continue gracefully)
+      if (!reviewSummary && reviewResult.success) {
+        console.log("  ⚠️  Could not parse review summary JSON from reviewer output");
+      }
     }
 
-    // Log if parsing failed (but continue gracefully)
-    if (!reviewSummary && config.reviewer.agent !== "codex" && reviewResult.success) {
-      console.log("  ⚠️  Could not parse review summary JSON from reviewer output");
-    }
-
-    const fixerPrompt = createFixerPrompt(reviewTextForFixer);
+    // Pass JSON block to fixer; fallback to raw text if extraction failed
+    const fixerPrompt = createFixerPrompt(reviewJson ?? reviewTextForFixer);
 
     // Run fixer with retry
     const fixResult = await runAgentWithRetry("fixer", config, fixerPrompt);
 
     // Try to extract and parse fix summary from fixer output
-    // For Claude/Droid, first extract the result text from JSONL, then look for JSON block
-    let jsonString: string | null;
-    if (config.fixer.agent === "claude") {
-      const resultText = extractClaudeResult(fixResult.output);
-      jsonString = resultText ? extractJsonBlock(resultText) : null;
-    } else if (config.fixer.agent === "droid") {
-      const resultText = extractDroidResult(fixResult.output);
-      jsonString = resultText ? extractJsonBlock(resultText) : null;
-    } else if (config.fixer.agent === "gemini") {
-      const resultText = extractGeminiResult(fixResult.output);
-      jsonString = resultText ? extractJsonBlock(resultText) : null;
-    } else if (config.fixer.agent === "codex") {
-      const resultText = extractCodexResult(fixResult.output);
-      jsonString = resultText ? extractJsonBlock(resultText) : null;
-    } else {
-      jsonString = extractJsonBlock(fixResult.output);
-    }
+    // Use agent-specific extraction logic (e.g., for JSONL agents)
+    const fixerAgentModule = AGENTS[config.fixer.agent];
+    const resultText = fixerAgentModule.extractResult(fixResult.output);
+    const jsonString = resultText
+      ? extractJsonBlock(resultText)
+      : extractJsonBlock(fixResult.output);
     const fixSummary = jsonString ? parseFixSummary(jsonString) : null;
 
     // Log if JSON extraction failed (but continue gracefully)
@@ -518,12 +501,14 @@ export async function runReviewCycle(
       iteration,
       duration: Date.now() - iterationStartTime,
       review: reviewSummary ?? undefined,
+      codexReview: codexReviewSummary ?? undefined,
       fixes: fixSummary ?? undefined,
     };
     await appendLog(sessionPath, iterationEntry);
 
     // Check if fixer found no issues to fix (stop condition)
     if (fixerFoundNoIssues(fixResult.output)) {
+      hasRemainingIssues = false;
       console.log("✅ No issues to fix - code is clean!");
       return determineCycleResult(false, iteration, config.maxIterations, false, sessionPath);
     }
@@ -534,7 +519,7 @@ export async function runReviewCycle(
   // Max iterations reached after completing the last full iteration
   console.log(`⚠️  Max iterations (${config.maxIterations}) reached`);
   return determineCycleResult(
-    lastReviewResult?.hasIssues ?? true,
+    hasRemainingIssues,
     iteration,
     config.maxIterations,
     wasInterrupted(),

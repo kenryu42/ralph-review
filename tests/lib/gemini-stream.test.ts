@@ -3,7 +3,7 @@ import {
   extractGeminiResult,
   formatGeminiEventForDisplay,
   parseGeminiStreamEvent,
-} from "@/lib/agents/gemini-stream";
+} from "@/lib/agents/gemini";
 
 describe("gemini-stream", () => {
   describe("parseGeminiStreamEvent", () => {

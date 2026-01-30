@@ -3,7 +3,7 @@ import {
   extractCodexResult,
   formatCodexEventForDisplay,
   parseCodexStreamEvent,
-} from "@/lib/agents/codex-stream";
+} from "@/lib/agents/codex";
 
 describe("codex-stream", () => {
   describe("parseCodexStreamEvent", () => {
