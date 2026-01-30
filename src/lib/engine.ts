@@ -3,14 +3,17 @@
  * Orchestrates the review -> fix cycle
  */
 
-import { createFixerPrompt, FIXER_NO_ISSUES_MARKER } from "@/lib/prompts";
+import {
+  createFixerPrompt,
+  createReviewerPrompt,
+  defaultReviewPrompt,
+  FIXER_NO_ISSUES_MARKER,
+} from "@/lib/prompts";
 import {
   extractClaudeResult,
+  extractCodexResult,
   extractDroidResult,
   extractGeminiResult,
-  formatClaudeReviewForFixer,
-  formatDroidReviewForFixer,
-  formatGeminiReviewForFixer,
   runAgent,
 } from "./agents";
 import { appendLog, createLogSession, getGitBranch } from "./logger";
@@ -21,9 +24,10 @@ import type {
   IterationEntry,
   IterationResult,
   RetryConfig,
+  ReviewSummary,
   SystemEntry,
 } from "./types";
-import { DEFAULT_RETRY_CONFIG, isFixSummary } from "./types";
+import { DEFAULT_RETRY_CONFIG, isFixSummary, isReviewSummary } from "./types";
 
 /**
  * Calculate retry delay with jitter exponential backoff
@@ -156,10 +160,10 @@ export function fixerFoundNoIssues(fixerOutput: string): boolean {
 }
 
 /**
- * Extract JSON block from fixer output
+ * Extract JSON block from agent output
  * Looks for ```json\n...\n``` block and returns the JSON string
  */
-export function extractFixSummaryJson(output: string): string | null {
+export function extractJsonBlock(output: string): string | null {
   // Match ```json followed by content until closing ```
   const match = output.match(/```json\s*\n([\s\S]*?)\n```/);
   if (!match?.[1]) {
@@ -176,6 +180,22 @@ export function parseFixSummary(jsonString: string): FixSummary | null {
   try {
     const parsed: unknown = JSON.parse(jsonString);
     if (isFixSummary(parsed)) {
+      return parsed;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Parse a JSON string into a ReviewSummary
+ * Returns null if parsing fails or structure is invalid
+ */
+export function parseReviewSummary(jsonString: string): ReviewSummary | null {
+  try {
+    const parsed: unknown = JSON.parse(jsonString);
+    if (isReviewSummary(parsed)) {
       return parsed;
     }
     return null;
@@ -257,14 +277,29 @@ function resetInterrupt(): void {
 }
 
 /**
+ * Options for configuring the review
+ */
+export interface ReviewOptions {
+  /** Optional base branch to compare against (e.g., "main") */
+  baseBranch?: string;
+  /** Base prompt content (defaults to built-in prompt) */
+  basePrompt?: string;
+}
+
+/**
  * Run the complete review cycle
  *
  * Loop: reviewer -> check for issues -> if issues, fixer -> repeat
  * Stop when: no issues found OR max iterations reached
+ *
+ * @param config - The configuration for the review cycle
+ * @param onIteration - Optional callback for iteration progress
+ * @param reviewOptions - Optional review configuration (base branch, custom prompt)
  */
 export async function runReviewCycle(
   config: Config,
-  onIteration?: OnIterationCallback
+  onIteration?: OnIterationCallback,
+  reviewOptions?: ReviewOptions
 ): Promise<CycleResult> {
   resetInterrupt();
   setupSignalHandler();
@@ -320,9 +355,16 @@ export async function runReviewCycle(
     console.log(`\n📋 Iteration ${iteration}/${config.maxIterations}`);
     printHeader("Running reviewer...", "\x1b[36m"); // Cyan
 
+    // Generate reviewer prompt by combining base prompt with review type instruction
+    const reviewerPrompt = createReviewerPrompt({
+      basePrompt: reviewOptions?.basePrompt ?? defaultReviewPrompt,
+      repoPath: projectPath,
+      baseBranch: reviewOptions?.baseBranch,
+    });
+
     // Run reviewer with retry
     const retryConfig = config.retry ?? DEFAULT_RETRY_CONFIG;
-    const reviewResult = await runAgentWithRetry("reviewer", config);
+    const reviewResult = await runAgentWithRetry("reviewer", config, reviewerPrompt);
     lastReviewResult = reviewResult;
 
     if (onIteration) {
@@ -376,26 +418,38 @@ export async function runReviewCycle(
     // Always run fixer after reviewer to verify findings and apply fixes
     printHeader("Running fixer to verify and apply fixes...", "\x1b[35m"); // Magenta
 
-    // Create fixer prompt from review output
-    // For Claude/Droid reviewer, format the JSONL output into readable text
-    let reviewText = reviewResult.output;
-    if (config.reviewer.agent === "claude") {
-      const formatted = formatClaudeReviewForFixer(reviewResult.output);
-      if (formatted) {
-        reviewText = formatted;
-      }
+    // Parse review summary and extract text for fixer
+    // Codex uses its own review format, other agents output ReviewSummary JSON
+    let reviewSummary: ReviewSummary | null = null;
+    let reviewTextForFixer: string;
+
+    if (config.reviewer.agent === "codex") {
+      // Codex doesn't use ReviewSummary format - extract agent_message text
+      reviewTextForFixer = extractCodexResult(reviewResult.output) ?? reviewResult.output;
+    } else if (config.reviewer.agent === "claude") {
+      const resultText = extractClaudeResult(reviewResult.output);
+      reviewSummary = resultText ? parseReviewSummary(resultText) : null;
+      reviewTextForFixer = resultText ?? reviewResult.output;
     } else if (config.reviewer.agent === "droid") {
-      const formatted = formatDroidReviewForFixer(reviewResult.output);
-      if (formatted) {
-        reviewText = formatted;
-      }
+      const resultText = extractDroidResult(reviewResult.output);
+      reviewSummary = resultText ? parseReviewSummary(resultText) : null;
+      reviewTextForFixer = resultText ?? reviewResult.output;
     } else if (config.reviewer.agent === "gemini") {
-      const formatted = formatGeminiReviewForFixer(reviewResult.output);
-      if (formatted) {
-        reviewText = formatted;
-      }
+      const resultText = extractGeminiResult(reviewResult.output);
+      reviewSummary = resultText ? parseReviewSummary(resultText) : null;
+      reviewTextForFixer = resultText ?? reviewResult.output;
+    } else {
+      // opencode - parse directly (no JSONL wrapper)
+      reviewSummary = parseReviewSummary(reviewResult.output);
+      reviewTextForFixer = reviewResult.output;
     }
-    const fixerPrompt = createFixerPrompt(reviewText);
+
+    // Log if parsing failed (but continue gracefully)
+    if (!reviewSummary && config.reviewer.agent !== "codex" && reviewResult.success) {
+      console.log("  ⚠️  Could not parse review summary JSON from reviewer output");
+    }
+
+    const fixerPrompt = createFixerPrompt(reviewTextForFixer);
 
     // Run fixer with retry
     const fixResult = await runAgentWithRetry("fixer", config, fixerPrompt);
@@ -405,15 +459,18 @@ export async function runReviewCycle(
     let jsonString: string | null;
     if (config.fixer.agent === "claude") {
       const resultText = extractClaudeResult(fixResult.output);
-      jsonString = resultText ? extractFixSummaryJson(resultText) : null;
+      jsonString = resultText ? extractJsonBlock(resultText) : null;
     } else if (config.fixer.agent === "droid") {
       const resultText = extractDroidResult(fixResult.output);
-      jsonString = resultText ? extractFixSummaryJson(resultText) : null;
+      jsonString = resultText ? extractJsonBlock(resultText) : null;
     } else if (config.fixer.agent === "gemini") {
       const resultText = extractGeminiResult(fixResult.output);
-      jsonString = resultText ? extractFixSummaryJson(resultText) : null;
+      jsonString = resultText ? extractJsonBlock(resultText) : null;
+    } else if (config.fixer.agent === "codex") {
+      const resultText = extractCodexResult(fixResult.output);
+      jsonString = resultText ? extractJsonBlock(resultText) : null;
     } else {
-      jsonString = extractFixSummaryJson(fixResult.output);
+      jsonString = extractJsonBlock(fixResult.output);
     }
     const fixSummary = jsonString ? parseFixSummary(jsonString) : null;
 
@@ -454,12 +511,13 @@ export async function runReviewCycle(
       };
     }
 
-    // Log iteration result with fix summary (only on success)
+    // Log iteration result with review and fix summary (only on success)
     const iterationEntry: IterationEntry = {
       type: "iteration",
       timestamp: Date.now(),
       iteration,
       duration: Date.now() - iterationStartTime,
+      review: reviewSummary ?? undefined,
       fixes: fixSummary ?? undefined,
     };
     await appendLog(sessionPath, iterationEntry);

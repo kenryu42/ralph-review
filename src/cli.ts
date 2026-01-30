@@ -25,8 +25,12 @@ export const COMMANDS: CommandDef[] = [
   {
     name: "run",
     description: "Start review cycle",
-    options: [{ name: "max", alias: "m", type: "number", description: "Max iterations" }],
-    examples: ["rr run", "rr run --max 3"],
+    options: [
+      { name: "max", alias: "m", type: "number", description: "Max iterations" },
+      { name: "branch", alias: "b", type: "string", description: "Base branch to compare against" },
+      { name: "file", alias: "f", type: "string", description: "Custom reviewer prompt file" },
+    ],
+    examples: ["rr run", "rr run --branch main", "rr run --file ./my-prompt.md"],
   },
   {
     name: "list",

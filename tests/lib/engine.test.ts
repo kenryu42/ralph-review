@@ -2,10 +2,11 @@ import { describe, expect, test } from "bun:test";
 import {
   calculateRetryDelay,
   determineCycleResult,
-  extractFixSummaryJson,
+  extractJsonBlock,
   fixerFoundNoIssues,
   formatAgentFailureWarning,
   parseFixSummary,
+  parseReviewSummary,
 } from "@/lib/engine";
 import { createFixerPrompt, FIXER_NO_ISSUES_MARKER } from "@/lib/prompts";
 import type { Config, RetryConfig } from "@/lib/types";
@@ -158,8 +159,8 @@ End of review.`;
     });
   });
 
-  describe("extractFixSummaryJson", () => {
-    test("extracts JSON block from fixer output", () => {
+  describe("extractJsonBlock", () => {
+    test("extracts JSON block from agent output", () => {
       const output = `DECISION: APPLY_SELECTIVELY
 APPLY: #1
 
@@ -170,19 +171,19 @@ Some analysis here.
 \`\`\`
 
 End of output.`;
-      const result = extractFixSummaryJson(output);
+      const result = extractJsonBlock(output);
       expect(result).toBe('{"decision": "APPLY_SELECTIVELY", "fixes": [], "skipped": []}');
     });
 
     test("returns null when no JSON block present", () => {
       const output = "DECISION: NO CHANGES NEEDED\nNo JSON here.";
-      const result = extractFixSummaryJson(output);
+      const result = extractJsonBlock(output);
       expect(result).toBeNull();
     });
 
     test("handles malformed delimiters gracefully", () => {
       const output = "```json\n{incomplete";
-      const result = extractFixSummaryJson(output);
+      const result = extractJsonBlock(output);
       expect(result).toBeNull();
     });
 
@@ -194,7 +195,7 @@ End of output.`;
 \`\`\`json
 {"second": true}
 \`\`\``;
-      const result = extractFixSummaryJson(output);
+      const result = extractJsonBlock(output);
       expect(result).toBe('{"first": true}');
     });
 
@@ -206,7 +207,7 @@ End of output.`;
   "skipped": []
 }
 \`\`\``;
-      const result = extractFixSummaryJson(output);
+      const result = extractJsonBlock(output);
       expect(result).toContain('"decision": "NO_CHANGES_NEEDED"');
       expect(result).not.toBeNull();
     });
@@ -332,6 +333,100 @@ End of output.`;
       const result = parseFixSummary(json);
       expect(result).not.toBeNull();
       expect(result?.fixes[0]?.file).toBeNull();
+    });
+  });
+
+  describe("parseReviewSummary", () => {
+    test("parses valid JSON into ReviewSummary", () => {
+      const json = JSON.stringify({
+        findings: [
+          {
+            title: "Missing null check",
+            body: "The function does not check for null input",
+            confidence_score: 0.85,
+            priority: 1,
+            code_location: {
+              absolute_file_path: "/src/auth.ts",
+              line_range: { start: 42, end: 45 },
+            },
+          },
+        ],
+        overall_correctness: "patch is correct",
+        overall_explanation: "The patch correctly addresses the issue",
+        overall_confidence_score: 0.9,
+      });
+      const result = parseReviewSummary(json);
+      expect(result).not.toBeNull();
+      expect(result?.findings).toHaveLength(1);
+      expect(result?.findings[0]?.title).toBe("Missing null check");
+      expect(result?.overall_correctness).toBe("patch is correct");
+      expect(result?.overall_confidence_score).toBe(0.9);
+    });
+
+    test("returns null for invalid JSON", () => {
+      const result = parseReviewSummary("{invalid json");
+      expect(result).toBeNull();
+    });
+
+    test("returns null for wrong structure", () => {
+      const json = JSON.stringify({ wrong: "structure" });
+      const result = parseReviewSummary(json);
+      expect(result).toBeNull();
+    });
+
+    test("returns null when findings is not an array", () => {
+      const json = JSON.stringify({
+        findings: "not an array",
+        overall_correctness: "patch is correct",
+        overall_explanation: "explanation",
+        overall_confidence_score: 0.8,
+      });
+      const result = parseReviewSummary(json);
+      expect(result).toBeNull();
+    });
+
+    test("returns null for invalid overall_correctness value", () => {
+      const json = JSON.stringify({
+        findings: [],
+        overall_correctness: "maybe correct",
+        overall_explanation: "explanation",
+        overall_confidence_score: 0.8,
+      });
+      const result = parseReviewSummary(json);
+      expect(result).toBeNull();
+    });
+
+    test("returns null for confidence_score out of range", () => {
+      const json = JSON.stringify({
+        findings: [],
+        overall_correctness: "patch is correct",
+        overall_explanation: "explanation",
+        overall_confidence_score: 1.5,
+      });
+      const result = parseReviewSummary(json);
+      expect(result).toBeNull();
+    });
+
+    test("accepts findings with optional priority", () => {
+      const json = JSON.stringify({
+        findings: [
+          {
+            title: "Issue",
+            body: "Description",
+            confidence_score: 0.7,
+            code_location: {
+              absolute_file_path: "/src/index.ts",
+              line_range: { start: 1, end: 10 },
+            },
+          },
+        ],
+        overall_correctness: "patch is incorrect",
+        overall_explanation: "explanation",
+        overall_confidence_score: 0.6,
+      });
+      const result = parseReviewSummary(json);
+      expect(result).not.toBeNull();
+      expect(result?.findings[0]?.priority).toBeUndefined();
     });
   });
 });
