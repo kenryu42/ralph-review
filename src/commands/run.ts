@@ -3,7 +3,6 @@
  * Starts the review cycle in background or foreground
  */
 
-import { resolve } from "node:path";
 import * as p from "@clack/prompts";
 import { $ } from "bun";
 import { getCommandDef } from "@/cli";
@@ -19,7 +18,6 @@ import {
   updateLockfile,
 } from "@/lib/lockfile";
 import { getGitBranch } from "@/lib/logger";
-import { defaultReviewPrompt } from "@/lib/prompts";
 import { createSession, generateSessionName, isInsideTmux, isTmuxInstalled } from "@/lib/tmux";
 import { type Config, isAgentType } from "@/lib/types";
 
@@ -29,7 +27,6 @@ import { type Config, isAgentType } from "@/lib/types";
 export interface RunOptions {
   max?: number;
   base?: string;
-  file?: string;
   uncommitted?: boolean;
 }
 
@@ -134,8 +131,7 @@ export async function validatePrerequisites(baseBranch?: string): Promise<string
 async function runInBackground(
   _config: Config,
   maxIterations?: number,
-  baseBranch?: string,
-  basePrompt?: string
+  baseBranch?: string
 ): Promise<void> {
   // Check tmux is installed
   if (!isTmuxInstalled()) {
@@ -152,14 +148,11 @@ async function runInBackground(
 
   // Build the command to run in tmux
   // Pass project path and branch via environment variables
-  // Pass base prompt as base64 to handle special characters and newlines
   // Always use main cli.ts, not whatever entry point was used (e.g., cli-rrr.ts)
   const cliPath = `${import.meta.dir}/../cli.ts`;
   const maxIterArg = maxIterations ? ` --max ${maxIterations}` : "";
   const baseBranchEnv = baseBranch ? ` RR_BASE_BRANCH="${baseBranch}"` : "";
-  const promptToEncode = basePrompt ?? defaultReviewPrompt;
-  const basePromptB64 = Buffer.from(promptToEncode).toString("base64");
-  const envVars = `RR_PROJECT_PATH="${projectPath}" RR_GIT_BRANCH="${branch ?? ""}"${baseBranchEnv} RR_BASE_PROMPT_B64="${basePromptB64}"`;
+  const envVars = `RR_PROJECT_PATH="${projectPath}" RR_GIT_BRANCH="${branch ?? ""}"${baseBranchEnv}`;
   const command = `${envVars} ${process.execPath} ${cliPath} _run-foreground${maxIterArg}`;
 
   try {
@@ -189,11 +182,6 @@ export async function runForeground(args: string[] = []): Promise<void> {
   // Get base branch from environment variable (set by parent process for --base mode)
   const baseBranch = process.env.RR_BASE_BRANCH || undefined;
 
-  // Get base prompt from environment variable (base64 encoded)
-  const basePrompt = process.env.RR_BASE_PROMPT_B64
-    ? Buffer.from(process.env.RR_BASE_PROMPT_B64, "base64").toString("utf-8")
-    : defaultReviewPrompt;
-
   // Parse --max option using the _run-foreground command def
   const foregroundDef = getCommandDef("_run-foreground");
   if (foregroundDef) {
@@ -220,7 +208,7 @@ export async function runForeground(args: string[] = []): Promise<void> {
         // Update lockfile with iteration progress
         updateLockfile(undefined, projectPath, { iteration }).catch(() => {});
       },
-      { baseBranch, basePrompt }
+      { baseBranch }
     );
 
     console.log(`\n${"=".repeat(50)}`);
@@ -268,18 +256,6 @@ export async function runRun(args: string[]): Promise<void> {
     process.exit(1);
   }
 
-  // Validate and load custom prompt file if provided
-  let basePrompt: string | undefined;
-  if (options.file) {
-    const resolved = resolve(process.cwd(), options.file);
-    const file = Bun.file(resolved);
-    if (!(await file.exists())) {
-      p.log.error(`Prompt file not found: ${resolved}`);
-      process.exit(1);
-    }
-    basePrompt = await file.text();
-  }
-
   // Validate prerequisites
   const errors = await validatePrerequisites(options.base);
 
@@ -302,5 +278,5 @@ export async function runRun(args: string[]): Promise<void> {
     p.log.warn("Running inside tmux session. Review will start in a nested session.");
   }
 
-  await runInBackground(config, options.max, options.base, basePrompt);
+  await runInBackground(config, options.max, options.base);
 }

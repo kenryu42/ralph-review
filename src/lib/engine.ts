@@ -3,12 +3,7 @@
  * Orchestrates the review -> fix cycle
  */
 
-import {
-  createFixerPrompt,
-  createReviewerPrompt,
-  defaultReviewPrompt,
-  FIXER_NO_ISSUES_MARKER,
-} from "@/lib/prompts";
+import { createFixerPrompt, createReviewerPrompt, FIXER_NO_ISSUES_MARKER } from "@/lib/prompts";
 import { AGENTS, runAgent } from "./agents";
 import { appendLog, createLogSession, getGitBranch } from "./logger";
 import type {
@@ -277,8 +272,6 @@ function resetInterrupt(): void {
 export interface ReviewOptions {
   /** Optional base branch to compare against (e.g., "main") */
   baseBranch?: string;
-  /** Base prompt content (defaults to built-in prompt) */
-  basePrompt?: string;
 }
 
 /**
@@ -352,7 +345,6 @@ export async function runReviewCycle(
 
     // Generate reviewer prompt by combining base prompt with review type instruction
     const reviewerPrompt = createReviewerPrompt({
-      basePrompt: reviewOptions?.basePrompt ?? defaultReviewPrompt,
       repoPath: projectPath,
       baseBranch: reviewOptions?.baseBranch,
     });

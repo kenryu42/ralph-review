@@ -8,14 +8,13 @@ import defaultReviewPromptContent from "./defaults/review.md" with { type: "text
 
 /**
  * The default reviewer base prompt content.
- * Exported so it can be used when no custom file is provided.
  */
-export const defaultReviewPrompt: string = defaultReviewPromptContent;
+const defaultReviewPrompt: string = defaultReviewPromptContent;
 
 /**
  * Instruction appended for reviewing uncommitted changes
  */
-export const UNCOMMITTED_INSTRUCTION =
+const UNCOMMITTED_INSTRUCTION =
   "Review the current code changes (staged, unstaged, and untracked files) and provide prioritized findings.";
 
 /**
@@ -34,8 +33,6 @@ const BASE_BRANCH_INSTRUCTION_BACKUP = (branch: string) =>
  * Options for creating the reviewer prompt
  */
 export interface ReviewerPromptOptions {
-  /** The base prompt content (already loaded) */
-  basePrompt: string;
   /** Path to the git repository */
   repoPath: string;
   /** Optional base branch to compare against (e.g., "main") */
@@ -50,7 +47,7 @@ export interface ReviewerPromptOptions {
  * @returns The complete reviewer prompt string
  */
 export function createReviewerPrompt(options: ReviewerPromptOptions): string {
-  const { basePrompt, repoPath, baseBranch } = options;
+  const { repoPath, baseBranch } = options;
 
   let instruction: string;
 
@@ -63,5 +60,5 @@ export function createReviewerPrompt(options: ReviewerPromptOptions): string {
     instruction = UNCOMMITTED_INSTRUCTION;
   }
 
-  return `${basePrompt.trim()}\n\n${instruction}`;
+  return `${defaultReviewPrompt.trim()}\n\n${instruction}`;
 }

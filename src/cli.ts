@@ -35,20 +35,13 @@ export const COMMANDS: CommandDef[] = [
         description: "Base branch to compare against",
       },
       {
-        name: "file",
-        alias: "f",
-        type: "string",
-        placeholder: "FILE_PATH",
-        description: "Custom reviewer prompt file",
-      },
-      {
         name: "uncommitted",
         alias: "u",
         type: "boolean",
         description: "Review staged, unstaged, and untracked changes (default)",
       },
     ],
-    examples: ["rr run", "rr run --base main", "rr run --file ./my-prompt.md"],
+    examples: ["rr run", "rr run --base main"],
   },
   {
     name: "list",
