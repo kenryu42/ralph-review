@@ -20,7 +20,6 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
 
   const projectName = basename(projectPath);
 
-  // Use ref to avoid stale closure in keyboard handler
   const currentSessionRef = useRef(state.currentSession);
   const isExitingRef = useRef(false);
   useEffect(() => {
@@ -56,14 +55,11 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
     [renderer]
   );
 
-  // Handle keyboard input
   useKeyboard((key) => {
-    // Quit on 'q' or Escape
     if (key.name === "q" || key.name === "escape") {
       void shutdown();
     }
 
-    // Stop the review on 's'
     if (key.name === "s" && currentSessionRef.current) {
       const sessionName = currentSessionRef.current.sessionName;
       sendInterrupt(sessionName)

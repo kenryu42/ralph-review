@@ -28,9 +28,6 @@ import type { DashboardState } from "./types";
 const DEFAULT_REFRESH_INTERVAL = 1000;
 const TMUX_REFRESH_INTERVAL = 300;
 
-/**
- * Hook that manages dashboard state with periodic polling
- */
 export function useDashboardState(
   projectPath: string,
   _branch?: string,
@@ -53,23 +50,19 @@ export function useDashboardState(
     isGitRepo: true,
   });
 
-  // Use ref to avoid stale closure issues
   const stateRef = useRef(state);
   stateRef.current = state;
 
-  // Guard against overlapping refresh calls
   const isRefreshingRef = useRef(false);
   const lastTmuxCaptureRef = useRef(0);
   const lastTmuxOutputRef = useRef("");
   const lastTmuxSessionRef = useRef<string | null>(null);
 
   const refresh = useCallback(async () => {
-    // Skip if already refreshing to prevent overlap
     if (isRefreshingRef.current) return;
     isRefreshingRef.current = true;
 
     try {
-      // Fetch all data in parallel (including async git check)
       const [isGitRepo, sessions, lockData, logSession, config] = await Promise.all([
         ensureGitRepositoryAsync(projectPath),
         listAllActiveSessions(),
@@ -78,13 +71,11 @@ export function useDashboardState(
         loadConfig().catch(() => null),
       ]);
 
-      // Read log entries if we have a log session
       let logEntries = stateRef.current.logEntries;
       if (logSession) {
         logEntries = await readLog(logSession.path);
       }
 
-      // Extract fixes and skipped from entries
       const fixes: FixEntry[] = [];
       const skipped: SkippedEntry[] = [];
       let maxIterations = 0;
@@ -101,7 +92,6 @@ export function useDashboardState(
         }
       }
 
-      // Get tmux output if we have a session
       let tmuxOutput = lastTmuxOutputRef.current;
       const sessionName = lockData?.sessionName ?? null;
       const now = Date.now();
@@ -117,7 +107,6 @@ export function useDashboardState(
           sessionChanged || now - lastTmuxCaptureRef.current >= TMUX_REFRESH_INTERVAL;
 
         if (shouldCapture) {
-          // Capture enough lines to fill most terminal sizes
           tmuxOutput = await getSessionOutput(sessionName, 100);
           lastTmuxOutputRef.current = tmuxOutput;
           lastTmuxSessionRef.current = sessionName;
@@ -125,23 +114,17 @@ export function useDashboardState(
         }
       }
 
-      // Calculate elapsed time
       const elapsed = lockData ? Date.now() - lockData.startTime : 0;
 
-      // Compute stats when no active session
       let lastSessionStats: SessionStats | null = null;
       let projectStats: ProjectStats | null = null;
 
       if (!lockData) {
-        // Get all sessions for this project
         const projectSessions = await listProjectLogSessions(undefined, projectPath);
         const latestSession = projectSessions[0];
 
         if (latestSession) {
-          // Compute last session stats from most recent
           lastSessionStats = await computeSessionStats(latestSession);
-
-          // Compute project lifetime stats
           projectStats = await computeProjectStats(getProjectName(projectPath), projectSessions);
         }
       }
@@ -173,18 +156,15 @@ export function useDashboardState(
     }
   }, [projectPath]);
 
-  // Initial fetch
   useEffect(() => {
     refresh();
   }, [refresh]);
 
-  // Periodic refresh
   useEffect(() => {
     const interval = setInterval(refresh, refreshInterval);
     return () => clearInterval(interval);
   }, [refresh, refreshInterval]);
 
-  // Update elapsed time every second (separate from data refresh)
   useEffect(() => {
     if (!state.currentSession) return;
 

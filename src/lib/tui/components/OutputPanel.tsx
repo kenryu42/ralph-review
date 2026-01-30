@@ -26,17 +26,13 @@ export function OutputPanel({ output, sessionName }: OutputPanelProps) {
   const { height: terminalHeight } = useTerminalDimensions();
   const scrollboxRef = useRef<ScrollBoxRenderable>(null);
 
-  // Calculate available lines for output
   // Terminal height minus: header(2) + statusbar(2) + outer padding(2) + border(2) + inner padding(2) + title(2)
   const availableLines = Math.max(10, terminalHeight - 12);
 
-  // Split output into lines - show all, let scrollbox handle scrolling
   const lines = sessionName ? output.split("\n").filter((line) => line.trim()) : [];
 
-  // Auto-scroll to bottom when content changes
   useEffect(() => {
     if (scrollboxRef.current && lines.length > 0) {
-      // Scroll to bottom
       scrollboxRef.current.scrollTop = scrollboxRef.current.scrollHeight;
     }
   }, [lines.length]);

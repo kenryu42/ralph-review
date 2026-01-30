@@ -36,14 +36,12 @@ export function Header({ branch, elapsed, session, projectPath, config }: Header
   const statusIcon = session ? "●" : "○";
   const statusColor = session ? "#22c55e" : "#6b7280";
 
-  // Format path to replace home dir with ~
   const homeDir = process.env.HOME || "";
   const displayPath =
     projectPath.startsWith(homeDir) && homeDir !== ""
       ? projectPath.replace(homeDir, "~")
       : projectPath;
 
-  // Format agent strings using shared display utilities
   const reviewerName = config?.reviewer.agent
     ? getAgentDisplayName(config.reviewer.agent)
     : "Unknown";

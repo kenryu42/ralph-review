@@ -1,7 +1,3 @@
-/**
- * Spinner component - animated status indicator for active sessions
- */
-
 import { useEffect, useState } from "react";
 
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧"];

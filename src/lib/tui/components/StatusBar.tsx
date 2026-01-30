@@ -1,7 +1,3 @@
-/**
- * StatusBar component - displays keyboard shortcuts
- */
-
 interface StatusBarProps {
   hasSession: boolean;
 }

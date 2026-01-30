@@ -105,7 +105,6 @@ export function SessionPanel({
   projectStats,
   isGitRepo,
 }: SessionPanelProps) {
-  // Minimum width to prevent text wrapping
   const minWidth = 40;
 
   if (isLoading) {
@@ -117,7 +116,6 @@ export function SessionPanel({
   }
 
   if (!session) {
-    // Has config but no previous sessions
     if (!lastSessionStats) {
       return (
         <box
