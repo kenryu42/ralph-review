@@ -116,3 +116,4 @@ tests/                  # Mirror of src/ structure
 | Node.js `fs`, `child_process` | Use Bun APIs |
 | `npm` / `yarn` / `pnpm` | Bun only |
 | Relative imports with `../` | Use `@/` path alias |
+| Configuring `knip.json` to bypass warnings/errors | Fix the root cause. If unable, ask user for instructions |
