@@ -7,10 +7,10 @@
 export { AGENTS, isAgentAvailable, runAgent } from "./agents";
 
 // Claude stream parsing (used by engine.ts)
-export { extractClaudeResult, formatClaudeReviewForFixer } from "./claude-stream";
-
+export { extractClaudeResult } from "./claude-stream";
+// Codex stream parsing (used by engine.ts)
+export { extractCodexResult } from "./codex-stream";
 // Droid stream parsing (used by engine.ts)
-export { extractDroidResult, formatDroidReviewForFixer } from "./droid-stream";
-
+export { extractDroidResult } from "./droid-stream";
 // Gemini stream parsing (used by engine.ts)
-export { extractGeminiResult, formatGeminiReviewForFixer } from "./gemini-stream";
+export { extractGeminiResult } from "./gemini-stream";

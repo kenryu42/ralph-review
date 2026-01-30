@@ -308,3 +308,100 @@ export interface GeminiResultEvent {
     tool_calls?: number;
   };
 }
+
+// ============================================================================
+// Codex Stream Types
+// ============================================================================
+
+/**
+ * Type definitions for Codex CLI's streaming JSONL output format
+ * Used when running Codex with --output-format stream-json
+ */
+
+/**
+ * Top-level Codex event union - discriminated by 'type' field
+ */
+export type CodexStreamEvent =
+  | CodexThreadStartedEvent
+  | CodexTurnStartedEvent
+  | CodexTurnCompletedEvent
+  | CodexItemStartedEvent
+  | CodexItemCompletedEvent;
+
+/**
+ * Codex thread started event - first event in stream
+ */
+export interface CodexThreadStartedEvent {
+  type: "thread.started";
+  thread_id: string;
+}
+
+/**
+ * Codex turn started event
+ */
+export interface CodexTurnStartedEvent {
+  type: "turn.started";
+}
+
+/**
+ * Codex turn completed event with usage stats
+ */
+export interface CodexTurnCompletedEvent {
+  type: "turn.completed";
+  usage: {
+    input_tokens: number;
+    cached_input_tokens: number;
+    output_tokens: number;
+  };
+}
+
+/**
+ * Codex item started event
+ */
+export interface CodexItemStartedEvent {
+  type: "item.started";
+  item: CodexItem;
+}
+
+/**
+ * Codex item completed event
+ */
+export interface CodexItemCompletedEvent {
+  type: "item.completed";
+  item: CodexItem;
+}
+
+/**
+ * Codex item union - discriminated by 'type' field
+ */
+export type CodexItem = CodexReasoningItem | CodexCommandExecutionItem | CodexAgentMessageItem;
+
+/**
+ * Codex reasoning item (thinking)
+ */
+export interface CodexReasoningItem {
+  type: "reasoning";
+  id: string;
+  text: string;
+}
+
+/**
+ * Codex command execution item (tool use)
+ */
+export interface CodexCommandExecutionItem {
+  type: "command_execution";
+  id: string;
+  command: string;
+  aggregated_output: string;
+  exit_code: number | null;
+  status: "in_progress" | "completed";
+}
+
+/**
+ * Codex agent message item (final response)
+ */
+export interface CodexAgentMessageItem {
+  type: "agent_message";
+  id: string;
+  text: string;
+}

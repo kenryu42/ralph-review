@@ -5,6 +5,7 @@
 
 import type { AgentConfig, AgentRole, AgentType, Config, IterationResult } from "@/lib/types";
 import { formatClaudeEventForDisplay, parseClaudeStreamEvent } from "./claude-stream";
+import { formatCodexEventForDisplay, parseCodexStreamEvent } from "./codex-stream";
 import { formatDroidEventForDisplay, parseDroidStreamEvent } from "./droid-stream";
 import { formatGeminiEventForDisplay, parseGeminiStreamEvent } from "./gemini-stream";
 
@@ -28,7 +29,11 @@ async function streamAndCapture(
   let lineBuffer = "";
 
   // Check if this agent uses JSONL output
-  const usesJsonl = agentType === "claude" || agentType === "droid" || agentType === "gemini";
+  const usesJsonl =
+    agentType === "claude" ||
+    agentType === "codex" ||
+    agentType === "droid" ||
+    agentType === "gemini";
 
   for await (const chunk of stream) {
     const text = decoder.decode(chunk, { stream: true });
@@ -121,6 +126,14 @@ function formatJsonlLine(line: string, agentType?: AgentType): string | null {
     return null;
   }
 
+  if (agentType === "codex") {
+    const event = parseCodexStreamEvent(line);
+    if (event) {
+      return formatCodexEventForDisplay(event) ?? "";
+    }
+    return null;
+  }
+
   return null;
 }
 
@@ -132,7 +145,15 @@ export const AGENTS: Record<AgentType, AgentConfig> = {
     command: "codex",
     buildArgs: (role: AgentRole, prompt: string, model?: string): string[] => {
       if (role === "reviewer") {
-        const args = ["review", "--uncommitted"];
+        // Use custom prompt if provided (e.g., for base branch review), otherwise default to uncommitted
+        const args = [
+          "exec",
+          "--json",
+          "--config",
+          "model_reasoning_effort=high",
+          "review",
+          "--uncommitted",
+        ];
         if (model) {
           args.unshift("--model", model);
         }
@@ -165,10 +186,14 @@ export const AGENTS: Record<AgentType, AgentConfig> = {
       }
 
       if (role === "reviewer") {
+        // Use custom prompt if provided (e.g., for base branch review), otherwise default
+        const reviewPrompt =
+          prompt ||
+          "Review my uncommitted changes. Focus on bugs, security issues, and code quality problems.";
         return [
           ...baseArgs,
           "-p",
-          "Review my uncommitted changes. Focus on bugs, security issues, and code quality problems.",
+          reviewPrompt,
           "--dangerously-skip-permissions",
           "--verbose",
           "--output-format",
@@ -202,7 +227,8 @@ export const AGENTS: Record<AgentType, AgentConfig> = {
         if (model) {
           args.push("--model", model);
         }
-        args.push("/review");
+        // Use custom prompt if provided, otherwise default to /review command
+        args.push(prompt || "/review");
         return args;
       } else {
         // Fixer mode
@@ -226,6 +252,8 @@ export const AGENTS: Record<AgentType, AgentConfig> = {
     buildArgs: (role: AgentRole, prompt: string, model?: string): string[] => {
       const effectiveModel = model ?? "gpt-5.2-codex";
       if (role === "reviewer") {
+        // Use custom prompt if provided, otherwise default to reviewing current changes
+        const reviewPrompt = prompt || "/review current changes";
         return [
           "exec",
           "--auto",
@@ -236,7 +264,7 @@ export const AGENTS: Record<AgentType, AgentConfig> = {
           "high",
           "--output-format",
           "stream-json",
-          "/review current changes",
+          reviewPrompt,
         ];
       } else {
         // Fixer mode
@@ -270,7 +298,8 @@ export const AGENTS: Record<AgentType, AgentConfig> = {
       }
       args.push("--output-format", "stream-json");
       if (role === "reviewer") {
-        args.push("--prompt", "review the uncommitted changes");
+        // Use custom prompt if provided, otherwise default to reviewing uncommitted changes
+        args.push("--prompt", prompt || "review the uncommitted changes");
       } else {
         args.push("--prompt", prompt);
       }
