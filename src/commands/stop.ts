@@ -93,7 +93,7 @@ async function stopCurrentSession(): Promise<void> {
   const lockData = await readLockfile(undefined, projectPath);
 
   if (!lockData) {
-    p.log.info(`No active review session for this project.`);
+    p.log.info(`No active review session for current working directory.`);
 
     // Show hint if there are other sessions running
     const allSessions = await listAllActiveSessions();

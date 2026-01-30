@@ -449,7 +449,7 @@ export async function runLogs(args: string[]): Promise<void> {
     if (options.json) {
       console.log(JSON.stringify({ project: projectName, sessions: [] }, null, 2));
     } else {
-      p.log.info("No review sessions found for this project.");
+      p.log.info("No review sessions found for current working directory.");
       p.log.message('Start a review with "rr run" first.');
     }
     return;

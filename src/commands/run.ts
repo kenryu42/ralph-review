@@ -108,7 +108,7 @@ export async function validatePrerequisites(baseBranch?: string): Promise<string
   // Check lockfile (review already in progress for this project)
   if (await lockfileExists(undefined, projectPath)) {
     errors.push(
-      `Review already in progress for this project. Use "rr status" to check or "rr stop" to terminate.`
+      `Review already in progress for current working directory. Use "rr status" to check or "rr stop" to terminate.`
     );
   }
 
