@@ -84,7 +84,7 @@ describe("html", () => {
             {
               id: 1,
               title: "Fix null check",
-              priority: "P1",
+              priority: "P0",
               file: "auth.ts",
               claim: "Missing null check",
               evidence: "auth.ts:42",
@@ -104,7 +104,7 @@ describe("html", () => {
       const html = generateLogHtml([iterEntry]);
       expect(html).toContain("Iteration 1");
       expect(html).toContain("Fix null check");
-      expect(html).toContain("P1");
+      expect(html).toContain("P0");
       expect(html).toContain("auth.ts");
       expect(html).toContain("Minor style issue");
     });
@@ -222,7 +222,7 @@ describe("html", () => {
       globalStats: {
         totalFixes: 42,
         totalSkipped: 5,
-        priorityCounts: { P1: 10, P2: 15, P3: 12, P4: 5 },
+        priorityCounts: { P0: 10, P1: 15, P2: 12, P3: 5 },
         totalSessions: 8,
         successRate: 87,
       },
@@ -232,7 +232,7 @@ describe("html", () => {
           displayName: "project-a",
           totalFixes: 25,
           totalSkipped: 3,
-          priorityCounts: { P1: 8, P2: 10, P3: 5, P4: 2 },
+          priorityCounts: { P0: 8, P1: 10, P2: 5, P3: 2 },
           sessionCount: 5,
           successCount: 4,
           sessions: [
@@ -244,7 +244,7 @@ describe("html", () => {
               status: "completed",
               totalFixes: 10,
               totalSkipped: 1,
-              priorityCounts: { P1: 3, P2: 4, P3: 2, P4: 1 },
+              priorityCounts: { P0: 3, P1: 4, P2: 2, P3: 1 },
               iterations: 2,
               entries: [],
             } as SessionStats,
@@ -255,7 +255,7 @@ describe("html", () => {
           displayName: "project-b",
           totalFixes: 17,
           totalSkipped: 2,
-          priorityCounts: { P1: 2, P2: 5, P3: 7, P4: 3 },
+          priorityCounts: { P0: 2, P1: 5, P2: 7, P3: 3 },
           sessionCount: 3,
           successCount: 3,
           sessions: [],
@@ -328,7 +328,7 @@ describe("html", () => {
         globalStats: {
           totalFixes: 0,
           totalSkipped: 0,
-          priorityCounts: { P1: 0, P2: 0, P3: 0, P4: 0 },
+          priorityCounts: { P0: 0, P1: 0, P2: 0, P3: 0 },
           totalSessions: 0,
           successRate: 0,
         },
@@ -358,7 +358,7 @@ describe("html", () => {
         globalStats: {
           totalFixes: 5,
           totalSkipped: 1,
-          priorityCounts: { P1: 2, P2: 2, P3: 1, P4: 0 },
+          priorityCounts: { P0: 2, P1: 2, P2: 1, P3: 0 },
           totalSessions: 2,
           successRate: 100,
         },
@@ -378,7 +378,7 @@ describe("html", () => {
         globalStats: {
           totalFixes: 42,
           totalSkipped: 3,
-          priorityCounts: { P1: 10, P2: 15, P3: 12, P4: 5 },
+          priorityCounts: { P0: 10, P1: 15, P2: 12, P3: 5 },
           totalSessions: 5,
           successRate: 80,
         },

@@ -213,10 +213,14 @@ export function generateLogHtml(entries: LogEntry[]): string {
       font-weight: bold;
       margin-right: 5px;
     }
-    .priority-p1 { background: #ff4444; color: white; }
-    .priority-p2 { background: #ffaa00; color: black; }
-    .priority-p3 { background: #00d4ff; color: black; }
-    .priority-p4 { background: #888; color: white; }
+    .priority-p0 { background: #ff4444; color: white; }
+    .priority-p1 { background: #ffaa00; color: black; }
+    .priority-p2 { background: #00d4ff; color: black; }
+    .priority-p3 { background: #888; color: white; }
+    /* Fallback for legacy/unknown priorities (e.g., P4+) */
+    .priority-p4 { background: #666; color: white; }
+    /* Generic fallback using contains selector for any unexpected priority class */
+    .priority[class*="priority-"]:not(.priority-p0):not(.priority-p1):not(.priority-p2):not(.priority-p3):not(.priority-p4) { background: #666; color: white; }
     code {
       background: #0f3460;
       padding: 2px 6px;
@@ -695,10 +699,10 @@ export function generateDashboardHtml(data: DashboardData): string {
       margin-bottom: 0.35rem;
     }
 
-    .priority-level.p1 { color: var(--danger); }
-    .priority-level.p2 { color: var(--warning); }
-    .priority-level.p3 { color: var(--accent); }
-    .priority-level.p4 { color: var(--text-muted); }
+    .priority-level.p0 { color: var(--danger); }
+    .priority-level.p1 { color: var(--warning); }
+    .priority-level.p2 { color: var(--accent); }
+    .priority-level.p3 { color: var(--text-muted); }
 
     .priority-value {
       font-family: var(--font-display);
@@ -807,10 +811,12 @@ export function generateDashboardHtml(data: DashboardData): string {
       text-align: center;
     }
 
-    .fix-priority.p1 { background: var(--danger); color: white; }
-    .fix-priority.p2 { background: var(--warning); color: black; }
-    .fix-priority.p3 { background: var(--accent); color: white; }
-    .fix-priority.p4 { background: var(--text-muted); color: white; }
+    .fix-priority.p0 { background: var(--danger); color: white; }
+    .fix-priority.p1 { background: var(--warning); color: black; }
+    .fix-priority.p2 { background: var(--accent); color: white; }
+    .fix-priority.p3 { background: var(--text-muted); color: white; }
+    /* Fallback for legacy/unknown priorities (e.g., P4+) */
+    .fix-priority.p4, .fix-priority:not(.p0):not(.p1):not(.p2):not(.p3) { background: #555; color: white; }
 
     .fix-title {
       font-size: 0.85rem;
@@ -971,20 +977,20 @@ export function generateDashboardHtml(data: DashboardData): string {
         </div>
         <div class="priority-grid" id="priority-grid">
           <div class="priority-cell">
-            <div class="priority-level p1">Critical</div>
+            <div class="priority-level p0">Critical</div>
+            <div class="priority-value" id="p0-count">${data.globalStats.priorityCounts.P0}</div>
+          </div>
+          <div class="priority-cell">
+            <div class="priority-level p1">High</div>
             <div class="priority-value" id="p1-count">${data.globalStats.priorityCounts.P1}</div>
           </div>
           <div class="priority-cell">
-            <div class="priority-level p2">High</div>
+            <div class="priority-level p2">Medium</div>
             <div class="priority-value" id="p2-count">${data.globalStats.priorityCounts.P2}</div>
           </div>
           <div class="priority-cell">
-            <div class="priority-level p3">Medium</div>
+            <div class="priority-level p3">Low</div>
             <div class="priority-value" id="p3-count">${data.globalStats.priorityCounts.P3}</div>
-          </div>
-          <div class="priority-cell">
-            <div class="priority-level p4">Low</div>
-            <div class="priority-value" id="p4-count">${data.globalStats.priorityCounts.P4}</div>
           </div>
         </div>
       </div>
@@ -1087,10 +1093,10 @@ export function generateDashboardHtml(data: DashboardData): string {
 
       if (project) {
         document.getElementById('hero-number').textContent = project.totalFixes;
+        document.getElementById('p0-count').textContent = project.priorityCounts.P0;
         document.getElementById('p1-count').textContent = project.priorityCounts.P1;
         document.getElementById('p2-count').textContent = project.priorityCounts.P2;
         document.getElementById('p3-count').textContent = project.priorityCounts.P3;
-        document.getElementById('p4-count').textContent = project.priorityCounts.P4;
 
         const successRate = project.sessionCount > 0
           ? Math.round((project.successCount / project.sessionCount) * 100)

@@ -303,7 +303,7 @@ describe("logger", () => {
             {
               id: 1,
               title: "Fix null check",
-              priority: "P1",
+              priority: "P0",
               file: "auth.ts",
               claim: "Missing null check",
               evidence: "auth.ts:42",
@@ -312,7 +312,7 @@ describe("logger", () => {
             {
               id: 2,
               title: "Add validation",
-              priority: "P2",
+              priority: "P1",
               file: "form.ts",
               claim: "Missing validation",
               evidence: "form.ts:10",
@@ -336,10 +336,10 @@ describe("logger", () => {
 
       expect(stats.totalFixes).toBe(2);
       expect(stats.totalSkipped).toBe(1);
+      expect(stats.priorityCounts.P0).toBe(1);
       expect(stats.priorityCounts.P1).toBe(1);
-      expect(stats.priorityCounts.P2).toBe(1);
+      expect(stats.priorityCounts.P2).toBe(0);
       expect(stats.priorityCounts.P3).toBe(0);
-      expect(stats.priorityCounts.P4).toBe(0);
       expect(stats.iterations).toBe(1);
       expect(stats.status).toBe("completed");
       expect(stats.gitBranch).toBe("main");
@@ -548,7 +548,7 @@ describe("logger", () => {
             {
               id: 1,
               title: "Fix 1",
-              priority: "P1",
+              priority: "P0",
               file: "a.ts",
               claim: "",
               evidence: "",
@@ -582,7 +582,7 @@ describe("logger", () => {
             {
               id: 1,
               title: "Fix 2",
-              priority: "P2",
+              priority: "P1",
               file: "b.ts",
               claim: "",
               evidence: "",
@@ -591,7 +591,7 @@ describe("logger", () => {
             {
               id: 2,
               title: "Fix 3",
-              priority: "P3",
+              priority: "P2",
               file: "c.ts",
               claim: "",
               evidence: "",
@@ -607,9 +607,9 @@ describe("logger", () => {
 
       expect(projectStats.totalFixes).toBe(3);
       expect(projectStats.totalSkipped).toBe(1);
+      expect(projectStats.priorityCounts.P0).toBe(1);
       expect(projectStats.priorityCounts.P1).toBe(1);
       expect(projectStats.priorityCounts.P2).toBe(1);
-      expect(projectStats.priorityCounts.P3).toBe(1);
       expect(projectStats.sessionCount).toBe(2);
       expect(projectStats.successCount).toBe(2);
       expect(projectStats.displayName).toBe("project");
@@ -673,7 +673,7 @@ describe("logger", () => {
             {
               id: 1,
               title: "Fix A1",
-              priority: "P1",
+              priority: "P0",
               file: "a.ts",
               claim: "",
               evidence: "",
@@ -682,7 +682,7 @@ describe("logger", () => {
             {
               id: 2,
               title: "Fix A2",
-              priority: "P1",
+              priority: "P0",
               file: "a2.ts",
               claim: "",
               evidence: "",
@@ -715,7 +715,7 @@ describe("logger", () => {
             {
               id: 1,
               title: "Fix B1",
-              priority: "P2",
+              priority: "P1",
               file: "b.ts",
               claim: "",
               evidence: "",
@@ -731,8 +731,8 @@ describe("logger", () => {
       expect(dashboard.currentProject).toBe("work-project-a");
       expect(dashboard.globalStats.totalFixes).toBe(3);
       expect(dashboard.globalStats.totalSessions).toBe(2);
-      expect(dashboard.globalStats.priorityCounts.P1).toBe(2);
-      expect(dashboard.globalStats.priorityCounts.P2).toBe(1);
+      expect(dashboard.globalStats.priorityCounts.P0).toBe(2);
+      expect(dashboard.globalStats.priorityCounts.P1).toBe(1);
       expect(dashboard.globalStats.successRate).toBe(100);
       expect(dashboard.projects.length).toBe(2);
     });

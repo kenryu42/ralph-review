@@ -254,7 +254,7 @@ function deriveRunStatus(entries: LogEntry[]): DerivedRunStatus {
  * Create empty priority counts object
  */
 function emptyPriorityCounts(): Record<Priority, number> {
-  return { P1: 0, P2: 0, P3: 0, P4: 0 };
+  return { P0: 0, P1: 0, P2: 0, P3: 0 };
 }
 
 /**
@@ -279,7 +279,13 @@ export async function computeSessionStats(session: LogSession): Promise<SessionS
       totalSkipped += iter.fixes.skipped.length;
 
       for (const fix of iter.fixes.fixes) {
-        priorityCounts[fix.priority]++;
+        // Count known priorities (P0-P3)
+        // Legacy/unknown priorities (e.g., P4) are still included in totalFixes
+        // but not in priorityCounts - this is intentional for backward compatibility
+        // The dashboard handles legacy priorities gracefully in the UI
+        if (Object.hasOwn(priorityCounts, fix.priority)) {
+          priorityCounts[fix.priority]++;
+        }
       }
     }
 
@@ -335,7 +341,7 @@ export async function computeProjectStats(
     totalFixes += stats.totalFixes;
     totalSkipped += stats.totalSkipped;
 
-    for (const priority of ["P1", "P2", "P3", "P4"] as Priority[]) {
+    for (const priority of ["P0", "P1", "P2", "P3"] as Priority[]) {
       priorityCounts[priority] += stats.priorityCounts[priority];
     }
 
@@ -392,7 +398,7 @@ export async function buildDashboardData(
     totalSkipped += project.totalSkipped;
     totalSessions += project.sessionCount;
 
-    for (const priority of ["P1", "P2", "P3", "P4"] as Priority[]) {
+    for (const priority of ["P0", "P1", "P2", "P3"] as Priority[]) {
       priorityCounts[priority] += project.priorityCounts[priority];
     }
 

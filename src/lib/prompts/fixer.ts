@@ -39,7 +39,7 @@ A) Scan the ENTIRE review and extract ACTIONABLE ISSUE CLAIMS.
    - Read carefully: even if the conclusion says "all checks pass", look for concerns raised in the reasoning
 B) For each actionable claim decide:
    - Verdict: CORRECT / INCORRECT / PARTIAL / UNVERIFIABLE
-   - Priority: P1 / P2 / P3 / P4
+   - Priority: P0 / P1 / P2 / P3
    - Action: APPLY / SKIP / NEED INFO
    - Evidence: concrete pointers (file:line / symbol / behavior).
 C) Summarize decision:
@@ -124,7 +124,7 @@ This MUST be valid JSON wrapped in triple backticks with the json language tag.
     {
       "id": 1,
       "title": "<one-line title>",
-      "priority": "<P1 | P2 | P3 | P4>",
+      "priority": "<P0 | P1 | P2 | P3>",
       "file": "<affected file path or null>",
       "claim": "<what the review suggested>",
       "evidence": "<file:line or concrete behavior>",
@@ -146,7 +146,7 @@ Rules for JSON:
 - Include ALL items from SKIP in the "skipped" array  
 - Use empty arrays [] if no fixes or no skipped items
 - The "file" field can be null if not applicable
-- Priority must be exactly: P1, P2, P3, or P4
+- Priority must be exactly: P0, P1, P2, or P3
 
 ## CRITICAL: Stop Marker
 Output the marker ONLY when verification determines APPLY is empty (no valid issues to fix).

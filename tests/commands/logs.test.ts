@@ -46,7 +46,7 @@ function createSessionStats(overrides: Partial<SessionStats> = {}): SessionStats
     status: "completed",
     totalFixes: 5,
     totalSkipped: 2,
-    priorityCounts: { P1: 1, P2: 2, P3: 1, P4: 1 },
+    priorityCounts: { P0: 1, P1: 2, P2: 1, P3: 1 },
     iterations: 3,
     totalDuration: 15000,
     entries: [],
@@ -88,7 +88,7 @@ function createIterationEntry(fixes: FixEntry[]): IterationEntry {
 
 function createDashboardData(projectPath: string, branch?: string): DashboardData {
   const projectName = getProjectName(projectPath);
-  const emptyCounts = { P1: 0, P2: 0, P3: 0, P4: 0 };
+  const emptyCounts = { P0: 0, P1: 0, P2: 0, P3: 0 };
 
   return {
     generatedAt: Date.now(),
@@ -185,15 +185,15 @@ describe("formatStatus", () => {
 
 describe("formatPriorityCounts", () => {
   test("formats all priority counts", () => {
-    const counts = { P1: 2, P2: 5, P3: 3, P4: 1 };
+    const counts = { P0: 2, P1: 5, P2: 3, P3: 1 };
     const result = formatPriorityCounts(counts);
-    expect(result).toBe("P1: 2  P2: 5  P3: 3  P4: 1");
+    expect(result).toBe("P0: 2  P1: 5  P2: 3  P3: 1");
   });
 
   test("formats zero counts", () => {
-    const counts = { P1: 0, P2: 0, P3: 0, P4: 0 };
+    const counts = { P0: 0, P1: 0, P2: 0, P3: 0 };
     const result = formatPriorityCounts(counts);
-    expect(result).toBe("P1: 0  P2: 0  P3: 0  P4: 0");
+    expect(result).toBe("P0: 0  P1: 0  P2: 0  P3: 0");
   });
 });
 
@@ -228,8 +228,8 @@ describe("formatDuration", () => {
 describe("buildSessionJson", () => {
   test("builds correct JSON structure for session", () => {
     const fixes = [
-      createFixEntry(1, "P1", "Critical fix"),
-      createFixEntry(2, "P2", "High priority fix"),
+      createFixEntry(1, "P0", "Critical fix"),
+      createFixEntry(2, "P1", "High priority fix"),
     ];
     const skipped = [{ id: 3, title: "Skipped item", reason: "Not applicable" }];
     const session = createSessionStats({
@@ -237,7 +237,7 @@ describe("buildSessionJson", () => {
       status: "completed",
       totalFixes: 2,
       totalSkipped: 1,
-      priorityCounts: { P1: 1, P2: 1, P3: 0, P4: 0 },
+      priorityCounts: { P0: 1, P1: 1, P2: 0, P3: 0 },
       iterations: 2,
     });
 
@@ -249,7 +249,7 @@ describe("buildSessionJson", () => {
     expect(result.iterations).toBe(2);
     expect(result.summary.totalFixes).toBe(2);
     expect(result.summary.totalSkipped).toBe(1);
-    expect(result.summary.priorityCounts.P1).toBe(1);
+    expect(result.summary.priorityCounts.P0).toBe(1);
     expect(result.fixes).toHaveLength(2);
     expect(result.skipped).toHaveLength(1);
   });
@@ -295,7 +295,7 @@ describe("buildProjectSessionsJson", () => {
     const session1 = createSessionStats({
       gitBranch: "main",
       totalFixes: 3,
-      entries: [createSystemEntry(), createIterationEntry([createFixEntry(1, "P1", "Fix 1")])],
+      entries: [createSystemEntry(), createIterationEntry([createFixEntry(1, "P0", "Fix 1")])],
     });
     const session2 = createSessionStats({
       gitBranch: "feature/x",
@@ -319,7 +319,7 @@ describe("buildProjectSessionsJson", () => {
   });
 
   test("extracts fixes from iteration entries", () => {
-    const fix = createFixEntry(1, "P1", "Critical fix");
+    const fix = createFixEntry(1, "P0", "Critical fix");
     const iterEntry = createIterationEntry([fix]);
     const session = createSessionStats({
       entries: [createSystemEntry(), iterEntry],
