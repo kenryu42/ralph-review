@@ -232,6 +232,16 @@ export async function startReview(args: string[]): Promise<void> {
     process.exit(1);
   }
 
+  // Apply config default when no review mode flags provided
+  const hasExplicitMode = options.base || options.uncommitted;
+  if (!hasExplicitMode) {
+    const config = await loadConfig();
+    if (config?.defaultReview?.type === "base") {
+      options.base = config.defaultReview.branch;
+    }
+    // else: defaults to uncommitted behavior (no base flag)
+  }
+
   // Validate mutual exclusivity of --base and --uncommitted
   if (options.base && options.uncommitted) {
     p.log.error("Cannot use --base and --uncommitted together");
