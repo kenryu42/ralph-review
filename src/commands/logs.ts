@@ -96,7 +96,7 @@ export function formatStatus(status: DerivedRunStatus): string {
 }
 
 export function formatPriorityCounts(counts: Record<Priority, number>): string {
-  return `P1: ${counts.P1}  P2: ${counts.P2}  P3: ${counts.P3}  P4: ${counts.P4}`;
+  return `P0: ${counts.P0}  P1: ${counts.P1}  P2: ${counts.P2}  P3: ${counts.P3}`;
 }
 
 /** Format ms to human-readable duration (e.g., "1m 30s") */
