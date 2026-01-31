@@ -209,7 +209,7 @@ export async function runForeground(args: string[] = []): Promise<void> {
   }
 }
 
-export async function runRun(args: string[]): Promise<void> {
+export async function startReview(args: string[]): Promise<void> {
   // Parse options using command definition
   const runDef = getCommandDef("run");
   if (!runDef) {

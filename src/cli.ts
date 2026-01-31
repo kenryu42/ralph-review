@@ -4,7 +4,7 @@ import * as p from "@clack/prompts";
 import { runInit } from "./commands/init";
 import { runList } from "./commands/list";
 import { runLogs } from "./commands/logs";
-import { runForeground, runRun } from "./commands/run";
+import { runForeground, startReview } from "./commands/run";
 import { runStatus } from "./commands/status";
 import { runStop } from "./commands/stop";
 import { type CommandDef, formatCommandHelp, formatMainHelp } from "./lib/cli-parser";
@@ -171,7 +171,7 @@ async function main(): Promise<void> {
         break;
 
       case "run":
-        await runRun(args);
+        await startReview(args);
         break;
 
       case "_run-foreground":

@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
 import { printCommandHelp } from "./cli";
-import { runRun } from "./commands/run";
+import { startReview } from "./commands/run";
 
 const userArgs = process.argv.slice(2);
 
@@ -21,7 +21,7 @@ if (userArgs.includes("--help") || userArgs.includes("-h")) {
   process.exit(0);
 }
 
-runRun(userArgs).catch((error) => {
+startReview(userArgs).catch((error) => {
   console.error(`Error: ${error}`);
   process.exit(1);
 });
