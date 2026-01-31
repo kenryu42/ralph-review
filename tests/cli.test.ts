@@ -94,6 +94,13 @@ describe("cli", () => {
       expect(listCmd).toBeDefined();
       expect(listCmd?.aliases).toContain("ls");
     });
+
+    test("all public commands have no positional args", () => {
+      const publicCommands = COMMANDS.filter((c) => !c.hidden);
+      for (const cmd of publicCommands) {
+        expect(cmd.positional).toBeUndefined();
+      }
+    });
   });
 
   describe("getCommandDef", () => {

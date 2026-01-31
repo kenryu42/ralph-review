@@ -7,7 +7,13 @@ import { runLogs } from "./commands/logs";
 import { runForeground, startReview } from "./commands/run";
 import { runStatus } from "./commands/status";
 import { runStop } from "./commands/stop";
-import { type CommandDef, formatCommandHelp, formatMainHelp } from "./lib/cli-parser";
+import {
+  CliError,
+  type CommandDef,
+  formatCommandHelp,
+  formatMainHelp,
+  parseCommand,
+} from "./lib/cli-parser";
 
 export const COMMANDS: CommandDef[] = [
   {
@@ -163,6 +169,30 @@ async function main(): Promise<void> {
 
   // Resolve command aliases (e.g., "ls" -> "list")
   const resolvedCommand = COMMANDS.find((c) => c.aliases?.includes(command))?.name ?? command;
+
+  // Validate positional arguments for all commands
+  const commandDef = getCommandDef(resolvedCommand);
+  if (commandDef) {
+    try {
+      parseCommand(commandDef, args);
+    } catch (error) {
+      if (error instanceof CliError) {
+        // Format multi-line error messages nicely
+        const lines = error.message.split("\n");
+        if (lines[0]) {
+          p.log.error(lines[0]); // Main error line
+        }
+        for (const line of lines.slice(1)) {
+          if (line) {
+            p.log.message(line);
+          }
+        }
+      } else {
+        p.log.error(`${error}`);
+      }
+      process.exit(1);
+    }
+  }
 
   try {
     switch (resolvedCommand) {
