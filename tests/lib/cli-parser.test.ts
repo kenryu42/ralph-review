@@ -40,6 +40,16 @@ const hiddenCommand: CommandDef = {
   hidden: true,
 };
 
+const commandWithMultiplePositionals: CommandDef = {
+  name: "copy",
+  description: "Copy files",
+  positional: [
+    { name: "source", description: "Source file" },
+    { name: "dest", description: "Destination file" },
+    { name: "extra", description: "Extra arg" },
+  ],
+};
+
 describe("cli-parser", () => {
   describe("parseCommand", () => {
     describe("boolean flags", () => {
@@ -116,31 +126,147 @@ describe("cli-parser", () => {
       });
 
       test("captures positional mixed with flags", () => {
-        const result = parseCommand(commandWithValues, ["--list", "arg1", "arg2"]);
+        const cmdWithTwoPositionals: CommandDef = {
+          name: "copy",
+          description: "Copy files",
+          options: [
+            { name: "force", alias: "f", type: "boolean", description: "Force operation" },
+            { name: "list", alias: "l", type: "boolean", description: "List items" },
+          ],
+          positional: [
+            { name: "source", description: "Source file" },
+            { name: "dest", description: "Destination file" },
+          ],
+        };
+        const result = parseCommand(cmdWithTwoPositionals, ["--list", "arg1", "arg2"]);
         expect(result.values.list).toBe(true);
         expect(result.positional).toEqual(["arg1", "arg2"]);
       });
 
       test("treats args after -- as positional", () => {
-        const result = parseCommand(simpleCommand, ["--", "--not-a-flag"]);
+        const result = parseCommand(commandWithPositional, ["--", "--not-a-flag"]);
         expect(result.positional).toEqual(["--not-a-flag"]);
       });
 
       test("handles multiple positional args in order", () => {
-        const result = parseCommand(commandWithPositional, ["first", "second", "third"]);
+        const result = parseCommand(commandWithMultiplePositionals, ["first", "second", "third"]);
         expect(result.positional).toEqual(["first", "second", "third"]);
+      });
+    });
+
+    describe("positional argument validation", () => {
+      test("throws on unexpected positional for command without positional def", () => {
+        expect(() => parseCommand(simpleCommand, ["unexpected"])).toThrow(
+          /unexpected argument "unexpected"/
+        );
+      });
+
+      test("throws on multiple unexpected positionals (reports first)", () => {
+        expect(() => parseCommand(simpleCommand, ["a", "b", "c"])).toThrow(
+          /unexpected argument "a"/
+        );
+      });
+
+      test("throws on positional args after --", () => {
+        expect(() => parseCommand(simpleCommand, ["--", "extra"])).toThrow(
+          /unexpected argument "extra"/
+        );
+      });
+
+      test("throws on positional that looks like a command", () => {
+        expect(() => parseCommand(simpleCommand, ["init"])).toThrow(/unexpected argument "init"/);
+      });
+
+      test("accepts positional for command with positional def", () => {
+        const result = parseCommand(commandWithPositional, ["mysession"]);
+        expect(result.positional).toEqual(["mysession"]);
+      });
+
+      test("throws on extra positional beyond defined count", () => {
+        expect(() => parseCommand(commandWithPositional, ["a", "b"])).toThrow(
+          /unexpected argument "b"/
+        );
+      });
+
+      test("throws when required positional is missing", () => {
+        const cmdWithRequired: CommandDef = {
+          name: "test",
+          description: "Test",
+          positional: [{ name: "target", description: "Target", required: true }],
+        };
+        expect(() => parseCommand(cmdWithRequired, [])).toThrow(
+          /missing required argument <target>/
+        );
+      });
+
+      test("allows missing optional positional", () => {
+        const result = parseCommand(commandWithPositional, []);
+        expect(result.positional).toEqual([]);
+      });
+    });
+
+    describe("error message quality", () => {
+      test("unknown option includes command name", () => {
+        expect.assertions(3);
+        try {
+          parseCommand(commandWithValues, ["--invalid"]);
+        } catch (e) {
+          expect((e as Error).message).toContain("run");
+          expect((e as Error).message).toContain("unknown option");
+          expect((e as Error).message).toContain("--invalid");
+        }
+      });
+
+      test("unknown option suggests similar option", () => {
+        expect.assertions(2);
+        // --max5 should suggest --max
+        try {
+          parseCommand(commandWithValues, ["--max5"]);
+        } catch (e) {
+          expect((e as Error).message).toContain("Did you mean");
+          expect((e as Error).message).toContain("--max 5");
+        }
+      });
+
+      test("unknown option shows valid options", () => {
+        expect.assertions(2);
+        try {
+          parseCommand(commandWithValues, ["--invalid"]);
+        } catch (e) {
+          expect((e as Error).message).toContain("--force");
+          expect((e as Error).message).toContain("--list");
+        }
+      });
+
+      test("unexpected positional includes command name", () => {
+        expect.assertions(2);
+        try {
+          parseCommand(simpleCommand, ["extra"]);
+        } catch (e) {
+          expect((e as Error).message).toContain("test");
+          expect((e as Error).message).toContain("unexpected argument");
+        }
+      });
+
+      test("unexpected positional states no positionals allowed", () => {
+        expect.assertions(1);
+        try {
+          parseCommand(simpleCommand, ["extra"]);
+        } catch (e) {
+          expect((e as Error).message).toMatch(/does not (take|accept) positional/i);
+        }
       });
     });
 
     describe("error handling", () => {
       test("throws on unknown long flag", () => {
         expect(() => parseCommand(simpleCommand, ["--invalid"])).toThrow(
-          "Unknown option: --invalid"
+          /unknown option "--invalid"/
         );
       });
 
       test("throws on unknown short flag", () => {
-        expect(() => parseCommand(simpleCommand, ["-x"])).toThrow("Unknown option: -x");
+        expect(() => parseCommand(simpleCommand, ["-x"])).toThrow(/unknown option "-x"/);
       });
 
       test("throws on multi-char short flag", () => {

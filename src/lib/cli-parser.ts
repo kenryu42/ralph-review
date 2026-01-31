@@ -4,6 +4,90 @@
  */
 
 /**
+ * CLI Error with structured information for helpful error messages
+ */
+export class CliError extends Error {
+  constructor(
+    public readonly command: string,
+    public readonly type: "unknown_option" | "unexpected_argument" | "missing_required",
+    public readonly arg: string,
+    public readonly validOptions?: string[],
+    public readonly suggestion?: string,
+    public readonly expectedPositionalCount?: number
+  ) {
+    super(
+      CliError.formatMessage(command, type, arg, validOptions, suggestion, expectedPositionalCount)
+    );
+    this.name = "CliError";
+  }
+
+  static formatMessage(
+    command: string,
+    type: string,
+    arg: string,
+    validOptions?: string[],
+    suggestion?: string,
+    expectedPositionalCount?: number
+  ): string {
+    const lines: string[] = [];
+
+    if (type === "unknown_option") {
+      lines.push(`${command}: unknown option "${arg}"`);
+    } else if (type === "unexpected_argument") {
+      lines.push(`${command}: unexpected argument "${arg}"`);
+      if (expectedPositionalCount && expectedPositionalCount > 0) {
+        lines.push(
+          `This command takes at most ${expectedPositionalCount} positional argument${expectedPositionalCount > 1 ? "s" : ""}.`
+        );
+      } else {
+        lines.push("This command does not take positional arguments.");
+      }
+    } else if (type === "missing_required") {
+      lines.push(`${command}: missing required argument <${arg}>`);
+    }
+
+    if (suggestion) {
+      lines.push(`Did you mean "${suggestion}"?`);
+    }
+
+    if (validOptions && validOptions.length > 0) {
+      lines.push(`Valid options: ${validOptions.join(", ")}`);
+    }
+
+    lines.push(`Run: rr ${command} --help`);
+    return lines.join("\n");
+  }
+}
+
+/**
+ * Suggest a correction for an unknown option based on valid options
+ * Uses simple heuristics to detect common typos
+ */
+function suggestOption(input: string, validOptions: string[]): string | undefined {
+  // Check for missing space (e.g., --max5 -> --max 5)
+  for (const opt of validOptions) {
+    if (input.startsWith(opt) && input.length > opt.length) {
+      return `${opt} ${input.slice(opt.length)}`;
+    }
+  }
+
+  // Check for prefix match (e.g., --ma -> --max)
+  const inputWithoutDashes = input.replace(/^-+/, "");
+  for (const opt of validOptions) {
+    const optWithoutDashes = opt.replace(/^-+/, "");
+    if (
+      optWithoutDashes.startsWith(inputWithoutDashes) &&
+      inputWithoutDashes.length >= 2 &&
+      inputWithoutDashes.length < optWithoutDashes.length
+    ) {
+      return opt;
+    }
+  }
+
+  return undefined;
+}
+
+/**
  * Option definition for a command
  */
 export interface OptionDef {
@@ -142,7 +226,10 @@ export function parseCommand<T = Record<string, unknown>>(
 
       const opt = byName.get(name);
       if (!opt) {
-        throw new Error(`Unknown option: --${name}`);
+        const fullArg = arg.startsWith("--") ? arg : `--${name}`;
+        const validOptions = options.map((o) => `--${o.name}`);
+        const suggestion = suggestOption(fullArg, validOptions);
+        throw new CliError(def.name, "unknown_option", fullArg, validOptions, suggestion);
       }
 
       if (opt.type === "boolean") {
@@ -188,7 +275,10 @@ export function parseCommand<T = Record<string, unknown>>(
       const alias = chars;
       const opt = byAlias.get(alias);
       if (!opt) {
-        throw new Error(`Unknown option: -${alias}`);
+        const validOptions = options.map((o) =>
+          o.alias ? `-${o.alias}, --${o.name}` : `--${o.name}`
+        );
+        throw new CliError(def.name, "unknown_option", `-${alias}`, validOptions);
       }
 
       if (opt.type === "boolean") {
@@ -218,6 +308,35 @@ export function parseCommand<T = Record<string, unknown>>(
   for (const opt of options) {
     if (opt.required && values[opt.name] === undefined) {
       throw new Error(`Missing required option: --${opt.name}`);
+    }
+  }
+
+  // Validate positional arguments
+  const expectedPositionalCount = def.positional?.length ?? 0;
+
+  // Check for unexpected positionals
+  if (positional.length > expectedPositionalCount) {
+    const unexpected = positional[expectedPositionalCount];
+    if (unexpected) {
+      const validOptions = options.map((o) => `--${o.name}`);
+      throw new CliError(
+        def.name,
+        "unexpected_argument",
+        unexpected,
+        validOptions,
+        undefined,
+        expectedPositionalCount
+      );
+    }
+  }
+
+  // Check for missing required positionals
+  if (def.positional) {
+    for (let i = 0; i < def.positional.length; i++) {
+      const posDef = def.positional[i];
+      if (posDef?.required && positional[i] === undefined) {
+        throw new CliError(def.name, "missing_required", posDef.name);
+      }
     }
   }
 
