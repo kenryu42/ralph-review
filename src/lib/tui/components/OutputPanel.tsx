@@ -26,8 +26,8 @@ export function OutputPanel({ output, sessionName }: OutputPanelProps) {
   const { height: terminalHeight } = useTerminalDimensions();
   const scrollboxRef = useRef<ScrollBoxRenderable>(null);
 
-  // Terminal height minus: header(2) + statusbar(2) + outer padding(2) + border(2) + inner padding(2) + title(2)
-  const availableLines = Math.max(10, terminalHeight - 12);
+  // Terminal height minus: header(5) + statusbar(2) + dashboard padding(2) + border(2) + padding(2) + title(2)
+  const availableLines = Math.max(10, terminalHeight - 15);
 
   const lines = sessionName ? output.split("\n").filter((line) => line.trim()) : [];
 

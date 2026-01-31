@@ -6,12 +6,86 @@ import type { LockData } from "@/lib/lockfile";
 import type {
   DerivedRunStatus,
   FixEntry,
+  IterationEntry,
   Priority,
   ProjectStats,
   SessionStats,
   SkippedEntry,
 } from "@/lib/types";
 import { Spinner } from "./Spinner";
+
+/**
+ * Truncate text with ellipsis if it exceeds maxLength
+ */
+export function truncateText(text: string, maxLength: number): string {
+  if (text.length <= maxLength) return text;
+  if (maxLength <= 1) return "…";
+  return `${text.slice(0, maxLength - 1)}…`;
+}
+
+/**
+ * Truncate file path, preserving the filename (e.g., "…/components/Auth.tsx")
+ */
+export function truncateFilePath(filePath: string, maxLength: number): string {
+  if (!filePath || filePath.length <= maxLength) return filePath;
+
+  const lastSlash = filePath.lastIndexOf("/");
+  if (lastSlash === -1) return truncateText(filePath, maxLength);
+
+  const filename = filePath.slice(lastSlash + 1);
+  const remaining = maxLength - filename.length - 2; // 2 for "…/"
+
+  if (remaining <= 0) {
+    // Can't fit any directory, just return …/filename
+    return `…/${filename}`;
+  }
+
+  // Find how much of the path we can keep from the end
+  const directory = filePath.slice(0, lastSlash);
+  const truncatedDir = directory.slice(-remaining);
+  const nextSlash = truncatedDir.indexOf("/");
+
+  if (nextSlash !== -1) {
+    return `…${truncatedDir.slice(nextSlash)}/${filename}`;
+  }
+  return `…/${filename}`;
+}
+
+/**
+ * Format priority counts for display
+ * Returns array of {priority, count} for all priorities
+ */
+export function formatPriorityBreakdown(
+  counts: Record<Priority, number>
+): Array<{ priority: Priority; count: number }> {
+  const priorities: Priority[] = ["P0", "P1", "P2", "P3"];
+  return priorities.map((p) => ({ priority: p, count: counts[p] }));
+}
+
+/**
+ * Format project stats summary with proper singular/plural handling
+ */
+export function formatProjectStatsSummary(totalFixes: number, sessionCount: number): string {
+  const fixWord = totalFixes === 1 ? "fix" : "fixes";
+  const sessionWord = sessionCount === 1 ? "session" : "sessions";
+  return `${totalFixes} ${fixWord} across ${sessionCount} ${sessionWord}`;
+}
+
+/**
+ * Extract all FixEntry items from SessionStats entries
+ */
+export function extractFixesFromStats(stats: SessionStats): FixEntry[] {
+  const fixes: FixEntry[] = [];
+  for (const entry of stats.entries) {
+    if (entry.type === "iteration") {
+      const iterEntry = entry as IterationEntry;
+      if (iterEntry.fixes?.fixes) {
+        fixes.push(...iterEntry.fixes.fixes);
+      }
+    }
+  }
+  return fixes;
+}
 
 interface SessionPanelProps {
   session: LockData | null;
@@ -62,37 +136,71 @@ function getStatusDisplay(status: DerivedRunStatus): { text: string; color: stri
 }
 
 /**
- * Format priority counts as a compact string (e.g., "P1:1 P2:2")
- */
-function formatPriorityCounts(counts: Record<Priority, number>): string {
-  const parts: string[] = [];
-  for (const p of ["P1", "P2", "P3", "P4"] as Priority[]) {
-    if (counts[p] > 0) {
-      parts.push(`${p}:${counts[p]}`);
-    }
-  }
-  return parts.join(" ");
-}
-
-/**
  * Priority colors for display
  */
 const PRIORITY_COLORS: Record<Priority, string> = {
-  P1: "#ef4444", // red
-  P2: "#f97316", // orange
-  P3: "#eab308", // yellow
-  P4: "#22c55e", // green
+  P0: "#ef4444", // red
+  P1: "#f97316", // orange
+  P2: "#eab308", // yellow
+  P3: "#22c55e", // green
 };
 
+/** Fallback color for unknown/legacy priorities */
+const UNKNOWN_PRIORITY_COLOR = "#6b7280"; // gray
+
+interface FixListProps {
+  fixes: FixEntry[];
+  showFiles: boolean;
+  maxHeight?: number; // Max visible lines before scrolling
+}
+
 /**
- * Count fixes by priority
+ * Renders a list of fixes with priority indicators and optional file paths
  */
-function countByPriority(fixes: FixEntry[]): Record<Priority, number> {
-  const counts: Record<Priority, number> = { P1: 0, P2: 0, P3: 0, P4: 0 };
-  for (const fix of fixes) {
-    counts[fix.priority]++;
+function FixList({ fixes, showFiles, maxHeight = 8 }: FixListProps) {
+  if (fixes.length === 0) {
+    return (
+      <text fg="#6b7280" paddingLeft={2}>
+        None yet
+      </text>
+    );
   }
-  return counts;
+
+  // Calculate if scrolling is needed
+  const linesPerFix = showFiles ? 2 : 1;
+  const totalLines = fixes.length * linesPerFix;
+  const needsScroll = totalLines > maxHeight;
+
+  const content = fixes.map((fix, index) => (
+    <box key={`${index}-${fix.id}`} flexDirection="column">
+      <box flexDirection="row">
+        <text fg={PRIORITY_COLORS[fix.priority as Priority] ?? UNKNOWN_PRIORITY_COLOR}>
+          {fix.priority}
+        </text>
+        <text fg="#6b7280"> ▸ </text>
+        <text fg="#e5e7eb">{fix.title}</text>
+      </box>
+      {showFiles && fix.file && (
+        <text fg="#6b7280" paddingLeft={5}>
+          {fix.file}
+        </text>
+      )}
+    </box>
+  ));
+
+  if (needsScroll) {
+    return (
+      <scrollbox paddingLeft={2} height={maxHeight}>
+        {content}
+      </scrollbox>
+    );
+  }
+
+  return (
+    <box flexDirection="column" paddingLeft={2}>
+      {content}
+    </box>
+  );
 }
 
 export function SessionPanel({
@@ -144,7 +252,7 @@ export function SessionPanel({
 
     // Has previous sessions - show full info
     const statusDisplay = getStatusDisplay(lastSessionStats.status);
-    const priorityStr = formatPriorityCounts(lastSessionStats.priorityCounts);
+    const lastSessionFixes = extractFixesFromStats(lastSessionStats);
 
     return (
       <box
@@ -166,6 +274,25 @@ export function SessionPanel({
         )}
         <text fg="#9ca3af">No active session</text>
 
+        {/* Project stats */}
+        {projectStats && projectStats.totalFixes > 0 && (
+          <box flexDirection="column">
+            <text fg="#9ca3af">Project stats:</text>
+            <box flexDirection="row" paddingLeft={2}>
+              {formatPriorityBreakdown(projectStats.priorityCounts).map((item, idx, arr) => (
+                <box key={item.priority} flexDirection="row">
+                  <text fg={PRIORITY_COLORS[item.priority]}>{item.priority} </text>
+                  <text fg="#9ca3af">{item.count}</text>
+                  {idx < arr.length - 1 && <text fg="#6b7280"> · </text>}
+                </box>
+              ))}
+            </box>
+            <text fg="#6b7280" paddingLeft={2}>
+              {formatProjectStatsSummary(projectStats.totalFixes, projectStats.sessionCount)}
+            </text>
+          </box>
+        )}
+
         {/* Last run */}
         <box flexDirection="column">
           <box flexDirection="row" gap={1}>
@@ -173,23 +300,17 @@ export function SessionPanel({
             <text fg={statusDisplay.color}>{statusDisplay.text}</text>
             <text fg="#6b7280">({formatRelativeTime(lastSessionStats.timestamp)})</text>
           </box>
-          {lastSessionStats.totalFixes > 0 && (
-            <text fg="#6b7280" paddingLeft={2}>
-              {lastSessionStats.totalFixes} fixes{priorityStr ? ` (${priorityStr})` : ""}
-            </text>
-          )}
           <text fg="#6b7280" paddingLeft={2}>
+            {lastSessionStats.totalFixes} fix{lastSessionStats.totalFixes !== 1 ? "es" : ""} in{" "}
             {lastSessionStats.iterations} iteration{lastSessionStats.iterations !== 1 ? "s" : ""}
           </text>
         </box>
 
-        {/* Project stats */}
-        {projectStats && projectStats.totalFixes > 0 && (
+        {/* Recent fixes from last session */}
+        {lastSessionFixes.length > 0 && (
           <box flexDirection="column">
-            <text fg="#9ca3af">Project stats:</text>
-            <text fg="#6b7280" paddingLeft={2}>
-              {projectStats.totalFixes} total fixes
-            </text>
+            <text fg="#9ca3af">Recent fixes:</text>
+            <FixList fixes={lastSessionFixes} showFiles={true} />
           </box>
         )}
       </box>
@@ -199,7 +320,6 @@ export function SessionPanel({
   const iteration = session.iteration ?? 0;
   const statusColor = session.status === "running" ? "#22c55e" : "#eab308";
   const statusText = session.status ?? "unknown";
-  const priorityCounts = countByPriority(fixes);
 
   return (
     <box
@@ -231,21 +351,7 @@ export function SessionPanel({
       {/* Fixes applied */}
       <box flexDirection="column">
         <text fg="#9ca3af">Fixes Applied ({fixes.length}):</text>
-        {fixes.length === 0 ? (
-          <text fg="#6b7280" paddingLeft={2}>
-            None yet
-          </text>
-        ) : (
-          <box flexDirection="row" gap={2} paddingLeft={2}>
-            {(["P1", "P2", "P3", "P4"] as Priority[]).map((p) =>
-              priorityCounts[p] > 0 ? (
-                <text key={p} fg={PRIORITY_COLORS[p]}>
-                  {p}: {priorityCounts[p]}
-                </text>
-              ) : null
-            )}
-          </box>
-        )}
+        <FixList fixes={fixes} showFiles={false} />
       </box>
 
       {/* Skipped items */}
