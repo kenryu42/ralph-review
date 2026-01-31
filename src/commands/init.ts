@@ -18,7 +18,7 @@ import {
   loadConfig,
   saveConfig,
 } from "@/lib/config";
-import type { AgentType, Config } from "@/lib/types";
+import type { AgentType, Config, DefaultReview } from "@/lib/types";
 import { isAgentType } from "@/lib/types";
 
 export type AgentAvailability = Record<AgentType, boolean>;
@@ -56,9 +56,16 @@ interface InitInput {
   fixerModel: string;
   maxIterations: number;
   iterationTimeoutMinutes: number;
+  defaultReviewType: string;
+  defaultReviewBranch?: string;
 }
 
 export function buildConfig(input: InitInput): Config {
+  const defaultReview: DefaultReview =
+    input.defaultReviewType === "base" && input.defaultReviewBranch
+      ? { type: "base", branch: input.defaultReviewBranch }
+      : { type: "uncommitted" };
+
   return {
     reviewer: {
       agent: input.reviewerAgent as AgentType,
@@ -70,6 +77,7 @@ export function buildConfig(input: InitInput): Config {
     },
     maxIterations: input.maxIterations,
     iterationTimeout: input.iterationTimeoutMinutes * 60 * 1000, // convert to ms
+    defaultReview,
   };
 }
 
@@ -133,11 +141,17 @@ function formatConfigDisplay(config: Config): string {
     ? ` (${getModelDisplayName(config.fixer.agent, config.fixer.model)})`
     : "";
 
+  const defaultReviewDisplay =
+    config.defaultReview.type === "base"
+      ? `base branch (${config.defaultReview.branch})`
+      : "uncommitted changes";
+
   return [
     `  Reviewer:          ${reviewerName}${reviewerModel}`,
     `  Fixer:             ${fixerName}${fixerModel}`,
     `  Max iterations:    ${config.maxIterations}`,
     `  Iteration timeout: ${config.iterationTimeout / 1000 / 60} minutes`,
+    `  Default review:    ${defaultReviewDisplay}`,
   ].join("\n");
 }
 
@@ -340,6 +354,33 @@ export async function runInit(): Promise<void> {
 
   handleCancel(iterationTimeoutStr);
 
+  // Prompt for default review mode
+  const defaultReviewType = await p.select({
+    message: "Default review mode for 'rr run'",
+    options: [
+      { value: "uncommitted", label: "Uncommitted changes", hint: "staged, unstaged, untracked" },
+      { value: "base", label: "Compare against base branch" },
+    ],
+    initialValue: "uncommitted",
+  });
+
+  handleCancel(defaultReviewType);
+
+  let defaultReviewBranch: string | undefined;
+  if (defaultReviewType === "base") {
+    defaultReviewBranch = (await p.text({
+      message: "Base branch name",
+      placeholder: "main",
+      defaultValue: "main",
+      validate: (value) => {
+        if (!value || value.trim() === "") {
+          return "Branch name is required";
+        }
+      },
+    })) as string;
+    handleCancel(defaultReviewBranch);
+  }
+
   // Build and save config
   const config = buildConfig({
     reviewerAgent: reviewerAgent as string,
@@ -348,6 +389,8 @@ export async function runInit(): Promise<void> {
     fixerModel: fixerModel as string,
     maxIterations: Number.parseInt(maxIterationsStr as string, 10),
     iterationTimeoutMinutes: Number.parseInt(iterationTimeoutStr as string, 10),
+    defaultReviewType: defaultReviewType as string,
+    defaultReviewBranch: defaultReviewBranch as string | undefined,
   });
 
   await ensureConfigDir();

@@ -87,6 +87,7 @@ describe("init command", () => {
         fixerModel: "",
         maxIterations: 5,
         iterationTimeoutMinutes: 30,
+        defaultReviewType: "uncommitted",
       });
 
       expect(config.reviewer.agent).toBe("codex");
@@ -95,6 +96,7 @@ describe("init command", () => {
       expect(config.fixer.model).toBeUndefined();
       expect(config.maxIterations).toBe(5);
       expect(config.iterationTimeout).toBe(1800000);
+      expect(config.defaultReview).toEqual({ type: "uncommitted" });
     });
 
     test("handles empty model as undefined", () => {
@@ -105,6 +107,7 @@ describe("init command", () => {
         fixerModel: "",
         maxIterations: 10,
         iterationTimeoutMinutes: 15,
+        defaultReviewType: "uncommitted",
       });
 
       expect(config.reviewer.model).toBeUndefined();
@@ -119,10 +122,42 @@ describe("init command", () => {
         fixerModel: "",
         maxIterations: 3,
         iterationTimeoutMinutes: 10,
+        defaultReviewType: "uncommitted",
       });
 
       expect(config.maxIterations).toBe(3);
       expect(config.iterationTimeout).toBe(600000); // 10 min * 60 * 1000
+    });
+
+    test("creates config with base branch default review", () => {
+      const config = buildConfig({
+        reviewerAgent: "codex",
+        reviewerModel: "",
+        fixerAgent: "claude",
+        fixerModel: "",
+        maxIterations: 5,
+        iterationTimeoutMinutes: 30,
+        defaultReviewType: "base",
+        defaultReviewBranch: "main",
+      });
+
+      expect(config.defaultReview).toEqual({ type: "base", branch: "main" });
+    });
+
+    test("defaults to uncommitted when base type without branch", () => {
+      const config = buildConfig({
+        reviewerAgent: "codex",
+        reviewerModel: "",
+        fixerAgent: "claude",
+        fixerModel: "",
+        maxIterations: 5,
+        iterationTimeoutMinutes: 30,
+        defaultReviewType: "base",
+        // defaultReviewBranch is undefined
+      });
+
+      // Should fall back to uncommitted when branch is not provided for base type
+      expect(config.defaultReview).toEqual({ type: "uncommitted" });
     });
   });
 });

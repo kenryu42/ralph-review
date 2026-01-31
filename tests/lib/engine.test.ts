@@ -17,6 +17,7 @@ const _mockConfig: Config = {
   fixer: { agent: "claude" },
   maxIterations: 3,
   iterationTimeout: 60000,
+  defaultReview: { type: "uncommitted" },
 };
 
 describe("engine", () => {

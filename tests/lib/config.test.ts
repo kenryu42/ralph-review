@@ -14,6 +14,7 @@ describe("config", () => {
     fixer: { agent: "claude" },
     maxIterations: 10,
     iterationTimeout: 600000,
+    defaultReview: { type: "uncommitted" },
   };
 
   beforeEach(async () => {

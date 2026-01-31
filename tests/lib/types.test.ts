@@ -49,6 +49,7 @@ describe("type definitions", () => {
       fixer: { agent: "claude" },
       maxIterations: 10,
       iterationTimeout: 600000,
+      defaultReview: { type: "uncommitted" },
     };
     expect(config.reviewer.agent).toBe("codex");
     expect(config.fixer.agent).toBe("claude");
