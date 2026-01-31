@@ -1,5 +1,8 @@
 import type { AgentRole, AgentType } from "./domain";
 
+/** Default review mode for 'rr run' when no flags are provided */
+export type DefaultReview = { type: "uncommitted" } | { type: "base"; branch: string };
+
 /** Per-agent settings (reviewer or fixer) */
 export interface AgentSettings {
   agent: AgentType;
@@ -27,6 +30,7 @@ export interface Config {
   maxIterations: number;
   iterationTimeout: number; // in milliseconds
   retry?: RetryConfig; // Optional retry config, uses DEFAULT_RETRY_CONFIG if not set
+  defaultReview: DefaultReview;
 }
 
 /** Command-line configuration for executing an agent */

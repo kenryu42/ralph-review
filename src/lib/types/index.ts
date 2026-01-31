@@ -5,6 +5,7 @@ export {
   type AgentSettings,
   type Config,
   DEFAULT_RETRY_CONFIG,
+  type DefaultReview,
   type RetryConfig,
 } from "./config";
 export {
