@@ -1,4 +1,5 @@
 import type { AgentRole, AgentType } from "./domain";
+import type { ReviewOptions } from "./run";
 
 /** Default review mode for 'rr run' when no flags are provided */
 export type DefaultReview = { type: "uncommitted" } | { type: "base"; branch: string };
@@ -36,6 +37,11 @@ export interface Config {
 /** Command-line configuration for executing an agent */
 export interface AgentConfig {
   command: string;
-  buildArgs: (role: AgentRole, prompt: string, model?: string) => string[];
+  buildArgs: (
+    role: AgentRole,
+    prompt: string,
+    model?: string,
+    reviewOptions?: ReviewOptions
+  ) => string[];
   buildEnv: () => Record<string, string>;
 }

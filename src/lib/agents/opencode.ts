@@ -3,27 +3,22 @@
  * Integrates with OpenCode CLI (no JSONL streaming)
  */
 
-import type { AgentConfig, AgentRole } from "@/lib/types";
+import type { AgentConfig, AgentRole, ReviewOptions } from "@/lib/types";
 
 export const opencodeConfig: AgentConfig = {
   command: "opencode",
-  buildArgs: (role: AgentRole, prompt: string, model?: string): string[] => {
-    if (role === "reviewer") {
-      const args = ["run"];
-      if (model) {
-        args.push("--model", model);
-      }
-      // Use custom prompt if provided, otherwise default to /review command
-      args.push(prompt || "/review");
-      return args;
-    } else {
-      const args = ["run"];
-      if (model) {
-        args.push("--model", model);
-      }
-      args.push(prompt);
-      return args;
+  buildArgs: (
+    _role: AgentRole,
+    prompt: string,
+    model?: string,
+    _reviewOptions?: ReviewOptions
+  ): string[] => {
+    const args = ["run"];
+    if (model) {
+      args.push("--model", model);
     }
+    args.push(prompt);
+    return args;
   },
   buildEnv: (): Record<string, string> => {
     return {

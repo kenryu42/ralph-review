@@ -3,7 +3,7 @@
  * Integrates with Gemini CLI
  */
 
-import type { AgentConfig, AgentRole } from "@/lib/types";
+import type { AgentConfig, AgentRole, ReviewOptions } from "@/lib/types";
 import type {
   GeminiMessageEvent,
   GeminiResultEvent,
@@ -14,18 +14,20 @@ import type {
 
 export const geminiConfig: AgentConfig = {
   command: "gemini",
-  buildArgs: (role: AgentRole, prompt: string, model?: string): string[] => {
+  buildArgs: (
+    _role: AgentRole,
+    prompt: string,
+    model?: string,
+    _reviewOptions?: ReviewOptions
+  ): string[] => {
     const args = ["--yolo"];
+
     if (model) {
       args.push("--model", model);
     }
     args.push("--output-format", "stream-json");
-    if (role === "reviewer") {
-      // Use custom prompt if provided, otherwise default to reviewing uncommitted changes
-      args.push("--prompt", prompt || "review the uncommitted changes");
-    } else {
-      args.push("--prompt", prompt);
-    }
+    args.push("--prompt", prompt);
+
     return args;
   },
   buildEnv: (): Record<string, string> => {

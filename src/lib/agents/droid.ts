@@ -3,7 +3,7 @@
  * Integrates with Droid CLI
  */
 
-import type { AgentConfig, AgentRole } from "@/lib/types";
+import type { AgentConfig, AgentRole, ReviewOptions } from "@/lib/types";
 import type {
   DroidCompletionEvent,
   DroidMessageEvent,
@@ -14,37 +14,26 @@ import type {
 
 export const droidConfig: AgentConfig = {
   command: "droid",
-  buildArgs: (role: AgentRole, prompt: string, model?: string): string[] => {
+  buildArgs: (
+    _role: AgentRole,
+    prompt: string,
+    model?: string,
+    _reviewOptions?: ReviewOptions
+  ): string[] => {
     const effectiveModel = model ?? "gpt-5.2-codex";
-    if (role === "reviewer") {
-      // Use custom prompt if provided, otherwise default to reviewing current changes
-      const reviewPrompt = prompt || "/review current changes";
-      return [
-        "exec",
-        "--auto",
-        "medium",
-        "--model",
-        effectiveModel,
-        "--reasoning-effort",
-        "high",
-        "--output-format",
-        "stream-json",
-        reviewPrompt,
-      ];
-    } else {
-      return [
-        "exec",
-        "--auto",
-        "medium",
-        "--model",
-        effectiveModel,
-        "--reasoning-effort",
-        "high",
-        "--output-format",
-        "stream-json",
-        prompt,
-      ];
-    }
+
+    return [
+      "exec",
+      "--auto",
+      "medium",
+      "--model",
+      effectiveModel,
+      "--reasoning-effort",
+      "high",
+      "--output-format",
+      "stream-json",
+      prompt,
+    ];
   },
   buildEnv: (): Record<string, string> => {
     return {

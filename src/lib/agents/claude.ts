@@ -3,7 +3,7 @@
  * Integrates with Anthropic's Claude Code CLI
  */
 
-import type { AgentConfig, AgentRole } from "@/lib/types";
+import type { AgentConfig, AgentRole, ReviewOptions } from "@/lib/types";
 import type {
   AssistantContentBlock,
   AssistantEvent,
@@ -15,38 +15,26 @@ import type {
 
 export const claudeConfig: AgentConfig = {
   command: "claude",
-  buildArgs: (role: AgentRole, prompt: string, model?: string): string[] => {
+  buildArgs: (
+    _role: AgentRole,
+    prompt: string,
+    model?: string,
+    _reviewOptions?: ReviewOptions
+  ): string[] => {
     const baseArgs: string[] = [];
     if (model) {
       baseArgs.push("--model", model);
     }
 
-    if (role === "reviewer") {
-      // Use custom prompt if provided (e.g., for base branch review), otherwise default
-      const reviewPrompt =
-        prompt ||
-        "Review my uncommitted changes. Focus on bugs, security issues, and code quality problems.";
-      return [
-        ...baseArgs,
-        "-p",
-        reviewPrompt,
-        "--dangerously-skip-permissions",
-        "--verbose",
-        "--output-format",
-        "stream-json",
-      ];
-    } else {
-      // Fixer mode
-      return [
-        ...baseArgs,
-        "-p",
-        prompt,
-        "--dangerously-skip-permissions",
-        "--verbose",
-        "--output-format",
-        "stream-json",
-      ];
-    }
+    return [
+      ...baseArgs,
+      "-p",
+      prompt,
+      "--dangerously-skip-permissions",
+      "--verbose",
+      "--output-format",
+      "stream-json",
+    ];
   },
   buildEnv: (): Record<string, string> => {
     return {

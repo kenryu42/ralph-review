@@ -3,7 +3,7 @@
  * Handles spawning, streaming, timeouts, and result collection
  */
 
-import type { AgentRole, Config, IterationResult } from "@/lib/types";
+import type { AgentRole, Config, IterationResult, ReviewOptions } from "@/lib/types";
 import { streamAndCapture } from "./core";
 import { AGENTS } from "./registry";
 
@@ -14,14 +14,15 @@ export async function runAgent(
   role: AgentRole,
   config: Config,
   prompt: string = "",
-  timeout: number = config.iterationTimeout
+  timeout: number = config.iterationTimeout,
+  reviewOptions?: ReviewOptions
 ): Promise<IterationResult> {
   const startTime = Date.now();
   const agentSettings = role === "reviewer" ? config.reviewer : config.fixer;
   const agentModule = AGENTS[agentSettings.agent];
 
   const command = agentModule.config.command;
-  const args = agentModule.config.buildArgs(role, prompt, agentSettings.model);
+  const args = agentModule.config.buildArgs(role, prompt, agentSettings.model, reviewOptions);
   const env = agentModule.config.buildEnv();
 
   let output = "";
