@@ -88,11 +88,12 @@ async function runAgentWithRetry(
   role: AgentRole,
   config: Config,
   prompt: string = "",
-  timeout: number = config.iterationTimeout
+  timeout: number = config.iterationTimeout,
+  reviewOptions?: ReviewOptions
 ): Promise<IterationResult> {
   const retryConfig = config.retry ?? DEFAULT_RETRY_CONFIG;
 
-  let result = await runAgent(role, config, prompt, timeout);
+  let result = await runAgent(role, config, prompt, timeout, reviewOptions);
 
   if (result.success) {
     return result;
@@ -107,7 +108,7 @@ async function runAgentWithRetry(
     );
     await sleep(delay);
 
-    result = await runAgent(role, config, prompt, timeout);
+    result = await runAgent(role, config, prompt, timeout, reviewOptions);
 
     if (result.success) {
       return result;
@@ -263,18 +264,6 @@ function resetInterrupt(): void {
 }
 
 /**
- * Options for configuring the review
- */
-export interface ReviewOptions {
-  /** Optional base branch to compare against (e.g., "main") */
-  baseBranch?: string;
-  /** Optional commit SHA to review */
-  commitSha?: string;
-  /** Optional custom review instructions */
-  customInstructions?: string;
-}
-
-/**
  * Run the complete review cycle
  *
  * Loop: reviewer -> check for issues -> if issues, fixer -> repeat
@@ -347,7 +336,13 @@ export async function runReviewCycle(
 
     // Run reviewer with retry
     const retryConfig = config.retry ?? DEFAULT_RETRY_CONFIG;
-    const reviewResult = await runAgentWithRetry("reviewer", config, reviewerPrompt);
+    const reviewResult = await runAgentWithRetry(
+      "reviewer",
+      config,
+      reviewerPrompt,
+      config.iterationTimeout,
+      reviewOptions
+    );
 
     if (onIteration) {
       onIteration(iteration, "reviewer", reviewResult);

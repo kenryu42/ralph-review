@@ -19,3 +19,15 @@ export interface IterationError {
   message: string;
   exitCode?: number;
 }
+
+/**
+ * Options for configuring the review mode
+ */
+export interface ReviewOptions {
+  /** Optional base branch to compare against (e.g., "main") */
+  baseBranch?: string;
+  /** Optional commit SHA to review */
+  commitSha?: string;
+  /** Optional custom review instructions */
+  customInstructions?: string;
+}
