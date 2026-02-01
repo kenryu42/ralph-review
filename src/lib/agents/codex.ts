@@ -3,7 +3,7 @@
  * Integrates with OpenAI's Codex CLI
  */
 
-import type { AgentConfig, AgentRole } from "@/lib/types";
+import type { AgentConfig, AgentRole, ReviewOptions } from "@/lib/types";
 import type {
   CodexAgentMessageItem,
   CodexCommandExecutionItem,
@@ -14,9 +14,44 @@ import type {
 
 export const codexConfig: AgentConfig = {
   command: "codex",
-  buildArgs: (role: AgentRole, prompt: string, model?: string): string[] => {
+  buildArgs: (
+    role: AgentRole,
+    prompt: string,
+    model?: string,
+    reviewOptions?: ReviewOptions
+  ): string[] => {
     if (role === "reviewer") {
-      // Use custom prompt if provided (e.g., for base branch review), otherwise default to uncommitted
+      // Priority: commitSha > baseBranch > customInstructions > uncommitted
+      if (reviewOptions?.commitSha) {
+        const args = ["exec", "--json", "--config", "model_reasoning_effort=high", "review"];
+        args.push("--commit", reviewOptions.commitSha);
+        if (model) {
+          args.unshift("--model", model);
+        }
+        return args;
+      }
+
+      if (reviewOptions?.baseBranch) {
+        const args = ["exec", "--json", "--config", "model_reasoning_effort=high", "review"];
+        args.push("--base", reviewOptions.baseBranch);
+        if (model) {
+          args.unshift("--model", model);
+        }
+        return args;
+      }
+
+      if (reviewOptions?.customInstructions) {
+        // Custom mode: use exec with prompt instead of native review subcommand
+        const args = ["exec", "--full-auto", "--json", "--config", "model_reasoning_effort=high"];
+        if (model) {
+          args.unshift("--model", model);
+        }
+        const fullPrompt = prompt ? `review ${prompt}` : "review";
+        args.push(fullPrompt);
+        return args;
+      }
+
+      // Default: review uncommitted changes
       const args = [
         "exec",
         "--json",
