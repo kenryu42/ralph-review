@@ -268,6 +268,10 @@ function resetInterrupt(): void {
 export interface ReviewOptions {
   /** Optional base branch to compare against (e.g., "main") */
   baseBranch?: string;
+  /** Optional commit SHA to review */
+  commitSha?: string;
+  /** Optional custom review instructions */
+  customInstructions?: string;
 }
 
 /**
@@ -337,6 +341,8 @@ export async function runReviewCycle(
     const reviewerPrompt = createReviewerPrompt({
       repoPath: projectPath,
       baseBranch: reviewOptions?.baseBranch,
+      commitSha: reviewOptions?.commitSha,
+      customInstructions: reviewOptions?.customInstructions,
     });
 
     // Run reviewer with retry

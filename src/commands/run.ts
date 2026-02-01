@@ -22,6 +22,8 @@ export interface RunOptions {
   max?: number;
   base?: string;
   uncommitted?: boolean;
+  commit?: string;
+  custom?: string;
 }
 
 export async function isGitRepo(): Promise<boolean> {
@@ -47,8 +49,12 @@ export async function hasUncommittedChanges(): Promise<boolean> {
  * Validate all prerequisites for running
  * Returns array of error messages (empty if all good)
  * @param baseBranch - If provided, skip uncommitted changes check (reviewing against branch instead)
+ * @param commitSha - If provided, skip uncommitted changes check (reviewing a commit instead)
  */
-export async function validatePrerequisites(baseBranch?: string): Promise<string[]> {
+export async function validatePrerequisites(
+  baseBranch?: string,
+  commitSha?: string
+): Promise<string[]> {
   const errors: string[] = [];
 
   // Check config exists
@@ -68,8 +74,8 @@ export async function validatePrerequisites(baseBranch?: string): Promise<string
     errors.push("Not a git repository. Run this command from a git repo.");
   }
 
-  // Check uncommitted changes (only when reviewing uncommitted, not base branch)
-  if (!baseBranch && !(await hasUncommittedChanges())) {
+  // Check uncommitted changes (only when reviewing uncommitted, not base branch or commit)
+  if (!baseBranch && !commitSha && !(await hasUncommittedChanges())) {
     errors.push("No uncommitted changes to review.");
   }
 
@@ -113,10 +119,21 @@ export async function validatePrerequisites(baseBranch?: string): Promise<string
   return errors;
 }
 
+/**
+ * Escape a string for safe embedding in a shell command.
+ * Wraps in single quotes and escapes any embedded single quotes.
+ */
+function shellEscape(str: string): string {
+  // Replace single quotes with '\'' (end quote, escaped quote, start quote)
+  return `'${str.replace(/'/g, "'\\''")}'`;
+}
+
 async function runInBackground(
   _config: Config,
   maxIterations?: number,
-  baseBranch?: string
+  baseBranch?: string,
+  commitSha?: string,
+  customInstructions?: string
 ): Promise<void> {
   // Check tmux is installed
   if (!isTmuxInstalled()) {
@@ -136,8 +153,13 @@ async function runInBackground(
   // Always use main cli.ts, not whatever entry point was used (e.g., cli-rrr.ts)
   const cliPath = `${import.meta.dir}/../cli.ts`;
   const maxIterArg = maxIterations ? ` --max ${maxIterations}` : "";
-  const baseBranchEnv = baseBranch ? ` RR_BASE_BRANCH="${baseBranch}"` : "";
-  const envVars = `RR_PROJECT_PATH="${projectPath}" RR_GIT_BRANCH="${branch ?? ""}"${baseBranchEnv}`;
+  // Use shell escaping for all env vars to prevent injection/breaking
+  const baseBranchEnv = baseBranch ? ` RR_BASE_BRANCH=${shellEscape(baseBranch)}` : "";
+  const commitShaEnv = commitSha ? ` RR_COMMIT_SHA=${shellEscape(commitSha)}` : "";
+  const customPromptEnv = customInstructions
+    ? ` RR_CUSTOM_PROMPT=${shellEscape(customInstructions)}`
+    : "";
+  const envVars = `RR_PROJECT_PATH=${shellEscape(projectPath)} RR_GIT_BRANCH=${shellEscape(branch ?? "")}${baseBranchEnv}${commitShaEnv}${customPromptEnv}`;
   const command = `${envVars} ${process.execPath} ${cliPath} _run-foreground${maxIterArg}`;
 
   try {
@@ -164,8 +186,10 @@ export async function runForeground(args: string[] = []): Promise<void> {
   // Get project path from environment variable (set by parent process)
   const projectPath = process.env.RR_PROJECT_PATH || process.cwd();
 
-  // Get base branch from environment variable (set by parent process for --base mode)
+  // Get review options from environment variables (set by parent process)
   const baseBranch = process.env.RR_BASE_BRANCH || undefined;
+  const commitSha = process.env.RR_COMMIT_SHA || undefined;
+  const customInstructions = process.env.RR_CUSTOM_PROMPT || undefined;
 
   // Parse --max option using the _run-foreground command def
   const foregroundDef = getCommandDef("_run-foreground");
@@ -193,7 +217,7 @@ export async function runForeground(args: string[] = []): Promise<void> {
         // Update lockfile with iteration progress
         updateLockfile(undefined, projectPath, { iteration }).catch(() => {});
       },
-      { baseBranch }
+      { baseBranch, commitSha, customInstructions }
     );
 
     console.log(`\n${"=".repeat(50)}`);
@@ -233,7 +257,7 @@ export async function startReview(args: string[]): Promise<void> {
   }
 
   // Apply config default when no review mode flags provided
-  const hasExplicitMode = options.base || options.uncommitted;
+  const hasExplicitMode = options.base || options.uncommitted || options.commit || options.custom;
   if (!hasExplicitMode) {
     const config = await loadConfig();
     if (config?.defaultReview?.type === "base") {
@@ -242,14 +266,21 @@ export async function startReview(args: string[]): Promise<void> {
     // else: defaults to uncommitted behavior (no base flag)
   }
 
-  // Validate mutual exclusivity of --base and --uncommitted
-  if (options.base && options.uncommitted) {
-    p.log.error("Cannot use --base and --uncommitted together");
+  // Validate mutual exclusivity of review mode options
+  const modeOptions = [
+    options.base && "--base",
+    options.uncommitted && "--uncommitted",
+    options.commit && "--commit",
+    options.custom && "--custom",
+  ].filter(Boolean);
+
+  if (modeOptions.length > 1) {
+    p.log.error(`Cannot use ${modeOptions.join(" and ")} together`);
     process.exit(1);
   }
 
   // Validate prerequisites
-  const errors = await validatePrerequisites(options.base);
+  const errors = await validatePrerequisites(options.base, options.commit);
 
   if (errors.length > 0) {
     p.log.error("Cannot run review:");
@@ -270,5 +301,5 @@ export async function startReview(args: string[]): Promise<void> {
     p.log.warn("Running inside tmux session. Review will start in a nested session.");
   }
 
-  await runInBackground(config, options.max, options.base);
+  await runInBackground(config, options.max, options.base, options.commit, options.custom);
 }
