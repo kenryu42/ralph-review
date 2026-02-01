@@ -31,6 +31,16 @@ describe("run command", () => {
       const { values } = parseCommand<RunOptions>(runDef, ["-m", "3"]);
       expect(values.max).toBe(3);
     });
+
+    test("parses --commit option", () => {
+      const { values } = parseCommand<RunOptions>(runDef, ["--commit", "abc123"]);
+      expect(values.commit).toBe("abc123");
+    });
+
+    test("parses --custom option", () => {
+      const { values } = parseCommand<RunOptions>(runDef, ["--custom", "Focus on security"]);
+      expect(values.custom).toBe("Focus on security");
+    });
   });
 
   describe("validatePrerequisites", () => {
