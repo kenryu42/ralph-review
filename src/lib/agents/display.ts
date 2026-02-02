@@ -56,30 +56,22 @@ export function getAgentDisplayName(agent: AgentType): string {
   return option?.label ?? agent;
 }
 
+const modelOptionsMap: Record<AgentType, readonly { value: string; label: string }[] | null> = {
+  claude: claudeModelOptions,
+  codex: codexModelOptions,
+  droid: droidModelOptions,
+  gemini: geminiModelOptions,
+  opencode: null,
+};
+
 /**
  * Get display name for a model
  */
 export function getModelDisplayName(agent: AgentType, model: string): string {
-  let options: readonly { value: string; label: string }[];
-
-  switch (agent) {
-    case "claude":
-      options = claudeModelOptions;
-      break;
-    case "codex":
-      options = codexModelOptions;
-      break;
-    case "droid":
-      options = droidModelOptions;
-      break;
-    case "gemini":
-      options = geminiModelOptions;
-      break;
-    case "opencode":
-      // OpenCode models use the same value for label
-      return model;
+  const options = modelOptionsMap[agent];
+  if (!options) {
+    return model;
   }
-
   const option = options.find((opt) => opt.value === model);
   return option?.label ?? model;
 }

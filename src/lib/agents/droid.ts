@@ -114,7 +114,7 @@ export function extractDroidResult(output: string): string | null {
   for (const line of lines) {
     const event = parseDroidStreamEvent(line);
     if (event?.type === "completion") {
-      lastResult = (event as DroidCompletionEvent).finalText;
+      lastResult = event.finalText;
     }
   }
 

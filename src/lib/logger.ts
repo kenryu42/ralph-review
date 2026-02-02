@@ -133,37 +133,48 @@ export interface LogSession {
 }
 
 /**
+ * Build LogSession objects from a project directory
+ * Returns sorted by timestamp descending (most recent first)
+ */
+async function buildSessionsFromDir(
+  projectDir: string,
+  projectName: string
+): Promise<LogSession[]> {
+  const files = await readdir(projectDir, { withFileTypes: true });
+  const sessions: LogSession[] = [];
+
+  for (const file of files) {
+    if (!file.isFile() || !file.name.endsWith(".jsonl")) continue;
+
+    const filePath = join(projectDir, file.name);
+    const stats = await stat(filePath);
+    sessions.push({
+      path: filePath,
+      name: file.name,
+      projectName,
+      timestamp: stats.mtimeMs,
+    });
+  }
+
+  sessions.sort((a, b) => b.timestamp - a.timestamp);
+  return sessions;
+}
+
+/**
  * List all log sessions across all projects
  * Returns sorted by timestamp descending (most recent first)
  */
 export async function listLogSessions(logsDir: string = LOGS_DIR): Promise<LogSession[]> {
   try {
     const projectDirs = await readdir(logsDir, { withFileTypes: true });
-    const sessions: LogSession[] = [];
+    const sessionLists = await Promise.all(
+      projectDirs
+        .filter((dir) => dir.isDirectory())
+        .map((dir) => buildSessionsFromDir(join(logsDir, dir.name), dir.name))
+    );
 
-    for (const projectDir of projectDirs) {
-      if (!projectDir.isDirectory()) continue;
-
-      const projectPath = join(logsDir, projectDir.name);
-      const files = await readdir(projectPath, { withFileTypes: true });
-
-      for (const file of files) {
-        if (!file.isFile() || !file.name.endsWith(".jsonl")) continue;
-
-        const filePath = join(projectPath, file.name);
-        const stats = await stat(filePath);
-        sessions.push({
-          path: filePath,
-          name: file.name,
-          projectName: projectDir.name,
-          timestamp: stats.mtimeMs,
-        });
-      }
-    }
-
-    // Sort by timestamp descending
+    const sessions = sessionLists.flat();
     sessions.sort((a, b) => b.timestamp - a.timestamp);
-
     return sessions;
   } catch {
     return [];
@@ -182,25 +193,7 @@ export async function listProjectLogSessions(
   const projectDir = join(logsDir, projectName);
 
   try {
-    const files = await readdir(projectDir, { withFileTypes: true });
-    const sessions: LogSession[] = [];
-
-    for (const file of files) {
-      if (!file.isFile() || !file.name.endsWith(".jsonl")) continue;
-
-      const filePath = join(projectDir, file.name);
-      const stats = await stat(filePath);
-      sessions.push({
-        path: filePath,
-        name: file.name,
-        projectName,
-        timestamp: stats.mtimeMs,
-      });
-    }
-
-    sessions.sort((a, b) => b.timestamp - a.timestamp);
-
-    return sessions;
+    return await buildSessionsFromDir(projectDir, projectName);
   } catch {
     return [];
   }
@@ -227,15 +220,8 @@ export async function getLatestProjectLogSession(
  * - unknown: no iteration entries found
  */
 function deriveRunStatus(entries: LogEntry[]): DerivedRunStatus {
-  const iterations = entries.filter(
-    (e): e is import("./types").IterationEntry => e.type === "iteration"
-  );
+  const lastIteration = entries.filter((e): e is IterationEntry => e.type === "iteration").at(-1);
 
-  if (iterations.length === 0) {
-    return "unknown";
-  }
-
-  const lastIteration = iterations.at(-1);
   if (!lastIteration) {
     return "unknown";
   }
@@ -250,11 +236,25 @@ function deriveRunStatus(entries: LogEntry[]): DerivedRunStatus {
   return "completed";
 }
 
+const PRIORITIES: Priority[] = ["P0", "P1", "P2", "P3"];
+
 /**
  * Create empty priority counts object
  */
 function emptyPriorityCounts(): Record<Priority, number> {
   return { P0: 0, P1: 0, P2: 0, P3: 0 };
+}
+
+/**
+ * Aggregate priority counts from source into target
+ */
+function aggregatePriorityCounts(
+  target: Record<Priority, number>,
+  source: Record<Priority, number>
+): void {
+  for (const priority of PRIORITIES) {
+    target[priority] += source[priority];
+  }
 }
 
 /**
@@ -340,11 +340,7 @@ export async function computeProjectStats(
   for (const stats of sessionStats) {
     totalFixes += stats.totalFixes;
     totalSkipped += stats.totalSkipped;
-
-    for (const priority of ["P0", "P1", "P2", "P3"] as Priority[]) {
-      priorityCounts[priority] += stats.priorityCounts[priority];
-    }
-
+    aggregatePriorityCounts(priorityCounts, stats.priorityCounts);
     if (stats.status === "completed") {
       successCount++;
     }
@@ -397,11 +393,7 @@ export async function buildDashboardData(
     totalFixes += project.totalFixes;
     totalSkipped += project.totalSkipped;
     totalSessions += project.sessionCount;
-
-    for (const priority of ["P0", "P1", "P2", "P3"] as Priority[]) {
-      priorityCounts[priority] += project.priorityCounts[priority];
-    }
-
+    aggregatePriorityCounts(priorityCounts, project.priorityCounts);
     totalSuccessful += project.successCount;
   }
 

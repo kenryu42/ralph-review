@@ -8,7 +8,6 @@ import { createLineFormatter, defaultBuildEnv, parseJsonlEvent } from "./core";
 import type {
   CodexAgentMessageItem,
   CodexCommandExecutionItem,
-  CodexItemCompletedEvent,
   CodexReasoningItem,
   CodexStreamEvent,
 } from "./types";
@@ -156,11 +155,8 @@ export function extractCodexResult(output: string): string | null {
 
   for (const line of lines) {
     const event = parseCodexStreamEvent(line);
-    if (event?.type === "item.completed") {
-      const item = (event as CodexItemCompletedEvent).item;
-      if (item.type === "agent_message") {
-        lastResult = (item as CodexAgentMessageItem).text;
-      }
+    if (event?.type === "item.completed" && event.item.type === "agent_message") {
+      lastResult = event.item.text;
     }
   }
 

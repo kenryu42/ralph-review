@@ -44,13 +44,10 @@ export async function runAgent(
       signal: controller.signal,
     });
 
-    // Get the formatter for this agent (if it uses JSONL)
-    const formatter = agentModule.usesJsonl ? (agentModule.formatLine ?? null) : null;
-
     // Stream output to console while capturing it
     const [stdout, stderr] = await Promise.all([
-      streamAndCapture(proc.stdout, process.stdout, agentModule.usesJsonl, formatter ?? undefined),
-      streamAndCapture(proc.stderr, process.stderr, false, undefined),
+      streamAndCapture(proc.stdout, process.stdout, agentModule.usesJsonl, agentModule.formatLine),
+      streamAndCapture(proc.stderr, process.stderr),
     ]);
 
     output = stdout + (stderr ? `\n[stderr]\n${stderr}` : "");

@@ -228,14 +228,7 @@ function extractFixesAndSkipped(session: SessionStats): {
 }
 
 function formatStatusWithIcon(status: DerivedRunStatus): string {
-  const icons: Record<DerivedRunStatus, string> = {
-    completed: "completed",
-    running: "running",
-    failed: "failed",
-    interrupted: "interrupted",
-    unknown: "unknown",
-  };
-  return icons[status];
+  return status;
 }
 
 function formatAgent(settings: AgentSettings): string {

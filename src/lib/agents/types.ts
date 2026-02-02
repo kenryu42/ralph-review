@@ -362,7 +362,7 @@ export interface CodexItemCompletedEvent {
 /**
  * Codex item union - discriminated by 'type' field
  */
-export type CodexItem = CodexReasoningItem | CodexCommandExecutionItem | CodexAgentMessageItem;
+type CodexItem = CodexReasoningItem | CodexCommandExecutionItem | CodexAgentMessageItem;
 
 /**
  * Codex reasoning item (thinking)

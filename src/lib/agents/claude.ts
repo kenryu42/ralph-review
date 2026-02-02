@@ -48,21 +48,16 @@ export function parseClaudeStreamEvent(line: string): ClaudeStreamEvent | null {
   return parseJsonlEvent<ClaudeStreamEvent>(line);
 }
 
-function hasMessageContentArray(event: ClaudeStreamEvent): event is AssistantEvent | UserEvent {
-  const maybeMessage = (event as { message?: { content?: unknown } }).message;
-  return Array.isArray(maybeMessage?.content);
-}
-
 function isAssistantEvent(event: ClaudeStreamEvent): event is AssistantEvent {
-  return event.type === "assistant" && hasMessageContentArray(event);
+  return event.type === "assistant" && Array.isArray((event as AssistantEvent).message?.content);
 }
 
 function isUserEvent(event: ClaudeStreamEvent): event is UserEvent {
-  return event.type === "user" && hasMessageContentArray(event);
+  return event.type === "user" && Array.isArray((event as UserEvent).message?.content);
 }
 
 function isResultEvent(event: ClaudeStreamEvent): event is ResultEvent {
-  return event.type === "result" && typeof (event as { result?: unknown }).result === "string";
+  return event.type === "result" && typeof (event as ResultEvent).result === "string";
 }
 
 function formatContentBlock(block: AssistantContentBlock): string {
@@ -86,38 +81,22 @@ function formatToolResult(block: ToolResultBlock): string {
 }
 
 function formatAssistantEvent(event: AssistantEvent): string {
-  if (!Array.isArray(event.message?.content)) {
-    return "";
-  }
-
-  const parts: string[] = [];
-
-  for (const block of event.message.content) {
-    const formatted = formatContentBlock(block);
-    if (formatted) {
-      parts.push(formatted);
-    }
-  }
-
-  return parts.join("\n\n");
+  return event.message.content.map(formatContentBlock).filter(Boolean).join("\n\n");
 }
 
 function formatUserEvent(event: UserEvent): string {
-  if (!Array.isArray(event.message?.content)) {
-    return "";
-  }
-
-  const parts: string[] = [];
-
-  for (const block of event.message.content) {
-    if (block.type === "tool_result") {
-      parts.push(formatToolResult(block));
-    } else if (block.type === "text") {
-      parts.push(block.text);
-    }
-  }
-
-  return parts.join("\n\n");
+  return event.message.content
+    .map((block) => {
+      if (block.type === "tool_result") {
+        return formatToolResult(block);
+      }
+      if (block.type === "text") {
+        return block.text;
+      }
+      return "";
+    })
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 function formatResultEvent(event: ResultEvent): string {
