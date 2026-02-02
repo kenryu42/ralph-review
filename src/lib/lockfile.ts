@@ -1,10 +1,3 @@
-/**
- * Lockfile management for ralph-review
- * Supports per-project lockfiles for concurrent sessions
- *
- * Lockfile path: ~/.config/ralph-review/logs/<sanitized-project>.lock
- */
-
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { LOGS_DIR } from "./config";
@@ -12,9 +5,6 @@ import { getProjectName } from "./logger";
 
 const DEFAULT_BRANCH = "default";
 
-/**
- * Data stored in lockfile
- */
 export interface LockData {
   sessionName: string;
   startTime: number;
@@ -26,27 +16,15 @@ export interface LockData {
   currentAgent?: "reviewer" | "fixer" | null;
 }
 
-/**
- * Active session info returned by listAllActiveSessions
- */
 export interface ActiveSession extends LockData {
   lockPath: string;
 }
 
-/**
- * Get the lockfile path for a project
- *
- * @param logsDir - Base logs directory (default: ~/.config/ralph-review/logs)
- * @param projectPath - Absolute path to the project
- */
 export function getLockPath(logsDir: string = LOGS_DIR, projectPath: string): string {
   const projectName = getProjectName(projectPath);
   return join(logsDir, `${projectName}.lock`);
 }
 
-/**
- * Create a lockfile for a project session
- */
 export async function createLockfile(
   logsDir: string = LOGS_DIR,
   projectPath: string,
@@ -68,10 +46,6 @@ export async function createLockfile(
   await Bun.write(lockPath, JSON.stringify(lockData, null, 2));
 }
 
-/**
- * Read lockfile data
- * Returns null if lockfile doesn't exist or is invalid
- */
 export async function readLockfile(
   logsDir: string = LOGS_DIR,
   projectPath: string
@@ -91,9 +65,6 @@ export async function readLockfile(
   }
 }
 
-/**
- * Remove lockfile for a project
- */
 export async function removeLockfile(
   logsDir: string = LOGS_DIR,
   projectPath: string
@@ -106,9 +77,6 @@ export async function removeLockfile(
   }
 }
 
-/**
- * Update lockfile with partial data (e.g., iteration progress)
- */
 export async function updateLockfile(
   logsDir: string = LOGS_DIR,
   projectPath: string,
@@ -124,9 +92,6 @@ export async function updateLockfile(
   await Bun.write(lockPath, JSON.stringify(updated, null, 2));
 }
 
-/**
- * Check if lockfile exists for a project
- */
 export async function lockfileExists(
   logsDir: string = LOGS_DIR,
   projectPath: string
@@ -135,9 +100,6 @@ export async function lockfileExists(
   return await Bun.file(lockPath).exists();
 }
 
-/**
- * Check if a process is alive by sending signal 0
- */
 export function isProcessAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
@@ -170,10 +132,6 @@ async function isLockfileStale(logsDir: string = LOGS_DIR, projectPath: string):
   return isLockDataStale(lockData);
 }
 
-/**
- * Clean up stale lockfile if PID is dead
- * Returns true if lockfile was removed, false otherwise
- */
 export async function cleanupStaleLockfile(
   logsDir: string = LOGS_DIR,
   projectPath: string
@@ -186,10 +144,6 @@ export async function cleanupStaleLockfile(
   return false;
 }
 
-/**
- * List all active sessions across all projects
- * Filters out stale sessions (dead PIDs or expired pending status)
- */
 export async function listAllActiveSessions(logsDir: string = LOGS_DIR): Promise<ActiveSession[]> {
   const sessions: ActiveSession[] = [];
 
@@ -224,9 +178,6 @@ export async function listAllActiveSessions(logsDir: string = LOGS_DIR): Promise
   return sessions;
 }
 
-/**
- * Remove all lockfiles (used by stop --all)
- */
 export async function removeAllLockfiles(logsDir: string = LOGS_DIR): Promise<void> {
   try {
     const entries = await readdir(logsDir, { withFileTypes: true });

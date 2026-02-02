@@ -1,8 +1,3 @@
-/**
- * HTML log generation for ralph-review
- * Creates static HTML files for viewing logs in browser
- */
-
 import { join } from "node:path";
 import { readLog } from "./logger";
 import type { DashboardData, IterationEntry, LogEntry, SystemEntry } from "./types";
@@ -217,9 +212,8 @@ export function generateLogHtml(entries: LogEntry[]): string {
     .priority-p1 { background: #ffaa00; color: black; }
     .priority-p2 { background: #00d4ff; color: black; }
     .priority-p3 { background: #888; color: white; }
-    /* Fallback for legacy/unknown priorities (e.g., P4+) */
+    /* Fallback for legacy/unknown priorities (P4+) */
     .priority-p4 { background: #666; color: white; }
-    /* Generic fallback using contains selector for any unexpected priority class */
     .priority[class*="priority-"]:not(.priority-p0):not(.priority-p1):not(.priority-p2):not(.priority-p3):not(.priority-p4) { background: #666; color: white; }
     code {
       background: #0f3460;
@@ -815,7 +809,7 @@ export function generateDashboardHtml(data: DashboardData): string {
     .fix-priority.p1 { background: var(--warning); color: black; }
     .fix-priority.p2 { background: var(--accent); color: white; }
     .fix-priority.p3 { background: var(--text-muted); color: white; }
-    /* Fallback for legacy/unknown priorities (e.g., P4+) */
+    /* Fallback for legacy priorities (P4+) */
     .fix-priority.p4, .fix-priority:not(.p0):not(.p1):not(.p2):not(.p3) { background: #555; color: white; }
 
     .fix-title {

@@ -1,18 +1,5 @@
-/**
- * Fixer prompt template for ralph-review
- * Used by the fixer agent to verify review findings and apply fixes
- */
-
-/**
- * Stop marker for when fixer determines there's nothing to fix
- * The fixer outputs this when review findings are not valid or already addressed
- */
 export const FIXER_NO_ISSUES_MARKER = "<review>No Issues Found</review>";
 
-/**
- * Create the fixer prompt from review output
- * Uses exact prompt from check-review.md
- */
 export function createFixerPrompt(reviewOutput: string): string {
   return `You are a **second-opinion verification reviewer + fixer**.
 

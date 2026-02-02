@@ -1,11 +1,3 @@
-/**
- * CLI argument parser utility
- * Provides standardized parsing for command-line options and positional arguments
- */
-
-/**
- * CLI Error with structured information for helpful error messages
- */
 export class CliError extends Error {
   constructor(
     public readonly command: string,
@@ -59,10 +51,6 @@ export class CliError extends Error {
   }
 }
 
-/**
- * Suggest a correction for an unknown option based on valid options
- * Uses simple heuristics to detect common typos
- */
 function suggestOption(input: string, validOptions: string[]): string | undefined {
   // Check for missing space (e.g., --max5 -> --max 5)
   for (const opt of validOptions) {
@@ -87,9 +75,6 @@ function suggestOption(input: string, validOptions: string[]): string | undefine
   return undefined;
 }
 
-/**
- * Option definition for a command
- */
 export interface OptionDef {
   name: string;
   alias?: string;
@@ -100,18 +85,12 @@ export interface OptionDef {
   placeholder?: string;
 }
 
-/**
- * Positional argument definition
- */
 export interface PositionalDef {
   name: string;
   description: string;
   required?: boolean;
 }
 
-/**
- * Command definition
- */
 export interface CommandDef {
   name: string;
   aliases?: string[];
@@ -122,17 +101,11 @@ export interface CommandDef {
   hidden?: boolean;
 }
 
-/**
- * Parse result with typed values
- */
 export interface ParseResult<T = Record<string, unknown>> {
   values: T;
   positional: string[];
 }
 
-/**
- * Build lookup maps for options by long name and alias
- */
 function buildOptionMaps(options: OptionDef[]): {
   byName: Map<string, OptionDef>;
   byAlias: Map<string, OptionDef>;
@@ -150,9 +123,6 @@ function buildOptionMaps(options: OptionDef[]): {
   return { byName, byAlias };
 }
 
-/**
- * Parse a value according to option type
- */
 function parseValue(opt: OptionDef, value: string): boolean | string | number {
   switch (opt.type) {
     case "boolean":
@@ -169,9 +139,6 @@ function parseValue(opt: OptionDef, value: string): boolean | string | number {
   }
 }
 
-/**
- * Consume a value for a non-boolean option from argv
- */
 function consumeOptionValue(
   opt: OptionDef,
   argv: string[],
@@ -188,9 +155,6 @@ function consumeOptionValue(
   throw new Error(`Option --${opt.name} requires a value`);
 }
 
-/**
- * Parse command line arguments against a command definition
- */
 export function parseCommand<T = Record<string, unknown>>(
   def: CommandDef,
   argv: string[]
@@ -214,7 +178,6 @@ export function parseCommand<T = Record<string, unknown>>(
   while (i < argv.length) {
     const arg = argv[i] as string;
 
-    // Handle -- separator
     if (arg === "--" && !afterDoubleDash) {
       afterDoubleDash = true;
       i++;
@@ -261,7 +224,6 @@ export function parseCommand<T = Record<string, unknown>>(
     if (arg.startsWith("-") && arg.length > 1) {
       const chars = arg.slice(1);
 
-      // Multi-char short option is invalid (e.g., -ls)
       if (chars.length > 1) {
         throw new Error(
           `Invalid option: ${arg}. Use --${chars} for long options or ${chars
@@ -332,9 +294,6 @@ export function parseCommand<T = Record<string, unknown>>(
   return { values: values as T, positional };
 }
 
-/**
- * Format help text for a single command
- */
 export function formatCommandHelp(def: CommandDef): string {
   const lines: string[] = [];
 
@@ -392,9 +351,6 @@ export function formatCommandHelp(def: CommandDef): string {
   return lines.join("\n");
 }
 
-/**
- * Format main help text listing all commands
- */
 export function formatMainHelp(commands: CommandDef[], version: string): string {
   const lines: string[] = [];
 
@@ -406,7 +362,6 @@ export function formatMainHelp(commands: CommandDef[], version: string): string 
   lines.push("");
   lines.push("COMMANDS:");
 
-  // Filter out hidden commands and format
   const publicCommands = commands.filter((c) => !c.hidden);
 
   // Calculate max display name length (including aliases like "list (ls)")

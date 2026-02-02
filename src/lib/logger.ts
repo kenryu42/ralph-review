@@ -1,10 +1,3 @@
-/**
- * Log storage for ralph-review
- * Stores review and fix output as JSONL files
- *
- * Structure: ~/.config/ralph-review/logs/<sanitized-project-path>/<timestamp>_<branch>.jsonl
- */
-
 import { appendFile, mkdir, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { LOGS_DIR } from "./config";
@@ -19,10 +12,6 @@ import type {
   SystemEntry,
 } from "./types";
 
-/**
- * Sanitize a string for use in a filename
- * Replaces problematic characters with hyphens
- */
 export function sanitizeForFilename(input: string): string {
   return input
     .replace(/[/\\:*?"<>|]/g, "-") // Replace filesystem-unsafe chars
@@ -32,19 +21,11 @@ export function sanitizeForFilename(input: string): string {
     .toLowerCase();
 }
 
-/**
- * Get the project folder name from an absolute path
- * Uses the full path, sanitized for filesystem (ensures uniqueness)
- */
 export function getProjectName(projectPath: string): string {
   const sanitized = sanitizeForFilename(projectPath);
   return sanitized || "unknown-project";
 }
 
-/**
- * Get the current git branch name
- * Returns undefined if not a git repo or git is not available
- */
 export async function getGitBranch(cwd?: string): Promise<string | undefined> {
   try {
     const result = Bun.spawnSync(["git", "branch", "--show-current"], {
@@ -62,12 +43,7 @@ export async function getGitBranch(cwd?: string): Promise<string | undefined> {
   return undefined;
 }
 
-/**
- * Generate a log filename from timestamp and optional branch
- * Format: <timestamp>_<branch>.jsonl or <timestamp>.jsonl
- */
 export function generateLogFilename(timestamp: Date, gitBranch?: string): string {
-  // Format: YYYY-MM-DDTHH-MM-SS (filesystem safe)
   const ts = timestamp.toISOString().replace(/[:.]/g, "-").slice(0, 19);
   if (gitBranch) {
     const sanitizedBranch = sanitizeForFilename(gitBranch);
@@ -76,14 +52,6 @@ export function generateLogFilename(timestamp: Date, gitBranch?: string): string
   return `${ts}.jsonl`;
 }
 
-/**
- * Create a new log session
- * Returns the path to the log file (not directory)
- *
- * @param logsDir - Base logs directory (default: ~/.config/ralph-review/logs)
- * @param projectPath - Path to the project being reviewed (used for folder name)
- * @param gitBranch - Optional git branch name (included in filename)
- */
 export async function createLogSession(
   logsDir: string = LOGS_DIR,
   projectPath: string,
@@ -97,18 +65,11 @@ export async function createLogSession(
   return join(projectDir, filename);
 }
 
-/**
- * Append a log entry to the session log
- * Uses JSONL format (newline-delimited JSON)
- */
 export async function appendLog(logPath: string, entry: LogEntry): Promise<void> {
   const line = `${JSON.stringify(entry)}\n`;
   await appendFile(logPath, line);
 }
 
-/**
- * Read all log entries from a session
- */
 export async function readLog(logPath: string): Promise<LogEntry[]> {
   const file = Bun.file(logPath);
 
@@ -122,9 +83,6 @@ export async function readLog(logPath: string): Promise<LogEntry[]> {
   return lines.map((line) => JSON.parse(line) as LogEntry);
 }
 
-/**
- * Session info returned by listLogSessions
- */
 export interface LogSession {
   path: string;
   name: string;
@@ -132,10 +90,6 @@ export interface LogSession {
   timestamp: number;
 }
 
-/**
- * Build LogSession objects from a project directory
- * Returns sorted by timestamp descending (most recent first)
- */
 async function buildSessionsFromDir(
   projectDir: string,
   projectName: string
@@ -160,10 +114,6 @@ async function buildSessionsFromDir(
   return sessions;
 }
 
-/**
- * List all log sessions across all projects
- * Returns sorted by timestamp descending (most recent first)
- */
 export async function listLogSessions(logsDir: string = LOGS_DIR): Promise<LogSession[]> {
   try {
     const projectDirs = await readdir(logsDir, { withFileTypes: true });
@@ -181,10 +131,6 @@ export async function listLogSessions(logsDir: string = LOGS_DIR): Promise<LogSe
   }
 }
 
-/**
- * List log sessions for a specific project
- * Returns sorted by timestamp descending (most recent first)
- */
 export async function listProjectLogSessions(
   logsDir: string = LOGS_DIR,
   projectPath: string
@@ -199,9 +145,6 @@ export async function listProjectLogSessions(
   }
 }
 
-/**
- * Get the most recent log session for a specific project
- */
 export async function getLatestProjectLogSession(
   logsDir: string = LOGS_DIR,
   projectPath: string
@@ -210,15 +153,6 @@ export async function getLatestProjectLogSession(
   return sessions.length > 0 ? (sessions[0] ?? null) : null;
 }
 
-/**
- * Derive run status from log entries
- * This replaces reading status from state.json, making it project-aware
- *
- * - completed: run finished normally (fixes applied or code was clean)
- * - failed: agent crashed/errored
- * - interrupted: user stopped it
- * - unknown: no iteration entries found
- */
 function deriveRunStatus(entries: LogEntry[]): DerivedRunStatus {
   const lastIteration = entries.filter((e): e is IterationEntry => e.type === "iteration").at(-1);
 
@@ -238,16 +172,10 @@ function deriveRunStatus(entries: LogEntry[]): DerivedRunStatus {
 
 const PRIORITIES: Priority[] = ["P0", "P1", "P2", "P3"];
 
-/**
- * Create empty priority counts object
- */
 function emptyPriorityCounts(): Record<Priority, number> {
   return { P0: 0, P1: 0, P2: 0, P3: 0 };
 }
 
-/**
- * Aggregate priority counts from source into target
- */
 function aggregatePriorityCounts(
   target: Record<Priority, number>,
   source: Record<Priority, number>
@@ -257,9 +185,6 @@ function aggregatePriorityCounts(
   }
 }
 
-/**
- * Compute statistics for a single session
- */
 export async function computeSessionStats(session: LogSession): Promise<SessionStats> {
   const entries = await readLog(session.path);
   const status = deriveRunStatus(entries);
@@ -279,10 +204,6 @@ export async function computeSessionStats(session: LogSession): Promise<SessionS
       totalSkipped += iter.fixes.skipped.length;
 
       for (const fix of iter.fixes.fixes) {
-        // Count known priorities (P0-P3)
-        // Legacy/unknown priorities (e.g., P4) are still included in totalFixes
-        // but not in priorityCounts - this is intentional for backward compatibility
-        // The dashboard handles legacy priorities gracefully in the UI
         if (Object.hasOwn(priorityCounts, fix.priority)) {
           priorityCounts[fix.priority]++;
         }
@@ -309,17 +230,12 @@ export async function computeSessionStats(session: LogSession): Promise<SessionS
   };
 }
 
-/**
- * Compute statistics for a project (collection of sessions)
- */
 export async function computeProjectStats(
   projectName: string,
   sessions: LogSession[]
 ): Promise<ProjectStats> {
   const sessionStats = await Promise.all(sessions.map(computeSessionStats));
 
-  // Derive display name from original project path (first available SystemEntry)
-  // Falls back to sanitized projectName if no SystemEntry found
   let displayName = projectName;
   for (const stats of sessionStats) {
     const systemEntry = stats.entries.find((e): e is SystemEntry => e.type === "system");
@@ -358,9 +274,6 @@ export async function computeProjectStats(
   };
 }
 
-/**
- * Build dashboard data from all projects
- */
 export async function buildDashboardData(
   logsDir: string = LOGS_DIR,
   currentProjectPath?: string

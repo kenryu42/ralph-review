@@ -1,14 +1,3 @@
-/**
- * Git utilities for ralph-review
- * Provides merge-base resolution for branch comparison
- *
- * Ported from codex-rs/utils/git/src/branch.rs
- */
-
-/**
- * Run a git command and return stdout (trimmed).
- * Returns undefined if the command fails.
- */
 function runGitForStdout(cwd: string, args: string[]): string | undefined {
   const result = Bun.spawnSync(["git", ...args], {
     cwd,
@@ -19,9 +8,6 @@ function runGitForStdout(cwd: string, args: string[]): string | undefined {
   return result.stdout.toString().trim();
 }
 
-/**
- * Async version of runGitForStdout for non-blocking git operations.
- */
 async function runGitForStdoutAsync(cwd: string, args: string[]): Promise<string | undefined> {
   const proc = Bun.spawn(["git", ...args], {
     cwd,
@@ -33,53 +19,30 @@ async function runGitForStdoutAsync(cwd: string, args: string[]): Promise<string
   return (await new Response(proc.stdout).text()).trim();
 }
 
-/**
- * Verify that the given path is inside a git work tree.
- */
 export function ensureGitRepository(path: string): boolean {
   const output = runGitForStdout(path, ["rev-parse", "--is-inside-work-tree"]);
   return output === "true";
 }
 
-/**
- * Async version of ensureGitRepository for non-blocking checks.
- * Preferred for use in UI refresh loops.
- */
+/** Preferred for UI refresh loops (non-blocking). */
 export async function ensureGitRepositoryAsync(path: string): Promise<boolean> {
   const output = await runGitForStdoutAsync(path, ["rev-parse", "--is-inside-work-tree"]);
   return output === "true";
 }
 
-/**
- * Get the repository root directory.
- */
 function resolveRepositoryRoot(path: string): string | undefined {
   return runGitForStdout(path, ["rev-parse", "--show-toplevel"]);
 }
 
-/**
- * Get the current HEAD commit SHA.
- * Returns undefined if HEAD is unborn (no commits yet).
- */
 function resolveHead(repoRoot: string): string | undefined {
   return runGitForStdout(repoRoot, ["rev-parse", "--verify", "HEAD"]);
 }
 
-/**
- * Resolve a branch reference to its commit SHA.
- * Returns undefined if the branch doesn't exist.
- */
 function resolveBranchRef(repoRoot: string, branch: string): string | undefined {
   return runGitForStdout(repoRoot, ["rev-parse", "--verify", branch]);
 }
 
-/**
- * Check if the remote tracking branch is ahead of the local branch.
- * If so, returns the upstream ref name (e.g., "origin/main").
- * Returns undefined if no upstream, or local is not behind.
- */
 function resolveUpstreamIfRemoteAhead(repoRoot: string, branch: string): string | undefined {
-  // Get the upstream tracking branch name
   const upstream = runGitForStdout(repoRoot, [
     "rev-parse",
     "--abbrev-ref",
@@ -89,8 +52,6 @@ function resolveUpstreamIfRemoteAhead(repoRoot: string, branch: string): string 
 
   if (!upstream) return undefined;
 
-  // Count commits ahead/behind between local and upstream
-  // Format: "<local ahead>\t<remote ahead>"
   const counts = runGitForStdout(repoRoot, [
     "rev-list",
     "--left-right",
@@ -103,7 +64,6 @@ function resolveUpstreamIfRemoteAhead(repoRoot: string, branch: string): string 
   const parts = counts.split(/\s+/);
   const right = parseInt(parts[1] ?? "0", 10);
 
-  // If remote is ahead (has commits local doesn't have), return upstream
   if (right > 0) {
     return upstream;
   }

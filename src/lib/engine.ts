@@ -1,8 +1,3 @@
-/**
- * Iteration engine for ralph-review
- * Orchestrates the review -> fix cycle
- */
-
 import { createFixerPrompt, createReviewerPrompt, FIXER_NO_ISSUES_MARKER } from "@/lib/prompts";
 import { AGENTS, runAgent } from "./agents";
 import { updateLockfile } from "./lockfile";
@@ -21,10 +16,6 @@ import type {
 } from "./types";
 import { DEFAULT_RETRY_CONFIG, isFixSummary, isReviewSummary } from "./types";
 
-/**
- * Calculate retry delay with jitter exponential backoff
- * Formula: min(maxDelayMs, baseDelayMs * 2^attempt + random(0, baseDelayMs * 2^attempt / 2))
- */
 export function calculateRetryDelay(attempt: number, config: RetryConfig): number {
   const exponentialDelay = config.baseDelayMs * 2 ** attempt;
   const jitter = Math.random() * (exponentialDelay / 2);
@@ -32,10 +23,6 @@ export function calculateRetryDelay(attempt: number, config: RetryConfig): numbe
   return Math.min(delay, config.maxDelayMs);
 }
 
-/**
- * Format a highly visible warning for agent failure
- * Creates a box-style warning that stands out in terminal output
- */
 export function formatAgentFailureWarning(
   role: AgentRole,
   exitCode: number,
@@ -58,17 +45,10 @@ export function formatAgentFailureWarning(
   return warning;
 }
 
-/**
- * Sleep for specified milliseconds
- */
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/**
- * Factory for creating iteration log entries
- * Reduces repetition in the main cycle function
- */
 function createIterationEntry(
   iteration: number,
   startTime: number,
@@ -91,10 +71,6 @@ function createIterationEntry(
   };
 }
 
-/**
- * Handle agent failure with logging and formatted warning
- * Returns a CycleResult indicating failure
- */
 async function handleAgentFailure(
   role: AgentRole,
   exitCode: number,
@@ -124,9 +100,6 @@ async function handleAgentFailure(
   };
 }
 
-/**
- * Print a distinctly formatted header with a box
- */
 function printHeader(text: string, colorCode: string = "\x1b[36m") {
   const border = "─".repeat(58);
   const reset = "\x1b[0m";
@@ -141,10 +114,6 @@ function printHeader(text: string, colorCode: string = "\x1b[36m") {
   console.log("");
 }
 
-/**
- * Run an agent with retry logic
- * Returns the result after retries are exhausted or success
- */
 async function runAgentWithRetry(
   role: AgentRole,
   config: Config,
@@ -181,9 +150,6 @@ async function runAgentWithRetry(
   return result;
 }
 
-/**
- * Result of a complete review cycle
- */
 export interface CycleResult {
   success: boolean;
   iterations: number;
@@ -191,29 +157,17 @@ export interface CycleResult {
   sessionPath: string;
 }
 
-/**
- * Callback for iteration progress
- */
 export type OnIterationCallback = (
   iteration: number,
   role: "reviewer" | "fixer",
   result: IterationResult
 ) => void;
 
-/**
- * Check if the fixer's output indicates there were no issues to fix
- * This signals that the review cycle should stop
- */
 export function fixerFoundNoIssues(fixerOutput: string): boolean {
   return fixerOutput.includes(FIXER_NO_ISSUES_MARKER);
 }
 
-/**
- * Extract JSON block from agent output
- * Looks for ```json\n...\n``` block and returns the JSON string
- */
 export function extractJsonBlock(output: string): string | null {
-  // Extract JSON from markdown code blocks (agents wrap JSON in ```json)
   const match = output.match(/```json\s*\n([\s\S]*?)\n```/);
   if (!match?.[1]) {
     return null;
@@ -221,10 +175,6 @@ export function extractJsonBlock(output: string): string | null {
   return match[1].trim();
 }
 
-/**
- * Parse a JSON string into a FixSummary
- * Returns null if parsing fails or structure is invalid
- */
 export function parseFixSummary(jsonString: string): FixSummary | null {
   try {
     const parsed: unknown = JSON.parse(jsonString);
@@ -237,10 +187,6 @@ export function parseFixSummary(jsonString: string): FixSummary | null {
   }
 }
 
-/**
- * Parse a JSON string into a ReviewSummary
- * Returns null if parsing fails or structure is invalid
- */
 export function parseReviewSummary(jsonString: string): ReviewSummary | null {
   try {
     const parsed: unknown = JSON.parse(jsonString);
@@ -253,9 +199,6 @@ export function parseReviewSummary(jsonString: string): ReviewSummary | null {
   }
 }
 
-/**
- * Determine the final cycle result
- */
 export function determineCycleResult(
   hasIssues: boolean,
   iterations: number,
@@ -300,9 +243,6 @@ export function determineCycleResult(
 
 let interrupted = false;
 
-/**
- * Set up SIGINT handler for graceful shutdown
- */
 function setupSignalHandler(): void {
   process.on("SIGINT", () => {
     console.log("\n⚠️  Interrupt received. Completing current iteration...");
@@ -310,30 +250,14 @@ function setupSignalHandler(): void {
   });
 }
 
-/**
- * Check if the cycle was interrupted
- */
 function wasInterrupted(): boolean {
   return interrupted;
 }
 
-/**
- * Reset the interrupt flag
- */
 function resetInterrupt(): void {
   interrupted = false;
 }
 
-/**
- * Run the complete review cycle
- *
- * Loop: reviewer -> check for issues -> if issues, fixer -> repeat
- * Stop when: no issues found OR max iterations reached
- *
- * @param config - The configuration for the review cycle
- * @param onIteration - Optional callback for iteration progress
- * @param reviewOptions - Optional review configuration (base branch, custom prompt)
- */
 export async function runReviewCycle(
   config: Config,
   onIteration?: OnIterationCallback,
@@ -357,13 +281,12 @@ export async function runReviewCycle(
   await appendLog(sessionPath, systemEntry);
 
   let iteration = 0;
-  let hasRemainingIssues = true; // Tracks whether issues remain (set to false when fixer finds no issues)
+  let hasRemainingIssues = true;
 
   while (iteration < config.maxIterations) {
     iteration++;
     const iterationStartTime = Date.now();
 
-    // Early exit if user pressed Ctrl+C during previous iteration
     if (wasInterrupted()) {
       const entry = createIterationEntry(iteration, iterationStartTime, {
         error: { phase: "reviewer", message: "Review cycle interrupted before iteration start" },
@@ -379,7 +302,7 @@ export async function runReviewCycle(
     }
 
     console.log(`\n📋 Iteration ${iteration}/${config.maxIterations}`);
-    printHeader("Running reviewer...", "\x1b[36m"); // Cyan
+    printHeader("Running reviewer...", "\x1b[36m");
 
     const reviewerPrompt = createReviewerPrompt({
       repoPath: projectPath,
@@ -421,16 +344,13 @@ export async function runReviewCycle(
       return determineCycleResult(true, iteration, config.maxIterations, true, sessionPath);
     }
 
-    // Always run fixer after reviewer to verify findings and apply fixes
     await updateLockfile(undefined, projectPath, { currentAgent: "fixer" }).catch(() => {});
-    printHeader("Running fixer to verify and apply fixes...", "\x1b[35m"); // Magenta
+    printHeader("Running fixer to verify and apply fixes...", "\x1b[35m");
 
-    // Parse review summary and extract text for fixer
     let reviewSummary: ReviewSummary | null = null;
     let codexReviewSummary: CodexReviewSummary | null = null;
 
     const agentModule = AGENTS[config.reviewer.agent];
-    // Polymorphic extraction
     const extractedText = agentModule.extractResult(reviewResult.output);
     const reviewTextForFixer = extractedText ?? reviewResult.output;
 
@@ -445,7 +365,6 @@ export async function runReviewCycle(
         reviewSummary = parseReviewSummary(reviewJson);
       }
 
-      // Log if parsing failed, but continue gracefully
       if (!reviewSummary && reviewResult.success) {
         console.log("  ⚠️  Could not parse review summary JSON from reviewer output");
       }
@@ -461,7 +380,6 @@ export async function runReviewCycle(
       : extractJsonBlock(fixResult.output);
     const fixSummary = jsonString ? parseFixSummary(jsonString) : null;
 
-    // Log if JSON extraction failed, but continue gracefully
     if (!fixSummary && fixResult.success) {
       console.log("  ⚠️  Could not parse fix summary JSON from fixer output");
     }
@@ -494,7 +412,7 @@ export async function runReviewCycle(
       return determineCycleResult(false, iteration, config.maxIterations, false, sessionPath);
     }
 
-    printHeader("Fixes applied. Re-running reviewer...", "\x1b[36m"); // Cyan
+    printHeader("Fixes applied. Re-running reviewer...", "\x1b[36m");
   }
 
   console.log(`⚠️  Max iterations (${config.maxIterations}) reached`);
