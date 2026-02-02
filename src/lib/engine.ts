@@ -277,6 +277,7 @@ export async function runReviewCycle(
     reviewer: config.reviewer,
     fixer: config.fixer,
     maxIterations: config.maxIterations,
+    reviewOptions,
   };
   await appendLog(sessionPath, systemEntry);
 
@@ -302,6 +303,9 @@ export async function runReviewCycle(
     }
 
     console.log(`\n📋 Iteration ${iteration}/${config.maxIterations}`);
+    await updateLockfile(undefined, projectPath, { currentAgent: "reviewer", iteration }).catch(
+      () => {}
+    );
     printHeader("Running reviewer...", "\x1b[36m");
 
     const reviewerPrompt = createReviewerPrompt({
