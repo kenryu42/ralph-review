@@ -1,5 +1,3 @@
-/** View review logs (terminal or HTML dashboard) */
-
 import { platform } from "node:os";
 import * as p from "@clack/prompts";
 import { $ } from "bun";
@@ -34,10 +32,7 @@ interface LogsOptions {
   global: boolean;
 }
 
-/**
- * Normalize branch names from lockfiles
- * Lockfiles use "default" when branch is unavailable, but logs store undefined
- */
+// Lockfiles use "default" when branch is unavailable, but logs store undefined
 function normalizeBranch(branch: string | undefined): string | undefined {
   const trimmed = branch?.trim();
   if (!trimmed || trimmed === "default") {
@@ -46,10 +41,6 @@ function normalizeBranch(branch: string | undefined): string | undefined {
   return trimmed;
 }
 
-/**
- * Mark sessions as running based on active lockfiles
- * Uses project + branch matching and prefers the most recent session
- */
 export function markRunningSessions(data: DashboardData, activeSessions: ActiveSession[]): void {
   for (const active of activeSessions) {
     const projectName = getProjectName(active.projectPath);
@@ -99,7 +90,6 @@ export function formatPriorityCounts(counts: Record<Priority, number>): string {
   return `P0: ${counts.P0}  P1: ${counts.P1}  P2: ${counts.P2}  P3: ${counts.P3}`;
 }
 
-/** Format ms to human-readable duration (e.g., "1m 30s") */
 export function formatDuration(ms: number): string {
   const totalSeconds = Math.floor(ms / 1000);
   const hours = Math.floor(totalSeconds / 3600);
@@ -247,7 +237,6 @@ function renderTerminalSession(
   const statusDisplay = formatStatusWithIcon(session.status);
   const systemEntry = extractSystemEntry(session);
 
-  // Show session index if multiple sessions
   const sessionLabel =
     index !== undefined && total !== undefined && total > 1
       ? `Review Session Log (${index} of ${total})`
@@ -255,7 +244,6 @@ function renderTerminalSession(
 
   p.intro(sessionLabel);
 
-  // Session info
   p.log.info(`Project:  ${projectName}`);
   p.log.info(`Branch:   ${branch}`);
   p.log.info(`Status:   ${statusDisplay}`);
@@ -264,20 +252,17 @@ function renderTerminalSession(
     p.log.info(`Duration: ${formatDuration(session.totalDuration)}`);
   }
 
-  // Agent info
   if (systemEntry) {
     p.log.info(`Reviewer: ${formatAgent(systemEntry.reviewer)}`);
     p.log.info(`Fixer:    ${formatAgent(systemEntry.fixer)}`);
   }
 
-  // Summary line
   p.log.message("");
   p.log.step(
     `${session.iterations} iterations · ${session.totalFixes} fixes · ${session.totalSkipped} skipped`
   );
   p.log.message(formatPriorityCounts(session.priorityCounts));
 
-  // Fixes
   if (fixes.length > 0) {
     p.log.message("");
     p.log.step(`Fixes (${fixes.length})`);
@@ -291,7 +276,6 @@ function renderTerminalSession(
     p.log.success("No issues found - code is clean!");
   }
 
-  // Skipped items
   if (skipped.length > 0) {
     p.log.message("");
     p.log.step(`Skipped (${skipped.length})`);
@@ -305,7 +289,6 @@ function renderTerminalSession(
 }
 
 export async function runLogs(args: string[]): Promise<void> {
-  // Parse options
   const logsDef = getCommandDef("logs");
   if (!logsDef) {
     p.log.error("Internal error: logs command definition not found");
@@ -321,19 +304,16 @@ export async function runLogs(args: string[]): Promise<void> {
     process.exit(1);
   }
 
-  // Validate: --global requires --json
   if (options.global && !options.json) {
     p.log.error("--global requires --json");
     process.exit(1);
   }
 
-  // Validate: --last must be positive
   if (options.last !== undefined && options.last <= 0) {
     p.log.error("-n/--last must be a positive number");
     process.exit(1);
   }
 
-  // Handle --html flag: open dashboard in browser
   if (options.html) {
     const s = p.spinner();
     s.start("Building dashboard...");
@@ -361,7 +341,6 @@ export async function runLogs(args: string[]): Promise<void> {
     return;
   }
 
-  // Handle --json --global: output all sessions across all projects
   if (options.json && options.global) {
     const allLogSessions = await listLogSessions(LOGS_DIR);
 
@@ -370,14 +349,12 @@ export async function runLogs(args: string[]): Promise<void> {
       return;
     }
 
-    // Compute stats for all sessions
     const sessionStats = await Promise.all(allLogSessions.map(computeSessionStats));
     const jsonOutput = buildGlobalSessionsJson(sessionStats);
     console.log(JSON.stringify(jsonOutput, null, 2));
     return;
   }
 
-  // Project-scoped operations
   const currentProjectPath = process.cwd();
   const projectName = getProjectName(currentProjectPath);
   const projectSessions = await listProjectLogSessions(LOGS_DIR, currentProjectPath);
@@ -392,21 +369,17 @@ export async function runLogs(args: string[]): Promise<void> {
     return;
   }
 
-  // Limit to requested number of sessions
   const limit = options.last ?? 1;
   const limitedSessions = projectSessions.slice(0, limit);
 
-  // Compute stats for all requested sessions
   const sessionStats = await Promise.all(limitedSessions.map(computeSessionStats));
 
-  // Handle --json flag: output as JSON
   if (options.json) {
     const jsonOutput = buildProjectSessionsJson(projectName, sessionStats);
     console.log(JSON.stringify(jsonOutput, null, 2));
     return;
   }
 
-  // Render terminal output for each session
   const total = sessionStats.length;
   for (let i = 0; i < sessionStats.length; i++) {
     const session = sessionStats[i];

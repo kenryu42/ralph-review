@@ -1,5 +1,3 @@
-/** List active tmux review sessions */
-
 import * as p from "@clack/prompts";
 import { listRalphSessions } from "@/lib/tmux";
 

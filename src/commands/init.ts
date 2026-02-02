@@ -1,5 +1,3 @@
-/** Interactive setup for reviewer/fixer agents and iteration limits */
-
 import * as p from "@clack/prompts";
 import {
   agentOptions,
@@ -35,10 +33,6 @@ export function checkTmuxInstalled(): boolean {
   return Bun.which("tmux") !== null;
 }
 
-/**
- * Check availability of all supported agents
- * Uses Bun.which() which is synchronous and fast (PATH lookup)
- */
 export function checkAllAgents(): AgentAvailability {
   return {
     codex: Bun.which("codex") !== null,
@@ -76,7 +70,7 @@ export function buildConfig(input: InitInput): Config {
       model: input.fixerModel || undefined,
     },
     maxIterations: input.maxIterations,
-    iterationTimeout: input.iterationTimeoutMinutes * 60 * 1000, // convert to ms
+    iterationTimeout: input.iterationTimeoutMinutes * 60 * 1000,
     defaultReview,
   };
 }
@@ -92,7 +86,6 @@ function buildAgentSelectOptions(availability: AgentAvailability) {
 
 let cachedOpencodeModels: { value: string; label: string }[] | null = null;
 
-/** Fetch models from `opencode models`, ignoring INFO lines. Results cached. */
 async function fetchOpencodeModels(): Promise<{ value: string; label: string }[]> {
   if (cachedOpencodeModels) {
     return cachedOpencodeModels;
@@ -130,7 +123,6 @@ function handleCancel(value: unknown): asserts value is string {
   }
 }
 
-/** Model options lookup by agent type */
 const modelOptionsMap: Record<string, readonly { value: string; label: string }[]> = {
   claude: claudeModelOptions,
   codex: codexModelOptions,
@@ -138,10 +130,6 @@ const modelOptionsMap: Record<string, readonly { value: string; label: string }[
   gemini: geminiModelOptions,
 };
 
-/**
- * Prompt user to select a model for the given agent
- * Returns the selected model value
- */
 async function promptForModel(agent: string, role: "reviewer" | "fixer"): Promise<string> {
   const staticOptions = modelOptionsMap[agent];
 
@@ -178,7 +166,6 @@ async function promptForModel(agent: string, role: "reviewer" | "fixer"): Promis
     return model as string;
   }
 
-  // Fallback: text input for unknown agents
   const model = await p.text({
     message: `${role.charAt(0).toUpperCase() + role.slice(1)} model (optional)`,
     placeholder: "Press enter for default",
@@ -216,7 +203,6 @@ function formatConfigDisplay(config: Config): string {
 export async function runInit(): Promise<void> {
   p.intro("Ralph Review Setup");
 
-  // Check if config already exists
   if (await configExists()) {
     const existingConfig = await loadConfig();
     if (existingConfig) {
@@ -236,7 +222,6 @@ export async function runInit(): Promise<void> {
     }
   }
 
-  // Check tmux
   if (!checkTmuxInstalled()) {
     p.log.warn(
       "tmux is not installed.\n" +
@@ -245,7 +230,6 @@ export async function runInit(): Promise<void> {
     );
   }
 
-  // Check all agents upfront
   const agentAvailability = checkAllAgents();
   const availableCount = Object.values(agentAvailability).filter(Boolean).length;
 
@@ -259,7 +243,6 @@ export async function runInit(): Promise<void> {
 
   const selectOptions = buildAgentSelectOptions(agentAvailability);
 
-  // Prompt for reviewer agent
   const reviewerAgent = await p.select({
     message: "Select reviewer agent",
     options: selectOptions,
@@ -267,10 +250,8 @@ export async function runInit(): Promise<void> {
 
   handleCancel(reviewerAgent);
 
-  // Prompt for reviewer model
   const reviewerModel = await promptForModel(reviewerAgent as string, "reviewer");
 
-  // Prompt for fixer agent
   const fixerAgent = await p.select({
     message: "Select fixer agent",
     options: selectOptions,
@@ -278,10 +259,8 @@ export async function runInit(): Promise<void> {
 
   handleCancel(fixerAgent);
 
-  // Prompt for fixer model
   const fixerModel = await promptForModel(fixerAgent as string, "fixer");
 
-  // Prompt for max iterations
   const maxIterationsStr = await p.text({
     message: `Maximum iterations (default: ${DEFAULT_CONFIG.maxIterations ?? 5})`,
     placeholder: "Press enter for default",
@@ -297,7 +276,6 @@ export async function runInit(): Promise<void> {
 
   handleCancel(maxIterationsStr);
 
-  // Prompt for iteration timeout
   const defaultTimeoutMinutes = (DEFAULT_CONFIG.iterationTimeout ?? 1800000) / 1000 / 60;
   const iterationTimeoutStr = await p.text({
     message: `Timeout per iteration in minutes (default: ${defaultTimeoutMinutes})`,
@@ -314,7 +292,6 @@ export async function runInit(): Promise<void> {
 
   handleCancel(iterationTimeoutStr);
 
-  // Prompt for default review mode
   const defaultReviewType = await p.select({
     message: "Default review mode for 'rr run'",
     options: [
@@ -341,7 +318,6 @@ export async function runInit(): Promise<void> {
     handleCancel(defaultReviewBranch);
   }
 
-  // Build and save config
   const config = buildConfig({
     reviewerAgent: reviewerAgent as string,
     reviewerModel: reviewerModel as string,

@@ -5,7 +5,6 @@ import { startReview } from "./commands/run";
 
 const args = process.argv.slice(2);
 
-// Show rrr-specific help that delegates to 'rr run' options
 if (args.includes("--help") || args.includes("-h")) {
   console.log("rrr - Quick alias for 'rr run'\n");
   console.log("USAGE:");

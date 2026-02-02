@@ -1,5 +1,3 @@
-/** Start review cycle in tmux background or foreground */
-
 import * as p from "@clack/prompts";
 import { $ } from "bun";
 import { getCommandDef } from "@/cli";
@@ -37,7 +35,6 @@ export async function isGitRepo(): Promise<boolean> {
 
 export async function hasUncommittedChanges(): Promise<boolean> {
   try {
-    // Check for staged, unstaged, or untracked files
     const result = await $`git status --porcelain`.quiet();
     return result.text().trim().length > 0;
   } catch {
@@ -45,19 +42,12 @@ export async function hasUncommittedChanges(): Promise<boolean> {
   }
 }
 
-/**
- * Validate all prerequisites for running
- * Returns array of error messages (empty if all good)
- * @param baseBranch - If provided, skip uncommitted changes check (reviewing against branch instead)
- * @param commitSha - If provided, skip uncommitted changes check (reviewing a commit instead)
- */
 export async function validatePrerequisites(
   baseBranch?: string,
   commitSha?: string
 ): Promise<string[]> {
   const errors: string[] = [];
 
-  // Check config exists
   if (!(await configExists())) {
     errors.push('Configuration not found. Run "rr init" first.');
     return errors; // Can't continue without config
@@ -119,12 +109,7 @@ export async function validatePrerequisites(
   return errors;
 }
 
-/**
- * Escape a string for safe embedding in a shell command.
- * Wraps in single quotes and escapes any embedded single quotes.
- */
 function shellEscape(str: string): string {
-  // Replace single quotes with '\'' (end quote, escaped quote, start quote)
   return `'${str.replace(/'/g, "'\\''")}'`;
 }
 
@@ -148,12 +133,9 @@ async function runInBackground(
   // Create lockfile for this project
   await createLockfile(undefined, projectPath, sessionName, branch);
 
-  // Build the command to run in tmux
-  // Pass project path and branch via environment variables
-  // Always use main cli.ts, not whatever entry point was used (e.g., cli-rrr.ts)
+  // Use main cli.ts to ensure consistent entry point regardless of how rr was invoked
   const cliPath = `${import.meta.dir}/../cli.ts`;
   const maxIterArg = maxIterations ? ` --max ${maxIterations}` : "";
-  // Use shell escaping for all env vars to prevent injection/breaking
   const baseBranchEnv = baseBranch ? ` RR_BASE_BRANCH=${shellEscape(baseBranch)}` : "";
   const commitShaEnv = commitSha ? ` RR_COMMIT_SHA=${shellEscape(commitSha)}` : "";
   const customPromptEnv = customInstructions
@@ -173,9 +155,6 @@ async function runInBackground(
   }
 }
 
-/**
- * Internal: Run review cycle in foreground (called from tmux)
- */
 export async function runForeground(args: string[] = []): Promise<void> {
   const config = await loadConfig();
   if (!config) {
@@ -183,10 +162,8 @@ export async function runForeground(args: string[] = []): Promise<void> {
     process.exit(1);
   }
 
-  // Get project path from environment variable (set by parent process)
   const projectPath = process.env.RR_PROJECT_PATH || process.cwd();
 
-  // Get review options from environment variables (set by parent process)
   const baseBranch = process.env.RR_BASE_BRANCH || undefined;
   const commitSha = process.env.RR_COMMIT_SHA || undefined;
   const customInstructions = process.env.RR_CUSTOM_PROMPT || undefined;
@@ -204,8 +181,7 @@ export async function runForeground(args: string[] = []): Promise<void> {
     }
   }
 
-  // Update lockfile with this foreground process's PID and "running" status
-  // so it's not seen as stale (the launcher set status to "pending")
+  // Update from "pending" (launcher) to "running" with actual PID
   await updateLockfile(undefined, projectPath, {
     pid: process.pid,
     status: "running",
@@ -260,7 +236,6 @@ export async function startReview(args: string[]): Promise<void> {
     process.exit(1);
   }
 
-  // Apply config default when no review mode flags provided
   const hasExplicitMode = options.base || options.uncommitted || options.commit || options.custom;
   if (!hasExplicitMode) {
     const config = await loadConfig();
@@ -270,7 +245,6 @@ export async function startReview(args: string[]): Promise<void> {
     // else: defaults to uncommitted behavior (no base flag)
   }
 
-  // Validate mutual exclusivity of review mode options
   const modeOptions = [
     options.base && "--base",
     options.uncommitted && "--uncommitted",

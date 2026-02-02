@@ -177,17 +177,14 @@ async function main(): Promise<void> {
     return;
   }
 
-  // Resolve command aliases (e.g., "ls" -> "list")
   const resolvedCommand = getCommandDef(command)?.name ?? command;
 
-  // Validate positional arguments for all commands
   const commandDef = getCommandDef(resolvedCommand);
   if (commandDef) {
     try {
       parseCommand(commandDef, args);
     } catch (error) {
       if (error instanceof CliError) {
-        // Format multi-line error messages nicely
         const [firstLine, ...rest] = error.message.split("\n");
         if (firstLine) p.log.error(firstLine);
         for (const line of rest) {
@@ -211,7 +208,6 @@ async function main(): Promise<void> {
         break;
 
       case "_run-foreground":
-        // Internal command used by tmux
         await runForeground(args);
         break;
 
@@ -242,7 +238,6 @@ async function main(): Promise<void> {
   }
 }
 
-// Run if this is the main module
 if (import.meta.main) {
   main().catch((error) => {
     p.log.error(`Fatal error: ${error}`);

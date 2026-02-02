@@ -1,5 +1,3 @@
-/** Stop review session (graceful SIGINT, then kill) */
-
 import * as p from "@clack/prompts";
 import { getCommandDef } from "@/cli";
 import { parseCommand } from "@/lib/cli-parser";
@@ -33,10 +31,8 @@ export async function runStop(args: string[]): Promise<void> {
   }
 
   if (options.all) {
-    // Stop all ralph sessions
     await stopAllSessions();
   } else {
-    // Stop session for current project+branch
     await stopCurrentSession();
   }
 }
@@ -46,7 +42,6 @@ async function stopAllSessions(): Promise<void> {
 
   if (sessions.length === 0) {
     p.log.info("No active review sessions.");
-    // Clean up any orphaned lockfiles
     await removeAllLockfiles();
     return;
   }
@@ -54,11 +49,9 @@ async function stopAllSessions(): Promise<void> {
   p.log.step(`Stopping ${sessions.length} session(s)...`);
 
   for (const sessionName of sessions) {
-    // Send SIGINT first for graceful shutdown
     await sendInterrupt(sessionName);
   }
 
-  // Wait briefly for graceful shutdown
   await new Promise((resolve) => setTimeout(resolve, 1000));
 
   for (const sessionName of sessions) {
@@ -94,10 +87,8 @@ async function stopCurrentSession(): Promise<void> {
 
   p.log.step(`Stopping session: ${lockData.sessionName}`);
 
-  // Send SIGINT first for graceful shutdown
   await sendInterrupt(lockData.sessionName);
 
-  // Wait briefly for graceful shutdown
   await new Promise((resolve) => setTimeout(resolve, 1000));
 
   // Kill the tmux session
