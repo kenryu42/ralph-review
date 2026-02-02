@@ -26,9 +26,6 @@ export interface ReviewSummary {
   overall_confidence_score: number;
 }
 
-/**
- * Review summary from Codex agent (plain text format)
- */
 export interface CodexReviewSummary {
   text: string;
 }
@@ -73,12 +70,10 @@ function isFinding(value: unknown): value is Finding {
 
   const obj = value as Record<string, unknown>;
 
-  // Check required string fields
   if (typeof obj.title !== "string" || typeof obj.body !== "string") {
     return false;
   }
 
-  // Check confidence_score
   if (
     typeof obj.confidence_score !== "number" ||
     obj.confidence_score < 0 ||
@@ -87,7 +82,6 @@ function isFinding(value: unknown): value is Finding {
     return false;
   }
 
-  // Check optional priority (0-3)
   if (
     obj.priority !== undefined &&
     (typeof obj.priority !== "number" || obj.priority < 0 || obj.priority > 3)
@@ -95,7 +89,6 @@ function isFinding(value: unknown): value is Finding {
     return false;
   }
 
-  // Check code_location
   if (!isCodeLocation(obj.code_location)) {
     return false;
   }
@@ -110,19 +103,16 @@ export function isReviewSummary(value: unknown): value is ReviewSummary {
 
   const obj = value as Record<string, unknown>;
 
-  // Check findings array
   if (!Array.isArray(obj.findings)) {
     return false;
   }
 
-  // Validate each finding
   for (const finding of obj.findings) {
     if (!isFinding(finding)) {
       return false;
     }
   }
 
-  // Check overall_correctness
   if (
     typeof obj.overall_correctness !== "string" ||
     !VALID_OVERALL_CORRECTNESS.includes(obj.overall_correctness as OverallCorrectness)
@@ -130,12 +120,10 @@ export function isReviewSummary(value: unknown): value is ReviewSummary {
     return false;
   }
 
-  // Check overall_explanation
   if (typeof obj.overall_explanation !== "string") {
     return false;
   }
 
-  // Check overall_confidence_score
   if (
     typeof obj.overall_confidence_score !== "number" ||
     obj.overall_confidence_score < 0 ||

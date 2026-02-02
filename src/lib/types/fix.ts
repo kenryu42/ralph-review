@@ -11,7 +11,6 @@ export interface FixEntry {
   fix: string;
 }
 
-/** A review item skipped by the fixer */
 export interface SkippedEntry {
   id: number;
   title: string;

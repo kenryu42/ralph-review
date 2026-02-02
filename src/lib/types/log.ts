@@ -3,7 +3,6 @@ import type { FixSummary } from "./fix";
 import type { CodexReviewSummary, ReviewSummary } from "./review";
 import type { IterationError, ReviewOptions } from "./run";
 
-/** Initial entry with run configuration and git state */
 export interface SystemEntry {
   type: "system";
   timestamp: number;
@@ -26,5 +25,4 @@ export interface IterationEntry {
   error?: IterationError;
 }
 
-/** Union of SystemEntry and IterationEntry */
 export type LogEntry = SystemEntry | IterationEntry;

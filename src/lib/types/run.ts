@@ -6,7 +6,6 @@ export interface RunState {
   lastOutput?: string;
 }
 
-/** Outcome of one review-fix cycle iteration */
 export interface IterationResult {
   success: boolean;
   output: string;
@@ -20,14 +19,8 @@ export interface IterationError {
   exitCode?: number;
 }
 
-/**
- * Options for configuring the review mode
- */
 export interface ReviewOptions {
-  /** Optional base branch to compare against (e.g., "main") */
   baseBranch?: string;
-  /** Optional commit SHA to review */
   commitSha?: string;
-  /** Optional custom review instructions */
   customInstructions?: string;
 }

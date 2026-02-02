@@ -1,19 +1,17 @@
 import type { AgentRole, AgentType } from "./domain";
 import type { ReviewOptions } from "./run";
 
-/** Default review mode for 'rr run' when no flags are provided */
 export type DefaultReview = { type: "uncommitted" } | { type: "base"; branch: string };
 
-/** Per-agent settings (reviewer or fixer) */
 export interface AgentSettings {
   agent: AgentType;
   model?: string;
 }
 
 export interface RetryConfig {
-  maxRetries: number; // Number of retry attempts (default: 3)
-  baseDelayMs: number; // Base delay for exponential backoff (default: 1000)
-  maxDelayMs: number; // Maximum delay cap (default: 30000)
+  maxRetries: number;
+  baseDelayMs: number;
+  maxDelayMs: number;
 }
 
 export const DEFAULT_RETRY_CONFIG: RetryConfig = {
@@ -34,7 +32,6 @@ export interface Config {
   defaultReview: DefaultReview;
 }
 
-/** Command-line configuration for executing an agent */
 export interface AgentConfig {
   command: string;
   buildArgs: (

@@ -1,5 +1,3 @@
-/** Main type exports for ralph-review CLI */
-
 export {
   type AgentConfig,
   type AgentSettings,
