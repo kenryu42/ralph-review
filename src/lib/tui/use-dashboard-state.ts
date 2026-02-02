@@ -14,6 +14,7 @@ import {
 import { getSessionOutput } from "@/lib/tmux";
 import type {
   AgentRole,
+  Finding,
   FixEntry,
   IterationEntry,
   ProjectStats,
@@ -42,6 +43,8 @@ export function useDashboardState(
     logEntries: [],
     fixes: [],
     skipped: [],
+    findings: [],
+    codexReviewText: null,
     tmuxOutput: "",
     elapsed: 0,
     maxIterations: 0,
@@ -83,6 +86,8 @@ export function useDashboardState(
 
       const fixes: FixEntry[] = [];
       const skipped: SkippedEntry[] = [];
+      let findings: Finding[] = [];
+      let codexReviewText: string | null = null;
       let maxIterations = 0;
       let reviewOptions: ReviewOptions | undefined;
 
@@ -93,6 +98,15 @@ export function useDashboardState(
           reviewOptions = systemEntry.reviewOptions;
         } else if (entry.type === "iteration") {
           const iterEntry = entry as IterationEntry;
+
+          if (iterEntry.review) {
+            findings = iterEntry.review.findings;
+          }
+
+          if (iterEntry.codexReview?.text) {
+            codexReviewText = iterEntry.codexReview.text;
+          }
+
           if (iterEntry.fixes) {
             fixes.push(...iterEntry.fixes.fixes);
             skipped.push(...iterEntry.fixes.skipped);
@@ -145,6 +159,8 @@ export function useDashboardState(
         logEntries,
         fixes,
         skipped,
+        findings,
+        codexReviewText,
         tmuxOutput,
         elapsed,
         maxIterations,

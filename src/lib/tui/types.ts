@@ -2,6 +2,7 @@ import type { ActiveSession, LockData } from "@/lib/lockfile";
 import type {
   AgentRole,
   Config,
+  Finding,
   FixEntry,
   LogEntry,
   ProjectStats,
@@ -16,6 +17,8 @@ export interface DashboardState {
   logEntries: LogEntry[];
   fixes: FixEntry[];
   skipped: SkippedEntry[];
+  findings: Finding[];
+  codexReviewText: string | null;
   tmuxOutput: string;
   elapsed: number;
   maxIterations: number;
