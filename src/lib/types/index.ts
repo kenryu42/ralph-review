@@ -18,6 +18,7 @@ export { type FixEntry, type FixSummary, isFixSummary, type SkippedEntry } from 
 export type { IterationEntry, LogEntry, SystemEntry } from "./log";
 export {
   type CodexReviewSummary,
+  type Finding,
   isReviewSummary,
   type ReviewSummary,
 } from "./review";
