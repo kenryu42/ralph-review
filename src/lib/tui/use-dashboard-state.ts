@@ -44,6 +44,9 @@ export function useDashboardState(
     fixes: [],
     skipped: [],
     findings: [],
+    iterationFixes: [],
+    iterationSkipped: [],
+    iterationFindings: [],
     codexReviewText: null,
     tmuxOutput: "",
     elapsed: 0,
@@ -86,8 +89,15 @@ export function useDashboardState(
 
       const fixes: FixEntry[] = [];
       const skipped: SkippedEntry[] = [];
+
       let findings: Finding[] = [];
+      let iterationFindings: Finding[] = [];
+      let iterationFixes: FixEntry[] = [];
+      let iterationSkipped: SkippedEntry[] = [];
       let codexReviewText: string | null = null;
+
+      let latestReviewTimestamp = 0;
+      let latestFixesTimestamp = 0;
       let maxIterations = 0;
       let reviewOptions: ReviewOptions | undefined;
 
@@ -99,20 +109,29 @@ export function useDashboardState(
         } else if (entry.type === "iteration") {
           const iterEntry = entry as IterationEntry;
 
-          if (iterEntry.review) {
-            findings = iterEntry.review.findings;
-          }
+          const timestamp = iterEntry.timestamp ?? 0;
 
-          if (iterEntry.codexReview?.text) {
-            codexReviewText = iterEntry.codexReview.text;
+          const hasReview = Boolean(iterEntry.review) || Boolean(iterEntry.codexReview?.text);
+          if (hasReview && timestamp >= latestReviewTimestamp) {
+            latestReviewTimestamp = timestamp;
+            iterationFindings = iterEntry.review?.findings ?? [];
+            codexReviewText = iterEntry.codexReview?.text ?? null;
           }
 
           if (iterEntry.fixes) {
             fixes.push(...iterEntry.fixes.fixes);
             skipped.push(...iterEntry.fixes.skipped);
+
+            if (timestamp >= latestFixesTimestamp) {
+              latestFixesTimestamp = timestamp;
+              iterationFixes = iterEntry.fixes.fixes;
+              iterationSkipped = iterEntry.fixes.skipped;
+            }
           }
         }
       }
+
+      findings = iterationFindings;
 
       let tmuxOutput = lastTmuxOutputRef.current;
       const sessionName = lockData?.sessionName ?? null;
@@ -160,6 +179,9 @@ export function useDashboardState(
         fixes,
         skipped,
         findings,
+        iterationFixes,
+        iterationSkipped,
+        iterationFindings,
         codexReviewText,
         tmuxOutput,
         elapsed,
