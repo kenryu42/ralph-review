@@ -1,6 +1,7 @@
 import type { LockData } from "@/lib/lockfile";
 import type {
   AgentRole,
+  Finding,
   FixEntry,
   IterationEntry,
   Priority,
@@ -70,6 +71,8 @@ interface SessionPanelProps {
   session: LockData | null;
   fixes: FixEntry[];
   skipped: SkippedEntry[];
+  findings: Finding[];
+  codexReviewText: string | null;
   maxIterations: number;
   isLoading: boolean;
   lastSessionStats: SessionStats | null;
@@ -124,17 +127,17 @@ function formatReviewType(reviewOptions: ReviewOptions | undefined): string {
   if (reviewOptions.customInstructions) {
     const instruction = reviewOptions.customInstructions.slice(0, 40);
     return reviewOptions.customInstructions.length > 40
-      ? `custom: ${instruction}...`
-      : `custom: ${instruction}`;
+      ? `custom (${instruction}...)`
+      : `custom (${instruction})`;
   }
 
   if (reviewOptions.commitSha) {
     const shortSha = reviewOptions.commitSha.slice(0, 7);
-    return `commit: ${shortSha}`;
+    return `commit (${shortSha})`;
   }
 
   if (reviewOptions.baseBranch) {
-    return `base: ${reviewOptions.baseBranch}`;
+    return `base (${reviewOptions.baseBranch})`;
   }
 
   return "uncommitted changes";
@@ -153,6 +156,109 @@ interface FixListProps {
   fixes: FixEntry[];
   showFiles: boolean;
   maxHeight?: number;
+}
+
+function priorityToString(priority: number | undefined): string {
+  if (priority === undefined) return "P?";
+  if (priority >= 0 && priority <= 3) return `P${priority}`;
+  return "P?";
+}
+
+interface FindingsListProps {
+  findings: Finding[];
+  maxHeight?: number;
+}
+
+function FindingsList({ findings, maxHeight = 8 }: FindingsListProps) {
+  if (findings.length === 0) {
+    return (
+      <text fg="#6b7280" paddingLeft={2}>
+        None yet
+      </text>
+    );
+  }
+
+  const linesPerFinding = 2;
+  const totalLines = findings.length * linesPerFinding;
+  const needsScroll = totalLines > maxHeight;
+
+  const content = findings.map((finding, index) => {
+    const priorityStr = priorityToString(finding.priority);
+    const priorityColor =
+      finding.priority !== undefined
+        ? (PRIORITY_COLORS[`P${finding.priority}` as Priority] ?? UNKNOWN_PRIORITY_COLOR)
+        : UNKNOWN_PRIORITY_COLOR;
+    const location = finding.code_location;
+    const lineRange = `${location.line_range.start}-${location.line_range.end}`;
+    const filePath = truncateFilePath(location.absolute_file_path, 35);
+    const key = `${index}-${location.absolute_file_path}:${lineRange}`;
+
+    return (
+      <box key={key} flexDirection="column">
+        <box flexDirection="row">
+          <text fg={priorityColor}>{priorityStr}</text>
+          <text fg="#6b7280"> ▸ </text>
+          <text fg="#e5e7eb">{truncateText(finding.title, 40)}</text>
+        </box>
+        <text fg="#6b7280" paddingLeft={5}>
+          {filePath}:{lineRange}
+        </text>
+      </box>
+    );
+  });
+
+  if (needsScroll) {
+    return (
+      <scrollbox paddingLeft={2} height={maxHeight}>
+        {content}
+      </scrollbox>
+    );
+  }
+
+  return (
+    <box flexDirection="column" paddingLeft={2}>
+      {content}
+    </box>
+  );
+}
+
+interface CodexReviewDisplayProps {
+  text: string;
+  maxHeight?: number;
+}
+
+function CodexReviewDisplay({ text, maxHeight = 6 }: CodexReviewDisplayProps) {
+  const lines = text.split("\n").filter((line) => line.trim() !== "");
+
+  if (lines.length === 0) {
+    return (
+      <text fg="#6b7280" paddingLeft={2}>
+        No review text
+      </text>
+    );
+  }
+
+  const needsScroll = lines.length > maxHeight;
+
+  const content = lines.map((line, index) => (
+    <text key={`${index}-${line.slice(0, 20)}`} fg="#e5e7eb">
+      {truncateText(line, 50)}
+    </text>
+  ));
+
+  if (needsScroll) {
+    return (
+      <scrollbox paddingLeft={2} height={maxHeight}>
+        {content}
+      </scrollbox>
+    );
+  }
+
+  return (
+    <box flexDirection="column" paddingLeft={2}>
+      {content}
+    </box>
+  );
 }
 
 function FixList({ fixes, showFiles, maxHeight = 8 }: FixListProps) {
@@ -204,6 +310,8 @@ export function SessionPanel({
   session,
   fixes,
   skipped,
+  findings,
+  codexReviewText,
   maxIterations,
   isLoading,
   lastSessionStats,
@@ -212,7 +320,7 @@ export function SessionPanel({
   currentAgent,
   reviewOptions,
 }: SessionPanelProps) {
-  const minWidth = 40;
+  const minWidth = 50;
 
   if (isLoading) {
     return (
@@ -343,6 +451,17 @@ export function SessionPanel({
         <text fg="#f9fafb">
           {iteration}/{maxIterations || "?"}
         </text>
+      </box>
+
+      <box flexDirection="column">
+        <text fg="#9ca3af">
+          Issues Found ({codexReviewText && findings.length === 0 ? "codex" : findings.length}):
+        </text>
+        {codexReviewText && findings.length === 0 ? (
+          <CodexReviewDisplay text={codexReviewText} />
+        ) : (
+          <FindingsList findings={findings} />
+        )}
       </box>
 
       <box flexDirection="column">
