@@ -14,6 +14,7 @@ import type {
   IterationEntry,
   IterationResult,
   RetryConfig,
+  ReviewOptions,
   ReviewSummary,
   SystemEntry,
 } from "./types";
