@@ -130,6 +130,64 @@ function handleCancel(value: unknown): asserts value is string {
   }
 }
 
+/** Model options lookup by agent type */
+const modelOptionsMap: Record<string, readonly { value: string; label: string }[]> = {
+  claude: claudeModelOptions,
+  codex: codexModelOptions,
+  droid: droidModelOptions,
+  gemini: geminiModelOptions,
+};
+
+/**
+ * Prompt user to select a model for the given agent
+ * Returns the selected model value
+ */
+async function promptForModel(agent: string, role: "reviewer" | "fixer"): Promise<string> {
+  const staticOptions = modelOptionsMap[agent];
+
+  if (staticOptions) {
+    const model = await p.select({
+      message: `Select ${role} model`,
+      options: [...staticOptions],
+    });
+    handleCancel(model);
+    return model as string;
+  }
+
+  if (agent === "opencode") {
+    let opencodeModels: { value: string; label: string }[];
+    if (cachedOpencodeModels) {
+      opencodeModels = cachedOpencodeModels;
+    } else {
+      const spinner = p.spinner();
+      spinner.start("Fetching available models...");
+      opencodeModels = await fetchOpencodeModels();
+      spinner.stop("Models loaded");
+    }
+
+    if (opencodeModels.length === 0) {
+      p.log.error("No models available from OpenCode");
+      process.exit(1);
+    }
+
+    const model = await p.select({
+      message: `Select ${role} model`,
+      options: opencodeModels,
+    });
+    handleCancel(model);
+    return model as string;
+  }
+
+  // Fallback: text input for unknown agents
+  const model = await p.text({
+    message: `${role.charAt(0).toUpperCase() + role.slice(1)} model (optional)`,
+    placeholder: "Press enter for default",
+    defaultValue: "",
+  });
+  handleCancel(model);
+  return model as string;
+}
+
 function formatConfigDisplay(config: Config): string {
   const reviewerName = getAgentDisplayName(config.reviewer.agent);
   const fixerName = getAgentDisplayName(config.fixer.agent);
@@ -210,56 +268,7 @@ export async function runInit(): Promise<void> {
   handleCancel(reviewerAgent);
 
   // Prompt for reviewer model
-  let reviewerModel: string | symbol;
-  if (reviewerAgent === "claude") {
-    reviewerModel = await p.select({
-      message: "Select reviewer model",
-      options: [...claudeModelOptions],
-    });
-  } else if (reviewerAgent === "codex") {
-    reviewerModel = await p.select({
-      message: "Select reviewer model",
-      options: [...codexModelOptions],
-    });
-  } else if (reviewerAgent === "droid") {
-    reviewerModel = await p.select({
-      message: "Select reviewer model",
-      options: [...droidModelOptions],
-    });
-  } else if (reviewerAgent === "gemini") {
-    reviewerModel = await p.select({
-      message: "Select reviewer model",
-      options: [...geminiModelOptions],
-    });
-  } else if (reviewerAgent === "opencode") {
-    let opencodeModels: { value: string; label: string }[];
-    if (cachedOpencodeModels) {
-      opencodeModels = cachedOpencodeModels;
-    } else {
-      const spinner = p.spinner();
-      spinner.start("Fetching available models...");
-      opencodeModels = await fetchOpencodeModels();
-      spinner.stop("Models loaded");
-    }
-
-    if (opencodeModels.length === 0) {
-      p.log.error("No models available from OpenCode");
-      process.exit(1);
-    }
-
-    reviewerModel = await p.select({
-      message: "Select reviewer model",
-      options: opencodeModels,
-    });
-  } else {
-    reviewerModel = await p.text({
-      message: "Reviewer model (optional)",
-      placeholder: "Press enter for default",
-      defaultValue: "",
-    });
-  }
-
-  handleCancel(reviewerModel);
+  const reviewerModel = await promptForModel(reviewerAgent as string, "reviewer");
 
   // Prompt for fixer agent
   const fixerAgent = await p.select({
@@ -270,56 +279,7 @@ export async function runInit(): Promise<void> {
   handleCancel(fixerAgent);
 
   // Prompt for fixer model
-  let fixerModel: string | symbol;
-  if (fixerAgent === "claude") {
-    fixerModel = await p.select({
-      message: "Select fixer model",
-      options: [...claudeModelOptions],
-    });
-  } else if (fixerAgent === "codex") {
-    fixerModel = await p.select({
-      message: "Select fixer model",
-      options: [...codexModelOptions],
-    });
-  } else if (fixerAgent === "droid") {
-    fixerModel = await p.select({
-      message: "Select fixer model",
-      options: [...droidModelOptions],
-    });
-  } else if (fixerAgent === "gemini") {
-    fixerModel = await p.select({
-      message: "Select fixer model",
-      options: [...geminiModelOptions],
-    });
-  } else if (fixerAgent === "opencode") {
-    let opencodeModels: { value: string; label: string }[];
-    if (cachedOpencodeModels) {
-      opencodeModels = cachedOpencodeModels;
-    } else {
-      const spinner = p.spinner();
-      spinner.start("Fetching available models...");
-      opencodeModels = await fetchOpencodeModels();
-      spinner.stop("Models loaded");
-    }
-
-    if (opencodeModels.length === 0) {
-      p.log.error("No models available from OpenCode");
-      process.exit(1);
-    }
-
-    fixerModel = await p.select({
-      message: "Select fixer model",
-      options: opencodeModels,
-    });
-  } else {
-    fixerModel = await p.text({
-      message: "Fixer model (optional)",
-      placeholder: "Press enter for default",
-      defaultValue: "",
-    });
-  }
-
-  handleCancel(fixerModel);
+  const fixerModel = await promptForModel(fixerAgent as string, "fixer");
 
   // Prompt for max iterations
   const maxIterationsStr = await p.text({
