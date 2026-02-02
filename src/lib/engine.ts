@@ -65,6 +65,65 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
+ * Factory for creating iteration log entries
+ * Reduces repetition in the main cycle function
+ */
+function createIterationEntry(
+  iteration: number,
+  startTime: number,
+  options: {
+    error?: { phase: AgentRole; message: string; exitCode?: number };
+    review?: ReviewSummary;
+    codexReview?: CodexReviewSummary;
+    fixes?: FixSummary;
+  } = {}
+): IterationEntry {
+  return {
+    type: "iteration",
+    timestamp: Date.now(),
+    iteration,
+    duration: Date.now() - startTime,
+    ...(options.error && { error: options.error }),
+    ...(options.review && { review: options.review }),
+    ...(options.codexReview && { codexReview: options.codexReview }),
+    ...(options.fixes && { fixes: options.fixes }),
+  };
+}
+
+/**
+ * Handle agent failure with logging and formatted warning
+ * Returns a CycleResult indicating failure
+ */
+async function handleAgentFailure(
+  role: AgentRole,
+  exitCode: number,
+  retryConfig: RetryConfig,
+  iteration: number,
+  startTime: number,
+  sessionPath: string
+): Promise<CycleResult> {
+  const warning = formatAgentFailureWarning(role, exitCode, retryConfig.maxRetries);
+  console.log(warning);
+
+  const entry = createIterationEntry(iteration, startTime, {
+    error: {
+      phase: role,
+      message: `${role.charAt(0).toUpperCase() + role.slice(1)} failed after ${retryConfig.maxRetries} retries`,
+      exitCode,
+    },
+  });
+  await appendLog(sessionPath, entry);
+
+  const brokenWarning = role === "fixer" ? " Code may be in a broken state!" : "";
+  return {
+    success: false,
+    iterations: iteration,
+    reason: `${role.charAt(0).toUpperCase() + role.slice(1)} failed with exit code ${exitCode} after ${retryConfig.maxRetries} retries.${brokenWarning}`,
+    sessionPath,
+  };
+}
+
+/**
  * Print a distinctly formatted header with a box
  */
 function printHeader(text: string, colorCode: string = "\x1b[36m") {
@@ -305,16 +364,9 @@ export async function runReviewCycle(
 
     // Early exit if user pressed Ctrl+C during previous iteration
     if (wasInterrupted()) {
-      const entry: IterationEntry = {
-        type: "iteration",
-        timestamp: Date.now(),
-        iteration,
-        duration: Date.now() - iterationStartTime,
-        error: {
-          phase: "reviewer",
-          message: "Review cycle interrupted before iteration start",
-        },
-      };
+      const entry = createIterationEntry(iteration, iterationStartTime, {
+        error: { phase: "reviewer", message: "Review cycle interrupted before iteration start" },
+      });
       await appendLog(sessionPath, entry);
       return determineCycleResult(
         hasRemainingIssues,
@@ -350,43 +402,20 @@ export async function runReviewCycle(
     }
 
     if (!reviewResult.success) {
-      const warning = formatAgentFailureWarning(
+      return handleAgentFailure(
         "reviewer",
         reviewResult.exitCode,
-        retryConfig.maxRetries
-      );
-      console.log(warning);
-      const entry: IterationEntry = {
-        type: "iteration",
-        timestamp: Date.now(),
+        retryConfig,
         iteration,
-        duration: Date.now() - iterationStartTime,
-        error: {
-          phase: "reviewer",
-          message: `Reviewer failed after ${retryConfig.maxRetries} retries`,
-          exitCode: reviewResult.exitCode,
-        },
-      };
-      await appendLog(sessionPath, entry);
-      return {
-        success: false,
-        iterations: iteration,
-        reason: `Reviewer failed with exit code ${reviewResult.exitCode} after ${retryConfig.maxRetries} retries`,
-        sessionPath,
-      };
+        iterationStartTime,
+        sessionPath
+      );
     }
 
     if (wasInterrupted()) {
-      const entry: IterationEntry = {
-        type: "iteration",
-        timestamp: Date.now(),
-        iteration,
-        duration: Date.now() - iterationStartTime,
-        error: {
-          phase: "reviewer",
-          message: "Review cycle interrupted before fixer",
-        },
-      };
+      const entry = createIterationEntry(iteration, iterationStartTime, {
+        error: { phase: "reviewer", message: "Review cycle interrupted before fixer" },
+      });
       await appendLog(sessionPath, entry);
       return determineCycleResult(true, iteration, config.maxIterations, true, sessionPath);
     }
@@ -440,41 +469,21 @@ export async function runReviewCycle(
     }
 
     if (!fixResult.success) {
-      const warning = formatAgentFailureWarning(
+      return handleAgentFailure(
         "fixer",
         fixResult.exitCode,
-        retryConfig.maxRetries
-      );
-      console.log(warning);
-      const entry: IterationEntry = {
-        type: "iteration",
-        timestamp: Date.now(),
+        retryConfig,
         iteration,
-        duration: Date.now() - iterationStartTime,
-        error: {
-          phase: "fixer",
-          message: `Fixer failed after ${retryConfig.maxRetries} retries`,
-          exitCode: fixResult.exitCode,
-        },
-      };
-      await appendLog(sessionPath, entry);
-      return {
-        success: false,
-        iterations: iteration,
-        reason: `Fixer failed with exit code ${fixResult.exitCode} after ${retryConfig.maxRetries} retries. Code may be in a broken state!`,
-        sessionPath,
-      };
+        iterationStartTime,
+        sessionPath
+      );
     }
 
-    const iterationEntry: IterationEntry = {
-      type: "iteration",
-      timestamp: Date.now(),
-      iteration,
-      duration: Date.now() - iterationStartTime,
+    const iterationEntry = createIterationEntry(iteration, iterationStartTime, {
       review: reviewSummary ?? undefined,
       codexReview: codexReviewSummary ?? undefined,
       fixes: fixSummary ?? undefined,
-    };
+    });
     await appendLog(sessionPath, iterationEntry);
 
     if (fixerFoundNoIssues(fixResult.output)) {
