@@ -41,6 +41,7 @@
     "src/lib"
   ],
   "scripts": {
+    "dev:tui": "bun run scripts/tui-dev.tsx",
     "rr": "bun run src/cli.ts",
     "test": "bun test",
     "prepublishOnly": "bun test",
