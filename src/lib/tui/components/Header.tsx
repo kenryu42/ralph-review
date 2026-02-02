@@ -1,7 +1,3 @@
-/**
- * Header component - displays title, elapsed time, and help
- */
-
 import { getAgentDisplayName, getModelDisplayName } from "@/lib/agents/display";
 import type { LockData } from "@/lib/lockfile";
 import type { Config } from "@/lib/types";
@@ -15,9 +11,6 @@ interface HeaderProps {
   config?: Config | null;
 }
 
-/**
- * Format duration in human readable form
- */
 function formatDuration(ms: number): string {
   const seconds = Math.floor(ms / 1000);
   const minutes = Math.floor(seconds / 60);
@@ -63,7 +56,6 @@ export function Header({ branch, elapsed, session, projectPath, config }: Header
       paddingTop={1}
     >
       <box flexDirection="row">
-        {/* Logo Column */}
         <box flexDirection="column" width={12}>
           <text>
             <span fg="#8b8000"> {"   "}║ </span>
@@ -79,7 +71,6 @@ export function Header({ branch, elapsed, session, projectPath, config }: Header
           </text>
         </box>
 
-        {/* Info Column */}
         <box flexDirection="column">
           <text>
             <span fg="#C5CAF5">
@@ -108,7 +99,6 @@ export function Header({ branch, elapsed, session, projectPath, config }: Header
         </box>
       </box>
 
-      {/* Status/Elapsed Column (Right aligned) */}
       <box flexDirection="column" alignItems="flex-end">
         <text>
           <span fg={statusColor}>{statusIcon} </span>

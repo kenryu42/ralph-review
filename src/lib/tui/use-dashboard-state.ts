@@ -1,7 +1,3 @@
-/**
- * Hook for managing dashboard state with automatic refresh
- */
-
 import { useCallback, useEffect, useRef, useState } from "react";
 import { loadConfig } from "@/lib/config";
 import { ensureGitRepositoryAsync } from "@/lib/git";

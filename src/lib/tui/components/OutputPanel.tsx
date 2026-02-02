@@ -1,7 +1,3 @@
-/**
- * OutputPanel component - displays live tmux output
- */
-
 import type { ScrollBoxRenderable } from "@opentui/core";
 import { useTerminalDimensions } from "@opentui/react";
 import { useEffect, useRef } from "react";
@@ -11,9 +7,6 @@ interface OutputPanelProps {
   sessionName: string | null;
 }
 
-/**
- * Simple hash for stable React keys
- */
 function hashLine(line: string, index: number): string {
   let hash = index;
   for (let i = 0; i < line.length; i++) {
@@ -26,7 +19,6 @@ export function OutputPanel({ output, sessionName }: OutputPanelProps) {
   const { height: terminalHeight } = useTerminalDimensions();
   const scrollboxRef = useRef<ScrollBoxRenderable>(null);
 
-  // Terminal height minus: header(5) + statusbar(2) + dashboard padding(2) + border(2) + padding(2) + title(2)
   const availableLines = Math.max(10, terminalHeight - 15);
 
   const lines = sessionName ? output.split("\n").filter((line) => line.trim()) : [];

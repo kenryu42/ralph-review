@@ -1,7 +1,3 @@
-/**
- * SessionPanel component - displays session status, iterations, and fixes
- */
-
 import type { LockData } from "@/lib/lockfile";
 import type {
   AgentRole,
@@ -15,18 +11,12 @@ import type {
 } from "@/lib/types";
 import { Spinner } from "./Spinner";
 
-/**
- * Truncate text with ellipsis if it exceeds maxLength
- */
 export function truncateText(text: string, maxLength: number): string {
   if (text.length <= maxLength) return text;
   if (maxLength <= 1) return "…";
   return `${text.slice(0, maxLength - 1)}…`;
 }
 
-/**
- * Truncate file path, preserving the filename (e.g., "…/components/Auth.tsx")
- */
 export function truncateFilePath(filePath: string, maxLength: number): string {
   if (!filePath || filePath.length <= maxLength) return filePath;
 
@@ -34,14 +24,12 @@ export function truncateFilePath(filePath: string, maxLength: number): string {
   if (lastSlash === -1) return truncateText(filePath, maxLength);
 
   const filename = filePath.slice(lastSlash + 1);
-  const remaining = maxLength - filename.length - 2; // 2 for "…/"
+  const remaining = maxLength - filename.length - 2;
 
   if (remaining <= 0) {
-    // Can't fit any directory, just return …/filename
     return `…/${filename}`;
   }
 
-  // Find how much of the path we can keep from the end
   const directory = filePath.slice(0, lastSlash);
   const truncatedDir = directory.slice(-remaining);
   const nextSlash = truncatedDir.indexOf("/");
@@ -52,10 +40,6 @@ export function truncateFilePath(filePath: string, maxLength: number): string {
   return `…/${filename}`;
 }
 
-/**
- * Format priority counts for display
- * Returns array of {priority, count} for all priorities
- */
 export function formatPriorityBreakdown(
   counts: Record<Priority, number>
 ): Array<{ priority: Priority; count: number }> {
@@ -63,18 +47,12 @@ export function formatPriorityBreakdown(
   return priorities.map((p) => ({ priority: p, count: counts[p] }));
 }
 
-/**
- * Format project stats summary with proper singular/plural handling
- */
 export function formatProjectStatsSummary(totalFixes: number, sessionCount: number): string {
   const fixWord = totalFixes === 1 ? "fix" : "fixes";
   const sessionWord = sessionCount === 1 ? "session" : "sessions";
   return `${totalFixes} ${fixWord} across ${sessionCount} ${sessionWord}`;
 }
 
-/**
- * Extract all FixEntry items from SessionStats entries
- */
 export function extractFixesFromStats(stats: SessionStats): FixEntry[] {
   const fixes: FixEntry[] = [];
   for (const entry of stats.entries) {
@@ -101,9 +79,6 @@ interface SessionPanelProps {
   reviewOptions: ReviewOptions | undefined;
 }
 
-/**
- * Format a timestamp as relative time (e.g., "2h ago", "yesterday")
- */
 function formatRelativeTime(timestamp: number): string {
   const now = Date.now();
   const diff = now - timestamp;
@@ -120,36 +95,29 @@ function formatRelativeTime(timestamp: number): string {
   return "just now";
 }
 
-/**
- * Get display text and color for a session status
- */
 function getStatusDisplay(
   status: string,
   currentAgent: AgentRole | null
 ): { text: string; color: string } {
   switch (status) {
     case "completed":
-      return { text: "completed", color: "#22c55e" }; // green
+      return { text: "completed", color: "#22c55e" };
     case "failed":
-      return { text: "failed", color: "#ef4444" }; // red
+      return { text: "failed", color: "#ef4444" };
     case "interrupted":
-      return { text: "interrupted", color: "#f97316" }; // orange
+      return { text: "interrupted", color: "#f97316" };
     case "running":
       if (currentAgent) {
-        return { text: `running ${currentAgent} agent`, color: "#22c55e" }; // green
+        return { text: `running ${currentAgent} agent`, color: "#22c55e" };
       }
-      return { text: "running", color: "#22c55e" }; // green
+      return { text: "running", color: "#22c55e" };
     case "pending":
-      return { text: "pending", color: "#eab308" }; // yellow
+      return { text: "pending", color: "#eab308" };
     default:
-      return { text: "unknown", color: "#6b7280" }; // gray
+      return { text: "unknown", color: "#6b7280" };
   }
 }
 
-/**
- * Format review type for display based on ReviewOptions
- * Handles all 4 review types: uncommitted, base branch, commit SHA, custom instructions
- */
 function formatReviewType(reviewOptions: ReviewOptions | undefined): string {
   if (!reviewOptions) return "uncommitted changes";
 
@@ -172,28 +140,21 @@ function formatReviewType(reviewOptions: ReviewOptions | undefined): string {
   return "uncommitted changes";
 }
 
-/**
- * Priority colors for display
- */
 const PRIORITY_COLORS: Record<Priority, string> = {
-  P0: "#ef4444", // red
-  P1: "#f97316", // orange
-  P2: "#eab308", // yellow
-  P3: "#22c55e", // green
+  P0: "#ef4444",
+  P1: "#f97316",
+  P2: "#eab308",
+  P3: "#22c55e",
 };
 
-/** Fallback color for unknown/legacy priorities */
-const UNKNOWN_PRIORITY_COLOR = "#6b7280"; // gray
+const UNKNOWN_PRIORITY_COLOR = "#6b7280";
 
 interface FixListProps {
   fixes: FixEntry[];
   showFiles: boolean;
-  maxHeight?: number; // Max visible lines before scrolling
+  maxHeight?: number;
 }
 
-/**
- * Renders a list of fixes with priority indicators and optional file paths
- */
 function FixList({ fixes, showFiles, maxHeight = 8 }: FixListProps) {
   if (fixes.length === 0) {
     return (
@@ -203,7 +164,6 @@ function FixList({ fixes, showFiles, maxHeight = 8 }: FixListProps) {
     );
   }
 
-  // Calculate if scrolling is needed
   const linesPerFix = showFiles ? 2 : 1;
   const totalLines = fixes.length * linesPerFix;
   const needsScroll = totalLines > maxHeight;
@@ -289,7 +249,6 @@ export function SessionPanel({
       );
     }
 
-    // Has previous sessions - show full info
     const statusDisplay = getStatusDisplay(lastSessionStats.status, null);
     const lastSessionFixes = extractFixesFromStats(lastSessionStats);
 
@@ -313,7 +272,6 @@ export function SessionPanel({
         )}
         <text fg="#9ca3af">No active session</text>
 
-        {/* Project stats */}
         {projectStats && projectStats.totalFixes > 0 && (
           <box flexDirection="column">
             <text fg="#9ca3af">Project stats:</text>
@@ -332,7 +290,6 @@ export function SessionPanel({
           </box>
         )}
 
-        {/* Last run */}
         <box flexDirection="column">
           <box flexDirection="row" gap={1}>
             <text fg="#9ca3af">Last run:</text>
@@ -345,7 +302,6 @@ export function SessionPanel({
           </text>
         </box>
 
-        {/* Recent fixes from last session */}
         {lastSessionFixes.length > 0 && (
           <box flexDirection="column">
             <text fg="#9ca3af">Recent fixes:</text>
@@ -369,7 +325,6 @@ export function SessionPanel({
       flexDirection="column"
       gap={1}
     >
-      {/* Status */}
       <box flexDirection="row" gap={1}>
         <text fg="#9ca3af">Status:</text>
         {session.status === "running" && <Spinner color={statusDisplay.color} />}
@@ -378,13 +333,11 @@ export function SessionPanel({
         </text>
       </box>
 
-      {/* Review Type */}
       <box flexDirection="row" gap={1}>
         <text fg="#9ca3af">Review Type:</text>
         <text fg="#f9fafb">{formatReviewType(reviewOptions)}</text>
       </box>
 
-      {/* Iteration progress */}
       <box flexDirection="row" gap={1}>
         <text fg="#9ca3af">Iteration:</text>
         <text fg="#f9fafb">
@@ -392,13 +345,11 @@ export function SessionPanel({
         </text>
       </box>
 
-      {/* Fixes applied */}
       <box flexDirection="column">
         <text fg="#9ca3af">Fixes Applied ({fixes.length}):</text>
         <FixList fixes={fixes} showFiles={false} />
       </box>
 
-      {/* Skipped items */}
       {skipped.length > 0 && (
         <box flexDirection="row" gap={1}>
           <text fg="#9ca3af">Skipped:</text>

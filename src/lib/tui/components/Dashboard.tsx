@@ -1,7 +1,3 @@
-/**
- * Dashboard component - main TUI container
- */
-
 import { basename } from "node:path";
 import { useKeyboard, useRenderer } from "@opentui/react";
 import { useCallback, useEffect, useRef } from "react";
@@ -72,7 +68,6 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
     }
   });
 
-  // Show error if any
   if (state.error) {
     return (
       <box flexDirection="column" width="100%" height="100%">

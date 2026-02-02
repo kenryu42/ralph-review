@@ -10,9 +10,6 @@ import type {
   SkippedEntry,
 } from "@/lib/types";
 
-/**
- * Dashboard state containing all data needed for rendering
- */
 export interface DashboardState {
   sessions: ActiveSession[];
   currentSession: LockData | null;
