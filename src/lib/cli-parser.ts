@@ -23,7 +23,7 @@ export class CliError extends Error {
 
   static formatMessage(
     command: string,
-    type: string,
+    type: "unknown_option" | "unexpected_argument" | "missing_required",
     arg: string,
     validOptions?: string[],
     suggestion?: string,
@@ -170,6 +170,25 @@ function parseValue(opt: OptionDef, value: string): boolean | string | number {
 }
 
 /**
+ * Consume a value for a non-boolean option from argv
+ */
+function consumeOptionValue(
+  opt: OptionDef,
+  argv: string[],
+  currentIndex: number,
+  inlineValue?: string
+): { value: string; nextIndex: number } {
+  if (inlineValue !== undefined) {
+    return { value: inlineValue, nextIndex: currentIndex };
+  }
+  const nextArg = argv[currentIndex + 1];
+  if (nextArg !== undefined && (!nextArg.startsWith("-") || /^-\d/.test(nextArg))) {
+    return { value: nextArg, nextIndex: currentIndex + 1 };
+  }
+  throw new Error(`Option --${opt.name} requires a value`);
+}
+
+/**
  * Parse command line arguments against a command definition
  */
 export function parseCommand<T = Record<string, unknown>>(
@@ -193,11 +212,7 @@ export function parseCommand<T = Record<string, unknown>>(
   let afterDoubleDash = false;
 
   while (i < argv.length) {
-    const arg = argv[i];
-    if (arg === undefined) {
-      i++;
-      continue;
-    }
+    const arg = argv[i] as string;
 
     // Handle -- separator
     if (arg === "--" && !afterDoubleDash) {
@@ -226,32 +241,16 @@ export function parseCommand<T = Record<string, unknown>>(
 
       const opt = byName.get(name);
       if (!opt) {
-        const fullArg = arg.startsWith("--") ? arg : `--${name}`;
         const validOptions = options.map((o) => `--${o.name}`);
-        const suggestion = suggestOption(fullArg, validOptions);
-        throw new CliError(def.name, "unknown_option", fullArg, validOptions, suggestion);
+        const suggestion = suggestOption(arg, validOptions);
+        throw new CliError(def.name, "unknown_option", arg, validOptions, suggestion);
       }
 
       if (opt.type === "boolean") {
         values[opt.name] = true;
       } else {
-        // Need a value
-        let value: string;
-        if (inlineValue !== undefined) {
-          value = inlineValue;
-        } else {
-          const nextArg = argv[i + 1];
-          if (nextArg !== undefined && !nextArg.startsWith("-")) {
-            i++;
-            value = nextArg;
-          } else if (nextArg !== undefined && /^-\d/.test(nextArg)) {
-            // Negative number
-            i++;
-            value = nextArg;
-          } else {
-            throw new Error(`Option --${opt.name} requires a value`);
-          }
-        }
+        const { value, nextIndex } = consumeOptionValue(opt, argv, i, inlineValue);
+        i = nextIndex;
         values[opt.name] = parseValue(opt, value);
       }
 
@@ -284,17 +283,9 @@ export function parseCommand<T = Record<string, unknown>>(
       if (opt.type === "boolean") {
         values[opt.name] = true;
       } else {
-        // Need a value
-        const nextArg = argv[i + 1];
-        if (nextArg === undefined) {
-          throw new Error(`Option --${opt.name} requires a value`);
-        }
-        // Allow negative numbers as values
-        if (nextArg.startsWith("-") && !/^-\d/.test(nextArg)) {
-          throw new Error(`Option --${opt.name} requires a value`);
-        }
-        i++;
-        values[opt.name] = parseValue(opt, nextArg);
+        const { value, nextIndex } = consumeOptionValue(opt, argv, i);
+        i = nextIndex;
+        values[opt.name] = parseValue(opt, value);
       }
 
       i++;
@@ -316,18 +307,16 @@ export function parseCommand<T = Record<string, unknown>>(
 
   // Check for unexpected positionals
   if (positional.length > expectedPositionalCount) {
-    const unexpected = positional[expectedPositionalCount];
-    if (unexpected) {
-      const validOptions = options.map((o) => `--${o.name}`);
-      throw new CliError(
-        def.name,
-        "unexpected_argument",
-        unexpected,
-        validOptions,
-        undefined,
-        expectedPositionalCount
-      );
-    }
+    const unexpected = positional[expectedPositionalCount] as string;
+    const validOptions = options.map((o) => `--${o.name}`);
+    throw new CliError(
+      def.name,
+      "unexpected_argument",
+      unexpected,
+      validOptions,
+      undefined,
+      expectedPositionalCount
+    );
   }
 
   // Check for missing required positionals
@@ -350,12 +339,12 @@ export function formatCommandHelp(def: CommandDef): string {
   const lines: string[] = [];
 
   let usage = `rr ${def.name}`;
-  if (def.positional && def.positional.length > 0) {
+  if (def.positional?.length) {
     for (const pos of def.positional) {
       usage += pos.required ? ` <${pos.name}>` : ` [${pos.name}]`;
     }
   }
-  if (def.options && def.options.length > 0) {
+  if (def.options?.length) {
     usage += " [options]";
   }
 
@@ -364,7 +353,7 @@ export function formatCommandHelp(def: CommandDef): string {
   lines.push("USAGE:");
   lines.push(`  ${usage}`);
 
-  if (def.positional && def.positional.length > 0) {
+  if (def.positional?.length) {
     lines.push("");
     lines.push("ARGUMENTS:");
     for (const pos of def.positional) {
@@ -373,7 +362,7 @@ export function formatCommandHelp(def: CommandDef): string {
     }
   }
 
-  if (def.options && def.options.length > 0) {
+  if (def.options?.length) {
     lines.push("");
     lines.push("OPTIONS:");
     for (const opt of def.options) {
@@ -392,7 +381,7 @@ export function formatCommandHelp(def: CommandDef): string {
     }
   }
 
-  if (def.examples && def.examples.length > 0) {
+  if (def.examples?.length) {
     lines.push("");
     lines.push("EXAMPLES:");
     for (const ex of def.examples) {

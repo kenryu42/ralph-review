@@ -178,7 +178,7 @@ async function main(): Promise<void> {
   }
 
   // Resolve command aliases (e.g., "ls" -> "list")
-  const resolvedCommand = COMMANDS.find((c) => c.aliases?.includes(command))?.name ?? command;
+  const resolvedCommand = getCommandDef(command)?.name ?? command;
 
   // Validate positional arguments for all commands
   const commandDef = getCommandDef(resolvedCommand);
@@ -188,14 +188,10 @@ async function main(): Promise<void> {
     } catch (error) {
       if (error instanceof CliError) {
         // Format multi-line error messages nicely
-        const lines = error.message.split("\n");
-        if (lines[0]) {
-          p.log.error(lines[0]); // Main error line
-        }
-        for (const line of lines.slice(1)) {
-          if (line) {
-            p.log.message(line);
-          }
+        const [firstLine, ...rest] = error.message.split("\n");
+        if (firstLine) p.log.error(firstLine);
+        for (const line of rest) {
+          if (line) p.log.message(line);
         }
       } else {
         p.log.error(`${error}`);
