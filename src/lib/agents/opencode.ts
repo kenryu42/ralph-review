@@ -1,6 +1,5 @@
 /**
  * OpenCode agent configuration
- * Integrates with OpenCode CLI (no JSONL streaming)
  */
 
 import type { AgentConfig, AgentRole, ReviewOptions } from "@/lib/types";
@@ -23,5 +22,3 @@ export const opencodeConfig: AgentConfig = {
   },
   buildEnv: defaultBuildEnv,
 };
-
-// Result extraction is done inline in the AGENTS registry.

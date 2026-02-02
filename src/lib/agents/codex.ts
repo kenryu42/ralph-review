@@ -1,6 +1,5 @@
 /**
  * Codex agent configuration and stream handling
- * Integrates with OpenAI's Codex CLI
  */
 
 import type { AgentConfig, AgentRole, ReviewOptions } from "@/lib/types";
@@ -26,13 +25,11 @@ export const codexConfig: AgentConfig = {
     model?: string,
     reviewOptions?: ReviewOptions
   ): string[] => {
-    // Fixer role: exec with full-auto
     if (role !== "reviewer") {
       const args = ["exec", "--full-auto", ...commonConfig];
       return prompt ? withModel([...args, prompt], model) : withModel(args, model);
     }
 
-    // Reviewer role - priority: commitSha > baseBranch > customInstructions > uncommitted
     const baseReviewArgs = ["exec", "--json", ...commonConfig, "review"];
 
     if (reviewOptions?.commitSha) {
@@ -43,7 +40,6 @@ export const codexConfig: AgentConfig = {
       return withModel([...baseReviewArgs, "--base", reviewOptions.baseBranch], model);
     }
 
-    // Custom mode: exec with prompt instead of native review subcommand
     if (reviewOptions?.customInstructions) {
       const fullPrompt = prompt ? `review ${prompt}` : "review";
       return withModel(["exec", "--full-auto", "--json", ...commonConfig, fullPrompt], model);
@@ -54,19 +50,10 @@ export const codexConfig: AgentConfig = {
   buildEnv: defaultBuildEnv,
 };
 
-/**
- * Parse a single JSONL line into a CodexStreamEvent.
- * Returns null if the line is invalid or not a recognized event type.
- */
 export function parseCodexStreamEvent(line: string): CodexStreamEvent | null {
   return parseJsonlEvent<CodexStreamEvent>(line);
 }
 
-/**
- * Extract the shell command from Codex's full command string.
- * Codex wraps commands like: /bin/zsh -lc 'git status'
- * We want to show just: git status
- */
 function extractShellCommand(fullCommand: string): string {
   const match = fullCommand.match(/(?:\/bin\/\w+|-lc)\s+'([^']+)'$/);
   if (match?.[1]) {
@@ -119,10 +106,6 @@ function formatItemCompletedForDisplay(
   }
 }
 
-/**
- * Format a CodexStreamEvent for terminal display
- * Returns null for events that shouldn't be displayed
- */
 export function formatCodexEventForDisplay(event: CodexStreamEvent): string | null {
   switch (event.type) {
     case "thread.started":
@@ -141,10 +124,6 @@ export function formatCodexEventForDisplay(event: CodexStreamEvent): string | nu
   }
 }
 
-/**
- * Extract the final result text from Codex's JSONL output.
- * Finds the last 'agent_message' item and returns its text field.
- */
 export function extractCodexResult(output: string): string | null {
   if (!output.trim()) {
     return null;
@@ -163,9 +142,6 @@ export function extractCodexResult(output: string): string | null {
   return lastResult;
 }
 
-/**
- * Formatter for streamAndCapture. Wraps the display formatter.
- */
 export const formatCodexLine = createLineFormatter(
   parseCodexStreamEvent,
   formatCodexEventForDisplay

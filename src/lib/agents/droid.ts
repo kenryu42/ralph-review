@@ -1,6 +1,5 @@
 /**
  * Droid agent configuration and stream handling
- * Integrates with Droid CLI
  */
 
 import type { AgentConfig, AgentRole, ReviewOptions } from "@/lib/types";
@@ -44,10 +43,6 @@ export const droidConfig: AgentConfig = {
   buildEnv: defaultBuildEnv,
 };
 
-/**
- * Parse a single JSONL line into a DroidStreamEvent.
- * Returns null if the line is invalid or not a recognized event type.
- */
 export function parseDroidStreamEvent(line: string): DroidStreamEvent | null {
   return parseJsonlEvent<DroidStreamEvent>(line);
 }
@@ -73,10 +68,6 @@ function formatCompletionEvent(event: DroidCompletionEvent): string {
   return `=== Result ===\n${event.finalText}`;
 }
 
-/**
- * Format a DroidStreamEvent for terminal display
- * Returns null for events that shouldn't be displayed (system init, user messages)
- */
 export function formatDroidEventForDisplay(event: DroidStreamEvent): string | null {
   switch (event.type) {
     case "system":
@@ -99,10 +90,6 @@ export function formatDroidEventForDisplay(event: DroidStreamEvent): string | nu
   }
 }
 
-/**
- * Extract the final result text from Droid's JSONL output.
- * Finds the last 'completion' event and returns its finalText field.
- */
 export function extractDroidResult(output: string): string | null {
   if (!output.trim()) {
     return null;
@@ -121,9 +108,6 @@ export function extractDroidResult(output: string): string | null {
   return lastResult;
 }
 
-/**
- * Formatter for streamAndCapture. Wraps the display formatter.
- */
 export const formatDroidLine = createLineFormatter(
   parseDroidStreamEvent,
   formatDroidEventForDisplay

@@ -1,6 +1,5 @@
 /**
  * Claude agent configuration and stream handling
- * Integrates with Anthropic's Claude Code CLI
  */
 
 import type { AgentConfig, AgentRole, ReviewOptions } from "@/lib/types";
@@ -40,10 +39,6 @@ export const claudeConfig: AgentConfig = {
   buildEnv: defaultBuildEnv,
 };
 
-/**
- * Parse a single JSONL line into a ClaudeStreamEvent.
- * Returns null if the line is invalid or not a recognized event type.
- */
 export function parseClaudeStreamEvent(line: string): ClaudeStreamEvent | null {
   return parseJsonlEvent<ClaudeStreamEvent>(line);
 }
@@ -103,10 +98,6 @@ function formatResultEvent(event: ResultEvent): string {
   return `=== Result ===\n${event.result}`;
 }
 
-/**
- * Format a ClaudeStreamEvent for terminal display
- * Returns null for events that shouldn't be displayed (e.g., system init)
- */
 export function formatClaudeEventForDisplay(event: ClaudeStreamEvent): string | null {
   switch (event.type) {
     case "system":
@@ -126,10 +117,6 @@ export function formatClaudeEventForDisplay(event: ClaudeStreamEvent): string | 
   }
 }
 
-/**
- * Extract the final result text from Claude's JSONL output.
- * Finds the last 'result' event and returns its result field.
- */
 export function extractClaudeResult(output: string): string | null {
   if (!output.trim()) {
     return null;
@@ -148,9 +135,6 @@ export function extractClaudeResult(output: string): string | null {
   return lastResult;
 }
 
-/**
- * Formatter for streamAndCapture. Wraps the display formatter.
- */
 export const formatClaudeLine = createLineFormatter(
   parseClaudeStreamEvent,
   formatClaudeEventForDisplay

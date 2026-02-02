@@ -1,12 +1,5 @@
-/**
- * Display name utilities for agents and models
- */
-
 import type { AgentType } from "@/lib/types";
 
-/**
- * Agent display options
- */
 export const agentOptions = [
   { value: "claude", label: "Claude", hint: "Anthropic" },
   { value: "codex", label: "Codex", hint: "OpenAI" },
@@ -48,9 +41,6 @@ export const geminiModelOptions = [
   { value: "gemini-3-flash-preview", label: "Gemini 3 Flash" },
 ] as const;
 
-/**
- * Get display name for an agent type
- */
 export function getAgentDisplayName(agent: AgentType): string {
   const option = agentOptions.find((opt) => opt.value === agent);
   return option?.label ?? agent;
@@ -64,9 +54,6 @@ const modelOptionsMap: Record<AgentType, readonly { value: string; label: string
   opencode: null,
 };
 
-/**
- * Get display name for a model
- */
 export function getModelDisplayName(agent: AgentType, model: string): string {
   const options = modelOptionsMap[agent];
   if (!options) {

@@ -1,6 +1,5 @@
 /**
  * Gemini agent configuration and stream handling
- * Integrates with Gemini CLI
  */
 
 import type { AgentConfig, AgentRole, ReviewOptions } from "@/lib/types";
@@ -39,10 +38,6 @@ export const geminiConfig: AgentConfig = {
   buildEnv: defaultBuildEnv,
 };
 
-/**
- * Parse a single JSONL line into a GeminiStreamEvent.
- * Returns null if the line is invalid or not a recognized event type.
- */
 export function parseGeminiStreamEvent(line: string): GeminiStreamEvent | null {
   return parseJsonlEvent<GeminiStreamEvent>(line, true);
 }
@@ -71,10 +66,6 @@ function formatResultEvent(event: GeminiResultEvent): string {
   return `=== Result: ${event.status} ===`;
 }
 
-/**
- * Format a GeminiStreamEvent for terminal display
- * Returns null for events that shouldn't be displayed (init, user messages)
- */
 export function formatGeminiEventForDisplay(event: GeminiStreamEvent): string | null {
   switch (event.type) {
     case "init":
@@ -97,10 +88,6 @@ export function formatGeminiEventForDisplay(event: GeminiStreamEvent): string | 
   }
 }
 
-/**
- * Extract the final result text from Gemini's JSONL output.
- * Concatenates all assistant message deltas to form the complete response.
- */
 export function extractGeminiResult(output: string): string | null {
   if (!output.trim()) {
     return null;
@@ -125,9 +112,6 @@ export function extractGeminiResult(output: string): string | null {
   return concatenatedContent;
 }
 
-/**
- * Formatter for streamAndCapture. Wraps the display formatter.
- */
 export const formatGeminiLine = createLineFormatter(
   parseGeminiStreamEvent,
   formatGeminiEventForDisplay
