@@ -4,11 +4,12 @@
 
 import type { LockData } from "@/lib/lockfile";
 import type {
-  DerivedRunStatus,
+  AgentRole,
   FixEntry,
   IterationEntry,
   Priority,
   ProjectStats,
+  ReviewOptions,
   SessionStats,
   SkippedEntry,
 } from "@/lib/types";
@@ -96,6 +97,8 @@ interface SessionPanelProps {
   lastSessionStats: SessionStats | null;
   projectStats: ProjectStats | null;
   isGitRepo: boolean;
+  currentAgent: AgentRole | null;
+  reviewOptions: ReviewOptions | undefined;
 }
 
 /**
@@ -120,7 +123,10 @@ function formatRelativeTime(timestamp: number): string {
 /**
  * Get display text and color for a session status
  */
-function getStatusDisplay(status: DerivedRunStatus): { text: string; color: string } {
+function getStatusDisplay(
+  status: string,
+  currentAgent: AgentRole | null
+): { text: string; color: string } {
   switch (status) {
     case "completed":
       return { text: "completed", color: "#22c55e" }; // green
@@ -129,10 +135,41 @@ function getStatusDisplay(status: DerivedRunStatus): { text: string; color: stri
     case "interrupted":
       return { text: "interrupted", color: "#f97316" }; // orange
     case "running":
+      if (currentAgent) {
+        return { text: `running ${currentAgent} agent`, color: "#22c55e" }; // green
+      }
       return { text: "running", color: "#22c55e" }; // green
+    case "pending":
+      return { text: "pending", color: "#eab308" }; // yellow
     default:
       return { text: "unknown", color: "#6b7280" }; // gray
   }
+}
+
+/**
+ * Format review type for display based on ReviewOptions
+ * Handles all 4 review types: uncommitted, base branch, commit SHA, custom instructions
+ */
+function formatReviewType(reviewOptions: ReviewOptions | undefined): string {
+  if (!reviewOptions) return "uncommitted changes";
+
+  if (reviewOptions.customInstructions) {
+    const instruction = reviewOptions.customInstructions.slice(0, 40);
+    return reviewOptions.customInstructions.length > 40
+      ? `custom: ${instruction}...`
+      : `custom: ${instruction}`;
+  }
+
+  if (reviewOptions.commitSha) {
+    const shortSha = reviewOptions.commitSha.slice(0, 7);
+    return `commit: ${shortSha}`;
+  }
+
+  if (reviewOptions.baseBranch) {
+    return `base: ${reviewOptions.baseBranch}`;
+  }
+
+  return "uncommitted changes";
 }
 
 /**
@@ -212,6 +249,8 @@ export function SessionPanel({
   lastSessionStats,
   projectStats,
   isGitRepo,
+  currentAgent,
+  reviewOptions,
 }: SessionPanelProps) {
   const minWidth = 40;
 
@@ -251,7 +290,7 @@ export function SessionPanel({
     }
 
     // Has previous sessions - show full info
-    const statusDisplay = getStatusDisplay(lastSessionStats.status);
+    const statusDisplay = getStatusDisplay(lastSessionStats.status, null);
     const lastSessionFixes = extractFixesFromStats(lastSessionStats);
 
     return (
@@ -318,8 +357,7 @@ export function SessionPanel({
   }
 
   const iteration = session.iteration ?? 0;
-  const statusColor = session.status === "running" ? "#22c55e" : "#eab308";
-  const statusText = session.status ?? "unknown";
+  const statusDisplay = getStatusDisplay(session.status ?? "unknown", currentAgent);
 
   return (
     <box
@@ -334,10 +372,16 @@ export function SessionPanel({
       {/* Status */}
       <box flexDirection="row" gap={1}>
         <text fg="#9ca3af">Status:</text>
-        {session.status === "running" && <Spinner color={statusColor} />}
-        <text fg={statusColor}>
-          <strong>{statusText}</strong>
+        {session.status === "running" && <Spinner color={statusDisplay.color} />}
+        <text fg={statusDisplay.color}>
+          <strong>{statusDisplay.text}</strong>
         </text>
+      </box>
+
+      {/* Review Type */}
+      <box flexDirection="row" gap={1}>
+        <text fg="#9ca3af">Review Type:</text>
+        <text fg="#f9fafb">{formatReviewType(reviewOptions)}</text>
       </box>
 
       {/* Iteration progress */}

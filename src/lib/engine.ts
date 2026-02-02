@@ -5,6 +5,7 @@
 
 import { createFixerPrompt, createReviewerPrompt, FIXER_NO_ISSUES_MARKER } from "@/lib/prompts";
 import { AGENTS, runAgent } from "./agents";
+import { updateLockfile } from "./lockfile";
 import { appendLog, createLogSession, getGitBranch } from "./logger";
 import type {
   AgentRole,
@@ -421,6 +422,7 @@ export async function runReviewCycle(
     }
 
     // Always run fixer after reviewer to verify findings and apply fixes
+    await updateLockfile(undefined, projectPath, { currentAgent: "fixer" }).catch(() => {});
     printHeader("Running fixer to verify and apply fixes...", "\x1b[35m"); // Magenta
 
     // Parse review summary and extract text for fixer

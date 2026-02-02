@@ -1,7 +1,7 @@
 import type { AgentSettings } from "./config";
 import type { FixSummary } from "./fix";
 import type { CodexReviewSummary, ReviewSummary } from "./review";
-import type { IterationError } from "./run";
+import type { IterationError, ReviewOptions } from "./run";
 
 /** Initial entry with run configuration and git state */
 export interface SystemEntry {
@@ -12,6 +12,7 @@ export interface SystemEntry {
   reviewer: AgentSettings;
   fixer: AgentSettings;
   maxIterations: number;
+  reviewOptions?: ReviewOptions;
 }
 
 export interface IterationEntry {

@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { loadConfig } from "@/lib/config";
 import { ensureGitRepositoryAsync } from "@/lib/git";
+import type { LockData } from "@/lib/lockfile";
 import { listAllActiveSessions, readLockfile } from "@/lib/lockfile";
 import {
   computeProjectStats,
@@ -16,9 +17,11 @@ import {
 } from "@/lib/logger";
 import { getSessionOutput } from "@/lib/tmux";
 import type {
+  AgentRole,
   FixEntry,
   IterationEntry,
   ProjectStats,
+  ReviewOptions,
   SessionStats,
   SkippedEntry,
   SystemEntry,
@@ -27,6 +30,10 @@ import type { DashboardState } from "./types";
 
 const DEFAULT_REFRESH_INTERVAL = 1000;
 const TMUX_REFRESH_INTERVAL = 300;
+
+export function getCurrentAgentFromLockData(lockData: LockData | null): AgentRole | null {
+  return lockData?.currentAgent ?? null;
+}
 
 export function useDashboardState(
   projectPath: string,
@@ -48,6 +55,8 @@ export function useDashboardState(
     projectStats: null,
     config: null,
     isGitRepo: true,
+    currentAgent: null,
+    reviewOptions: undefined,
   });
 
   const stateRef = useRef(state);
@@ -79,10 +88,13 @@ export function useDashboardState(
       const fixes: FixEntry[] = [];
       const skipped: SkippedEntry[] = [];
       let maxIterations = 0;
+      let reviewOptions: ReviewOptions | undefined;
 
       for (const entry of logEntries) {
         if (entry.type === "system") {
-          maxIterations = (entry as SystemEntry).maxIterations;
+          const systemEntry = entry as SystemEntry;
+          maxIterations = systemEntry.maxIterations;
+          reviewOptions = systemEntry.reviewOptions;
         } else if (entry.type === "iteration") {
           const iterEntry = entry as IterationEntry;
           if (iterEntry.fixes) {
@@ -129,6 +141,8 @@ export function useDashboardState(
         }
       }
 
+      const currentAgent = getCurrentAgentFromLockData(lockData);
+
       setState({
         sessions,
         currentSession: lockData,
@@ -144,6 +158,8 @@ export function useDashboardState(
         projectStats,
         config,
         isGitRepo,
+        currentAgent,
+        reviewOptions,
       });
     } catch (error) {
       setState((prev: DashboardState) => ({

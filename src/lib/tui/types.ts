@@ -1,9 +1,11 @@
 import type { ActiveSession, LockData } from "@/lib/lockfile";
 import type {
+  AgentRole,
   Config,
   FixEntry,
   LogEntry,
   ProjectStats,
+  ReviewOptions,
   SessionStats,
   SkippedEntry,
 } from "@/lib/types";
@@ -26,6 +28,8 @@ export interface DashboardState {
   projectStats: ProjectStats | null;
   config: Config | null;
   isGitRepo: boolean;
+  currentAgent: AgentRole | null;
+  reviewOptions: ReviewOptions | undefined;
 }
 
 export interface DashboardProps {

@@ -112,6 +112,8 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
           lastSessionStats={state.lastSessionStats}
           projectStats={state.projectStats}
           isGitRepo={state.isGitRepo}
+          currentAgent={state.currentAgent}
+          reviewOptions={state.reviewOptions}
         />
         <OutputPanel
           output={state.tmuxOutput}
