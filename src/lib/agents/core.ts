@@ -9,6 +9,77 @@
 export type StreamFormatter = (line: string) => string | null;
 
 /**
+ * Parse a single JSONL line into a typed event.
+ * Returns null if the line is invalid or not a recognized event type.
+ *
+ * @param line - The JSONL line to parse
+ * @param requiresObjectPrefix - If true, rejects lines not starting with '{'
+ */
+export function parseJsonlEvent<T>(line: string, requiresObjectPrefix?: boolean): T | null {
+  if (!line.trim()) {
+    return null;
+  }
+
+  if (requiresObjectPrefix && !line.startsWith("{")) {
+    return null;
+  }
+
+  try {
+    const parsed: unknown = JSON.parse(line);
+
+    if (typeof parsed !== "object" || parsed === null) {
+      return null;
+    }
+
+    const obj = parsed as Record<string, unknown>;
+    if (typeof obj.type !== "string") {
+      return null;
+    }
+
+    return parsed as T;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Default buildEnv implementation that passes through process.env
+ */
+export function defaultBuildEnv(): Record<string, string> {
+  return {
+    ...(process.env as Record<string, string>),
+  };
+}
+
+/**
+ * Factory function to create a line formatter for streamAndCapture.
+ * Combines a parser and display formatter into a single StreamFormatter.
+ *
+ * @param parser - Function to parse a JSONL line into an event
+ * @param displayFormatter - Function to format an event for display
+ */
+export function createLineFormatter<T>(
+  parser: (line: string) => T | null,
+  displayFormatter: (event: T) => string | null
+): StreamFormatter {
+  return (line: string): string | null => {
+    const event = parser(line);
+    if (event) {
+      return displayFormatter(event) ?? "";
+    }
+    return null;
+  };
+}
+
+/**
+ * Strip <system-reminder> tags and their content from text.
+ */
+export function stripSystemReminders(text: unknown): string {
+  const normalized = typeof text === "string" ? text : String(text ?? "");
+  return normalized.replace(/<system-reminder>[\s\S]*?<\/system-reminder>\s*/g, "").trim();
+}
+
+/**
  * Check if an agent is available on the system
  */
 export function isAgentAvailable(command: string): boolean {
