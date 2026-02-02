@@ -47,14 +47,19 @@
     "typecheck": "tsc --noEmit",
     "knip": "knip-bun",
     "lint": "biome check --write .",
+    "lint-staged": "lint-staged",
     "check": "bun run typecheck && bun run knip && bun run lint && AGENT=1 bun test",
-    "ci": "biome ci ."
+    "ci": "biome ci .",
+    "prepare": "husky && bun run setup-hooks",
+    "setup-hooks": "bun -e 'await Bun.write(\".husky/pre-commit\", \"#!/usr/bin/env sh\\n\\nbun run knip && bun run lint-staged\\n\")' && chmod +x .husky/pre-commit"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.3.12",
     "@types/bun": "latest",
     "@types/react": "^19.0.0",
+    "husky": "^9.1.7",
     "knip": "^5.82.1",
+    "lint-staged": "^16.2.7",
     "typescript": "^5"
   },
   "peerDependencies": {},
