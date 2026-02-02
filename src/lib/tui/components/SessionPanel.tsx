@@ -1,71 +1,27 @@
+import { useTerminalDimensions } from "@opentui/react";
 import type { LockData } from "@/lib/lockfile";
 import type {
   AgentRole,
   Finding,
   FixEntry,
-  IterationEntry,
   Priority,
   ProjectStats,
   ReviewOptions,
   SessionStats,
   SkippedEntry,
 } from "@/lib/types";
+import { VALID_PRIORITIES } from "@/lib/types/domain";
+import {
+  extractFixesFromStats,
+  formatPriorityBreakdown,
+  formatProjectStatsSummary,
+  formatRelativeTime,
+  PRIORITY_COLORS,
+  truncateFilePath,
+  truncateText,
+  UNKNOWN_PRIORITY_COLOR,
+} from "../session-panel-utils";
 import { Spinner } from "./Spinner";
-
-export function truncateText(text: string, maxLength: number): string {
-  if (text.length <= maxLength) return text;
-  if (maxLength <= 1) return "…";
-  return `${text.slice(0, maxLength - 1)}…`;
-}
-
-export function truncateFilePath(filePath: string, maxLength: number): string {
-  if (!filePath || filePath.length <= maxLength) return filePath;
-
-  const lastSlash = filePath.lastIndexOf("/");
-  if (lastSlash === -1) return truncateText(filePath, maxLength);
-
-  const filename = filePath.slice(lastSlash + 1);
-  const remaining = maxLength - filename.length - 2;
-
-  if (remaining <= 0) {
-    return `…/${filename}`;
-  }
-
-  const directory = filePath.slice(0, lastSlash);
-  const truncatedDir = directory.slice(-remaining);
-  const nextSlash = truncatedDir.indexOf("/");
-
-  if (nextSlash !== -1) {
-    return `…${truncatedDir.slice(nextSlash)}/${filename}`;
-  }
-  return `…/${filename}`;
-}
-
-export function formatPriorityBreakdown(
-  counts: Record<Priority, number>
-): Array<{ priority: Priority; count: number }> {
-  const priorities: Priority[] = ["P0", "P1", "P2", "P3"];
-  return priorities.map((p) => ({ priority: p, count: counts[p] }));
-}
-
-export function formatProjectStatsSummary(totalFixes: number, sessionCount: number): string {
-  const fixWord = totalFixes === 1 ? "fix" : "fixes";
-  const sessionWord = sessionCount === 1 ? "session" : "sessions";
-  return `${totalFixes} ${fixWord} across ${sessionCount} ${sessionWord}`;
-}
-
-export function extractFixesFromStats(stats: SessionStats): FixEntry[] {
-  const fixes: FixEntry[] = [];
-  for (const entry of stats.entries) {
-    if (entry.type === "iteration") {
-      const iterEntry = entry as IterationEntry;
-      if (iterEntry.fixes?.fixes) {
-        fixes.push(...iterEntry.fixes.fixes);
-      }
-    }
-  }
-  return fixes;
-}
 
 interface SessionPanelProps {
   session: LockData | null;
@@ -80,22 +36,6 @@ interface SessionPanelProps {
   isGitRepo: boolean;
   currentAgent: AgentRole | null;
   reviewOptions: ReviewOptions | undefined;
-}
-
-function formatRelativeTime(timestamp: number): string {
-  const now = Date.now();
-  const diff = now - timestamp;
-
-  const seconds = Math.floor(diff / 1000);
-  const minutes = Math.floor(seconds / 60);
-  const hours = Math.floor(minutes / 60);
-  const days = Math.floor(hours / 24);
-
-  if (days > 1) return `${days}d ago`;
-  if (days === 1) return "yesterday";
-  if (hours > 0) return `${hours}h ago`;
-  if (minutes > 0) return `${minutes}m ago`;
-  return "just now";
 }
 
 function getStatusDisplay(
@@ -143,30 +83,42 @@ function formatReviewType(reviewOptions: ReviewOptions | undefined): string {
   return "uncommitted changes";
 }
 
-const PRIORITY_COLORS: Record<Priority, string> = {
-  P0: "#ef4444",
-  P1: "#f97316",
-  P2: "#eab308",
-  P3: "#22c55e",
-};
-
-const UNKNOWN_PRIORITY_COLOR = "#6b7280";
-
 interface FixListProps {
   fixes: FixEntry[];
   showFiles: boolean;
   maxHeight?: number;
 }
 
-function priorityToString(priority: number | undefined): string {
+function priorityToString(priority: number | undefined): Priority | "P?" {
   if (priority === undefined) return "P?";
-  if (priority >= 0 && priority <= 3) return `P${priority}`;
-  return "P?";
+  const key = `P${priority}` as Priority;
+  return VALID_PRIORITIES.includes(key) ? key : "P?";
+}
+
+function GitRepoWarning({ isGitRepo }: { isGitRepo: boolean }) {
+  if (isGitRepo) return null;
+  return (
+    <box flexDirection="column" paddingBottom={1}>
+      <text fg="#f97316">
+        <strong>Not a git repository</strong>
+      </text>
+      <text fg="#6b7280">Run "git init" to initialize</text>
+    </box>
+  );
 }
 
 interface FindingsListProps {
   findings: Finding[];
   maxHeight?: number;
+}
+
+interface SkippedListProps {
+  skipped: SkippedEntry[];
+  maxHeight?: number;
+}
+
+function countCodexReviewLines(text: string): number {
+  return text.split("\n").filter((line) => line.trim() !== "").length;
 }
 
 function FindingsList({ findings, maxHeight = 8 }: FindingsListProps) {
@@ -206,6 +158,47 @@ function FindingsList({ findings, maxHeight = 8 }: FindingsListProps) {
       </box>
     );
   });
+
+  if (needsScroll) {
+    return (
+      <scrollbox paddingLeft={2} height={maxHeight}>
+        {content}
+      </scrollbox>
+    );
+  }
+
+  return (
+    <box flexDirection="column" paddingLeft={2}>
+      {content}
+    </box>
+  );
+}
+
+function SkippedList({ skipped, maxHeight = 6 }: SkippedListProps) {
+  if (skipped.length === 0) {
+    return (
+      <text fg="#6b7280" paddingLeft={2}>
+        None yet
+      </text>
+    );
+  }
+
+  const linesPerItem = 2;
+  const totalLines = skipped.length * linesPerItem;
+  const needsScroll = totalLines > maxHeight;
+
+  const content = skipped.map((entry, index) => (
+    <box key={`${index}-${entry.id}`} flexDirection="column">
+      <box flexDirection="row">
+        <text fg="#6b7280">SKIP</text>
+        <text fg="#6b7280"> ▸ </text>
+        <text fg="#e5e7eb">{truncateText(entry.title, 42)}</text>
+      </box>
+      <text fg="#6b7280" paddingLeft={6}>
+        {truncateText(entry.reason, 54)}
+      </text>
+    </box>
+  ));
 
   if (needsScroll) {
     return (
@@ -281,11 +274,11 @@ function FixList({ fixes, showFiles, maxHeight = 8 }: FixListProps) {
           {fix.priority}
         </text>
         <text fg="#6b7280"> ▸ </text>
-        <text fg="#e5e7eb">{fix.title}</text>
+        <text fg="#e5e7eb">{truncateText(fix.title, 44)}</text>
       </box>
       {showFiles && fix.file && (
         <text fg="#6b7280" paddingLeft={5}>
-          {fix.file}
+          {truncateFilePath(fix.file, 50)}
         </text>
       )}
     </box>
@@ -321,6 +314,7 @@ export function SessionPanel({
   reviewOptions,
 }: SessionPanelProps) {
   const minWidth = 50;
+  const { height: terminalHeight } = useTerminalDimensions();
 
   if (isLoading) {
     return (
@@ -342,14 +336,7 @@ export function SessionPanel({
           flexDirection="column"
           gap={1}
         >
-          {!isGitRepo && (
-            <box flexDirection="column" paddingBottom={1}>
-              <text fg="#f97316">
-                <strong>Not a git repository</strong>
-              </text>
-              <text fg="#6b7280">Run "git init" to initialize</text>
-            </box>
-          )}
+          <GitRepoWarning isGitRepo={isGitRepo} />
           <text fg="#9ca3af">No active session</text>
 
           <text fg="#6b7280">Start a review with "rr run"</text>
@@ -370,14 +357,7 @@ export function SessionPanel({
         flexDirection="column"
         gap={1}
       >
-        {!isGitRepo && (
-          <box flexDirection="column" paddingBottom={1}>
-            <text fg="#f97316">
-              <strong>Not a git repository</strong>
-            </text>
-            <text fg="#6b7280">Run "git init" to initialize</text>
-          </box>
-        )}
+        <GitRepoWarning isGitRepo={isGitRepo} />
         <text fg="#9ca3af">No active session</text>
 
         {projectStats && projectStats.totalFixes > 0 && (
@@ -423,6 +403,18 @@ export function SessionPanel({
   const iteration = session.iteration ?? 0;
   const statusDisplay = getStatusDisplay(session.status ?? "unknown", currentAgent);
 
+  const verifyCount =
+    codexReviewText && findings.length === 0
+      ? countCodexReviewLines(codexReviewText)
+      : findings.length;
+  const appliedCount = fixes.length;
+  const skippedCount = skipped.length;
+
+  const listHeightBudget = Math.max(10, terminalHeight - 23);
+  const verifyMaxHeight = Math.max(4, Math.floor(listHeightBudget * 0.5));
+  const appliedMaxHeight = Math.max(3, Math.floor(listHeightBudget * 0.3));
+  const skippedMaxHeight = Math.max(3, listHeightBudget - verifyMaxHeight - appliedMaxHeight);
+
   return (
     <box
       border
@@ -454,27 +446,39 @@ export function SessionPanel({
       </box>
 
       <box flexDirection="column">
-        <text fg="#9ca3af">
-          Issues Found ({codexReviewText && findings.length === 0 ? "codex" : findings.length}):
+        <text>
+          <span fg="#9ca3af">
+            <strong>Needs verify</strong>
+          </span>
+          <span fg="#6b7280"> ({verifyCount})</span>
+          {codexReviewText && findings.length === 0 && <span fg="#6b7280"> · codex</span>}
         </text>
         {codexReviewText && findings.length === 0 ? (
-          <CodexReviewDisplay text={codexReviewText} />
+          <CodexReviewDisplay text={codexReviewText} maxHeight={verifyMaxHeight} />
         ) : (
-          <FindingsList findings={findings} />
+          <FindingsList findings={findings} maxHeight={verifyMaxHeight} />
         )}
       </box>
 
       <box flexDirection="column">
-        <text fg="#9ca3af">Fixes Applied ({fixes.length}):</text>
-        <FixList fixes={fixes} showFiles={false} />
+        <text>
+          <span fg="#9ca3af">
+            <strong>Fix applied</strong>
+          </span>
+          <span fg="#6b7280"> ({appliedCount})</span>
+        </text>
+        <FixList fixes={fixes} showFiles={true} maxHeight={appliedMaxHeight} />
       </box>
 
-      {skipped.length > 0 && (
-        <box flexDirection="row" gap={1}>
-          <text fg="#9ca3af">Skipped:</text>
-          <text fg="#6b7280">{skipped.length}</text>
-        </box>
-      )}
+      <box flexDirection="column">
+        <text>
+          <span fg="#9ca3af">
+            <strong>Skipped</strong>
+          </span>
+          <span fg="#6b7280"> ({skippedCount})</span>
+        </text>
+        <SkippedList skipped={skipped} maxHeight={skippedMaxHeight} />
+      </box>
     </box>
   );
 }

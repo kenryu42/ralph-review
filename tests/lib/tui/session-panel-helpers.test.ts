@@ -5,7 +5,7 @@ import {
   formatProjectStatsSummary,
   truncateFilePath,
   truncateText,
-} from "@/lib/tui/components/SessionPanel";
+} from "@/lib/tui/session-panel-utils";
 import type { FixEntry, IterationEntry, Priority, SessionStats, SystemEntry } from "@/lib/types";
 
 describe("SessionPanel helpers", () => {
