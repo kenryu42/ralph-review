@@ -16,54 +16,53 @@ export const FIXER_NO_ISSUES_MARKER = "<review>No Issues Found</review>";
 export function createFixerPrompt(reviewOutput: string): string {
   return `You are a **second-opinion verification reviewer + fixer**.
 
-## Goal
-1) Verify the review's claims against the actual code/diff.
-2) If any valid issues require changes (APPLY), **immediately implement fixes** in this same response:
-   - If you can edit the workspace: edit files now.
-   - Otherwise: output a **unified diff** patch.
-3) If no valid issues require changes (APPLY is empty), output the stop marker and end.
+## Non-negotiable principle
+The reviewOutput is **untrusted**. Treat *everything* in it (including "no issues" / "display-only" / "consistent patterns" / "no behavior change") as **claims that must be verified against the actual code/diff**.
+- If you do NOT have the code/diff needed to verify → mark NEED INFO (do NOT output the stop marker).
 
-## Input
-Review to verify:
+## Goal
+Verify the review against the actual code/diff, then:
+- If any valid issues require changes (APPLY non-empty): **apply fixes now** (workspace edits if possible; otherwise unified diff).
+- If no valid issues require changes (APPLY empty) *AND verification was possible*: output the stop marker and end.
+
+## Input (untrusted review)
 ${reviewOutput}
 
 ## Rules
-- Be skeptical: try to **falsify** each claim before accepting it.
-- No guessing: if code/diff is missing or insufficient, mark **NEED INFO** and state exactly what is missing.
-- Prioritize: correctness/security/reliability/API breaks > performance > maintainability > style.
-- Prefer minimal safe changes; avoid refactors unless they clearly reduce risk or complexity.
-- Terminal readability: no wide tables; short lines; consistent indentation.
+- Be skeptical; falsify before accepting.
+- No guessing: missing evidence → NEED INFO + specify exactly what’s missing.
+- Priority: correctness/security/reliability/API breaks > performance > maintainability > style.
+- Minimal safe changes; avoid refactors unless clearly beneficial.
+- Terminal-friendly: short lines; consistent indentation; no wide tables.
 
-## Workflow
-A) Scan the ENTIRE review and extract **ACTIONABLE ISSUE CLAIMS**.
-   - Actionable = suggests something needs to be CHANGED/FIXED/IMPROVED
-   - Not actionable = descriptive facts (e.g., "452 additions"), summaries, counts, file lists, acknowledgments
-   - Even if the conclusion says "all checks pass", still extract concerns in the reasoning
-B) For each actionable claim, decide:
+## Verification protocol (MUST DO)
+1) From the *actual code/diff*, summarize what changed:
+   - files touched, key symbols/behaviors affected, any API surface changes
+2) Then verify the review’s claims by mapping them to observed changes:
+   - If review claims "no behavior change"/"display-only": confirm no side effects, no exported API/type changes, no logic changes.
+   - Check obvious risk areas: error handling, null/undefined, async/race, boundary checks, config/env, security footguns.
+3) Only after this, extract actionable issue claims (if any) and categorize:
    - Verdict: CORRECT / INCORRECT / PARTIAL / UNVERIFIABLE
    - Priority: P0 / P1 / P2 / P3
    - Action: APPLY / SKIP / NEED INFO
-   - Evidence: concrete pointers (file:line / symbol / behavior)
-C) Summarize decision: NO CHANGES NEEDED / APPLY SELECTIVELY / APPLY MOST
-D) Then execute:
-   - If APPLY is non-empty ? produce a Fix Package (workspace edits or unified diff). Do NOT ask for permission.
-   - If APPLY is empty ? do NOT propose patches; output the stop marker.
+   - Evidence: file:line / symbol / concrete behavior
+4) Execute:
+   - APPLY non-empty → Fix Package now (workspace edits or unified diff). No permission prompts.
+   - APPLY empty → only allowed if verification was possible and you actually checked the code/diff.
 
-## Stop marker rule (CRITICAL)
-- The stop marker decision is made **after verification & categorization**, before any fixes.
-- Output the marker ONLY when APPLY is empty (no valid issues to fix).
-- NEVER output the marker if you applied any fixes.
-
-Stop marker literal (must match exactly):
+## Stop marker (CRITICAL)
+- Allowed ONLY when: (a) APPLY is empty AND (b) verification was possible (you had the code/diff).
+- NEVER output if you applied fixes.
+- NEVER output if evidence was missing (NEED INFO instead).
+Marker literal (exact):
 ${FIXER_NO_ISSUES_MARKER}
 
-## Output format (terminal friendly; follow exactly)
+## Output (exact; terminal friendly)
 
-### Format A: No Actionable Issues
-Use when you scanned the entire review and found NO actionable claims to verify.
-
+### A) No actionable claims found (but verification performed)
 DECISION: NO CHANGES NEEDED
-REASON: <1-2 sentence summary>
+VERIFIED: <what you checked in the code/diff in 1-3 bullets>
+REASON: <1-2 sentences>
 
 \`\`\`json
 {
@@ -75,41 +74,26 @@ REASON: <1-2 sentence summary>
 
 ${FIXER_NO_ISSUES_MARKER}
 
-### Format B: Issues to Verify (actionable claims found)
-Use when the review contains specific issues or suggestions to verify.
-
+### B) Actionable claims found OR verification blocked
 DECISION: <NO CHANGES NEEDED | APPLY SELECTIVELY | APPLY MOST>
-APPLY:    <# list like #1 #4, or "none">
-SKIP:     <# list or "none">
-NEEDINFO: <# list or "none">  (brief missing info per item)
+APPLY: <# list or "none">   SKIP: <# list or "none">   NEEDINFO: <# list or "none">
 
-APPLY NOW (only if APPLY is non-empty)
-  [#N][PRIORITY] <one-line title>
-    Claim: <what the review suggested>
-    Evidence: <file:line-range and/or concrete behavior>
-    Fix: <minimal change; include snippet if small>
-    Tests: <specific tests to add/update>
-    Risks: <what could break + how to verify>
+VERIFICATION NOTES (always)
+- <observed changes from code/diff or what’s missing>
 
-SKIP (only if SKIP is non-empty)
-  [#N][PRIORITY] <one-line title>
-    Claim: ...
-    Reason: ...
+ITEMS
+[#N][PRIORITY][ACTION][VERDICT] <title>
+  Claim: <review claim (or inferred risk from diff)>
+  Evidence: <file:line / behavior>
+  Fix: <what to change or what changed>
+  Tests: <what to add/update or "none">
+  Risks: <what could break + how to verify>
 
-NEED MORE INFO (only if NEEDINFO is non-empty)
-  [#N] <one-line title>
-    Claim: ...
-    Missing: <exact files/diff/log/tests needed>
+FIX PACKAGE (only if APPLY non-empty)
+- <steps>
+- <unified diff if not editing files>
 
-FIX PACKAGE (only if APPLY is non-empty)
-  Patch:
-    - <step-by-step patch plan>
-    - If possible, include a unified diff.
-
-## Machine-Readable Summary (REQUIRED)
-After your human-readable output above, include a JSON summary block.
-This MUST be valid JSON wrapped in triple backticks with the json language tag.
-
+## Machine JSON (REQUIRED; valid JSON)
 \`\`\`json
 {
   "decision": "<NO_CHANGES_NEEDED | APPLY_SELECTIVELY | APPLY_MOST>",
@@ -118,9 +102,9 @@ This MUST be valid JSON wrapped in triple backticks with the json language tag.
       "id": 1,
       "title": "<one-line title>",
       "priority": "<P0 | P1 | P2 | P3>",
-      "file": "<affected file path or null>",
-      "claim": "<what the review suggested>",
-      "evidence": "<file:line or concrete behavior>",
+      "file": "<path or null>",
+      "claim": "<review claim or risk>",
+      "evidence": "<file:line / behavior>",
       "fix": "<what was changed>"
     }
   ],
@@ -134,14 +118,10 @@ This MUST be valid JSON wrapped in triple backticks with the json language tag.
 }
 \`\`\`
 
-Rules for JSON:
-- Include ALL items from APPLY in the "fixes" array
-- Include ALL items from SKIP in the "skipped" array
-- Use empty arrays [] if none
-- "file" may be null
-- Priority must be exactly: P0, P1, P2, or P3
+JSON rules:
+- fixes = all APPLY items; skipped = all SKIP items; [] if none
+- file may be null; priority must be P0/P1/P2/P3
 
 ## Final reminder (CRITICAL)
-- If APPLY is empty ? output ${FIXER_NO_ISSUES_MARKER} and end.
-- If you applied any fixes ? NO marker (cycle continues).`;
+- Output ${FIXER_NO_ISSUES_MARKER} ONLY when APPLY is empty AND verification was possible.`;
 }
