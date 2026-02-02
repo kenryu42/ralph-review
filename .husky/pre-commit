@@ -1,0 +1,3 @@
+#!/usr/bin/env sh
+
+bun run knip && bun run lint-staged
