@@ -4,6 +4,7 @@
  */
 
 import type { AgentConfig, AgentRole, ReviewOptions } from "@/lib/types";
+import { createLineFormatter, defaultBuildEnv, parseJsonlEvent } from "./core";
 import type {
   CodexAgentMessageItem,
   CodexCommandExecutionItem,
@@ -11,6 +12,12 @@ import type {
   CodexReasoningItem,
   CodexStreamEvent,
 } from "./types";
+
+const commonConfig = ["--config", "model_reasoning_effort=high"] as const;
+
+function withModel(args: string[], model?: string): string[] {
+  return model ? [...args, "--model", model] : args;
+}
 
 export const codexConfig: AgentConfig = {
   command: "codex",
@@ -20,66 +27,32 @@ export const codexConfig: AgentConfig = {
     model?: string,
     reviewOptions?: ReviewOptions
   ): string[] => {
-    if (role === "reviewer") {
-      // Priority: commitSha > baseBranch > customInstructions > uncommitted
-      if (reviewOptions?.commitSha) {
-        const args = ["exec", "--json", "--config", "model_reasoning_effort=high", "review"];
-        args.push("--commit", reviewOptions.commitSha);
-        if (model) {
-          args.unshift("--model", model);
-        }
-        return args;
-      }
-
-      if (reviewOptions?.baseBranch) {
-        const args = ["exec", "--json", "--config", "model_reasoning_effort=high", "review"];
-        args.push("--base", reviewOptions.baseBranch);
-        if (model) {
-          args.unshift("--model", model);
-        }
-        return args;
-      }
-
-      if (reviewOptions?.customInstructions) {
-        // Custom mode: use exec with prompt instead of native review subcommand
-        const args = ["exec", "--full-auto", "--json", "--config", "model_reasoning_effort=high"];
-        if (model) {
-          args.unshift("--model", model);
-        }
-        const fullPrompt = prompt ? `review ${prompt}` : "review";
-        args.push(fullPrompt);
-        return args;
-      }
-
-      // Default: review uncommitted changes
-      const args = [
-        "exec",
-        "--json",
-        "--config",
-        "model_reasoning_effort=high",
-        "review",
-        "--uncommitted",
-      ];
-      if (model) {
-        args.unshift("--model", model);
-      }
-      return args;
-    } else {
-      const args = ["exec", "--full-auto", "--config", "model_reasoning_effort=high"];
-      if (model) {
-        args.push("--model", model);
-      }
-      if (prompt) {
-        args.push(prompt);
-      }
-      return args;
+    // Fixer role: exec with full-auto
+    if (role !== "reviewer") {
+      const args = ["exec", "--full-auto", ...commonConfig];
+      return prompt ? withModel([...args, prompt], model) : withModel(args, model);
     }
+
+    // Reviewer role - priority: commitSha > baseBranch > customInstructions > uncommitted
+    const baseReviewArgs = ["exec", "--json", ...commonConfig, "review"];
+
+    if (reviewOptions?.commitSha) {
+      return withModel([...baseReviewArgs, "--commit", reviewOptions.commitSha], model);
+    }
+
+    if (reviewOptions?.baseBranch) {
+      return withModel([...baseReviewArgs, "--base", reviewOptions.baseBranch], model);
+    }
+
+    // Custom mode: exec with prompt instead of native review subcommand
+    if (reviewOptions?.customInstructions) {
+      const fullPrompt = prompt ? `review ${prompt}` : "review";
+      return withModel(["exec", "--full-auto", "--json", ...commonConfig, fullPrompt], model);
+    }
+
+    return withModel([...baseReviewArgs, "--uncommitted"], model);
   },
-  buildEnv: (): Record<string, string> => {
-    return {
-      ...(process.env as Record<string, string>),
-    };
-  },
+  buildEnv: defaultBuildEnv,
 };
 
 /**
@@ -87,26 +60,7 @@ export const codexConfig: AgentConfig = {
  * Returns null if the line is invalid or not a recognized event type.
  */
 export function parseCodexStreamEvent(line: string): CodexStreamEvent | null {
-  if (!line.trim()) {
-    return null;
-  }
-
-  try {
-    const parsed: unknown = JSON.parse(line);
-
-    if (typeof parsed !== "object" || parsed === null) {
-      return null;
-    }
-
-    const obj = parsed as Record<string, unknown>;
-    if (typeof obj.type !== "string") {
-      return null;
-    }
-
-    return parsed as CodexStreamEvent;
-  } catch {
-    return null;
-  }
+  return parseJsonlEvent<CodexStreamEvent>(line);
 }
 
 /**
@@ -140,21 +94,10 @@ function formatAgentMessageForDisplay(item: CodexAgentMessageItem): string {
 function formatItemStartedForDisplay(
   event: Extract<CodexStreamEvent, { type: "item.started" }>
 ): string | null {
-  const item = event.item;
-
-  switch (item.type) {
-    case "reasoning":
-      return null;
-
-    case "command_execution":
-      return `--- Command: ${extractShellCommand(item.command)} ---`;
-
-    case "agent_message":
-      return null;
-
-    default:
-      return null;
+  if (event.item.type === "command_execution") {
+    return `--- Command: ${extractShellCommand(event.item.command)} ---`;
   }
+  return null;
 }
 
 function formatItemCompletedForDisplay(
@@ -227,10 +170,7 @@ export function extractCodexResult(output: string): string | null {
 /**
  * Formatter for streamAndCapture. Wraps the display formatter.
  */
-export function formatCodexLine(line: string): string | null {
-  const event = parseCodexStreamEvent(line);
-  if (event) {
-    return formatCodexEventForDisplay(event) ?? "";
-  }
-  return null;
-}
+export const formatCodexLine = createLineFormatter(
+  parseCodexStreamEvent,
+  formatCodexEventForDisplay
+);
