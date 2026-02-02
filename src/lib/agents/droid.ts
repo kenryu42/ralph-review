@@ -4,6 +4,12 @@
  */
 
 import type { AgentConfig, AgentRole, ReviewOptions } from "@/lib/types";
+import {
+  createLineFormatter,
+  defaultBuildEnv,
+  parseJsonlEvent,
+  stripSystemReminders,
+} from "./core";
 import type {
   DroidCompletionEvent,
   DroidMessageEvent,
@@ -35,11 +41,7 @@ export const droidConfig: AgentConfig = {
       prompt,
     ];
   },
-  buildEnv: (): Record<string, string> => {
-    return {
-      ...(process.env as Record<string, string>),
-    };
-  },
+  buildEnv: defaultBuildEnv,
 };
 
 /**
@@ -47,37 +49,7 @@ export const droidConfig: AgentConfig = {
  * Returns null if the line is invalid or not a recognized event type.
  */
 export function parseDroidStreamEvent(line: string): DroidStreamEvent | null {
-  if (!line.trim()) {
-    return null;
-  }
-
-  try {
-    const parsed: unknown = JSON.parse(line);
-
-    // Must be an object with a type field
-    if (typeof parsed !== "object" || parsed === null) {
-      return null;
-    }
-
-    const obj = parsed as Record<string, unknown>;
-    if (typeof obj.type !== "string") {
-      return null;
-    }
-
-    return parsed as DroidStreamEvent;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Strip <system-reminder> tags and their content from text.
- */
-function stripSystemReminders(text: unknown): string {
-  const normalized = typeof text === "string" ? text : String(text ?? "");
-  return normalized
-    .replace(/\u003csystem-reminder\u003e[\s\S]*?\u003c\/system-reminder\u003e\s*/g, "")
-    .trim();
+  return parseJsonlEvent<DroidStreamEvent>(line);
 }
 
 function formatMessageEvent(event: DroidMessageEvent): string | null {
@@ -152,10 +124,7 @@ export function extractDroidResult(output: string): string | null {
 /**
  * Formatter for streamAndCapture. Wraps the display formatter.
  */
-export function formatDroidLine(line: string): string | null {
-  const event = parseDroidStreamEvent(line);
-  if (event) {
-    return formatDroidEventForDisplay(event) ?? "";
-  }
-  return null;
-}
+export const formatDroidLine = createLineFormatter(
+  parseDroidStreamEvent,
+  formatDroidEventForDisplay
+);

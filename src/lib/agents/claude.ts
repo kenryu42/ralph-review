@@ -4,6 +4,7 @@
  */
 
 import type { AgentConfig, AgentRole, ReviewOptions } from "@/lib/types";
+import { createLineFormatter, defaultBuildEnv, parseJsonlEvent } from "./core";
 import type {
   AssistantContentBlock,
   AssistantEvent,
@@ -36,11 +37,7 @@ export const claudeConfig: AgentConfig = {
       "stream-json",
     ];
   },
-  buildEnv: (): Record<string, string> => {
-    return {
-      ...(process.env as Record<string, string>),
-    };
-  },
+  buildEnv: defaultBuildEnv,
 };
 
 /**
@@ -48,26 +45,7 @@ export const claudeConfig: AgentConfig = {
  * Returns null if the line is invalid or not a recognized event type.
  */
 export function parseClaudeStreamEvent(line: string): ClaudeStreamEvent | null {
-  if (!line.trim()) {
-    return null;
-  }
-
-  try {
-    const parsed: unknown = JSON.parse(line);
-
-    if (typeof parsed !== "object" || parsed === null) {
-      return null;
-    }
-
-    const obj = parsed as Record<string, unknown>;
-    if (typeof obj.type !== "string") {
-      return null;
-    }
-
-    return parsed as ClaudeStreamEvent;
-  } catch {
-    return null;
-  }
+  return parseJsonlEvent<ClaudeStreamEvent>(line);
 }
 
 function hasMessageContentArray(event: ClaudeStreamEvent): event is AssistantEvent | UserEvent {
@@ -194,10 +172,7 @@ export function extractClaudeResult(output: string): string | null {
 /**
  * Formatter for streamAndCapture. Wraps the display formatter.
  */
-export function formatClaudeLine(line: string): string | null {
-  const event = parseClaudeStreamEvent(line);
-  if (event) {
-    return formatClaudeEventForDisplay(event) ?? "";
-  }
-  return null;
-}
+export const formatClaudeLine = createLineFormatter(
+  parseClaudeStreamEvent,
+  formatClaudeEventForDisplay
+);

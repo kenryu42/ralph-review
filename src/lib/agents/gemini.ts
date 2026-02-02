@@ -4,6 +4,12 @@
  */
 
 import type { AgentConfig, AgentRole, ReviewOptions } from "@/lib/types";
+import {
+  createLineFormatter,
+  defaultBuildEnv,
+  parseJsonlEvent,
+  stripSystemReminders,
+} from "./core";
 import type {
   GeminiMessageEvent,
   GeminiResultEvent,
@@ -30,11 +36,7 @@ export const geminiConfig: AgentConfig = {
 
     return args;
   },
-  buildEnv: (): Record<string, string> => {
-    return {
-      ...(process.env as Record<string, string>),
-    };
-  },
+  buildEnv: defaultBuildEnv,
 };
 
 /**
@@ -42,39 +44,7 @@ export const geminiConfig: AgentConfig = {
  * Returns null if the line is invalid or not a recognized event type.
  */
 export function parseGeminiStreamEvent(line: string): GeminiStreamEvent | null {
-  if (!line.trim()) {
-    return null;
-  }
-
-  if (!line.startsWith("{")) {
-    return null;
-  }
-
-  try {
-    const parsed: unknown = JSON.parse(line);
-
-    if (typeof parsed !== "object" || parsed === null) {
-      return null;
-    }
-
-    const obj = parsed as Record<string, unknown>;
-    if (typeof obj.type !== "string") {
-      return null;
-    }
-
-    return parsed as GeminiStreamEvent;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Strip <system-reminder> tags and their content from text.
- */
-function stripSystemReminders(text: string): string {
-  return text
-    .replace(/\u003csystem-reminder\u003e[\s\S]*?\u003c\/system-reminder\u003e\s*/g, "")
-    .trim();
+  return parseJsonlEvent<GeminiStreamEvent>(line, true);
 }
 
 function formatMessageEvent(event: GeminiMessageEvent): string | null {
@@ -158,10 +128,7 @@ export function extractGeminiResult(output: string): string | null {
 /**
  * Formatter for streamAndCapture. Wraps the display formatter.
  */
-export function formatGeminiLine(line: string): string | null {
-  const event = parseGeminiStreamEvent(line);
-  if (event) {
-    return formatGeminiEventForDisplay(event) ?? "";
-  }
-  return null;
-}
+export const formatGeminiLine = createLineFormatter(
+  parseGeminiStreamEvent,
+  formatGeminiEventForDisplay
+);

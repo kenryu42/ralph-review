@@ -4,6 +4,7 @@
  */
 
 import type { AgentConfig, AgentRole, ReviewOptions } from "@/lib/types";
+import { defaultBuildEnv } from "./core";
 
 export const opencodeConfig: AgentConfig = {
   command: "opencode",
@@ -20,11 +21,7 @@ export const opencodeConfig: AgentConfig = {
     args.push(prompt);
     return args;
   },
-  buildEnv: (): Record<string, string> => {
-    return {
-      ...(process.env as Record<string, string>),
-    };
-  },
+  buildEnv: defaultBuildEnv,
 };
 
 // Result extraction is done inline in the AGENTS registry.
