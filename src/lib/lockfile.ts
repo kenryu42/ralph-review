@@ -23,6 +23,7 @@ export interface LockData {
   branch: string;
   iteration?: number;
   status?: "pending" | "running" | "completed" | "failed";
+  currentAgent?: "reviewer" | "fixer" | null;
 }
 
 /**
@@ -61,6 +62,7 @@ export async function createLockfile(
     projectPath,
     branch: branch?.trim() || DEFAULT_BRANCH,
     status: "pending",
+    currentAgent: null,
   };
 
   await Bun.write(lockPath, JSON.stringify(lockData, null, 2));

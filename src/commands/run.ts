@@ -206,7 +206,11 @@ export async function runForeground(args: string[] = []): Promise<void> {
 
   // Update lockfile with this foreground process's PID and "running" status
   // so it's not seen as stale (the launcher set status to "pending")
-  await updateLockfile(undefined, projectPath, { pid: process.pid, status: "running" });
+  await updateLockfile(undefined, projectPath, {
+    pid: process.pid,
+    status: "running",
+    currentAgent: "reviewer",
+  });
 
   p.intro("Ralph Review Loop");
 

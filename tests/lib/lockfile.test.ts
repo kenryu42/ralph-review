@@ -56,6 +56,7 @@ describe("lockfile", () => {
       expect(data?.branch).toBe("main");
       expect(data?.pid).toBe(process.pid);
       expect(data?.status).toBe("pending");
+      expect(data?.currentAgent).toBeNull();
       expect(typeof data?.startTime).toBe("number");
     });
 
@@ -102,6 +103,16 @@ describe("lockfile", () => {
       const data = await readLockfile(tempLogsDir, projectPath);
       expect(data?.iteration).toBe(3);
       expect(data?.sessionName).toBe("rr-test-123"); // preserved
+    });
+
+    test("updates currentAgent in existing lockfile", async () => {
+      const projectPath = "/Users/test/project-agent";
+
+      await createLockfile(tempLogsDir, projectPath, "rr-test-agent", "main");
+      await updateLockfile(tempLogsDir, projectPath, { currentAgent: "fixer" });
+
+      const data = await readLockfile(tempLogsDir, projectPath);
+      expect(data?.currentAgent).toBe("fixer");
     });
 
     test("does nothing when lockfile does not exist", async () => {
