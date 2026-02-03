@@ -6,6 +6,7 @@ import { TUI_COLORS } from "@/lib/tui/colors";
 interface OutputPanelProps {
   output: string;
   sessionName: string | null;
+  focused?: boolean;
 }
 
 function hashLine(line: string, index: number): string {
@@ -16,7 +17,7 @@ function hashLine(line: string, index: number): string {
   return hash.toString(36);
 }
 
-export function OutputPanel({ output, sessionName }: OutputPanelProps) {
+export function OutputPanel({ output, sessionName, focused = false }: OutputPanelProps) {
   const { height: terminalHeight } = useTerminalDimensions();
   const scrollboxRef = useRef<ScrollBoxRenderable>(null);
 
@@ -30,9 +31,20 @@ export function OutputPanel({ output, sessionName }: OutputPanelProps) {
     }
   }, [lines.length]);
 
+  const borderColor = focused ? TUI_COLORS.ui.borderFocused : TUI_COLORS.ui.border;
+
   if (!sessionName) {
     return (
-      <box border borderColor={TUI_COLORS.ui.border} padding={1} flexGrow={2} minHeight={10}>
+      <box
+        border
+        borderStyle="rounded"
+        borderColor={borderColor}
+        title="Output"
+        titleAlignment="left"
+        padding={1}
+        flexGrow={2}
+        minHeight={10}
+      >
         <text fg={TUI_COLORS.text.dim}>No active session output</text>
       </box>
     );
@@ -41,16 +53,19 @@ export function OutputPanel({ output, sessionName }: OutputPanelProps) {
   return (
     <box
       border
-      borderColor={TUI_COLORS.ui.border}
+      borderStyle="rounded"
+      borderColor={borderColor}
+      title="Output"
+      titleAlignment="left"
       padding={1}
       flexGrow={2}
       flexDirection="column"
       minHeight={10}
     >
       <text fg={TUI_COLORS.text.muted} marginBottom={1}>
-        Output ({sessionName}): [↑/↓ to scroll]
+        Session: {sessionName} [↑/↓ to scroll]
       </text>
-      <scrollbox ref={scrollboxRef} flexGrow={1} height={availableLines} focused>
+      <scrollbox ref={scrollboxRef} flexGrow={1} height={availableLines} focused={focused}>
         {lines.length === 0 ? (
           <text fg={TUI_COLORS.text.dim}>Waiting for output...</text>
         ) : (
