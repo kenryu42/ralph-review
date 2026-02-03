@@ -37,6 +37,7 @@
   "files": [
     "src/cli.ts",
     "src/cli-rrr.ts",
+    "src/cli-core.ts",
     "src/commands",
     "src/lib",
     "src/terminal"
