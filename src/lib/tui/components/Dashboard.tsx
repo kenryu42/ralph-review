@@ -2,6 +2,7 @@ import { basename } from "node:path";
 import { useKeyboard, useRenderer } from "@opentui/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { removeLockfile } from "@/lib/lockfile";
+import { CLI_PATH } from "@/lib/paths";
 import { killSession, sendInterrupt } from "@/lib/tmux";
 import { TUI_COLORS } from "@/lib/tui/colors";
 import type { DashboardProps } from "../types";
@@ -85,20 +86,26 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
       setRunError(null);
       setIsStartingRun(true);
       try {
-        const subprocess = Bun.spawn([process.execPath, Bun.main, "run"], {
+        const subprocess = Bun.spawn([process.execPath, CLI_PATH, "run"], {
           cwd: projectPath,
           stdin: "ignore",
           stdout: "ignore",
           stderr: "pipe",
         });
-        void subprocess.exited.then(async (exitCode) => {
-          isSpawningRunRef.current = false;
-          if (exitCode !== 0) {
-            const stderr = await new Response(subprocess.stderr).text();
+        void subprocess.exited
+          .then(async (exitCode) => {
+            isSpawningRunRef.current = false;
+            if (exitCode !== 0) {
+              const stderr = await new Response(subprocess.stderr).text();
+              setIsStartingRun(false);
+              setRunError(stderr.trim() || `Command failed with exit code ${exitCode}`);
+            }
+          })
+          .catch((e) => {
+            isSpawningRunRef.current = false;
             setIsStartingRun(false);
-            setRunError(stderr.trim() || `Command failed with exit code ${exitCode}`);
-          }
-        });
+            setRunError(e instanceof Error ? e.message : String(e));
+          });
       } catch (e) {
         isSpawningRunRef.current = false;
         setIsStartingRun(false);
