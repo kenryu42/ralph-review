@@ -55,10 +55,11 @@ function renderIterationEntry(entry: IterationEntry): string {
 
   let fixesHtml = "";
   if (entry.fixes) {
-    const { fixes, skipped, decision } = entry.fixes;
+    const { fixes, skipped, decision, stop_iteration } = entry.fixes;
     fixesHtml = `
       <div class="fixes-summary">
         <p><strong>Decision:</strong> ${decision}</p>
+        <p><strong>Stop Iteration:</strong> ${stop_iteration ? "true" : "false"}</p>
         ${fixes.length > 0 ? `<p><strong>Fixed:</strong> ${fixes.length} issue(s)</p>` : ""}
         ${skipped.length > 0 ? `<p><strong>Skipped:</strong> ${skipped.length} item(s)</p>` : ""}
       </div>

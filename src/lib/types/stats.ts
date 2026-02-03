@@ -7,6 +7,7 @@ export interface SessionStats {
   timestamp: number;
   gitBranch?: string;
   status: DerivedRunStatus;
+  stop_iteration?: boolean;
   totalFixes: number;
   totalSkipped: number;
   priorityCounts: Record<Priority, number>;

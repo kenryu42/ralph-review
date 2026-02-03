@@ -11,6 +11,7 @@ import {
   writeLogHtml,
 } from "@/lib/html";
 import { appendLog, createLogSession } from "@/lib/logger";
+import { buildFixSummary } from "@/lib/test-utils/fix-summary";
 import type {
   DashboardData,
   IterationEntry,
@@ -78,7 +79,7 @@ describe("html", () => {
         timestamp: Date.now(),
         iteration: 1,
         duration: 5000,
-        fixes: {
+        fixes: buildFixSummary({
           decision: "APPLY_SELECTIVELY",
           fixes: [
             {
@@ -98,7 +99,7 @@ describe("html", () => {
               reason: "Not worth fixing",
             },
           ],
-        },
+        }),
       };
 
       const html = generateLogHtml([iterEntry]);
@@ -141,21 +142,13 @@ describe("html", () => {
           type: "iteration",
           timestamp: Date.now(),
           iteration: 1,
-          fixes: {
-            decision: "APPLY_SELECTIVELY",
-            fixes: [],
-            skipped: [],
-          },
+          fixes: buildFixSummary({ decision: "APPLY_SELECTIVELY" }),
         },
         {
           type: "iteration",
           timestamp: Date.now(),
           iteration: 2,
-          fixes: {
-            decision: "NO_CHANGES_NEEDED",
-            fixes: [],
-            skipped: [],
-          },
+          fixes: buildFixSummary({ decision: "NO_CHANGES_NEEDED", stop_iteration: true }),
         },
       ];
 

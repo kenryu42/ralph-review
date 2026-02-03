@@ -121,6 +121,7 @@ export interface SessionJson {
   timestamp: number;
   iterations: number;
   duration?: number;
+  stop_iteration?: boolean;
   reviewer?: AgentSettings;
   fixer?: AgentSettings;
   summary: {
@@ -156,6 +157,7 @@ export function buildSessionJson(
     timestamp: session.timestamp,
     iterations: session.iterations,
     duration: session.totalDuration,
+    stop_iteration: session.stop_iteration,
     reviewer: systemEntry?.reviewer,
     fixer: systemEntry?.fixer,
     summary: {
@@ -250,6 +252,9 @@ function renderTerminalSession(
   p.log.info(`Time:     ${formatDate(session.timestamp)}`);
   if (session.totalDuration !== undefined) {
     p.log.info(`Duration: ${formatDuration(session.totalDuration)}`);
+  }
+  if (session.stop_iteration !== undefined) {
+    p.log.info(`Stop Iteration: ${session.stop_iteration ? "yes" : "no"}`);
   }
 
   if (systemEntry) {

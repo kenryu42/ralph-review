@@ -41,6 +41,7 @@ function initTestRepo(repoPath: string): void {
   runGitIn(repoPath, ["config", "core.autocrlf", "false"]);
   runGitIn(repoPath, ["config", "user.name", "Tester"]);
   runGitIn(repoPath, ["config", "user.email", "test@example.com"]);
+  runGitIn(repoPath, ["config", "commit.gpgsign", "false"]);
 }
 
 /**

@@ -10,30 +10,16 @@ import {
 } from "@/commands/logs";
 import type { ActiveSession } from "@/lib/lockfile";
 import { getProjectName } from "@/lib/logger";
+import { buildFixEntry, buildFixSummary } from "@/lib/test-utils/fix-summary";
 import type {
   DashboardData,
   FixEntry,
   IterationEntry,
-  Priority,
   SessionStats,
   SystemEntry,
 } from "@/lib/types";
 
 /**
- * Create a mock fix entry for testing
- */
-function createFixEntry(id: number, priority: Priority, title: string): FixEntry {
-  return {
-    id,
-    title,
-    priority,
-    file: `src/file${id}.ts`,
-    claim: `Claim for fix ${id}`,
-    evidence: `Evidence for fix ${id}`,
-    fix: `Fix description ${id}`,
-  };
-}
-
 /**
  * Create a mock session stats for testing
  */
@@ -78,11 +64,7 @@ function createIterationEntry(fixes: FixEntry[]): IterationEntry {
     timestamp: Date.now(),
     iteration: 1,
     duration: 5000,
-    fixes: {
-      decision: "APPLY_MOST",
-      fixes,
-      skipped: [],
-    },
+    fixes: buildFixSummary({ decision: "APPLY_MOST", fixes }),
   };
 }
 
@@ -228,8 +210,8 @@ describe("formatDuration", () => {
 describe("buildSessionJson", () => {
   test("builds correct JSON structure for session", () => {
     const fixes = [
-      createFixEntry(1, "P0", "Critical fix"),
-      createFixEntry(2, "P1", "High priority fix"),
+      buildFixEntry({ id: 1, priority: "P0", title: "Critical fix", file: "src/file1.ts" }),
+      buildFixEntry({ id: 2, priority: "P1", title: "High priority fix", file: "src/file2.ts" }),
     ];
     const skipped = [{ id: 3, title: "Skipped item", reason: "Not applicable" }];
     const session = createSessionStats({
@@ -295,7 +277,10 @@ describe("buildProjectSessionsJson", () => {
     const session1 = createSessionStats({
       gitBranch: "main",
       totalFixes: 3,
-      entries: [createSystemEntry(), createIterationEntry([createFixEntry(1, "P0", "Fix 1")])],
+      entries: [
+        createSystemEntry(),
+        createIterationEntry([buildFixEntry({ id: 1, priority: "P0", title: "Fix 1" })]),
+      ],
     });
     const session2 = createSessionStats({
       gitBranch: "feature/x",
@@ -319,7 +304,7 @@ describe("buildProjectSessionsJson", () => {
   });
 
   test("extracts fixes from iteration entries", () => {
-    const fix = createFixEntry(1, "P0", "Critical fix");
+    const fix = buildFixEntry({ id: 1, priority: "P0", title: "Critical fix" });
     const iterEntry = createIterationEntry([fix]);
     const session = createSessionStats({
       entries: [createSystemEntry(), iterEntry],

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { buildFixEntry, buildFixSummary } from "@/lib/test-utils/fix-summary";
 import {
   extractFixesFromStats,
   formatPriorityBreakdown,
@@ -57,28 +58,14 @@ describe("SessionPanel helpers", () => {
   });
 
   describe("extractFixesFromStats", () => {
-    const createFix = (
-      id: number,
-      title: string,
-      priority: "P0" | "P1" | "P2" | "P3"
-    ): FixEntry => ({
-      id,
-      title,
-      priority,
-      claim: "test claim",
-      evidence: "test evidence",
-      fix: "test fix",
-    });
+    const createFix = (id: number, title: string, priority: Priority): FixEntry =>
+      buildFixEntry({ id, title, priority });
 
     const createIterationEntry = (iteration: number, fixes: FixEntry[]): IterationEntry => ({
       type: "iteration",
       timestamp: Date.now(),
       iteration,
-      fixes: {
-        decision: "APPLY_MOST",
-        fixes,
-        skipped: [],
-      },
+      fixes: buildFixSummary({ decision: "APPLY_MOST", fixes }),
     });
 
     const createSystemEntry = (): SystemEntry => ({

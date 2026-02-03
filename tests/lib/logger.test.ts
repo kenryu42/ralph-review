@@ -16,6 +16,7 @@ import {
   readLog,
   sanitizeForFilename,
 } from "@/lib/logger";
+import { buildFixSummary } from "@/lib/test-utils/fix-summary";
 import type { IterationEntry, SystemEntry } from "@/lib/types";
 
 describe("logger", () => {
@@ -152,11 +153,7 @@ describe("logger", () => {
         timestamp: Date.now(),
         iteration: 1,
         duration: 5000,
-        fixes: {
-          decision: "APPLY_SELECTIVELY",
-          fixes: [],
-          skipped: [],
-        },
+        fixes: buildFixSummary({ decision: "APPLY_SELECTIVELY" }),
       };
 
       await appendLog(logPath, entry);
@@ -297,7 +294,7 @@ describe("logger", () => {
         type: "iteration",
         timestamp: Date.now(),
         iteration: 1,
-        fixes: {
+        fixes: buildFixSummary({
           decision: "APPLY_SELECTIVELY",
           fixes: [
             {
@@ -320,7 +317,7 @@ describe("logger", () => {
             },
           ],
           skipped: [{ id: 3, title: "Minor style", reason: "Not important" }],
-        },
+        }),
       };
 
       await appendLog(logPath, systemEntry);
@@ -542,7 +539,7 @@ describe("logger", () => {
         type: "iteration",
         timestamp: Date.now(),
         iteration: 1,
-        fixes: {
+        fixes: buildFixSummary({
           decision: "APPLY_SELECTIVELY",
           fixes: [
             {
@@ -555,8 +552,7 @@ describe("logger", () => {
               fix: "",
             },
           ],
-          skipped: [],
-        },
+        }),
       } as IterationEntry);
 
       await new Promise((r) => setTimeout(r, 10));
@@ -576,7 +572,7 @@ describe("logger", () => {
         type: "iteration",
         timestamp: Date.now(),
         iteration: 1,
-        fixes: {
+        fixes: buildFixSummary({
           decision: "APPLY_MOST",
           fixes: [
             {
@@ -599,7 +595,7 @@ describe("logger", () => {
             },
           ],
           skipped: [{ id: 3, title: "Skip 1", reason: "minor" }],
-        },
+        }),
       } as IterationEntry);
 
       const sessions = await listProjectLogSessions(tempDir, "/path/to/project");
@@ -667,7 +663,7 @@ describe("logger", () => {
         type: "iteration",
         timestamp: Date.now(),
         iteration: 1,
-        fixes: {
+        fixes: buildFixSummary({
           decision: "APPLY_SELECTIVELY",
           fixes: [
             {
@@ -689,8 +685,7 @@ describe("logger", () => {
               fix: "",
             },
           ],
-          skipped: [],
-        },
+        }),
       } as IterationEntry);
 
       await new Promise((r) => setTimeout(r, 10));
@@ -709,7 +704,7 @@ describe("logger", () => {
         type: "iteration",
         timestamp: Date.now(),
         iteration: 1,
-        fixes: {
+        fixes: buildFixSummary({
           decision: "APPLY_MOST",
           fixes: [
             {
@@ -722,8 +717,7 @@ describe("logger", () => {
               fix: "",
             },
           ],
-          skipped: [],
-        },
+        }),
       } as IterationEntry);
 
       const dashboard = await buildDashboardData(tempDir, "/work/project-a");
@@ -761,7 +755,7 @@ describe("logger", () => {
         type: "iteration",
         timestamp: Date.now(),
         iteration: 1,
-        fixes: { decision: "APPLY_SELECTIVELY", fixes: [], skipped: [] },
+        fixes: buildFixSummary({ decision: "APPLY_SELECTIVELY" }),
       } as IterationEntry);
 
       const dashboard = await buildDashboardData(tempDir, "/work/project-c");
@@ -786,7 +780,7 @@ describe("logger", () => {
         type: "iteration",
         timestamp: Date.now(),
         iteration: 1,
-        fixes: { decision: "APPLY_SELECTIVELY", fixes: [], skipped: [] },
+        fixes: buildFixSummary({ decision: "APPLY_SELECTIVELY" }),
       } as IterationEntry);
 
       await new Promise((r) => setTimeout(r, 10));

@@ -193,6 +193,7 @@ export async function computeSessionStats(session: LogSession): Promise<SessionS
   const gitBranch = systemEntry?.gitBranch;
 
   const iterations = entries.filter((e): e is IterationEntry => e.type === "iteration");
+  const lastIteration = iterations.at(-1);
   let totalFixes = 0;
   let totalSkipped = 0;
   const priorityCounts = emptyPriorityCounts();
@@ -221,6 +222,7 @@ export async function computeSessionStats(session: LogSession): Promise<SessionS
     timestamp: session.timestamp,
     gitBranch,
     status,
+    stop_iteration: lastIteration?.fixes?.stop_iteration,
     totalFixes,
     totalSkipped,
     priorityCounts,
