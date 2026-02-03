@@ -63,4 +63,14 @@ describe("parseCodexReviewText", () => {
     expect(result?.overall_explanation).toBe("No issues found.");
     expect(result?.overall_confidence_score).toBe(0.69);
   });
+
+  test("parses 'Full review comments: None' as valid empty review", () => {
+    const text = ["The changes look good.", "", "Full review comments:", "", "None"].join("\n");
+
+    const result = parseCodexReviewText(text);
+    expect(result).not.toBeNull();
+    expect(result?.findings).toHaveLength(0);
+    expect(result?.overall_correctness).toBe("patch is correct");
+    expect(result?.overall_explanation).toBe("The changes look good.");
+  });
 });
