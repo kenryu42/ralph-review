@@ -13,6 +13,7 @@ import {
   updateLockfile,
 } from "@/lib/lockfile";
 import { getGitBranch } from "@/lib/logger";
+import { CLI_PATH } from "@/lib/paths";
 import { createSession, generateSessionName, isInsideTmux, isTmuxInstalled } from "@/lib/tmux";
 import { type Config, isAgentType } from "@/lib/types";
 
@@ -135,8 +136,6 @@ async function runInBackground(
   // Create lockfile for this project
   await createLockfile(undefined, projectPath, sessionName, branch);
 
-  // Use main cli.ts to ensure consistent entry point regardless of how rr was invoked
-  const cliPath = `${import.meta.dir}/../cli.ts`;
   const maxIterArg = maxIterations ? ` --max ${maxIterations}` : "";
   const forceArg = force ? " --force" : "";
   const baseBranchEnv = baseBranch ? ` RR_BASE_BRANCH=${shellEscape(baseBranch)}` : "";
@@ -145,7 +144,7 @@ async function runInBackground(
     ? ` RR_CUSTOM_PROMPT=${shellEscape(customInstructions)}`
     : "";
   const envVars = `RR_PROJECT_PATH=${shellEscape(projectPath)} RR_GIT_BRANCH=${shellEscape(branch ?? "")}${baseBranchEnv}${commitShaEnv}${customPromptEnv}`;
-  const command = `${envVars} ${process.execPath} ${cliPath} _run-foreground${maxIterArg}${forceArg}`;
+  const command = `${envVars} ${process.execPath} ${CLI_PATH} _run-foreground${maxIterArg}${forceArg}`;
 
   try {
     await createSession(sessionName, command);
