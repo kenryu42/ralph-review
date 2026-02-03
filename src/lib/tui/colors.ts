@@ -25,5 +25,6 @@ export const TUI_COLORS = {
   },
   ui: {
     border: "#374151",
+    borderFocused: "#60a5fa",
   },
 } as const;
