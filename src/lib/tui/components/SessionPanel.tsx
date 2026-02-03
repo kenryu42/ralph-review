@@ -388,6 +388,11 @@ export function SessionPanel({
             {lastSessionStats.totalFixes} fix{lastSessionStats.totalFixes !== 1 ? "es" : ""} in{" "}
             {lastSessionStats.iterations} iteration{lastSessionStats.iterations !== 1 ? "s" : ""}
           </text>
+          {lastSessionStats.stop_iteration !== undefined && (
+            <text fg="#6b7280" paddingLeft={2}>
+              Stop iteration: {lastSessionStats.stop_iteration ? "yes" : "no"}
+            </text>
+          )}
         </box>
 
         {lastSessionFixes.length > 0 && (
