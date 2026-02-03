@@ -3,12 +3,11 @@ import {
   calculateRetryDelay,
   determineCycleResult,
   extractJsonBlock,
-  fixerFoundNoIssues,
   formatAgentFailureWarning,
   parseFixSummary,
   parseReviewSummary,
 } from "@/lib/engine";
-import { createFixerPrompt, FIXER_NO_ISSUES_MARKER } from "@/lib/prompts";
+import { createFixerPrompt } from "@/lib/prompts";
 import type { Config, RetryConfig } from "@/lib/types";
 
 // Mock config for testing
@@ -29,46 +28,9 @@ describe("engine", () => {
       expect(prompt.length).toBeGreaterThan(reviewOutput.length);
     });
 
-    test("includes the no-issues marker instruction", () => {
+    test("includes the stop_iteration instruction", () => {
       const prompt = createFixerPrompt("Some review");
-      expect(prompt).toContain(FIXER_NO_ISSUES_MARKER);
-    });
-  });
-
-  describe("fixerFoundNoIssues", () => {
-    test("returns true when output contains the no-issues marker", () => {
-      const output = `DECISION: NO CHANGES NEEDED
-APPLY: none
-SKIP: #1 #2
-
-${FIXER_NO_ISSUES_MARKER}`;
-      expect(fixerFoundNoIssues(output)).toBe(true);
-    });
-
-    test("returns false when output does not contain the marker", () => {
-      const output = `DECISION: APPLY SELECTIVELY
-APPLY: #1 #3
-SKIP: #2
-
-FIX PACKAGE
-- Fixed issue #1 in auth.ts`;
-      expect(fixerFoundNoIssues(output)).toBe(false);
-    });
-
-    test("returns true when marker is embedded in other text", () => {
-      const output = `After reviewing all claims, I found nothing actionable.
-${FIXER_NO_ISSUES_MARKER}
-End of review.`;
-      expect(fixerFoundNoIssues(output)).toBe(true);
-    });
-
-    test("returns false for empty output", () => {
-      expect(fixerFoundNoIssues("")).toBe(false);
-    });
-
-    test("returns false for partial marker", () => {
-      expect(fixerFoundNoIssues("<review>No Issues")).toBe(false);
-      expect(fixerFoundNoIssues("No Issues Found</review>")).toBe(false);
+      expect(prompt).toContain("stop_iteration");
     });
   });
 
@@ -218,6 +180,7 @@ End of output.`;
     test("parses valid JSON into FixSummary", () => {
       const json = JSON.stringify({
         decision: "APPLY_SELECTIVELY",
+        stop_iteration: false,
         fixes: [
           {
             id: 1,
@@ -259,6 +222,7 @@ End of output.`;
     test("returns null when fixes is not an array", () => {
       const json = JSON.stringify({
         decision: "NO_CHANGES_NEEDED",
+        stop_iteration: true,
         fixes: "not an array",
         skipped: [],
       });
@@ -269,6 +233,7 @@ End of output.`;
     test("returns null for invalid decision value", () => {
       const json = JSON.stringify({
         decision: "INVALID_DECISION",
+        stop_iteration: false,
         fixes: [],
         skipped: [],
       });
@@ -279,6 +244,7 @@ End of output.`;
     test("returns null for invalid severity in fix entry", () => {
       const json = JSON.stringify({
         decision: "APPLY_SELECTIVELY",
+        stop_iteration: false,
         fixes: [
           {
             id: 1,
@@ -298,6 +264,7 @@ End of output.`;
     test("accepts fix entry with omitted file field (undefined)", () => {
       const json = JSON.stringify({
         decision: "APPLY_SELECTIVELY",
+        stop_iteration: false,
         fixes: [
           {
             id: 1,
@@ -318,6 +285,7 @@ End of output.`;
     test("accepts fix entry with explicit file: null", () => {
       const json = JSON.stringify({
         decision: "APPLY_SELECTIVELY",
+        stop_iteration: false,
         fixes: [
           {
             id: 1,
@@ -334,6 +302,17 @@ End of output.`;
       const result = parseFixSummary(json);
       expect(result).not.toBeNull();
       expect(result?.fixes[0]?.file).toBeNull();
+    });
+
+    test("accepts missing stop_iteration (defaults to undefined)", () => {
+      const json = JSON.stringify({
+        decision: "APPLY_SELECTIVELY",
+        fixes: [],
+        skipped: [],
+      });
+      const result = parseFixSummary(json);
+      expect(result).not.toBeNull();
+      expect(result?.stop_iteration).toBeUndefined();
     });
   });
 
