@@ -38,7 +38,8 @@
     "src/cli.ts",
     "src/cli-rrr.ts",
     "src/commands",
-    "src/lib"
+    "src/lib",
+    "src/terminal"
   ],
   "scripts": {
     "dev:tui": "bun run scripts/tui-dev.tsx",
