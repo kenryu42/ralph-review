@@ -144,6 +144,7 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
           skipped={state.skipped}
           findings={state.iterationFindings}
           codexReviewText={state.codexReviewText}
+          tmuxOutput={state.tmuxOutput}
           maxIterations={state.maxIterations}
           isLoading={state.isLoading}
           lastSessionStats={state.lastSessionStats}

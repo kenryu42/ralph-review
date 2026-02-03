@@ -250,6 +250,7 @@ interface MockData {
   totalFixes: number;
   totalSkipped: number;
   codexReviewText: string | null;
+  tmuxOutput: string;
   maxIterations: number;
   isLoading: boolean;
   lastSessionStats: SessionStats | null;
@@ -268,6 +269,7 @@ function getMockData(state: MockState): MockData {
     totalFixes: 0,
     totalSkipped: 0,
     codexReviewText: null,
+    tmuxOutput: "",
     maxIterations: 5,
     isLoading: false,
     lastSessionStats: null,
@@ -384,6 +386,7 @@ async function main() {
       skipped={mockData.skipped}
       findings={mockData.findings}
       codexReviewText={mockData.codexReviewText}
+      tmuxOutput={mockData.tmuxOutput}
       maxIterations={mockData.maxIterations}
       isLoading={mockData.isLoading}
       lastSessionStats={mockData.lastSessionStats}

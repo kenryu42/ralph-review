@@ -1,4 +1,5 @@
 import { useTerminalDimensions } from "@opentui/react";
+import { useMemo } from "react";
 import type { LockData } from "@/lib/lockfile";
 import type {
   AgentRole,
@@ -13,6 +14,8 @@ import type {
 import { VALID_PRIORITIES } from "@/lib/types/domain";
 import {
   extractFixesFromStats,
+  extractLatestReviewSummary,
+  findLatestIterationMarker,
   formatPriorityBreakdown,
   formatProjectStatsSummary,
   formatRelativeTime,
@@ -29,6 +32,7 @@ interface SessionPanelProps {
   skipped: SkippedEntry[];
   findings: Finding[];
   codexReviewText: string | null;
+  tmuxOutput: string;
   maxIterations: number;
   isLoading: boolean;
   lastSessionStats: SessionStats | null;
@@ -307,6 +311,7 @@ export function SessionPanel({
   skipped,
   findings,
   codexReviewText,
+  tmuxOutput,
   maxIterations,
   isLoading,
   lastSessionStats,
@@ -319,6 +324,15 @@ export function SessionPanel({
 }: SessionPanelProps) {
   const minWidth = 50;
   const { height: terminalHeight } = useTerminalDimensions();
+  const latestIterationMarker = useMemo(() => findLatestIterationMarker(tmuxOutput), [tmuxOutput]);
+  const liveReviewSummary = useMemo(() => {
+    if (!tmuxOutput.trim()) return null;
+
+    const minIndex =
+      currentAgent === "reviewer" && latestIterationMarker ? latestIterationMarker.index : 0;
+
+    return extractLatestReviewSummary(tmuxOutput, minIndex);
+  }, [tmuxOutput, currentAgent, latestIterationMarker]);
 
   if (isLoading) {
     return (
@@ -436,10 +450,26 @@ export function SessionPanel({
   const iteration = session.iteration ?? 0;
   const statusDisplay = getStatusDisplay(session.status ?? "unknown", currentAgent);
 
+  const shouldClearForNewReview = currentAgent === "reviewer" && !liveReviewSummary;
+
+  let displayFindings = findings;
+  let displayCodexText = codexReviewText;
+
+  if (liveReviewSummary) {
+    displayFindings = liveReviewSummary.findings;
+    displayCodexText = null;
+  } else if (shouldClearForNewReview) {
+    displayFindings = [];
+    displayCodexText = null;
+  } else if (findings.length > 0) {
+    displayCodexText = null;
+  }
+
+  const showingCodex = displayCodexText !== null && displayFindings.length === 0;
   const verifyCount =
-    codexReviewText && findings.length === 0
-      ? countCodexReviewLines(codexReviewText)
-      : findings.length;
+    showingCodex && displayCodexText
+      ? countCodexReviewLines(displayCodexText)
+      : displayFindings.length;
   const appliedCount = fixes.length;
   const skippedCount = skipped.length;
 
@@ -497,12 +527,12 @@ export function SessionPanel({
             <strong>Needs verify</strong>
           </span>
           <span fg="#6b7280"> ({verifyCount})</span>
-          {codexReviewText && findings.length === 0 && <span fg="#6b7280"> · codex</span>}
+          {showingCodex && <span fg="#6b7280"> · codex</span>}
         </text>
-        {codexReviewText && findings.length === 0 ? (
-          <CodexReviewDisplay text={codexReviewText} maxHeight={verifyMaxHeight} />
+        {showingCodex ? (
+          <CodexReviewDisplay text={displayCodexText ?? ""} maxHeight={verifyMaxHeight} />
         ) : (
-          <FindingsList findings={findings} maxHeight={verifyMaxHeight} />
+          <FindingsList findings={displayFindings} maxHeight={verifyMaxHeight} />
         )}
       </box>
 
