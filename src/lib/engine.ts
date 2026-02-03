@@ -1,4 +1,4 @@
-import { createFixerPrompt, createReviewerPrompt, FIXER_NO_ISSUES_MARKER } from "@/lib/prompts";
+import { createFixerPrompt, createReviewerPrompt } from "@/lib/prompts";
 import { AGENTS, runAgent } from "./agents";
 import { updateLockfile } from "./lockfile";
 import { appendLog, createLogSession, getGitBranch } from "./logger";
@@ -162,10 +162,6 @@ export type OnIterationCallback = (
   role: "reviewer" | "fixer",
   result: IterationResult
 ) => void;
-
-export function fixerFoundNoIssues(fixerOutput: string): boolean {
-  return fixerOutput.includes(FIXER_NO_ISSUES_MARKER);
-}
 
 export function extractJsonBlock(output: string): string | null {
   const match = output.match(/```json\s*\n([\s\S]*?)\n```/);
@@ -410,10 +406,24 @@ export async function runReviewCycle(
     });
     await appendLog(sessionPath, iterationEntry);
 
-    if (fixerFoundNoIssues(fixResult.output)) {
+    if (fixSummary?.stop_iteration) {
       hasRemainingIssues = false;
       console.log("✅ No issues to fix - code is clean!");
       return determineCycleResult(false, iteration, config.maxIterations, false, sessionPath);
+    }
+
+    // Detect NEED_INFO loop: fixer requested more info but made no fixes
+    // This prevents token waste from repeating iterations with same result
+    if (fixSummary?.decision === "NEED_INFO" && fixSummary.fixes.length === 0) {
+      console.log("⚠️  Fixer needs more information to proceed but made no changes.");
+      console.log("   Review may contain unverifiable claims. Stopping to avoid token waste.");
+      return {
+        success: false,
+        iterations: iteration,
+        reason:
+          "Fixer requested more information but could not proceed - review contains unverifiable claims",
+        sessionPath,
+      };
     }
 
     printHeader("Fixes applied. Re-running reviewer...", "\x1b[36m");
