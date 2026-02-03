@@ -16,7 +16,7 @@ bun test --grep "parseArgs"       # Run tests matching pattern
 bun run check                     # Full check: knip + lint + tests
 ```
 
-**Always run `bun run check` before committing.**
+**Always use `bun run check` to verify changes.** Do not run `bun run lint`, `bun test`, or `bun run knip` separately - use `bun run check` which runs all of them together.
 
 ---
 
