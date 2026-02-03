@@ -20,6 +20,7 @@ export {
   type CodexReviewSummary,
   type Finding,
   isReviewSummary,
+  parseCodexReviewText,
   type ReviewSummary,
 } from "./review";
 export type { IterationResult, ReviewOptions, RunState } from "./run";
