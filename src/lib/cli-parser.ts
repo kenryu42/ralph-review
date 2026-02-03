@@ -1,3 +1,5 @@
+import { stripAnsi, theme } from "@/terminal/theme";
+
 export class CliError extends Error {
   constructor(
     public readonly command: string,
@@ -297,7 +299,7 @@ export function parseCommand<T = Record<string, unknown>>(
 export function formatCommandHelp(def: CommandDef): string {
   const lines: string[] = [];
 
-  let usage = `rr ${def.name}`;
+  let usage = `${theme.command("rr")} ${theme.command(def.name)}`;
   if (def.positional?.length) {
     for (const pos of def.positional) {
       usage += pos.required ? ` <${pos.name}>` : ` [${pos.name}]`;
@@ -309,42 +311,43 @@ export function formatCommandHelp(def: CommandDef): string {
 
   lines.push(`${def.description}`);
   lines.push("");
-  lines.push("USAGE:");
+  lines.push(`${theme.heading("USAGE:")}`);
   lines.push(`  ${usage}`);
 
   if (def.positional?.length) {
     lines.push("");
-    lines.push("ARGUMENTS:");
+    lines.push(`${theme.heading("ARGUMENTS:")}`);
     for (const pos of def.positional) {
-      const req = pos.required ? " (required)" : "";
+      const req = pos.required ? ` ${theme.error("(required)")}` : "";
       lines.push(`  <${pos.name}>    ${pos.description}${req}`);
     }
   }
 
   if (def.options?.length) {
     lines.push("");
-    lines.push("OPTIONS:");
+    lines.push(`${theme.heading("OPTIONS:")}`);
     for (const opt of def.options) {
-      const alias = opt.alias ? `-${opt.alias}, ` : "    ";
-      const name = `--${opt.name}`;
+      const alias = opt.alias ? `${theme.option(`-${opt.alias}`)}, ` : "    ";
+      const name = theme.option(`--${opt.name}`);
       const valueHint =
         opt.type !== "boolean" ? ` <${opt.placeholder ?? opt.type.toUpperCase()}>` : "";
       const flag = `${alias}${name}${valueHint}`;
 
       const extras: string[] = [];
-      if (opt.required) extras.push("required");
-      if (opt.default !== undefined) extras.push(`default: ${opt.default}`);
+      if (opt.required) extras.push(theme.error("required"));
+      if (opt.default !== undefined) extras.push(theme.muted(`default: ${opt.default}`));
       const extraStr = extras.length > 0 ? ` (${extras.join(", ")})` : "";
 
-      lines.push(`  ${flag.padEnd(24)} ${opt.description}${extraStr}`);
+      const padding = " ".repeat(Math.max(0, 24 - stripAnsi(flag).length));
+      lines.push(`  ${flag}${padding} ${opt.description}${extraStr}`);
     }
   }
 
   if (def.examples?.length) {
     lines.push("");
-    lines.push("EXAMPLES:");
+    lines.push(`${theme.heading("EXAMPLES:")}`);
     for (const ex of def.examples) {
-      lines.push(`  ${ex}`);
+      lines.push(`  ${theme.command(ex)}`);
     }
   }
 
@@ -354,13 +357,15 @@ export function formatCommandHelp(def: CommandDef): string {
 export function formatMainHelp(commands: CommandDef[], version: string): string {
   const lines: string[] = [];
 
-  lines.push(`ralph-review v${version} - Ralph Wiggum Code Review Orchestrator`);
+  lines.push(
+    `${theme.accent("ralph-review")} v${theme.muted(version)} - ${theme.info("Ralph Wiggum Code Review Orchestrator")}`
+  );
   lines.push("");
-  lines.push("USAGE:");
-  lines.push("  rr <command> [options]");
-  lines.push("  rrr           Quick alias for 'rr run'");
+  lines.push(`${theme.heading("USAGE:")}`);
+  lines.push(`  ${theme.command("rr")} <command> [options]`);
+  lines.push(`  ${theme.command("rrr")}           Quick alias for 'rr run'`);
   lines.push("");
-  lines.push("COMMANDS:");
+  lines.push(`${theme.heading("COMMANDS:")}`);
 
   const publicCommands = commands.filter((c) => !c.hidden);
 
@@ -371,15 +376,17 @@ export function formatMainHelp(commands: CommandDef[], version: string): string 
 
   for (const cmd of publicCommands) {
     const displayName = getDisplayName(cmd);
-    lines.push(`  ${displayName.padEnd(maxNameLen + 2)} ${cmd.description}`);
+    const coloredName = theme.command(displayName);
+    const paddedName = coloredName + " ".repeat(maxNameLen - displayName.length + 2);
+    lines.push(`  ${paddedName}${cmd.description}`);
   }
 
   lines.push("");
-  lines.push("OPTIONS:");
-  lines.push("  -h, --help      Show help for a command");
-  lines.push("  -v, --version   Show version number");
+  lines.push(`${theme.heading("OPTIONS:")}`);
+  lines.push(`  ${theme.option("-h")}, ${theme.option("--help")}      Show help for a command`);
+  lines.push(`  ${theme.option("-v")}, ${theme.option("--version")}   Show version number`);
   lines.push("");
-  lines.push("Run 'rr <command> --help' for more information on a command.");
+  lines.push(`Run '${theme.command("rr <command> --help")}' for more information on a command.`);
 
   return lines.join("\n");
 }
