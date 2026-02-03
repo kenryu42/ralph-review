@@ -32,6 +32,16 @@ describe("run command", () => {
       expect(values.max).toBe(3);
     });
 
+    test("parses --force option", () => {
+      const { values } = parseCommand<RunOptions>(runDef, ["--force"]);
+      expect(values.force).toBe(true);
+    });
+
+    test("parses -f shorthand", () => {
+      const { values } = parseCommand<RunOptions>(runDef, ["-f"]);
+      expect(values.force).toBe(true);
+    });
+
     test("parses --commit option", () => {
       const { values } = parseCommand<RunOptions>(runDef, ["--commit", "abc123"]);
       expect(values.commit).toBe("abc123");

@@ -23,4 +23,5 @@ export interface ReviewOptions {
   baseBranch?: string;
   commitSha?: string;
   customInstructions?: string;
+  forceMaxIterations?: boolean;
 }

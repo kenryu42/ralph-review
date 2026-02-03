@@ -86,6 +86,7 @@ describe("cli", () => {
       expect(runCmd).toBeDefined();
       const optionNames = runCmd?.options?.map((o) => o.name) ?? [];
       expect(optionNames).toContain("max");
+      expect(optionNames).toContain("force");
       expect(optionNames).toContain("base");
       expect(optionNames).toContain("uncommitted");
       expect(optionNames).toContain("commit");

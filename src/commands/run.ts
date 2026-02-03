@@ -18,6 +18,7 @@ import { type Config, isAgentType } from "@/lib/types";
 
 export interface RunOptions {
   max?: number;
+  force?: boolean;
   base?: string;
   uncommitted?: boolean;
   commit?: string;
@@ -118,7 +119,8 @@ async function runInBackground(
   maxIterations?: number,
   baseBranch?: string,
   commitSha?: string,
-  customInstructions?: string
+  customInstructions?: string,
+  force?: boolean
 ): Promise<void> {
   // Check tmux is installed
   if (!isTmuxInstalled()) {
@@ -136,13 +138,14 @@ async function runInBackground(
   // Use main cli.ts to ensure consistent entry point regardless of how rr was invoked
   const cliPath = `${import.meta.dir}/../cli.ts`;
   const maxIterArg = maxIterations ? ` --max ${maxIterations}` : "";
+  const forceArg = force ? " --force" : "";
   const baseBranchEnv = baseBranch ? ` RR_BASE_BRANCH=${shellEscape(baseBranch)}` : "";
   const commitShaEnv = commitSha ? ` RR_COMMIT_SHA=${shellEscape(commitSha)}` : "";
   const customPromptEnv = customInstructions
     ? ` RR_CUSTOM_PROMPT=${shellEscape(customInstructions)}`
     : "";
   const envVars = `RR_PROJECT_PATH=${shellEscape(projectPath)} RR_GIT_BRANCH=${shellEscape(branch ?? "")}${baseBranchEnv}${commitShaEnv}${customPromptEnv}`;
-  const command = `${envVars} ${process.execPath} ${cliPath} _run-foreground${maxIterArg}`;
+  const command = `${envVars} ${process.execPath} ${cliPath} _run-foreground${maxIterArg}${forceArg}`;
 
   try {
     await createSession(sessionName, command);
@@ -167,14 +170,18 @@ export async function runForeground(args: string[] = []): Promise<void> {
   const baseBranch = process.env.RR_BASE_BRANCH || undefined;
   const commitSha = process.env.RR_COMMIT_SHA || undefined;
   const customInstructions = process.env.RR_CUSTOM_PROMPT || undefined;
+  let forceMaxIterations = false;
 
   // Parse --max option using the _run-foreground command def
   const foregroundDef = getCommandDef("_run-foreground");
   if (foregroundDef) {
     try {
-      const { values } = parseCommand<{ max?: number }>(foregroundDef, args);
+      const { values } = parseCommand<{ max?: number; force?: boolean }>(foregroundDef, args);
       if (values.max !== undefined) {
         config.maxIterations = values.max;
+      }
+      if (values.force) {
+        forceMaxIterations = true;
       }
     } catch {
       // Ignore parse errors for internal command
@@ -197,7 +204,7 @@ export async function runForeground(args: string[] = []): Promise<void> {
         // Update lockfile with iteration progress
         updateLockfile(undefined, projectPath, { iteration }).catch(() => {});
       },
-      { baseBranch, commitSha, customInstructions }
+      { baseBranch, commitSha, customInstructions, forceMaxIterations }
     );
 
     console.log(`\n${"=".repeat(50)}`);
@@ -279,5 +286,12 @@ export async function startReview(args: string[]): Promise<void> {
     p.log.warn("Running inside tmux session. Review will start in a nested session.");
   }
 
-  await runInBackground(config, options.max, options.base, options.commit, options.custom);
+  await runInBackground(
+    config,
+    options.max,
+    options.base,
+    options.commit,
+    options.custom,
+    options.force
+  );
 }

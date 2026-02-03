@@ -406,10 +406,18 @@ export async function runReviewCycle(
     });
     await appendLog(sessionPath, iterationEntry);
 
-    if (fixSummary?.stop_iteration) {
+    if (fixSummary?.stop_iteration === true) {
       hasRemainingIssues = false;
       console.log("✅ No issues to fix - code is clean!");
-      return determineCycleResult(false, iteration, config.maxIterations, false, sessionPath);
+      if (!reviewOptions?.forceMaxIterations) {
+        return determineCycleResult(false, iteration, config.maxIterations, false, sessionPath);
+      }
+      console.log("ℹ️  stop_iteration true; continuing due to --force");
+    } else if (fixSummary?.stop_iteration === false) {
+      hasRemainingIssues = true;
+    } else if (!fixSummary) {
+      // Could not parse fix summary - be conservative and assume issues may remain
+      hasRemainingIssues = true;
     }
 
     // Detect NEED_INFO loop: fixer requested more info but made no fixes
@@ -429,7 +437,11 @@ export async function runReviewCycle(
     printHeader("Fixes applied. Re-running reviewer...", "\x1b[36m");
   }
 
-  console.log(`⚠️  Max iterations (${config.maxIterations}) reached`);
+  if (reviewOptions?.forceMaxIterations && !hasRemainingIssues) {
+    console.log(`ℹ️  Max iterations (${config.maxIterations}) reached after clean pass`);
+  } else {
+    console.log(`⚠️  Max iterations (${config.maxIterations}) reached`);
+  }
   return determineCycleResult(
     hasRemainingIssues,
     iteration,
