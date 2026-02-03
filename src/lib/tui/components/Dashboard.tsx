@@ -1,6 +1,6 @@
 import { basename } from "node:path";
 import { useKeyboard, useRenderer } from "@opentui/react";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { removeLockfile } from "@/lib/lockfile";
 import { killSession, sendInterrupt } from "@/lib/tmux";
 import type { DashboardProps } from "../types";
@@ -13,13 +13,18 @@ import { StatusBar } from "./StatusBar";
 export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: DashboardProps) {
   const renderer = useRenderer();
   const state = useDashboardState(projectPath, branch, refreshInterval);
+  const [runError, setRunError] = useState<string | null>(null);
 
   const projectName = basename(projectPath);
 
   const currentSessionRef = useRef(state.currentSession);
   const isExitingRef = useRef(false);
+  const isSpawningRunRef = useRef(false);
   useEffect(() => {
     currentSessionRef.current = state.currentSession;
+    if (state.currentSession) {
+      setRunError(null);
+    }
   }, [state.currentSession]);
 
   const shutdown = useCallback(
@@ -66,9 +71,34 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
           // Ignore errors - session may already be stopped
         });
     }
+
+    if (key.name === "r" && !currentSessionRef.current && !isSpawningRunRef.current) {
+      isSpawningRunRef.current = true;
+      setRunError(null);
+      try {
+        const subprocess = Bun.spawn([process.execPath, Bun.main, "run"], {
+          cwd: projectPath,
+          stdin: "ignore",
+          stdout: "ignore",
+          stderr: "pipe",
+        });
+        void subprocess.exited.then(async (exitCode) => {
+          isSpawningRunRef.current = false;
+          if (exitCode !== 0) {
+            const stderr = await new Response(subprocess.stderr).text();
+            setRunError(stderr.trim() || `Command failed with exit code ${exitCode}`);
+          }
+        });
+      } catch (e) {
+        isSpawningRunRef.current = false;
+        setRunError(e instanceof Error ? e.message : String(e));
+      }
+    }
   });
 
-  if (state.error) {
+  const displayError = state.error || runError;
+
+  if (displayError) {
     return (
       <box flexDirection="column" width="100%" height="100%">
         <Header
@@ -80,7 +110,7 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
           config={state.config}
         />
         <box flexGrow={1} padding={2}>
-          <text fg="#ef4444">Error: {state.error}</text>
+          <text fg="#ef4444">Error: {displayError}</text>
         </box>
         <StatusBar hasSession={false} />
       </box>

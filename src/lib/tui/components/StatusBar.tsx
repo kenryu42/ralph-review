@@ -9,6 +9,12 @@ export function StatusBar({ hasSession }: StatusBarProps) {
         <span fg="#60a5fa">[q]</span>
         <span fg="#9ca3af"> Quit</span>
       </text>
+      {!hasSession && (
+        <text>
+          <span fg="#60a5fa">[r]</span>
+          <span fg="#9ca3af"> Run</span>
+        </text>
+      )}
       {hasSession && (
         <text>
           <span fg="#60a5fa">[s]</span>
