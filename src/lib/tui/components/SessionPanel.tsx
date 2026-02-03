@@ -25,6 +25,7 @@ import {
   truncateText,
   UNKNOWN_PRIORITY_COLOR,
 } from "../session-panel-utils";
+import { ProgressBar } from "./ProgressBar";
 import { Spinner } from "./Spinner";
 
 interface SessionPanelProps {
@@ -43,6 +44,7 @@ interface SessionPanelProps {
   reviewOptions: ReviewOptions | undefined;
   isStarting: boolean;
   isStopping: boolean;
+  focused?: boolean;
 }
 
 function getStatusDisplay(
@@ -94,6 +96,7 @@ interface FixListProps {
   fixes: FixEntry[];
   showFiles: boolean;
   maxHeight?: number;
+  focused?: boolean;
 }
 
 function priorityToString(priority: number | undefined): Priority | "P?" {
@@ -114,21 +117,43 @@ function GitRepoWarning({ isGitRepo }: { isGitRepo: boolean }) {
   );
 }
 
+function SectionHeader({
+  title,
+  count,
+  suffix,
+}: {
+  title: string;
+  count?: number;
+  suffix?: React.ReactNode;
+}) {
+  return (
+    <text>
+      <span fg={TUI_COLORS.text.muted}>
+        <strong>{title}</strong>
+      </span>
+      {count !== undefined && <span fg={TUI_COLORS.text.dim}> ({count})</span>}
+      {suffix}
+    </text>
+  );
+}
+
 interface FindingsListProps {
   findings: Finding[];
   maxHeight?: number;
+  focused?: boolean;
 }
 
 interface SkippedListProps {
   skipped: SkippedEntry[];
   maxHeight?: number;
+  focused?: boolean;
 }
 
 function countCodexReviewLines(text: string): number {
   return text.split("\n").filter((line) => line.trim() !== "").length;
 }
 
-function FindingsList({ findings, maxHeight = 8 }: FindingsListProps) {
+function FindingsList({ findings, maxHeight = 8, focused = false }: FindingsListProps) {
   if (findings.length === 0) {
     return (
       <text fg={TUI_COLORS.text.dim} paddingLeft={2}>
@@ -168,7 +193,7 @@ function FindingsList({ findings, maxHeight = 8 }: FindingsListProps) {
 
   if (needsScroll) {
     return (
-      <scrollbox paddingLeft={2} height={maxHeight}>
+      <scrollbox paddingLeft={2} height={maxHeight} focused={focused}>
         {content}
       </scrollbox>
     );
@@ -181,7 +206,7 @@ function FindingsList({ findings, maxHeight = 8 }: FindingsListProps) {
   );
 }
 
-function SkippedList({ skipped, maxHeight = 6 }: SkippedListProps) {
+function SkippedList({ skipped, maxHeight = 6, focused = false }: SkippedListProps) {
   if (skipped.length === 0) {
     return (
       <text fg={TUI_COLORS.text.dim} paddingLeft={2}>
@@ -209,7 +234,7 @@ function SkippedList({ skipped, maxHeight = 6 }: SkippedListProps) {
 
   if (needsScroll) {
     return (
-      <scrollbox paddingLeft={2} height={maxHeight}>
+      <scrollbox paddingLeft={2} height={maxHeight} focused={focused}>
         {content}
       </scrollbox>
     );
@@ -225,9 +250,10 @@ function SkippedList({ skipped, maxHeight = 6 }: SkippedListProps) {
 interface CodexReviewDisplayProps {
   text: string;
   maxHeight?: number;
+  focused?: boolean;
 }
 
-function CodexReviewDisplay({ text, maxHeight = 6 }: CodexReviewDisplayProps) {
+function CodexReviewDisplay({ text, maxHeight = 6, focused = false }: CodexReviewDisplayProps) {
   const lines = text.split("\n").filter((line) => line.trim() !== "");
 
   if (lines.length === 0) {
@@ -248,7 +274,7 @@ function CodexReviewDisplay({ text, maxHeight = 6 }: CodexReviewDisplayProps) {
 
   if (needsScroll) {
     return (
-      <scrollbox paddingLeft={2} height={maxHeight}>
+      <scrollbox paddingLeft={2} height={maxHeight} focused={focused}>
         {content}
       </scrollbox>
     );
@@ -261,7 +287,7 @@ function CodexReviewDisplay({ text, maxHeight = 6 }: CodexReviewDisplayProps) {
   );
 }
 
-function FixList({ fixes, showFiles, maxHeight = 8 }: FixListProps) {
+function FixList({ fixes, showFiles, maxHeight = 8, focused = false }: FixListProps) {
   if (fixes.length === 0) {
     return (
       <text fg={TUI_COLORS.text.dim} paddingLeft={2}>
@@ -293,7 +319,7 @@ function FixList({ fixes, showFiles, maxHeight = 8 }: FixListProps) {
 
   if (needsScroll) {
     return (
-      <scrollbox paddingLeft={2} height={maxHeight}>
+      <scrollbox paddingLeft={2} height={maxHeight} focused={focused}>
         {content}
       </scrollbox>
     );
@@ -322,8 +348,10 @@ export function SessionPanel({
   reviewOptions,
   isStarting,
   isStopping,
+  focused = false,
 }: SessionPanelProps) {
   const minWidth = 50;
+  const borderColor = focused ? TUI_COLORS.ui.borderFocused : TUI_COLORS.ui.border;
   const { height: terminalHeight } = useTerminalDimensions();
   const latestIterationMarker = useMemo(() => findLatestIterationMarker(tmuxOutput), [tmuxOutput]);
   const liveReviewSummary = useMemo(() => {
@@ -337,7 +365,16 @@ export function SessionPanel({
 
   if (isLoading) {
     return (
-      <box border borderColor={TUI_COLORS.ui.border} padding={1} flexGrow={1} minWidth={minWidth}>
+      <box
+        border
+        borderStyle="rounded"
+        borderColor={borderColor}
+        title="Session"
+        titleAlignment="left"
+        padding={1}
+        flexGrow={1}
+        minWidth={minWidth}
+      >
         <text fg={TUI_COLORS.text.muted}>Loading...</text>
       </box>
     );
@@ -348,7 +385,10 @@ export function SessionPanel({
       return (
         <box
           border
-          borderColor={TUI_COLORS.ui.border}
+          borderStyle="rounded"
+          borderColor={borderColor}
+          title="Session"
+          titleAlignment="left"
           padding={1}
           flexGrow={1}
           minWidth={minWidth}
@@ -381,7 +421,10 @@ export function SessionPanel({
     return (
       <box
         border
-        borderColor={TUI_COLORS.ui.border}
+        borderStyle="rounded"
+        borderColor={borderColor}
+        title="Session"
+        titleAlignment="left"
         padding={1}
         flexGrow={1}
         minWidth={minWidth}
@@ -482,7 +525,10 @@ export function SessionPanel({
   return (
     <box
       border
-      borderColor={TUI_COLORS.ui.border}
+      borderStyle="rounded"
+      borderColor={borderColor}
+      title="Session"
+      titleAlignment="left"
       padding={1}
       flexGrow={1}
       minWidth={minWidth}
@@ -515,46 +561,33 @@ export function SessionPanel({
         <text fg={TUI_COLORS.text.primary}>{formatReviewType(reviewOptions)}</text>
       </box>
 
-      <box flexDirection="row" gap={1}>
-        <text fg={TUI_COLORS.text.muted}>Iteration:</text>
-        <text fg={TUI_COLORS.text.primary}>
-          {iteration}/{maxIterations || "?"}
-        </text>
-      </box>
+      <ProgressBar current={iteration} max={maxIterations} />
 
       <box flexDirection="column">
-        <text>
-          <span fg={TUI_COLORS.text.muted}>
-            <strong>Needs verify</strong>
-          </span>
-          <span fg={TUI_COLORS.text.dim}> ({verifyCount})</span>
-          {showingCodex && <span fg={TUI_COLORS.text.dim}> · codex</span>}
-        </text>
+        <SectionHeader
+          title="Needs verify"
+          count={verifyCount}
+          suffix={showingCodex ? <span fg={TUI_COLORS.text.dim}> · codex</span> : undefined}
+        />
         {showingCodex ? (
-          <CodexReviewDisplay text={displayCodexText ?? ""} maxHeight={verifyMaxHeight} />
+          <CodexReviewDisplay
+            text={displayCodexText ?? ""}
+            maxHeight={verifyMaxHeight}
+            focused={focused}
+          />
         ) : (
-          <FindingsList findings={displayFindings} maxHeight={verifyMaxHeight} />
+          <FindingsList findings={displayFindings} maxHeight={verifyMaxHeight} focused={focused} />
         )}
       </box>
 
       <box flexDirection="column">
-        <text>
-          <span fg={TUI_COLORS.text.muted}>
-            <strong>Fix applied</strong>
-          </span>
-          <span fg={TUI_COLORS.text.dim}> ({appliedCount})</span>
-        </text>
-        <FixList fixes={fixes} showFiles={true} maxHeight={appliedMaxHeight} />
+        <SectionHeader title="Fix applied" count={appliedCount} />
+        <FixList fixes={fixes} showFiles={true} maxHeight={appliedMaxHeight} focused={false} />
       </box>
 
       <box flexDirection="column">
-        <text>
-          <span fg={TUI_COLORS.text.muted}>
-            <strong>Skipped</strong>
-          </span>
-          <span fg={TUI_COLORS.text.dim}> ({skippedCount})</span>
-        </text>
-        <SkippedList skipped={skipped} maxHeight={skippedMaxHeight} />
+        <SectionHeader title="Skipped" count={skippedCount} />
+        <SkippedList skipped={skipped} maxHeight={skippedMaxHeight} focused={false} />
       </box>
     </box>
   );
