@@ -3,6 +3,7 @@ import { useKeyboard, useRenderer } from "@opentui/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { removeLockfile } from "@/lib/lockfile";
 import { killSession, sendInterrupt } from "@/lib/tmux";
+import { TUI_COLORS } from "@/lib/tui/colors";
 import type { DashboardProps } from "../types";
 import { useDashboardState } from "../use-dashboard-state";
 import { Header } from "./Header";
@@ -120,7 +121,7 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
           config={state.config}
         />
         <box flexGrow={1} padding={2}>
-          <text fg="#ef4444">Error: {displayError}</text>
+          <text fg={TUI_COLORS.status.error}>Error: {displayError}</text>
         </box>
         <StatusBar hasSession={false} />
       </box>

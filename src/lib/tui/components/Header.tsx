@@ -1,5 +1,6 @@
 import { getAgentDisplayName, getModelDisplayName } from "@/lib/agents/display";
 import type { LockData } from "@/lib/lockfile";
+import { TUI_COLORS } from "@/lib/tui/colors";
 import type { Config } from "@/lib/types";
 
 interface HeaderProps {
@@ -27,7 +28,7 @@ function formatDuration(ms: number): string {
 
 export function Header({ branch, elapsed, session, projectPath, config }: HeaderProps) {
   const statusIcon = session ? "●" : "○";
-  const statusColor = session ? "#22c55e" : "#6b7280";
+  const statusColor = session ? TUI_COLORS.status.success : TUI_COLORS.status.inactive;
 
   const homeDir = process.env.HOME || "";
   const displayPath =
@@ -58,43 +59,43 @@ export function Header({ branch, elapsed, session, projectPath, config }: Header
       <box flexDirection="row">
         <box flexDirection="column" width={12}>
           <text>
-            <span fg="#8b8000"> {"   "}║ </span>
+            <span fg={TUI_COLORS.brand.logo}> {"   "}║ </span>
           </text>
           <text>
-            <span fg="#8b8000"> ███████ </span>
+            <span fg={TUI_COLORS.brand.logo}> ███████ </span>
           </text>
           <text>
-            <span fg="#8b8000">▐██▃█▃██▌</span>
+            <span fg={TUI_COLORS.brand.logo}>▐██▃█▃██▌</span>
           </text>
           <text>
-            <span fg="#8b8000"> ██▅▅▅██ </span>
+            <span fg={TUI_COLORS.brand.logo}> ██▅▅▅██ </span>
           </text>
         </box>
 
         <box flexDirection="column">
           <text>
-            <span fg="#5FA8D3">
+            <span fg={TUI_COLORS.brand.title}>
               <strong>Ralph Review</strong>
-              <span fg="#999"> v0.1.0</span>
+              <span fg={TUI_COLORS.text.subtle}> v0.1.0</span>
             </span>
           </text>
           <text>
-            <span fg="#999">Reviewer: </span>
-            <span fg="#999">
+            <span fg={TUI_COLORS.text.subtle}>Reviewer: </span>
+            <span fg={TUI_COLORS.text.subtle}>
               {reviewerName}
               {reviewerModel}
             </span>
           </text>
           <text>
-            <span fg="#999">Fixer: </span>
-            <span fg="#999">
+            <span fg={TUI_COLORS.text.subtle}>Fixer: </span>
+            <span fg={TUI_COLORS.text.subtle}>
               {fixerName}
               {fixerModel}
             </span>
           </text>
           <text>
-            <span fg="#999">{displayPath}</span>
-            {branch && <span fg="#4b5563"> [{branch}]</span>}
+            <span fg={TUI_COLORS.text.subtle}>{displayPath}</span>
+            {branch && <span fg={TUI_COLORS.accent.branch}> [{branch}]</span>}
           </text>
         </box>
       </box>
@@ -102,8 +103,8 @@ export function Header({ branch, elapsed, session, projectPath, config }: Header
       <box flexDirection="column" alignItems="flex-end">
         <text>
           <span fg={statusColor}>{statusIcon} </span>
-          <span fg="#9ca3af">Elapsed: </span>
-          <span fg="#fbbf24">{formatDuration(elapsed)}</span>
+          <span fg={TUI_COLORS.text.muted}>Elapsed: </span>
+          <span fg={TUI_COLORS.accent.elapsed}>{formatDuration(elapsed)}</span>
         </text>
       </box>
     </box>

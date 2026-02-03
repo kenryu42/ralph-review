@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { TUI_COLORS } from "@/lib/tui/colors";
 
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧"];
 const FRAME_INTERVAL_MS = 80;
@@ -7,7 +8,7 @@ interface SpinnerProps {
   color?: string;
 }
 
-export function Spinner({ color = "#22c55e" }: SpinnerProps) {
+export function Spinner({ color = TUI_COLORS.status.success }: SpinnerProps) {
   const [frameIndex, setFrameIndex] = useState(0);
 
   useEffect(() => {

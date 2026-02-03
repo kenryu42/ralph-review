@@ -1,6 +1,7 @@
 import { useTerminalDimensions } from "@opentui/react";
 import { useMemo } from "react";
 import type { LockData } from "@/lib/lockfile";
+import { TUI_COLORS } from "@/lib/tui/colors";
 import type {
   AgentRole,
   Finding,
@@ -50,20 +51,20 @@ function getStatusDisplay(
 ): { text: string; color: string } {
   switch (status) {
     case "completed":
-      return { text: "completed", color: "#22c55e" };
+      return { text: "completed", color: TUI_COLORS.status.success };
     case "failed":
-      return { text: "failed", color: "#ef4444" };
+      return { text: "failed", color: TUI_COLORS.status.error };
     case "interrupted":
-      return { text: "interrupted", color: "#f97316" };
+      return { text: "interrupted", color: TUI_COLORS.status.warning };
     case "running":
       if (currentAgent) {
-        return { text: `running ${currentAgent} agent`, color: "#22c55e" };
+        return { text: `running ${currentAgent} agent`, color: TUI_COLORS.status.success };
       }
-      return { text: "running", color: "#22c55e" };
+      return { text: "running", color: TUI_COLORS.status.success };
     case "pending":
-      return { text: "pending", color: "#eab308" };
+      return { text: "pending", color: TUI_COLORS.status.pending };
     default:
-      return { text: "unknown", color: "#6b7280" };
+      return { text: "unknown", color: TUI_COLORS.status.inactive };
   }
 }
 
@@ -105,10 +106,10 @@ function GitRepoWarning({ isGitRepo }: { isGitRepo: boolean }) {
   if (isGitRepo) return null;
   return (
     <box flexDirection="column" paddingBottom={1}>
-      <text fg="#f97316">
+      <text fg={TUI_COLORS.status.warning}>
         <strong>Not a git repository</strong>
       </text>
-      <text fg="#6b7280">Run "git init" to initialize</text>
+      <text fg={TUI_COLORS.text.dim}>Run "git init" to initialize</text>
     </box>
   );
 }
@@ -130,7 +131,7 @@ function countCodexReviewLines(text: string): number {
 function FindingsList({ findings, maxHeight = 8 }: FindingsListProps) {
   if (findings.length === 0) {
     return (
-      <text fg="#6b7280" paddingLeft={2}>
+      <text fg={TUI_COLORS.text.dim} paddingLeft={2}>
         None yet
       </text>
     );
@@ -155,10 +156,10 @@ function FindingsList({ findings, maxHeight = 8 }: FindingsListProps) {
       <box key={key} flexDirection="column">
         <box flexDirection="row">
           <text fg={priorityColor}>{priorityStr}</text>
-          <text fg="#6b7280"> ▸ </text>
-          <text fg="#e5e7eb">{truncateText(finding.title, 40)}</text>
+          <text fg={TUI_COLORS.text.dim}> ▸ </text>
+          <text fg={TUI_COLORS.text.secondary}>{truncateText(finding.title, 40)}</text>
         </box>
-        <text fg="#6b7280" paddingLeft={5}>
+        <text fg={TUI_COLORS.text.dim} paddingLeft={5}>
           {filePath}:{lineRange}
         </text>
       </box>
@@ -183,7 +184,7 @@ function FindingsList({ findings, maxHeight = 8 }: FindingsListProps) {
 function SkippedList({ skipped, maxHeight = 6 }: SkippedListProps) {
   if (skipped.length === 0) {
     return (
-      <text fg="#6b7280" paddingLeft={2}>
+      <text fg={TUI_COLORS.text.dim} paddingLeft={2}>
         None yet
       </text>
     );
@@ -196,11 +197,11 @@ function SkippedList({ skipped, maxHeight = 6 }: SkippedListProps) {
   const content = skipped.map((entry, index) => (
     <box key={`${index}-${entry.id}`} flexDirection="column">
       <box flexDirection="row">
-        <text fg="#6b7280">SKIP</text>
-        <text fg="#6b7280"> ▸ </text>
-        <text fg="#e5e7eb">{truncateText(entry.title, 42)}</text>
+        <text fg={TUI_COLORS.text.dim}>SKIP</text>
+        <text fg={TUI_COLORS.text.dim}> ▸ </text>
+        <text fg={TUI_COLORS.text.secondary}>{truncateText(entry.title, 42)}</text>
       </box>
-      <text fg="#6b7280" paddingLeft={6}>
+      <text fg={TUI_COLORS.text.dim} paddingLeft={6}>
         {truncateText(entry.reason, 54)}
       </text>
     </box>
@@ -231,7 +232,7 @@ function CodexReviewDisplay({ text, maxHeight = 6 }: CodexReviewDisplayProps) {
 
   if (lines.length === 0) {
     return (
-      <text fg="#6b7280" paddingLeft={2}>
+      <text fg={TUI_COLORS.text.dim} paddingLeft={2}>
         No review text
       </text>
     );
@@ -240,7 +241,7 @@ function CodexReviewDisplay({ text, maxHeight = 6 }: CodexReviewDisplayProps) {
   const needsScroll = lines.length > maxHeight;
 
   const content = lines.map((line, index) => (
-    <text key={`${index}-${line.slice(0, 20)}`} fg="#e5e7eb">
+    <text key={`${index}-${line.slice(0, 20)}`} fg={TUI_COLORS.text.secondary}>
       {truncateText(line, 50)}
     </text>
   ));
@@ -263,7 +264,7 @@ function CodexReviewDisplay({ text, maxHeight = 6 }: CodexReviewDisplayProps) {
 function FixList({ fixes, showFiles, maxHeight = 8 }: FixListProps) {
   if (fixes.length === 0) {
     return (
-      <text fg="#6b7280" paddingLeft={2}>
+      <text fg={TUI_COLORS.text.dim} paddingLeft={2}>
         None yet
       </text>
     );
@@ -279,11 +280,11 @@ function FixList({ fixes, showFiles, maxHeight = 8 }: FixListProps) {
         <text fg={PRIORITY_COLORS[fix.priority as Priority] ?? UNKNOWN_PRIORITY_COLOR}>
           {fix.priority}
         </text>
-        <text fg="#6b7280"> ▸ </text>
-        <text fg="#e5e7eb">{truncateText(fix.title, 44)}</text>
+        <text fg={TUI_COLORS.text.dim}> ▸ </text>
+        <text fg={TUI_COLORS.text.secondary}>{truncateText(fix.title, 44)}</text>
       </box>
       {showFiles && fix.file && (
-        <text fg="#6b7280" paddingLeft={5}>
+        <text fg={TUI_COLORS.text.dim} paddingLeft={5}>
           {truncateFilePath(fix.file, 50)}
         </text>
       )}
@@ -336,8 +337,8 @@ export function SessionPanel({
 
   if (isLoading) {
     return (
-      <box border borderColor="#374151" padding={1} flexGrow={1} minWidth={minWidth}>
-        <text fg="#9ca3af">Loading...</text>
+      <box border borderColor={TUI_COLORS.ui.border} padding={1} flexGrow={1} minWidth={minWidth}>
+        <text fg={TUI_COLORS.text.muted}>Loading...</text>
       </box>
     );
   }
@@ -347,7 +348,7 @@ export function SessionPanel({
       return (
         <box
           border
-          borderColor="#374151"
+          borderColor={TUI_COLORS.ui.border}
           padding={1}
           flexGrow={1}
           minWidth={minWidth}
@@ -357,19 +358,19 @@ export function SessionPanel({
           <GitRepoWarning isGitRepo={isGitRepo} />
           {isStopping ? (
             <box flexDirection="row" gap={1}>
-              <Spinner color="#f97316" />
-              <text fg="#f97316">Stopping review...</text>
+              <Spinner color={TUI_COLORS.status.warning} />
+              <text fg={TUI_COLORS.status.warning}>Stopping review...</text>
             </box>
           ) : isStarting ? (
             <box flexDirection="row" gap={1}>
-              <Spinner color="#eab308" />
-              <text fg="#eab308">Starting review...</text>
+              <Spinner color={TUI_COLORS.status.pending} />
+              <text fg={TUI_COLORS.status.pending}>Starting review...</text>
             </box>
           ) : (
-            <text fg="#9ca3af">No active session</text>
+            <text fg={TUI_COLORS.text.muted}>No active session</text>
           )}
 
-          <text fg="#6b7280">Start a review with "rr run"</text>
+          <text fg={TUI_COLORS.text.dim}>Start a review with "rr run"</text>
         </box>
       );
     }
@@ -380,7 +381,7 @@ export function SessionPanel({
     return (
       <box
         border
-        borderColor="#374151"
+        borderColor={TUI_COLORS.ui.border}
         padding={1}
         flexGrow={1}
         minWidth={minWidth}
@@ -390,31 +391,31 @@ export function SessionPanel({
         <GitRepoWarning isGitRepo={isGitRepo} />
         {isStopping ? (
           <box flexDirection="row" gap={1}>
-            <Spinner color="#f97316" />
-            <text fg="#f97316">Stopping review...</text>
+            <Spinner color={TUI_COLORS.status.warning} />
+            <text fg={TUI_COLORS.status.warning}>Stopping review...</text>
           </box>
         ) : isStarting ? (
           <box flexDirection="row" gap={1}>
-            <Spinner color="#eab308" />
-            <text fg="#eab308">Starting review...</text>
+            <Spinner color={TUI_COLORS.status.pending} />
+            <text fg={TUI_COLORS.status.pending}>Starting review...</text>
           </box>
         ) : (
-          <text fg="#9ca3af">No active session</text>
+          <text fg={TUI_COLORS.text.muted}>No active session</text>
         )}
 
         {projectStats && projectStats.totalFixes > 0 && (
           <box flexDirection="column">
-            <text fg="#9ca3af">Project stats:</text>
+            <text fg={TUI_COLORS.text.muted}>Project stats:</text>
             <box flexDirection="row" paddingLeft={2}>
               {formatPriorityBreakdown(projectStats.priorityCounts).map((item, idx, arr) => (
                 <box key={item.priority} flexDirection="row">
                   <text fg={PRIORITY_COLORS[item.priority]}>{item.priority} </text>
-                  <text fg="#9ca3af">{item.count}</text>
-                  {idx < arr.length - 1 && <text fg="#6b7280"> · </text>}
+                  <text fg={TUI_COLORS.text.muted}>{item.count}</text>
+                  {idx < arr.length - 1 && <text fg={TUI_COLORS.text.dim}> · </text>}
                 </box>
               ))}
             </box>
-            <text fg="#6b7280" paddingLeft={2}>
+            <text fg={TUI_COLORS.text.dim} paddingLeft={2}>
               {formatProjectStatsSummary(projectStats.totalFixes, projectStats.sessionCount)}
             </text>
           </box>
@@ -422,16 +423,16 @@ export function SessionPanel({
 
         <box flexDirection="column">
           <box flexDirection="row" gap={1}>
-            <text fg="#9ca3af">Last run:</text>
+            <text fg={TUI_COLORS.text.muted}>Last run:</text>
             <text fg={statusDisplay.color}>{statusDisplay.text}</text>
-            <text fg="#6b7280">({formatRelativeTime(lastSessionStats.timestamp)})</text>
+            <text fg={TUI_COLORS.text.dim}>({formatRelativeTime(lastSessionStats.timestamp)})</text>
           </box>
-          <text fg="#6b7280" paddingLeft={2}>
+          <text fg={TUI_COLORS.text.dim} paddingLeft={2}>
             {lastSessionStats.totalFixes} fix{lastSessionStats.totalFixes !== 1 ? "es" : ""} in{" "}
             {lastSessionStats.iterations} iteration{lastSessionStats.iterations !== 1 ? "s" : ""}
           </text>
           {lastSessionStats.stop_iteration !== undefined && (
-            <text fg="#6b7280" paddingLeft={2}>
+            <text fg={TUI_COLORS.text.dim} paddingLeft={2}>
               Stop iteration: {lastSessionStats.stop_iteration ? "yes" : "no"}
             </text>
           )}
@@ -439,7 +440,7 @@ export function SessionPanel({
 
         {lastSessionFixes.length > 0 && (
           <box flexDirection="column">
-            <text fg="#9ca3af">Recent fixes:</text>
+            <text fg={TUI_COLORS.text.muted}>Recent fixes:</text>
             <FixList fixes={lastSessionFixes} showFiles={true} />
           </box>
         )}
@@ -481,7 +482,7 @@ export function SessionPanel({
   return (
     <box
       border
-      borderColor="#374151"
+      borderColor={TUI_COLORS.ui.border}
       padding={1}
       flexGrow={1}
       minWidth={minWidth}
@@ -489,11 +490,11 @@ export function SessionPanel({
       gap={1}
     >
       <box flexDirection="row" gap={1}>
-        <text fg="#9ca3af">Status:</text>
+        <text fg={TUI_COLORS.text.muted}>Status:</text>
         {isStopping ? (
           <>
-            <Spinner color="#f97316" />
-            <text fg="#f97316">
+            <Spinner color={TUI_COLORS.status.warning} />
+            <text fg={TUI_COLORS.status.warning}>
               <strong>Stopping review...</strong>
             </text>
           </>
@@ -510,24 +511,24 @@ export function SessionPanel({
       </box>
 
       <box flexDirection="row" gap={1}>
-        <text fg="#9ca3af">Review Type:</text>
-        <text fg="#f9fafb">{formatReviewType(reviewOptions)}</text>
+        <text fg={TUI_COLORS.text.muted}>Review Type:</text>
+        <text fg={TUI_COLORS.text.primary}>{formatReviewType(reviewOptions)}</text>
       </box>
 
       <box flexDirection="row" gap={1}>
-        <text fg="#9ca3af">Iteration:</text>
-        <text fg="#f9fafb">
+        <text fg={TUI_COLORS.text.muted}>Iteration:</text>
+        <text fg={TUI_COLORS.text.primary}>
           {iteration}/{maxIterations || "?"}
         </text>
       </box>
 
       <box flexDirection="column">
         <text>
-          <span fg="#9ca3af">
+          <span fg={TUI_COLORS.text.muted}>
             <strong>Needs verify</strong>
           </span>
-          <span fg="#6b7280"> ({verifyCount})</span>
-          {showingCodex && <span fg="#6b7280"> · codex</span>}
+          <span fg={TUI_COLORS.text.dim}> ({verifyCount})</span>
+          {showingCodex && <span fg={TUI_COLORS.text.dim}> · codex</span>}
         </text>
         {showingCodex ? (
           <CodexReviewDisplay text={displayCodexText ?? ""} maxHeight={verifyMaxHeight} />
@@ -538,20 +539,20 @@ export function SessionPanel({
 
       <box flexDirection="column">
         <text>
-          <span fg="#9ca3af">
+          <span fg={TUI_COLORS.text.muted}>
             <strong>Fix applied</strong>
           </span>
-          <span fg="#6b7280"> ({appliedCount})</span>
+          <span fg={TUI_COLORS.text.dim}> ({appliedCount})</span>
         </text>
         <FixList fixes={fixes} showFiles={true} maxHeight={appliedMaxHeight} />
       </box>
 
       <box flexDirection="column">
         <text>
-          <span fg="#9ca3af">
+          <span fg={TUI_COLORS.text.muted}>
             <strong>Skipped</strong>
           </span>
-          <span fg="#6b7280"> ({skippedCount})</span>
+          <span fg={TUI_COLORS.text.dim}> ({skippedCount})</span>
         </text>
         <SkippedList skipped={skipped} maxHeight={skippedMaxHeight} />
       </box>

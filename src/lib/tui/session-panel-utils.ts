@@ -1,3 +1,4 @@
+import { TUI_COLORS } from "@/lib/tui/colors";
 import {
   type FixEntry,
   type IterationEntry,
@@ -8,13 +9,13 @@ import {
 } from "@/lib/types";
 
 export const PRIORITY_COLORS: Record<Priority, string> = {
-  P0: "#ef4444",
-  P1: "#f97316",
-  P2: "#eab308",
-  P3: "#22c55e",
+  P0: TUI_COLORS.status.error,
+  P1: TUI_COLORS.status.warning,
+  P2: TUI_COLORS.status.pending,
+  P3: TUI_COLORS.status.success,
 };
 
-export const UNKNOWN_PRIORITY_COLOR = "#6b7280";
+export const UNKNOWN_PRIORITY_COLOR = TUI_COLORS.status.inactive;
 
 export function truncateText(text: string, maxLength: number): string {
   if (text.length <= maxLength) return text;
