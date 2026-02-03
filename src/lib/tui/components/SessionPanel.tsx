@@ -12,6 +12,7 @@ import type {
   SessionStats,
   SkippedEntry,
 } from "@/lib/types";
+import { parseCodexReviewText } from "@/lib/types";
 import { VALID_PRIORITIES } from "@/lib/types/domain";
 import {
   extractFixesFromStats,
@@ -354,6 +355,10 @@ export function SessionPanel({
   const borderColor = focused ? TUI_COLORS.ui.borderFocused : TUI_COLORS.ui.border;
   const { height: terminalHeight } = useTerminalDimensions();
   const latestIterationMarker = useMemo(() => findLatestIterationMarker(tmuxOutput), [tmuxOutput]);
+  const parsedCodexSummary = useMemo(() => {
+    if (!codexReviewText) return null;
+    return parseCodexReviewText(codexReviewText);
+  }, [codexReviewText]);
   const liveReviewSummary = useMemo(() => {
     if (!tmuxOutput.trim()) return null;
 
@@ -506,6 +511,9 @@ export function SessionPanel({
     displayFindings = [];
     displayCodexText = null;
   } else if (findings.length > 0) {
+    displayCodexText = null;
+  } else if (parsedCodexSummary && parsedCodexSummary.findings.length > 0) {
+    displayFindings = parsedCodexSummary.findings;
     displayCodexText = null;
   }
 
