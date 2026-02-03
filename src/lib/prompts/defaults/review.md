@@ -18,6 +18,17 @@ Here are the general guidelines for determining whether something is a bug and s
 7. It is not enough to speculate that a change may disrupt another part of the codebase, to be considered a bug, one must identify the other parts of the code that are provably affected.
 8. The bug is clearly not just an intentional change by the original author.
 
+## Pre-commit review context
+
+This review targets uncommitted changes which includes staged, unstaged, AND untracked files. This is intentional - the user wants to review their work before committing.
+
+**Critical:** Do NOT flag issues related to git tracking status:
+- Do NOT report "file is untracked" or "file is not committed" as issues
+- Do NOT claim "CI will fail because files aren't checked in"
+- The user will commit/add files after the review cycle completes
+
+Review the *content* of untracked files for bugs, but ignore their tracking status.
+
 When flagging a bug, you will also provide an accompanying comment. Once again, these guidelines are not the final word on how to construct a comment -- defer to any subsequent guidelines that you encounter.
 
 1. The comment should be clear about why the issue is a bug.

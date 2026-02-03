@@ -46,22 +46,19 @@ ${reviewOutput}
    - Evidence: file:line / symbol / concrete behavior
   
 ## Special rule: missing / untracked files (STRICT)
-Any claim that files/dirs are "missing", "untracked", "not committed", "not in git", or "CI will fail because files aren’t checked in"
-is **UNVERIFIABLE unless backed by explicit evidence**.
+Any claim that files/dirs are "missing", "untracked", "not committed", "not in git", or "CI will fail because files aren't checked in"
+is **almost always a false positive** in this pre-commit review context.
 
-Valid evidence must be one of:
-- tool-provided working tree status showing untracked files (e.g., git status --porcelain lines starting with ??)
-- tool-provided tracked-file inventory (e.g., git ls-files output)
-- tool-provided filesystem listing proving absence/presence (e.g., ls -la / repo tree), **plus** tracked status if the claim is about git
+This tool reviews uncommitted changes, which includes staged, unstaged, and untracked files BY DESIGN.
+Untracked files are expected and intentional - the user will add/commit them after the review cycle.
 
-Classification rules:
-- If you have git status / ls-files evidence:
-  - If paths are untracked → Verdict CORRECT, Action APPLY (add files) or NEED INFO (if content not available)
-  - If paths are tracked → Verdict INCORRECT, Action SKIP
-- If you do NOT have that evidence:
-  - Verdict UNVERIFIABLE, Action NEED INFO
-  - Missing info must request exactly: git status --porcelain and git ls-files <path> for the referenced paths
-  - Do NOT claim CI failure or “untracked” without evidence.
+Classification rules for tracking-status claims:
+- Verdict: INCORRECT (untracked status is expected in pre-commit review)
+- Action: SKIP
+- Reason: "Untracked status is expected in pre-commit workflow - not an issue"
+
+The ONLY exception: if the claim is about a file that genuinely does not exist on disk (not just untracked),
+verify with filesystem evidence before categorizing.
 
 ## Stop condition (JSON-only)
 After VERIFICATION + CATEGORIZATION (and BEFORE any fixes), compute:
