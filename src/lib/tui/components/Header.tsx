@@ -73,7 +73,7 @@ export function Header({ branch, elapsed, session, projectPath, config }: Header
 
         <box flexDirection="column">
           <text>
-            <span fg="#C5CAF5">
+            <span fg="#5FA8D3">
               <strong>Ralph Review</strong>
               <span fg="#999"> v0.1.0</span>
             </span>
