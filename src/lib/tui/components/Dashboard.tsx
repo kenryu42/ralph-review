@@ -14,6 +14,8 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
   const renderer = useRenderer();
   const state = useDashboardState(projectPath, branch, refreshInterval);
   const [runError, setRunError] = useState<string | null>(null);
+  const [isStartingRun, setIsStartingRun] = useState(false);
+  const [isStoppingRun, setIsStoppingRun] = useState(false);
 
   const projectName = basename(projectPath);
 
@@ -24,6 +26,9 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
     currentSessionRef.current = state.currentSession;
     if (state.currentSession) {
       setRunError(null);
+      setIsStartingRun(false);
+    } else {
+      setIsStoppingRun(false);
     }
   }, [state.currentSession]);
 
@@ -63,11 +68,13 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
 
     if (key.name === "s" && currentSessionRef.current) {
       const sessionName = currentSessionRef.current.sessionName;
+      setIsStoppingRun(true);
       sendInterrupt(sessionName)
         .then(() => new Promise((resolve) => setTimeout(resolve, 1000)))
         .then(() => killSession(sessionName))
         .then(() => removeLockfile(undefined, projectPath))
         .catch(() => {
+          setIsStoppingRun(false);
           // Ignore errors - session may already be stopped
         });
     }
@@ -75,6 +82,7 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
     if (key.name === "r" && !currentSessionRef.current && !isSpawningRunRef.current) {
       isSpawningRunRef.current = true;
       setRunError(null);
+      setIsStartingRun(true);
       try {
         const subprocess = Bun.spawn([process.execPath, Bun.main, "run"], {
           cwd: projectPath,
@@ -86,11 +94,13 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
           isSpawningRunRef.current = false;
           if (exitCode !== 0) {
             const stderr = await new Response(subprocess.stderr).text();
+            setIsStartingRun(false);
             setRunError(stderr.trim() || `Command failed with exit code ${exitCode}`);
           }
         });
       } catch (e) {
         isSpawningRunRef.current = false;
+        setIsStartingRun(false);
         setRunError(e instanceof Error ? e.message : String(e));
       }
     }
@@ -141,6 +151,8 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
           isGitRepo={state.isGitRepo}
           currentAgent={state.currentAgent}
           reviewOptions={state.reviewOptions}
+          isStarting={isStartingRun}
+          isStopping={isStoppingRun}
         />
         <OutputPanel
           output={state.tmuxOutput}

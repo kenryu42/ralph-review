@@ -36,6 +36,8 @@ interface SessionPanelProps {
   isGitRepo: boolean;
   currentAgent: AgentRole | null;
   reviewOptions: ReviewOptions | undefined;
+  isStarting: boolean;
+  isStopping: boolean;
 }
 
 function getStatusDisplay(
@@ -312,6 +314,8 @@ export function SessionPanel({
   isGitRepo,
   currentAgent,
   reviewOptions,
+  isStarting,
+  isStopping,
 }: SessionPanelProps) {
   const minWidth = 50;
   const { height: terminalHeight } = useTerminalDimensions();
@@ -337,7 +341,19 @@ export function SessionPanel({
           gap={1}
         >
           <GitRepoWarning isGitRepo={isGitRepo} />
-          <text fg="#9ca3af">No active session</text>
+          {isStopping ? (
+            <box flexDirection="row" gap={1}>
+              <Spinner color="#f97316" />
+              <text fg="#f97316">Stopping review...</text>
+            </box>
+          ) : isStarting ? (
+            <box flexDirection="row" gap={1}>
+              <Spinner color="#eab308" />
+              <text fg="#eab308">Starting review...</text>
+            </box>
+          ) : (
+            <text fg="#9ca3af">No active session</text>
+          )}
 
           <text fg="#6b7280">Start a review with "rr run"</text>
         </box>
@@ -358,7 +374,19 @@ export function SessionPanel({
         gap={1}
       >
         <GitRepoWarning isGitRepo={isGitRepo} />
-        <text fg="#9ca3af">No active session</text>
+        {isStopping ? (
+          <box flexDirection="row" gap={1}>
+            <Spinner color="#f97316" />
+            <text fg="#f97316">Stopping review...</text>
+          </box>
+        ) : isStarting ? (
+          <box flexDirection="row" gap={1}>
+            <Spinner color="#eab308" />
+            <text fg="#eab308">Starting review...</text>
+          </box>
+        ) : (
+          <text fg="#9ca3af">No active session</text>
+        )}
 
         {projectStats && projectStats.totalFixes > 0 && (
           <box flexDirection="column">
@@ -432,10 +460,23 @@ export function SessionPanel({
     >
       <box flexDirection="row" gap={1}>
         <text fg="#9ca3af">Status:</text>
-        {session.status === "running" && <Spinner color={statusDisplay.color} />}
-        <text fg={statusDisplay.color}>
-          <strong>{statusDisplay.text}</strong>
-        </text>
+        {isStopping ? (
+          <>
+            <Spinner color="#f97316" />
+            <text fg="#f97316">
+              <strong>Stopping review...</strong>
+            </text>
+          </>
+        ) : (
+          <>
+            {(session.status === "running" || session.status === "pending") && (
+              <Spinner color={statusDisplay.color} />
+            )}
+            <text fg={statusDisplay.color}>
+              <strong>{statusDisplay.text}</strong>
+            </text>
+          </>
+        )}
       </box>
 
       <box flexDirection="row" gap={1}>

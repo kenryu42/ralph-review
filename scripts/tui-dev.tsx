@@ -391,6 +391,8 @@ async function main() {
       isGitRepo={mockData.isGitRepo}
       currentAgent={mockData.currentAgent}
       reviewOptions={mockData.reviewOptions}
+      isStarting={false}
+      isStopping={false}
     />
   );
 }
