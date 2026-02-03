@@ -12,4 +12,11 @@ export async function renderDashboard(props: {
   });
 
   createRoot(renderer).render(<Dashboard {...props} />);
+
+  // Wait for renderer to be destroyed before returning
+  if (!renderer.isDestroyed) {
+    await new Promise<void>((resolve) => {
+      renderer.once("destroy", () => resolve());
+    });
+  }
 }
