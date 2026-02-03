@@ -1,7 +1,7 @@
 export type AgentType = "codex" | "claude" | "opencode" | "droid" | "gemini";
 export type AgentRole = "reviewer" | "fixer";
 export type Priority = "P0" | "P1" | "P2" | "P3";
-export type FixDecision = "NO_CHANGES_NEEDED" | "APPLY_SELECTIVELY" | "APPLY_MOST";
+export type FixDecision = "NO_CHANGES_NEEDED" | "APPLY_SELECTIVELY" | "APPLY_MOST" | "NEED_INFO";
 export type OverallCorrectness = "patch is correct" | "patch is incorrect";
 export type DerivedRunStatus = "running" | "completed" | "failed" | "interrupted" | "unknown";
 
@@ -12,6 +12,7 @@ export const VALID_FIX_DECISIONS: readonly FixDecision[] = [
   "NO_CHANGES_NEEDED",
   "APPLY_SELECTIVELY",
   "APPLY_MOST",
+  "NEED_INFO",
 ];
 export const VALID_OVERALL_CORRECTNESS: readonly OverallCorrectness[] = [
   "patch is correct",
