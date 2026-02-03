@@ -8,9 +8,10 @@ import { TUI_COLORS } from "@/lib/tui/colors";
 import type { DashboardProps } from "../types";
 import { useDashboardState } from "../use-dashboard-state";
 import { Header } from "./Header";
+import { HelpOverlay } from "./HelpOverlay";
 import { OutputPanel } from "./OutputPanel";
 import { SessionPanel } from "./SessionPanel";
-import { StatusBar } from "./StatusBar";
+import { type FocusedPanel, StatusBar } from "./StatusBar";
 
 export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: DashboardProps) {
   const renderer = useRenderer();
@@ -18,6 +19,8 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
   const [runError, setRunError] = useState<string | null>(null);
   const [isStartingRun, setIsStartingRun] = useState(false);
   const [isStoppingRun, setIsStoppingRun] = useState(false);
+  const [focusedPanel, setFocusedPanel] = useState<FocusedPanel>("output");
+  const [showHelp, setShowHelp] = useState(false);
 
   const projectName = basename(projectPath);
 
@@ -64,8 +67,27 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
   );
 
   useKeyboard((key) => {
+    // Handle exit/close keys globally (works even in error state)
     if (key.name === "q" || key.name === "escape") {
-      void shutdown();
+      if (showHelp) {
+        setShowHelp(false);
+      } else {
+        void shutdown();
+      }
+      return;
+    }
+
+    // Don't handle other keys when help overlay is open
+    if (showHelp) {
+      return;
+    }
+
+    if (key.name === "tab") {
+      setFocusedPanel((p) => (p === "session" ? "output" : "session"));
+    }
+
+    if (key.name === "?" || key.name === "h") {
+      setShowHelp(true);
     }
 
     if (key.name === "s" && currentSessionRef.current) {
@@ -130,7 +152,8 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
         <box flexGrow={1} padding={2}>
           <text fg={TUI_COLORS.status.error}>Error: {displayError}</text>
         </box>
-        <StatusBar hasSession={false} />
+        <StatusBar hasSession={false} focusedPanel={focusedPanel} />
+        {showHelp && <HelpOverlay onClose={() => setShowHelp(false)} />}
       </box>
     );
   }
@@ -162,13 +185,16 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
           reviewOptions={state.reviewOptions}
           isStarting={isStartingRun}
           isStopping={isStoppingRun}
+          focused={focusedPanel === "session" && !showHelp}
         />
         <OutputPanel
           output={state.tmuxOutput}
           sessionName={state.currentSession?.sessionName ?? null}
+          focused={focusedPanel === "output" && !showHelp}
         />
       </box>
-      <StatusBar hasSession={Boolean(state.currentSession)} />
+      <StatusBar hasSession={Boolean(state.currentSession)} focusedPanel={focusedPanel} />
+      {showHelp && <HelpOverlay onClose={() => setShowHelp(false)} />}
     </box>
   );
 }
