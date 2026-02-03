@@ -1,4 +1,11 @@
-import type { FixEntry, IterationEntry, Priority, SessionStats } from "@/lib/types";
+import {
+  type FixEntry,
+  type IterationEntry,
+  isReviewSummary,
+  type Priority,
+  type ReviewSummary,
+  type SessionStats,
+} from "@/lib/types";
 
 export const PRIORITY_COLORS: Record<Priority, string> = {
   P0: "#ef4444",
@@ -78,4 +85,122 @@ export function formatRelativeTime(timestamp: number): string {
   if (hours > 0) return `${hours}h ago`;
   if (minutes > 0) return `${minutes}m ago`;
   return "just now";
+}
+
+interface JsonObjectSlice {
+  start: number;
+  end: number;
+  value: string;
+}
+
+function extractBalancedJsonObjects(text: string): JsonObjectSlice[] {
+  const results: JsonObjectSlice[] = [];
+  let depth = 0;
+  let startIndex = -1;
+  let inString = false;
+  let isEscaped = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+
+    if (inString) {
+      if (isEscaped) {
+        isEscaped = false;
+        continue;
+      }
+      if (char === "\\") {
+        isEscaped = true;
+        continue;
+      }
+      if (char === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === '"') {
+      inString = true;
+      continue;
+    }
+
+    if (char === "{") {
+      if (depth === 0) {
+        startIndex = i;
+      }
+      depth += 1;
+      continue;
+    }
+
+    if (char === "}") {
+      if (depth === 0) {
+        continue;
+      }
+      depth -= 1;
+      if (depth === 0 && startIndex >= 0) {
+        const endIndex = i + 1;
+        results.push({
+          start: startIndex,
+          end: endIndex,
+          value: text.slice(startIndex, endIndex),
+        });
+        startIndex = -1;
+      }
+    }
+  }
+
+  return results;
+}
+
+export function extractLatestReviewSummary(
+  text: string,
+  minIndex: number = 0
+): ReviewSummary | null {
+  if (!text.trim()) return null;
+
+  const objects = extractBalancedJsonObjects(text);
+  for (let i = objects.length - 1; i >= 0; i--) {
+    const candidate = objects[i];
+    if (!candidate) {
+      continue;
+    }
+    if (candidate.start < minIndex) {
+      continue;
+    }
+    try {
+      const parsed: unknown = JSON.parse(candidate.value);
+      if (isReviewSummary(parsed)) {
+        return parsed;
+      }
+    } catch {
+      // Ignore invalid JSON blocks
+    }
+  }
+
+  return null;
+}
+
+export function findLatestIterationMarker(
+  text: string
+): { iteration: number; total?: number; index: number } | null {
+  const pattern = /Iteration\s+(\d+)\s*\/\s*(\d+)/g;
+  let match: RegExpExecArray | null = null;
+  let latest: { iteration: number; total?: number; index: number } | null = null;
+
+  match = pattern.exec(text);
+  while (match !== null) {
+    const iteration = Number.parseInt(match[1] ?? "", 10);
+    const total = Number.parseInt(match[2] ?? "", 10);
+
+    if (!Number.isNaN(iteration)) {
+      latest = {
+        iteration,
+        total: Number.isNaN(total) ? undefined : total,
+        index: match.index,
+      };
+    }
+
+    match = pattern.exec(text);
+  }
+
+  return latest;
 }

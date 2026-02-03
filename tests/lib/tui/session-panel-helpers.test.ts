@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { buildFixEntry, buildFixSummary } from "@/lib/test-utils/fix-summary";
 import {
   extractFixesFromStats,
+  extractLatestReviewSummary,
+  findLatestIterationMarker,
   formatPriorityBreakdown,
   formatProjectStatsSummary,
   truncateFilePath,
@@ -219,6 +221,77 @@ describe("SessionPanel helpers", () => {
     test("handles zero fixes", () => {
       const result = formatProjectStatsSummary(0, 5);
       expect(result).toBe("0 fixes across 5 sessions");
+    });
+  });
+
+  describe("extractLatestReviewSummary", () => {
+    const baseReview = {
+      findings: [],
+      overall_correctness: "patch is correct",
+      overall_explanation: "looks good",
+      overall_confidence_score: 0.91,
+    };
+
+    test("extracts review summary from raw JSON text", () => {
+      const json = JSON.stringify(baseReview);
+      const text = `noise\n${json}\nmore`;
+      const result = extractLatestReviewSummary(text);
+      expect(result).not.toBeNull();
+      expect(result?.overall_explanation).toBe("looks good");
+    });
+
+    test("skips non-review JSON blocks", () => {
+      const fixSummary = JSON.stringify({
+        decision: "APPLY_MOST",
+        fixes: [],
+        skipped: [],
+      });
+      const text = `start\n${fixSummary}\nend`;
+      const result = extractLatestReviewSummary(text);
+      expect(result).toBeNull();
+    });
+
+    test("returns the last valid review summary when multiple exist", () => {
+      const first = JSON.stringify({
+        ...baseReview,
+        overall_explanation: "first",
+      });
+      const second = JSON.stringify({
+        ...baseReview,
+        overall_explanation: "second",
+      });
+      const fixSummary = JSON.stringify({
+        decision: "APPLY_SELECTIVELY",
+        fixes: [],
+        skipped: [],
+      });
+      const text = `${first}\n${fixSummary}\n${second}`;
+      const result = extractLatestReviewSummary(text);
+      expect(result?.overall_explanation).toBe("second");
+    });
+
+    test("respects the minimum index filter", () => {
+      const first = JSON.stringify({
+        ...baseReview,
+        overall_explanation: "first",
+      });
+      const second = JSON.stringify({
+        ...baseReview,
+        overall_explanation: "second",
+      });
+      const text = `${first}\n${second}`;
+      const minIndex = text.indexOf(second) + second.length;
+      const result = extractLatestReviewSummary(text, minIndex);
+      expect(result).toBeNull();
+    });
+  });
+
+  describe("findLatestIterationMarker", () => {
+    test("finds the most recent iteration marker in output", () => {
+      const text = "📋 Iteration 1/3\nstuff\n📋 Iteration 2/3\nmore";
+      const marker = findLatestIterationMarker(text);
+      expect(marker?.iteration).toBe(2);
+      expect(marker?.index).toBe(text.lastIndexOf("Iteration 2/3"));
     });
   });
 });
