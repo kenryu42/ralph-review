@@ -16,8 +16,8 @@ import {
   readLog,
   sanitizeForFilename,
 } from "@/lib/logger";
-import { buildFixSummary } from "@/lib/test-utils/fix-summary";
 import type { IterationEntry, SystemEntry } from "@/lib/types";
+import { buildFixSummary } from "../test-utils/fix-summary";
 
 describe("logger", () => {
   let tempDir: string;
@@ -316,7 +316,7 @@ describe("logger", () => {
               fix: "Added validation",
             },
           ],
-          skipped: [{ id: 3, title: "Minor style", reason: "Not important" }],
+          skipped: [{ id: 3, title: "Minor style", priority: "P3", reason: "Not important" }],
         }),
       };
 
@@ -594,7 +594,7 @@ describe("logger", () => {
               fix: "",
             },
           ],
-          skipped: [{ id: 3, title: "Skip 1", reason: "minor" }],
+          skipped: [{ id: 3, title: "Skip 1", priority: "P3", reason: "minor" }],
         }),
       } as IterationEntry);
 

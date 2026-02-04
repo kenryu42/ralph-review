@@ -14,6 +14,7 @@ export interface FixEntry {
 export interface SkippedEntry {
   id: number;
   title: string;
+  priority: Priority;
   reason: string;
 }
 
@@ -51,7 +52,11 @@ function isSkippedEntry(value: unknown): value is SkippedEntry {
   const obj = value as Record<string, unknown>;
 
   return (
-    typeof obj.id === "number" && typeof obj.title === "string" && typeof obj.reason === "string"
+    typeof obj.id === "number" &&
+    typeof obj.title === "string" &&
+    typeof obj.priority === "string" &&
+    VALID_PRIORITIES.includes(obj.priority as Priority) &&
+    typeof obj.reason === "string"
   );
 }
 

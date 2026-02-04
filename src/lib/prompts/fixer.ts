@@ -134,6 +134,7 @@ FIX PACKAGE (only if APPLY is non-empty)
     {
       "id": 2,
       "title": "<one-line title>",
+      "priority": "<P0 | P1 | P2 | P3>",
       "reason": "<MUST start with 'SKIP:' or 'NEED INFO:' then details>"
     }
   ]

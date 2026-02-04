@@ -111,7 +111,7 @@ function renderSkippedEntry(item: SkippedEntry): string {
   const pillClass = getPriorityPillClass(item.priority);
   return `
     <li class="skip-item">
-      <div class="fix-pill ${pillClass}">${escapeHtml(item.priority)}</div>
+      <div class="fix-pill ${pillClass}">${escapeHtml(item.priority ?? "P?")}</div>
       <div>
         <div class="skip-title">${escapeHtml(item.title)}</div>
         <div class="skip-reason muted">${escapeHtml(item.reason)}</div>

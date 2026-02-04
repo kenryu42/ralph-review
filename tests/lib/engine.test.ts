@@ -196,6 +196,7 @@ End of output.`;
           {
             id: 2,
             title: "Minor style issue",
+            priority: "P3",
             reason: "Not worth changing",
           },
         ],

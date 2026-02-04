@@ -137,6 +137,7 @@ const mockSkipped: SkippedEntry[] = [
   {
     id: 4,
     title: "Remove console.log",
+    priority: "P2",
     reason: "Intentional debug logging for staging environment",
   },
 ];
@@ -203,6 +204,7 @@ function buildManyFixes(count: number): FixEntry[] {
 }
 
 function buildManySkipped(count: number): SkippedEntry[] {
+  const priorities: SkippedEntry["priority"][] = ["P0", "P1", "P2", "P3"];
   const result: SkippedEntry[] = [];
   for (let index = 0; index < count; index++) {
     const base = mockSkipped[index % mockSkipped.length];
@@ -211,6 +213,7 @@ function buildManySkipped(count: number): SkippedEntry[] {
       ...base,
       id: 200 + index,
       title: `${base.title} (${index + 1})`,
+      priority: priorities[index % priorities.length] ?? "P2",
       reason: `${base.reason} (${index + 1})`,
     });
   }

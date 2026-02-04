@@ -223,11 +223,13 @@ function SkippedList({ skipped, maxHeight = 6, focused = false }: SkippedListPro
   const content = skipped.map((entry, index) => (
     <box key={`${index}-${entry.id}`} flexDirection="column">
       <box flexDirection="row">
-        <text fg={TUI_COLORS.text.dim}>SKIP</text>
+        <text fg={PRIORITY_COLORS[entry.priority as Priority] ?? UNKNOWN_PRIORITY_COLOR}>
+          {entry.priority ?? "P?"}
+        </text>
         <text fg={TUI_COLORS.text.dim}> ▸ </text>
         <text fg={TUI_COLORS.text.secondary}>{truncateText(entry.title, 42)}</text>
       </box>
-      <text fg={TUI_COLORS.text.dim} paddingLeft={6}>
+      <text fg={TUI_COLORS.text.dim} paddingLeft={5}>
         {truncateText(entry.reason, 54)}
       </text>
     </box>
@@ -466,6 +468,9 @@ export function SessionPanel({
             <text fg={TUI_COLORS.text.dim} paddingLeft={2}>
               {formatProjectStatsSummary(projectStats.totalFixes, projectStats.sessionCount)}
             </text>
+            <text fg={TUI_COLORS.text.dim} paddingLeft={2}>
+              "rr logs --html" for more details
+            </text>
           </box>
         )}
 
@@ -476,14 +481,10 @@ export function SessionPanel({
             <text fg={TUI_COLORS.text.dim}>({formatRelativeTime(lastSessionStats.timestamp)})</text>
           </box>
           <text fg={TUI_COLORS.text.dim} paddingLeft={2}>
-            {lastSessionStats.totalFixes} fix{lastSessionStats.totalFixes !== 1 ? "es" : ""} in{" "}
-            {lastSessionStats.iterations} iteration{lastSessionStats.iterations !== 1 ? "s" : ""}
+            {lastSessionStats.totalFixes === 0
+              ? `no issues found in ${lastSessionStats.iterations} iteration${lastSessionStats.iterations !== 1 ? "s" : ""}`
+              : `${lastSessionStats.totalFixes} fix${lastSessionStats.totalFixes !== 1 ? "es" : ""} in ${lastSessionStats.iterations} iteration${lastSessionStats.iterations !== 1 ? "s" : ""}`}
           </text>
-          {lastSessionStats.stop_iteration !== undefined && (
-            <text fg={TUI_COLORS.text.dim} paddingLeft={2}>
-              Stop iteration: {lastSessionStats.stop_iteration ? "yes" : "no"}
-            </text>
-          )}
         </box>
 
         {lastSessionFixes.length > 0 && (
@@ -573,7 +574,7 @@ export function SessionPanel({
 
       <box flexDirection="column">
         <SectionHeader
-          title="Needs verify"
+          title="Issues found"
           count={verifyCount}
           suffix={showingCodex ? <span fg={TUI_COLORS.text.dim}> · codex</span> : undefined}
         />
