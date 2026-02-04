@@ -11,7 +11,7 @@ import {
   writeLogHtml,
 } from "@/lib/html";
 import { appendLog, createLogSession } from "@/lib/logger";
-import { buildFixSummary } from "@/lib/test-utils/fix-summary";
+import { buildFixSummary, buildSkippedEntry } from "@/lib/test-utils/fix-summary";
 import type {
   DashboardData,
   IterationEntry,
@@ -93,11 +93,12 @@ describe("html", () => {
             },
           ],
           skipped: [
-            {
+            buildSkippedEntry({
               id: 2,
               title: "Minor style issue",
+              priority: "P3",
               reason: "Not worth fixing",
-            },
+            }),
           ],
         }),
       };
@@ -269,7 +270,7 @@ describe("html", () => {
       const data = createTestDashboardData();
       const html = generateDashboardHtml(data);
 
-      expect(html).toContain("RALPH // Code Review Dashboard");
+      expect(html).toContain("Ralph Review Dashboard");
     });
 
     test("shows total fixes prominently", () => {
@@ -307,12 +308,16 @@ describe("html", () => {
       expect(html).toContain("currentProject");
     });
 
-    test("shows success rate", () => {
+    test("shows total sessions in header", () => {
       const data = createTestDashboardData();
       const html = generateDashboardHtml(data);
 
-      expect(html).toContain("87%");
-      expect(html).toContain("Success Rate");
+      expect(html).toContain("Total Sessions");
+      expect(html).toContain(">8<");
+      expect(html).not.toContain("Success Rate");
+      expect(html).not.toContain(">87%<");
+      expect(html).not.toContain('class="summary-value" id="totalSkipped"');
+      expect(html).not.toContain('<div class="summary-label">Skipped</div>');
     });
 
     test("handles empty projects", () => {
@@ -384,7 +389,10 @@ describe("html", () => {
       const content = await Bun.file(dashboardPath).text();
       expect(content).toContain("<!DOCTYPE html>");
       expect(content).toContain("42");
-      expect(content).toContain("80%");
+      expect(content).toContain("Total Sessions");
+      expect(content).toContain(">5<");
+      expect(content).not.toContain("Success Rate");
+      expect(content).not.toContain(">80%<");
     });
   });
 });
