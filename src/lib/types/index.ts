@@ -15,7 +15,7 @@ export {
   type Priority,
 } from "./domain";
 export { type FixEntry, type FixSummary, isFixSummary, type SkippedEntry } from "./fix";
-export type { IterationEntry, LogEntry, SystemEntry } from "./log";
+export type { IterationEntry, LogEntry, SessionEndEntry, SessionSummary, SystemEntry } from "./log";
 export {
   type CodexReviewSummary,
   type Finding,
