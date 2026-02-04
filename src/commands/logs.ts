@@ -4,12 +4,13 @@ import { $ } from "bun";
 import { getCommandDef } from "@/cli";
 import { parseCommand } from "@/lib/cli-parser";
 import { LOGS_DIR } from "@/lib/config";
-import { getDashboardPath, writeDashboardHtml } from "@/lib/html";
+import { getDashboardPath, getHtmlPath, writeDashboardHtml } from "@/lib/html";
 import { type ActiveSession, listAllActiveSessions } from "@/lib/lockfile";
 import {
   buildDashboardData,
   computeSessionStats,
   getProjectName,
+  getSummaryPath,
   listLogSessions,
   listProjectLogSessions,
 } from "@/lib/logger";
@@ -58,6 +59,128 @@ export function markRunningSessions(data: DashboardData, activeSessions: ActiveS
       session.status = "running";
     }
   }
+}
+
+/**
+ * Mark sessions in the array as "running" if they match any active session.
+ * This operates directly on SessionStats[] without requiring DashboardData.
+ */
+export function markSessionStatsRunning(
+  sessions: SessionStats[],
+  activeSessions: ActiveSession[]
+): void {
+  for (const session of sessions) {
+    // Extract project name from session path (e.g., /logs/project-name/session.jsonl)
+    const pathParts = session.sessionPath.split("/");
+    const sessionProjectName = pathParts[pathParts.length - 2];
+
+    for (const active of activeSessions) {
+      const activeProjectName = getProjectName(active.projectPath);
+      if (sessionProjectName !== activeProjectName) {
+        continue;
+      }
+
+      const activeBranch = normalizeBranch(active.branch);
+      const branchMatches = activeBranch ? session.gitBranch === activeBranch : !session.gitBranch;
+
+      if (branchMatches) {
+        session.status = "running";
+        break;
+      }
+    }
+  }
+}
+
+function isUnknownEmptySession(session: SessionStats): boolean {
+  return session.status === "unknown" && session.iterations === 0;
+}
+
+function emptyPriorityCounts(): Record<Priority, number> {
+  return { P0: 0, P1: 0, P2: 0, P3: 0 };
+}
+
+function accumulatePriorityCounts(
+  target: Record<Priority, number>,
+  source: Record<Priority, number>
+): void {
+  target.P0 += source.P0;
+  target.P1 += source.P1;
+  target.P2 += source.P2;
+  target.P3 += source.P3;
+}
+
+function recomputeProjectAggregates(project: DashboardData["projects"][number]): void {
+  const totalFixes = project.sessions.reduce((sum, s) => sum + s.totalFixes, 0);
+  const totalSkipped = project.sessions.reduce((sum, s) => sum + s.totalSkipped, 0);
+  const priorityCounts = emptyPriorityCounts();
+  let successCount = 0;
+
+  for (const session of project.sessions) {
+    accumulatePriorityCounts(priorityCounts, session.priorityCounts);
+    if (session.status === "completed") {
+      successCount++;
+    }
+  }
+
+  project.totalFixes = totalFixes;
+  project.totalSkipped = totalSkipped;
+  project.priorityCounts = priorityCounts;
+  project.sessionCount = project.sessions.length;
+  project.successCount = successCount;
+}
+
+function recomputeDashboardAggregates(data: DashboardData): void {
+  let totalFixes = 0;
+  let totalSkipped = 0;
+  const priorityCounts = emptyPriorityCounts();
+  let totalSessions = 0;
+  let totalSuccessful = 0;
+
+  for (const project of data.projects) {
+    totalFixes += project.totalFixes;
+    totalSkipped += project.totalSkipped;
+    totalSessions += project.sessionCount;
+    totalSuccessful += project.successCount;
+    accumulatePriorityCounts(priorityCounts, project.priorityCounts);
+  }
+
+  const successRate = totalSessions > 0 ? Math.round((totalSuccessful / totalSessions) * 100) : 0;
+
+  data.globalStats = {
+    totalFixes,
+    totalSkipped,
+    priorityCounts,
+    totalSessions,
+    successRate,
+  };
+
+  if (data.currentProject && !data.projects.some((p) => p.projectName === data.currentProject)) {
+    data.currentProject = undefined;
+  }
+
+  data.projects.sort((a, b) => b.totalFixes - a.totalFixes);
+}
+
+export function pruneUnknownEmptySessions(data: DashboardData): SessionStats[] {
+  const removed: SessionStats[] = [];
+
+  for (const project of data.projects) {
+    const kept: SessionStats[] = [];
+    for (const session of project.sessions) {
+      if (isUnknownEmptySession(session)) {
+        removed.push(session);
+      } else {
+        kept.push(session);
+      }
+    }
+    project.sessions = kept;
+    recomputeProjectAggregates(project);
+  }
+
+  data.projects = data.projects.filter((project) => project.sessions.length > 0);
+  recomputeDashboardAggregates(data);
+
+  return removed;
 }
 
 async function openInBrowser(filePath: string): Promise<void> {
@@ -328,6 +451,29 @@ export async function runLogs(args: string[]): Promise<void> {
 
     const activeSessions = await listAllActiveSessions(LOGS_DIR);
     markRunningSessions(data, activeSessions);
+    const removed = pruneUnknownEmptySessions(data);
+
+    await Promise.all(
+      removed.map(async (session) => {
+        try {
+          await Bun.file(session.sessionPath).delete();
+        } catch {
+          // Ignore
+        }
+
+        try {
+          await Bun.file(getHtmlPath(session.sessionPath)).delete();
+        } catch {
+          // Ignore
+        }
+
+        try {
+          await Bun.file(getSummaryPath(session.sessionPath)).delete();
+        } catch {
+          // Ignore
+        }
+      })
+    );
 
     if (data.projects.length === 0) {
       s.stop("Done");
@@ -355,7 +501,10 @@ export async function runLogs(args: string[]): Promise<void> {
     }
 
     const sessionStats = await Promise.all(allLogSessions.map(computeSessionStats));
-    const jsonOutput = buildGlobalSessionsJson(sessionStats);
+    const activeSessions = await listAllActiveSessions(LOGS_DIR);
+    markSessionStatsRunning(sessionStats, activeSessions);
+    const filtered = sessionStats.filter((session) => !isUnknownEmptySession(session));
+    const jsonOutput = buildGlobalSessionsJson(filtered);
     console.log(JSON.stringify(jsonOutput, null, 2));
     return;
   }
@@ -375,9 +524,43 @@ export async function runLogs(args: string[]): Promise<void> {
   }
 
   const limit = options.last ?? 1;
-  const limitedSessions = projectSessions.slice(0, limit);
 
-  const sessionStats = await Promise.all(limitedSessions.map(computeSessionStats));
+  // Compute stats for enough sessions to potentially fill the limit after filtering
+  // We process more than needed since some may be filtered out
+  const maxToProcess = Math.min(projectSessions.length, limit * 2 + 5);
+  const allStats: SessionStats[] = [];
+  for (let i = 0; i < maxToProcess; i++) {
+    const session = projectSessions[i];
+    if (session) {
+      allStats.push(await computeSessionStats(session));
+    }
+  }
+
+  // Mark running sessions BEFORE filtering
+  const activeSessions = await listAllActiveSessions(LOGS_DIR);
+  markSessionStatsRunning(allStats, activeSessions);
+
+  // Now filter and apply limit
+  const sessionStats: SessionStats[] = [];
+  for (const stats of allStats) {
+    if (isUnknownEmptySession(stats)) {
+      continue;
+    }
+    sessionStats.push(stats);
+    if (sessionStats.length >= limit) {
+      break;
+    }
+  }
+
+  if (sessionStats.length === 0) {
+    if (options.json) {
+      console.log(JSON.stringify({ project: projectName, sessions: [] }, null, 2));
+    } else {
+      p.log.info("No review sessions found for current working directory.");
+      p.log.message('Start a review with "rr run" first.');
+    }
+    return;
+  }
 
   if (options.json) {
     const jsonOutput = buildProjectSessionsJson(projectName, sessionStats);
