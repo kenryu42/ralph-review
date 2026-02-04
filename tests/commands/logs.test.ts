@@ -10,7 +10,6 @@ import {
 } from "@/commands/logs";
 import type { ActiveSession } from "@/lib/lockfile";
 import { getProjectName } from "@/lib/logger";
-import { buildFixEntry, buildFixSummary } from "@/lib/test-utils/fix-summary";
 import type {
   DashboardData,
   FixEntry,
@@ -18,6 +17,7 @@ import type {
   SessionStats,
   SystemEntry,
 } from "@/lib/types";
+import { buildFixEntry, buildFixSummary } from "../test-utils/fix-summary";
 
 /**
 /**
@@ -213,7 +213,9 @@ describe("buildSessionJson", () => {
       buildFixEntry({ id: 1, priority: "P0", title: "Critical fix", file: "src/file1.ts" }),
       buildFixEntry({ id: 2, priority: "P1", title: "High priority fix", file: "src/file2.ts" }),
     ];
-    const skipped = [{ id: 3, title: "Skipped item", reason: "Not applicable" }];
+    const skipped = [
+      { id: 3, title: "Skipped item", priority: "P3" as const, reason: "Not applicable" },
+    ];
     const session = createSessionStats({
       gitBranch: "feature/test",
       status: "completed",

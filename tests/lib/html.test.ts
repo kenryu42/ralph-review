@@ -11,7 +11,6 @@ import {
   writeLogHtml,
 } from "@/lib/html";
 import { appendLog, createLogSession } from "@/lib/logger";
-import { buildFixSummary, buildSkippedEntry } from "@/lib/test-utils/fix-summary";
 import type {
   DashboardData,
   IterationEntry,
@@ -19,6 +18,7 @@ import type {
   SessionStats,
   SystemEntry,
 } from "@/lib/types";
+import { buildFixSummary, buildSkippedEntry } from "../test-utils/fix-summary";
 
 describe("html", () => {
   let tempDir: string;

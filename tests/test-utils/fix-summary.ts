@@ -38,3 +38,19 @@ export function buildFixEntry(overrides: FixEntryOverrides = {}): FixEntry {
     fix: overrides.fix ?? "Test fix",
   };
 }
+
+interface SkippedEntryOverrides {
+  id?: number;
+  title?: string;
+  priority?: SkippedEntry["priority"];
+  reason?: string;
+}
+
+export function buildSkippedEntry(overrides: SkippedEntryOverrides = {}): SkippedEntry {
+  return {
+    id: overrides.id ?? 1,
+    title: overrides.title ?? "Skipped title",
+    priority: overrides.priority ?? "P2",
+    reason: overrides.reason ?? "SKIP: Test reason",
+  };
+}

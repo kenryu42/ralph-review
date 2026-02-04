@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { buildFixEntry, buildFixSummary } from "@/lib/test-utils/fix-summary";
 import {
   extractFixesFromStats,
   extractLatestReviewSummary,
@@ -10,6 +9,7 @@ import {
   truncateText,
 } from "@/lib/tui/session-panel-utils";
 import type { FixEntry, IterationEntry, Priority, SessionStats, SystemEntry } from "@/lib/types";
+import { buildFixEntry, buildFixSummary } from "../../test-utils/fix-summary";
 
 describe("SessionPanel helpers", () => {
   describe("truncateText", () => {
