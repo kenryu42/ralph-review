@@ -194,8 +194,6 @@ export async function runForeground(args: string[] = []): Promise<void> {
     currentAgent: "reviewer",
   });
 
-  p.intro("Ralph Review Loop");
-
   try {
     const result = await runReviewCycle(
       config,

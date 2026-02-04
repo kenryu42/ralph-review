@@ -101,16 +101,19 @@ async function handleAgentFailure(
 }
 
 function printHeader(text: string, colorCode: string = "\x1b[36m") {
-  const border = "─".repeat(58);
+  const width = 58;
+  const border = "─".repeat(width);
+  const content = text.slice(0, width - 2).padEnd(width - 2);
   const reset = "\x1b[0m";
   const bold = "\x1b[1m";
+  const indent = "  ";
 
   console.log("");
-  console.log(`  ${bold}${colorCode}╭${border}╮${reset}`);
-  console.log(`  ${bold}${colorCode}│${" ".repeat(58)}│${reset}`);
-  console.log(`  ${bold}${colorCode}│  ${text.padEnd(56)}│${reset}`);
-  console.log(`  ${bold}${colorCode}│${" ".repeat(58)}│${reset}`);
-  console.log(`  ${bold}${colorCode}╰${border}╯${reset}`);
+  console.log(`${indent}${bold}${colorCode}╭${border}╮${reset}`);
+  console.log(`${indent}${bold}${colorCode}│${" ".repeat(width)}│${reset}`);
+  console.log(`${indent}${bold}${colorCode}│  ${content}│${reset}`);
+  console.log(`${indent}${bold}${colorCode}│${" ".repeat(width)}│${reset}`);
+  console.log(`${indent}${bold}${colorCode}╰${border}╯${reset}`);
   console.log("");
 }
 
@@ -298,7 +301,6 @@ export async function runReviewCycle(
       );
     }
 
-    console.log(`\n📋 Iteration ${iteration}/${config.maxIterations}`);
     await updateLockfile(undefined, projectPath, { currentAgent: "reviewer", iteration }).catch(
       () => {}
     );
