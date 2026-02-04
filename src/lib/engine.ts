@@ -12,6 +12,7 @@ import type {
   RetryConfig,
   ReviewOptions,
   ReviewSummary,
+  SessionEndEntry,
   SystemEntry,
 } from "./types";
 import { DEFAULT_RETRY_CONFIG, isFixSummary, isReviewSummary } from "./types";
@@ -240,6 +241,32 @@ export function determineCycleResult(
   };
 }
 
+function createSessionEndEntry(
+  result: CycleResult | undefined,
+  error: unknown,
+  wasInterrupted: boolean,
+  iterationsFallback: number
+): SessionEndEntry {
+  const status: SessionEndEntry["status"] = result?.success
+    ? "completed"
+    : wasInterrupted || result?.reason.toLowerCase().includes("interrupt")
+      ? "interrupted"
+      : "failed";
+
+  const reason =
+    result?.reason ??
+    (error instanceof Error ? `Unexpected error: ${error.message}` : undefined) ??
+    (wasInterrupted ? "Review cycle was interrupted" : "Review cycle ended unexpectedly");
+
+  return {
+    type: "session_end",
+    timestamp: Date.now(),
+    status,
+    reason,
+    iterations: result?.iterations ?? iterationsFallback,
+  };
+}
+
 let interrupted = false;
 
 function setupSignalHandler(): void {
@@ -280,175 +307,208 @@ export async function runReviewCycle(
   };
   await appendLog(sessionPath, systemEntry);
 
+  let finalResult: CycleResult | undefined;
+  let unhandledError: unknown;
+  const finish = (result: CycleResult): CycleResult => {
+    finalResult = result;
+    return result;
+  };
+
   let iteration = 0;
   let hasRemainingIssues = true;
 
-  while (iteration < config.maxIterations) {
-    iteration++;
-    const iterationStartTime = Date.now();
+  try {
+    while (iteration < config.maxIterations) {
+      iteration++;
+      const iterationStartTime = Date.now();
 
-    if (wasInterrupted()) {
-      const entry = createIterationEntry(iteration, iterationStartTime, {
-        error: { phase: "reviewer", message: "Review cycle interrupted before iteration start" },
-      });
-      await appendLog(sessionPath, entry);
-      return determineCycleResult(
-        hasRemainingIssues,
-        iteration - 1,
-        config.maxIterations,
-        true,
-        sessionPath
+      if (wasInterrupted()) {
+        const entry = createIterationEntry(iteration, iterationStartTime, {
+          error: { phase: "reviewer", message: "Review cycle interrupted before iteration start" },
+        });
+        await appendLog(sessionPath, entry);
+        return finish(
+          determineCycleResult(
+            hasRemainingIssues,
+            iteration - 1,
+            config.maxIterations,
+            true,
+            sessionPath
+          )
+        );
+      }
+
+      await updateLockfile(undefined, projectPath, { currentAgent: "reviewer", iteration }).catch(
+        () => {}
       );
-    }
+      printHeader("Running reviewer...", "\x1b[36m");
 
-    await updateLockfile(undefined, projectPath, { currentAgent: "reviewer", iteration }).catch(
-      () => {}
-    );
-    printHeader("Running reviewer...", "\x1b[36m");
+      const reviewerPrompt = createReviewerPrompt({
+        repoPath: projectPath,
+        baseBranch: reviewOptions?.baseBranch,
+        commitSha: reviewOptions?.commitSha,
+        customInstructions: reviewOptions?.customInstructions,
+      });
 
-    const reviewerPrompt = createReviewerPrompt({
-      repoPath: projectPath,
-      baseBranch: reviewOptions?.baseBranch,
-      commitSha: reviewOptions?.commitSha,
-      customInstructions: reviewOptions?.customInstructions,
-    });
-
-    // Run reviewer with retry
-    const retryConfig = config.retry ?? DEFAULT_RETRY_CONFIG;
-    const reviewResult = await runAgentWithRetry(
-      "reviewer",
-      config,
-      reviewerPrompt,
-      config.iterationTimeout,
-      reviewOptions
-    );
-
-    if (onIteration) {
-      onIteration(iteration, "reviewer", reviewResult);
-    }
-
-    if (!reviewResult.success) {
-      return handleAgentFailure(
+      // Run reviewer with retry
+      const retryConfig = config.retry ?? DEFAULT_RETRY_CONFIG;
+      const reviewResult = await runAgentWithRetry(
         "reviewer",
-        reviewResult.exitCode,
-        retryConfig,
-        iteration,
-        iterationStartTime,
-        sessionPath
+        config,
+        reviewerPrompt,
+        config.iterationTimeout,
+        reviewOptions
       );
-    }
 
-    if (wasInterrupted()) {
-      const entry = createIterationEntry(iteration, iterationStartTime, {
-        error: { phase: "reviewer", message: "Review cycle interrupted before fixer" },
+      if (onIteration) {
+        onIteration(iteration, "reviewer", reviewResult);
+      }
+
+      if (!reviewResult.success) {
+        return finish(
+          await handleAgentFailure(
+            "reviewer",
+            reviewResult.exitCode,
+            retryConfig,
+            iteration,
+            iterationStartTime,
+            sessionPath
+          )
+        );
+      }
+
+      if (wasInterrupted()) {
+        const entry = createIterationEntry(iteration, iterationStartTime, {
+          error: { phase: "reviewer", message: "Review cycle interrupted before fixer" },
+        });
+        await appendLog(sessionPath, entry);
+        return finish(
+          determineCycleResult(true, iteration, config.maxIterations, true, sessionPath)
+        );
+      }
+
+      await updateLockfile(undefined, projectPath, { currentAgent: "fixer" }).catch(() => {});
+      printHeader("Running fixer to verify and apply fixes...", "\x1b[35m");
+
+      let reviewSummary: ReviewSummary | null = null;
+      let codexReviewSummary: CodexReviewSummary | null = null;
+
+      const agentModule = AGENTS[config.reviewer.agent];
+      const extractedText = agentModule.extractResult(reviewResult.output);
+      const reviewTextForFixer = extractedText ?? reviewResult.output;
+
+      let reviewJson: string | null = null;
+
+      if (config.reviewer.agent === "codex") {
+        codexReviewSummary = { text: reviewTextForFixer };
+      } else {
+        reviewJson = extractedText ? (extractJsonBlock(extractedText) ?? extractedText) : null;
+
+        if (reviewJson) {
+          reviewSummary = parseReviewSummary(reviewJson);
+        }
+
+        if (!reviewSummary && reviewResult.success) {
+          console.log("  ⚠️  Could not parse review summary JSON from reviewer output");
+        }
+      }
+
+      const fixerPrompt = createFixerPrompt(reviewJson ?? reviewTextForFixer);
+      const fixResult = await runAgentWithRetry("fixer", config, fixerPrompt);
+
+      const fixerAgentModule = AGENTS[config.fixer.agent];
+      const resultText = fixerAgentModule.extractResult(fixResult.output);
+      const jsonString = resultText
+        ? extractJsonBlock(resultText)
+        : extractJsonBlock(fixResult.output);
+      const fixSummary = jsonString ? parseFixSummary(jsonString) : null;
+
+      if (!fixSummary && fixResult.success) {
+        console.log("  ⚠️  Could not parse fix summary JSON from fixer output");
+      }
+
+      if (onIteration) {
+        onIteration(iteration, "fixer", fixResult);
+      }
+
+      if (!fixResult.success) {
+        return finish(
+          await handleAgentFailure(
+            "fixer",
+            fixResult.exitCode,
+            retryConfig,
+            iteration,
+            iterationStartTime,
+            sessionPath
+          )
+        );
+      }
+
+      const iterationEntry = createIterationEntry(iteration, iterationStartTime, {
+        review: reviewSummary ?? undefined,
+        codexReview: codexReviewSummary ?? undefined,
+        fixes: fixSummary ?? undefined,
       });
-      await appendLog(sessionPath, entry);
-      return determineCycleResult(true, iteration, config.maxIterations, true, sessionPath);
+      await appendLog(sessionPath, iterationEntry);
+
+      if (fixSummary?.stop_iteration === true) {
+        hasRemainingIssues = false;
+        console.log("✅ No issues to fix - code is clean!");
+        if (!reviewOptions?.forceMaxIterations) {
+          return finish(
+            determineCycleResult(false, iteration, config.maxIterations, false, sessionPath)
+          );
+        }
+        console.log("ℹ️  stop_iteration true; continuing due to --force");
+      } else if (fixSummary?.stop_iteration === false) {
+        hasRemainingIssues = true;
+      } else if (!fixSummary) {
+        // Could not parse fix summary - be conservative and assume issues may remain
+        hasRemainingIssues = true;
+      }
+
+      // Detect NEED_INFO loop: fixer requested more info but made no fixes
+      // This prevents token waste from repeating iterations with same result
+      if (fixSummary?.decision === "NEED_INFO" && fixSummary.fixes.length === 0) {
+        console.log("⚠️  Fixer needs more information to proceed but made no changes.");
+        console.log("   Review may contain unverifiable claims. Stopping to avoid token waste.");
+        return finish({
+          success: false,
+          iterations: iteration,
+          reason:
+            "Fixer requested more information but could not proceed - review contains unverifiable claims",
+          sessionPath,
+        });
+      }
+
+      printHeader("Fixes applied. Re-running reviewer...", "\x1b[36m");
     }
 
-    await updateLockfile(undefined, projectPath, { currentAgent: "fixer" }).catch(() => {});
-    printHeader("Running fixer to verify and apply fixes...", "\x1b[35m");
-
-    let reviewSummary: ReviewSummary | null = null;
-    let codexReviewSummary: CodexReviewSummary | null = null;
-
-    const agentModule = AGENTS[config.reviewer.agent];
-    const extractedText = agentModule.extractResult(reviewResult.output);
-    const reviewTextForFixer = extractedText ?? reviewResult.output;
-
-    let reviewJson: string | null = null;
-
-    if (config.reviewer.agent === "codex") {
-      codexReviewSummary = { text: reviewTextForFixer };
+    if (reviewOptions?.forceMaxIterations && !hasRemainingIssues) {
+      console.log(`ℹ️  Max iterations (${config.maxIterations}) reached after clean pass`);
     } else {
-      reviewJson = extractedText ? (extractJsonBlock(extractedText) ?? extractedText) : null;
-
-      if (reviewJson) {
-        reviewSummary = parseReviewSummary(reviewJson);
-      }
-
-      if (!reviewSummary && reviewResult.success) {
-        console.log("  ⚠️  Could not parse review summary JSON from reviewer output");
-      }
+      console.log(`⚠️  Max iterations (${config.maxIterations}) reached`);
     }
 
-    const fixerPrompt = createFixerPrompt(reviewJson ?? reviewTextForFixer);
-    const fixResult = await runAgentWithRetry("fixer", config, fixerPrompt);
-
-    const fixerAgentModule = AGENTS[config.fixer.agent];
-    const resultText = fixerAgentModule.extractResult(fixResult.output);
-    const jsonString = resultText
-      ? extractJsonBlock(resultText)
-      : extractJsonBlock(fixResult.output);
-    const fixSummary = jsonString ? parseFixSummary(jsonString) : null;
-
-    if (!fixSummary && fixResult.success) {
-      console.log("  ⚠️  Could not parse fix summary JSON from fixer output");
-    }
-
-    if (onIteration) {
-      onIteration(iteration, "fixer", fixResult);
-    }
-
-    if (!fixResult.success) {
-      return handleAgentFailure(
-        "fixer",
-        fixResult.exitCode,
-        retryConfig,
+    return finish(
+      determineCycleResult(
+        hasRemainingIssues,
         iteration,
-        iterationStartTime,
+        config.maxIterations,
+        wasInterrupted(),
         sessionPath
-      );
-    }
-
-    const iterationEntry = createIterationEntry(iteration, iterationStartTime, {
-      review: reviewSummary ?? undefined,
-      codexReview: codexReviewSummary ?? undefined,
-      fixes: fixSummary ?? undefined,
-    });
-    await appendLog(sessionPath, iterationEntry);
-
-    if (fixSummary?.stop_iteration === true) {
-      hasRemainingIssues = false;
-      console.log("✅ No issues to fix - code is clean!");
-      if (!reviewOptions?.forceMaxIterations) {
-        return determineCycleResult(false, iteration, config.maxIterations, false, sessionPath);
-      }
-      console.log("ℹ️  stop_iteration true; continuing due to --force");
-    } else if (fixSummary?.stop_iteration === false) {
-      hasRemainingIssues = true;
-    } else if (!fixSummary) {
-      // Could not parse fix summary - be conservative and assume issues may remain
-      hasRemainingIssues = true;
-    }
-
-    // Detect NEED_INFO loop: fixer requested more info but made no fixes
-    // This prevents token waste from repeating iterations with same result
-    if (fixSummary?.decision === "NEED_INFO" && fixSummary.fixes.length === 0) {
-      console.log("⚠️  Fixer needs more information to proceed but made no changes.");
-      console.log("   Review may contain unverifiable claims. Stopping to avoid token waste.");
-      return {
-        success: false,
-        iterations: iteration,
-        reason:
-          "Fixer requested more information but could not proceed - review contains unverifiable claims",
-        sessionPath,
-      };
-    }
-
-    printHeader("Fixes applied. Re-running reviewer...", "\x1b[36m");
+      )
+    );
+  } catch (error) {
+    unhandledError = error;
+    throw error;
+  } finally {
+    const sessionEndEntry = createSessionEndEntry(
+      finalResult,
+      unhandledError,
+      wasInterrupted(),
+      iteration
+    );
+    await appendLog(sessionPath, sessionEndEntry).catch(() => {});
   }
-
-  if (reviewOptions?.forceMaxIterations && !hasRemainingIssues) {
-    console.log(`ℹ️  Max iterations (${config.maxIterations}) reached after clean pass`);
-  } else {
-    console.log(`⚠️  Max iterations (${config.maxIterations}) reached`);
-  }
-  return determineCycleResult(
-    hasRemainingIssues,
-    iteration,
-    config.maxIterations,
-    wasInterrupted(),
-    sessionPath
-  );
 }
