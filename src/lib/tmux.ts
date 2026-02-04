@@ -69,6 +69,11 @@ export async function listRalphSessions(): Promise<string[]> {
   return sessions.filter((name) => name.startsWith("rr-"));
 }
 
+export function normalizeSessionOutput(output: string): string {
+  // Keep leading indentation (used by box-drawing output) but drop trailing capture padding.
+  return output.trimEnd();
+}
+
 export async function getSessionOutput(name: string, lines: number = 50): Promise<string> {
   const safeLines = Number.isFinite(lines) && lines > 0 ? Math.floor(lines) : 50;
   const timeoutMs = 750;
@@ -93,7 +98,7 @@ export async function getSessionOutput(name: string, lines: number = 50): Promis
     }
 
     const output = await new Response(proc.stdout).text();
-    return output.trim();
+    return normalizeSessionOutput(output);
   } catch {
     return "";
   }

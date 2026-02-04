@@ -6,6 +6,7 @@ import {
   isTmuxInstalled,
   killSession,
   listSessions,
+  normalizeSessionOutput,
   sanitizeBasename,
   sessionExists,
 } from "@/lib/tmux";
@@ -132,6 +133,18 @@ describe("tmux", () => {
     test("returns false for non-existent session", async () => {
       const result = await sessionExists("nonexistent-session-xyz-12345");
       expect(result).toBe(false);
+    });
+  });
+
+  describe("normalizeSessionOutput", () => {
+    test("preserves leading indentation", () => {
+      const output = "  ╭────╮\n  │ hi │\n  ╰────╯\n";
+      expect(normalizeSessionOutput(output)).toBe("  ╭────╮\n  │ hi │\n  ╰────╯");
+    });
+
+    test("removes only trailing whitespace", () => {
+      const output = "line 1\nline 2\n\n   ";
+      expect(normalizeSessionOutput(output)).toBe("line 1\nline 2");
     });
   });
 
