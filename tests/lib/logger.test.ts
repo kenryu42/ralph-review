@@ -11,13 +11,15 @@ import {
   generateLogFilename,
   getGitBranch,
   getProjectName,
+  getSummaryPath,
   listLogSessions,
   listProjectLogSessions,
   readLog,
+  readSessionSummary,
   sanitizeForFilename,
 } from "@/lib/logger";
-import type { IterationEntry, SystemEntry } from "@/lib/types";
-import { buildFixSummary } from "../test-utils/fix-summary";
+import type { IterationEntry, SessionEndEntry, SystemEntry } from "@/lib/types";
+import { buildFixEntry, buildFixSummary } from "../test-utils/fix-summary";
 
 describe("logger", () => {
   let tempDir: string;
@@ -123,6 +125,12 @@ describe("logger", () => {
     });
   });
 
+  describe("getSummaryPath", () => {
+    test("replaces .jsonl with .summary.json", () => {
+      expect(getSummaryPath("/tmp/logs/session.jsonl")).toBe("/tmp/logs/session.summary.json");
+    });
+  });
+
   describe("appendLog and readLog", () => {
     test("appends and reads system entry", async () => {
       const logPath = await createLogSession(tempDir, "/path/to/project");
@@ -191,6 +199,47 @@ describe("logger", () => {
       expect(entries.length).toBe(2);
       expect(entries[0]?.type).toBe("system");
       expect(entries[1]?.type).toBe("iteration");
+    });
+
+    test("updates summary after appending entries", async () => {
+      const logPath = await createLogSession(tempDir, "/path/to/project", "main");
+
+      const systemEntry: SystemEntry = {
+        type: "system",
+        timestamp: Date.now(),
+        projectPath: "/path/to/project",
+        gitBranch: "main",
+        reviewer: { agent: "codex" },
+        fixer: { agent: "claude" },
+        maxIterations: 5,
+      };
+
+      const iterationEntry: IterationEntry = {
+        type: "iteration",
+        timestamp: Date.now(),
+        iteration: 1,
+        duration: 5000,
+      };
+
+      const sessionEndEntry: SessionEndEntry = {
+        type: "session_end",
+        timestamp: Date.now(),
+        status: "completed",
+        reason: "No issues found - code is clean",
+        iterations: 1,
+      };
+
+      await appendLog(logPath, systemEntry);
+      await appendLog(logPath, iterationEntry);
+      await appendLog(logPath, sessionEndEntry);
+
+      const summary = await readSessionSummary(logPath);
+      expect(summary).not.toBeNull();
+      expect(summary?.status).toBe("completed");
+      expect(summary?.iterations).toBe(1);
+      expect(summary?.hasIteration).toBe(true);
+      expect(summary?.gitBranch).toBe("main");
+      expect(summary?.reason).toContain("code is clean");
     });
   });
 
@@ -380,6 +429,49 @@ describe("logger", () => {
       expect(stats.status).toBe("failed");
     });
 
+    test("uses session_end status when present", async () => {
+      const logPath = await createLogSession(tempDir, "/path/to/project");
+
+      const systemEntry: SystemEntry = {
+        type: "system",
+        timestamp: Date.now(),
+        projectPath: "/path/to/project",
+        reviewer: { agent: "codex" },
+        fixer: { agent: "claude" },
+        maxIterations: 5,
+      };
+
+      const iterEntry: IterationEntry = {
+        type: "iteration",
+        timestamp: Date.now(),
+        iteration: 1,
+        duration: 1000,
+      };
+
+      const sessionEndEntry: SessionEndEntry = {
+        type: "session_end",
+        timestamp: Date.now(),
+        status: "interrupted",
+        reason: "Review cycle was interrupted",
+        iterations: 1,
+      };
+
+      await appendLog(logPath, systemEntry);
+      await appendLog(logPath, iterEntry);
+      await appendLog(logPath, sessionEndEntry);
+
+      const session = {
+        path: logPath,
+        name: "test.jsonl",
+        projectName: "path-to-project",
+        timestamp: Date.now(),
+      };
+      const stats = await computeSessionStats(session);
+
+      expect(stats.status).toBe("interrupted");
+      expect(stats.iterations).toBe(1);
+    });
+
     test("handles empty log", async () => {
       const logPath = await createLogSession(tempDir, "/path/to/project");
 
@@ -519,6 +611,72 @@ describe("logger", () => {
       const stats = await computeSessionStats(session);
 
       expect(stats.totalDuration).toBeUndefined();
+    });
+
+    test("uses fresh metrics when summary is stale", async () => {
+      const logPath = await createLogSession(tempDir, "/path/to/project", "main");
+
+      const systemEntry: SystemEntry = {
+        type: "system",
+        timestamp: Date.now(),
+        projectPath: "/path/to/project",
+        gitBranch: "main",
+        reviewer: { agent: "codex" },
+        fixer: { agent: "claude" },
+        maxIterations: 5,
+      };
+
+      const iter1: IterationEntry = {
+        type: "iteration",
+        timestamp: Date.now(),
+        iteration: 1,
+        fixes: buildFixSummary({
+          decision: "APPLY_SELECTIVELY",
+          fixes: [buildFixEntry({ id: 1, title: "Fix 1", priority: "P1", file: "a.ts" })],
+        }),
+      };
+
+      // Write initial log and summary
+      await appendLog(logPath, systemEntry);
+      await appendLog(logPath, iter1);
+
+      // Verify summary was created with correct values
+      const summary1 = await readSessionSummary(logPath);
+      expect(summary1?.totalFixes).toBe(1);
+
+      // Simulate a crash scenario: manually append to log file without updating summary
+      const iter2: IterationEntry = {
+        type: "iteration",
+        timestamp: Date.now(),
+        iteration: 2,
+        fixes: buildFixSummary({
+          decision: "APPLY_SELECTIVELY",
+          fixes: [
+            buildFixEntry({ id: 2, title: "Fix 2", priority: "P0", file: "b.ts" }),
+            buildFixEntry({ id: 3, title: "Fix 3", priority: "P2", file: "c.ts" }),
+          ],
+        }),
+      };
+
+      // Directly append to log without calling appendLog (simulating crash between writes)
+      // Sleep first to ensure mtime difference between summary and upcoming log write
+      await Bun.sleep(50);
+      const logFile = Bun.file(logPath);
+      const existing = await logFile.text();
+      await Bun.write(logPath, `${existing}${JSON.stringify(iter2)}\n`);
+
+      // Now computeSessionStats should detect stale summary and use fresh metrics
+      const session = {
+        path: logPath,
+        name: "test.jsonl",
+        projectName: "path-to-project",
+        timestamp: Date.now(),
+      };
+      const stats = await computeSessionStats(session);
+
+      // Should reflect all 3 fixes from both iterations, not just 1 from stale summary
+      expect(stats.totalFixes).toBe(3);
+      expect(stats.iterations).toBe(2);
     });
   });
 

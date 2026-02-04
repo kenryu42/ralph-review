@@ -7,6 +7,8 @@ import {
   formatPriorityCounts,
   formatStatus,
   markRunningSessions,
+  markSessionStatsRunning,
+  pruneUnknownEmptySessions,
 } from "@/commands/logs";
 import type { ActiveSession } from "@/lib/lockfile";
 import { getProjectName } from "@/lib/logger";
@@ -143,6 +145,129 @@ describe("logs markRunningSessions", () => {
   });
 });
 
+describe("pruneUnknownEmptySessions", () => {
+  test("removes unknown 0-iteration sessions and recomputes aggregates", () => {
+    const projectPath = "/work/project-a";
+    const projectName = getProjectName(projectPath);
+    const emptyCounts = { P0: 0, P1: 0, P2: 0, P3: 0 };
+
+    const unknownEmpty = createSessionStats({
+      sessionPath: "/logs/project-a/empty.jsonl",
+      sessionName: "empty.jsonl",
+      gitBranch: "main",
+      status: "unknown",
+      totalFixes: 0,
+      totalSkipped: 0,
+      priorityCounts: emptyCounts,
+      iterations: 0,
+      entries: [createSystemEntry(projectPath)],
+    });
+
+    const completed = createSessionStats({
+      sessionPath: "/logs/project-a/done.jsonl",
+      sessionName: "done.jsonl",
+      gitBranch: "main",
+      status: "completed",
+      totalFixes: 2,
+      totalSkipped: 1,
+      priorityCounts: { P0: 1, P1: 0, P2: 1, P3: 0 },
+      iterations: 1,
+      entries: [createSystemEntry(projectPath), createIterationEntry([])],
+    });
+
+    const data: DashboardData = {
+      generatedAt: Date.now(),
+      currentProject: projectName,
+      globalStats: {
+        totalFixes: 999,
+        totalSkipped: 999,
+        priorityCounts: { P0: 999, P1: 999, P2: 999, P3: 999 },
+        totalSessions: 999,
+        successRate: 0,
+      },
+      projects: [
+        {
+          projectName,
+          displayName: "project-a",
+          totalFixes: 999,
+          totalSkipped: 999,
+          priorityCounts: { P0: 999, P1: 999, P2: 999, P3: 999 },
+          sessionCount: 2,
+          successCount: 1,
+          sessions: [unknownEmpty, completed],
+        },
+      ],
+    };
+
+    const removed = pruneUnknownEmptySessions(data);
+
+    expect(removed).toHaveLength(1);
+    expect(data.projects).toHaveLength(1);
+    expect(data.projects[0]?.sessions).toHaveLength(1);
+    expect(data.projects[0]?.sessionCount).toBe(1);
+    expect(data.projects[0]?.successCount).toBe(1);
+    expect(data.projects[0]?.totalFixes).toBe(2);
+    expect(data.projects[0]?.totalSkipped).toBe(1);
+    expect(data.projects[0]?.priorityCounts.P0).toBe(1);
+    expect(data.projects[0]?.priorityCounts.P2).toBe(1);
+
+    expect(data.globalStats.totalSessions).toBe(1);
+    expect(data.globalStats.successRate).toBe(100);
+  });
+
+  test("keeps empty sessions once marked as running", () => {
+    const projectPath = "/work/project-a";
+    const projectName = getProjectName(projectPath);
+    const emptyCounts = { P0: 0, P1: 0, P2: 0, P3: 0 };
+
+    const unknownEmpty = createSessionStats({
+      sessionPath: "/logs/project-a/empty.jsonl",
+      sessionName: "empty.jsonl",
+      gitBranch: "main",
+      status: "unknown",
+      totalFixes: 0,
+      totalSkipped: 0,
+      priorityCounts: emptyCounts,
+      iterations: 0,
+      entries: [createSystemEntry(projectPath)],
+    });
+
+    const data: DashboardData = {
+      generatedAt: Date.now(),
+      currentProject: projectName,
+      globalStats: {
+        totalFixes: 0,
+        totalSkipped: 0,
+        priorityCounts: emptyCounts,
+        totalSessions: 1,
+        successRate: 0,
+      },
+      projects: [
+        {
+          projectName,
+          displayName: "project-a",
+          totalFixes: 0,
+          totalSkipped: 0,
+          priorityCounts: emptyCounts,
+          sessionCount: 1,
+          successCount: 0,
+          sessions: [unknownEmpty],
+        },
+      ],
+    };
+
+    const active = createActiveSession(projectPath, "main");
+    markRunningSessions(data, [active]);
+
+    const removed = pruneUnknownEmptySessions(data);
+
+    expect(removed).toHaveLength(0);
+    expect(data.projects[0]?.sessions).toHaveLength(1);
+    expect(data.projects[0]?.sessions[0]?.status).toBe("running");
+    expect(data.globalStats.totalSessions).toBe(1);
+  });
+});
+
 describe("formatStatus", () => {
   test("returns checkmark for completed status", () => {
     expect(formatStatus("completed")).toBe("completed");
@@ -162,6 +287,81 @@ describe("formatStatus", () => {
 
   test("returns unknown for unknown status", () => {
     expect(formatStatus("unknown")).toBe("unknown");
+  });
+});
+
+describe("markSessionStatsRunning", () => {
+  test("marks session as running when it matches an active session", () => {
+    const projectPath = "/work/project-a";
+    const projectName = getProjectName(projectPath);
+    const sessions = [
+      createSessionStats({
+        sessionPath: `/logs/${projectName}/session.jsonl`,
+        gitBranch: "main",
+        status: "unknown",
+        iterations: 0,
+      }),
+    ];
+
+    const active = createActiveSession(projectPath, "main");
+    markSessionStatsRunning(sessions, [active]);
+
+    expect(sessions[0]?.status).toBe("running");
+  });
+
+  test("marks session with undefined branch when active branch is 'default'", () => {
+    const projectPath = "/work/project-a";
+    const projectName = getProjectName(projectPath);
+    const sessions = [
+      createSessionStats({
+        sessionPath: `/logs/${projectName}/session.jsonl`,
+        gitBranch: undefined,
+        status: "unknown",
+        iterations: 0,
+      }),
+    ];
+
+    const active = createActiveSession(projectPath, "default");
+    markSessionStatsRunning(sessions, [active]);
+
+    expect(sessions[0]?.status).toBe("running");
+  });
+
+  test("does not mark session when project does not match", () => {
+    const projectPath = "/work/project-a";
+    const otherProject = "/work/project-b";
+    const projectName = getProjectName(projectPath);
+    const sessions = [
+      createSessionStats({
+        sessionPath: `/logs/${projectName}/session.jsonl`,
+        gitBranch: "main",
+        status: "unknown",
+        iterations: 0,
+      }),
+    ];
+
+    const active = createActiveSession(otherProject, "main");
+    markSessionStatsRunning(sessions, [active]);
+
+    expect(sessions[0]?.status).toBe("unknown");
+  });
+
+  test("does not mark session when branch does not match", () => {
+    const projectPath = "/work/project-a";
+    const projectName = getProjectName(projectPath);
+    const sessions = [
+      createSessionStats({
+        sessionPath: `/logs/${projectName}/session.jsonl`,
+        gitBranch: "main",
+        status: "unknown",
+        iterations: 0,
+      }),
+    ];
+
+    const active = createActiveSession(projectPath, "feature-branch");
+    markSessionStatsRunning(sessions, [active]);
+
+    expect(sessions[0]?.status).toBe("unknown");
   });
 });
 
