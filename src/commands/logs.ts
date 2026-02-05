@@ -158,7 +158,8 @@ function recomputeDashboardAggregates(data: DashboardData): void {
   };
 
   // Recompute agent/model breakdowns from current (possibly pruned) projects
-  data.agentStats = buildAgentStats(data.projects);
+  data.reviewerAgentStats = buildAgentStats(data.projects, "reviewer");
+  data.fixerAgentStats = buildAgentStats(data.projects, "fixer");
   data.reviewerModelStats = buildModelStats(data.projects, "reviewer");
   data.fixerModelStats = buildModelStats(data.projects, "fixer");
 

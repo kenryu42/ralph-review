@@ -5,7 +5,8 @@ import type { LogEntry } from "./log";
 export interface AgentStats {
   agent: AgentType;
   sessionCount: number;
-  totalFixes: number;
+  /** For reviewers: issues found. For fixers: fixes applied. */
+  totalIssues: number;
   totalSkipped: number;
   averageIterations: number;
 }
@@ -66,7 +67,8 @@ export interface DashboardData {
     fixRate: number;
   };
   projects: ProjectStats[];
-  agentStats: AgentStats[];
+  reviewerAgentStats: AgentStats[];
+  fixerAgentStats: AgentStats[];
   reviewerModelStats: ModelStats[];
   fixerModelStats: ModelStats[];
 }

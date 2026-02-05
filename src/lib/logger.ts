@@ -447,23 +447,33 @@ export async function computeProjectStats(
   };
 }
 
-export function buildAgentStats(projects: ProjectStats[]): AgentStats[] {
+export function buildAgentStats(
+  projects: ProjectStats[],
+  role: "reviewer" | "fixer"
+): AgentStats[] {
   const agentMap = new Map<AgentType, AgentStats>();
+  const agentField = role === "reviewer" ? "reviewer" : "fixer";
 
   for (const project of projects) {
     for (const session of project.sessions) {
-      if (!session.reviewer) continue;
+      const agent = session[agentField];
+      if (!agent) continue;
 
-      const existing = agentMap.get(session.reviewer);
+      // For reviewers: issues found = fixes + skipped (all issues discovered)
+      // For fixers: issues fixed = fixes only (issues actually resolved)
+      const issueCount =
+        role === "reviewer" ? session.totalFixes + session.totalSkipped : session.totalFixes;
+
+      const existing = agentMap.get(agent);
       if (existing) {
         existing.sessionCount++;
-        existing.totalFixes += session.totalFixes;
+        existing.totalIssues += issueCount;
         existing.totalSkipped += session.totalSkipped;
       } else {
-        agentMap.set(session.reviewer, {
-          agent: session.reviewer,
+        agentMap.set(agent, {
+          agent,
           sessionCount: 1,
-          totalFixes: session.totalFixes,
+          totalIssues: issueCount,
           totalSkipped: session.totalSkipped,
           averageIterations: 0,
         });
@@ -474,8 +484,9 @@ export function buildAgentStats(projects: ProjectStats[]): AgentStats[] {
   // Compute average iterations per agent
   for (const project of projects) {
     for (const session of project.sessions) {
-      if (!session.reviewer) continue;
-      const stats = agentMap.get(session.reviewer);
+      const agent = session[agentField];
+      if (!agent) continue;
+      const stats = agentMap.get(agent);
       if (stats) {
         stats.averageIterations += session.iterations;
       }
@@ -596,7 +607,8 @@ export async function buildDashboardData(
       fixRate,
     },
     projects,
-    agentStats: buildAgentStats(projects),
+    reviewerAgentStats: buildAgentStats(projects, "reviewer"),
+    fixerAgentStats: buildAgentStats(projects, "fixer"),
     reviewerModelStats: buildModelStats(projects, "reviewer"),
     fixerModelStats: buildModelStats(projects, "fixer"),
   };
