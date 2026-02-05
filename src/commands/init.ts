@@ -180,11 +180,11 @@ function formatConfigDisplay(config: Config): string {
   const fixerName = getAgentDisplayName(config.fixer.agent);
 
   const reviewerModel = config.reviewer.model
-    ? ` (${getModelDisplayName(config.reviewer.agent, config.reviewer.model)})`
-    : "";
+    ? getModelDisplayName(config.reviewer.agent, config.reviewer.model)
+    : "Default";
   const fixerModel = config.fixer.model
-    ? ` (${getModelDisplayName(config.fixer.agent, config.fixer.model)})`
-    : "";
+    ? getModelDisplayName(config.fixer.agent, config.fixer.model)
+    : "Default";
 
   const defaultReviewDisplay =
     config.defaultReview.type === "base"
@@ -192,8 +192,10 @@ function formatConfigDisplay(config: Config): string {
       : "uncommitted changes";
 
   return [
-    `  Reviewer:          ${reviewerName}${reviewerModel}`,
-    `  Fixer:             ${fixerName}${fixerModel}`,
+    `  Reviewer:          ${reviewerName}`,
+    `  Reviewer model:    ${reviewerModel}`,
+    `  Fixer:             ${fixerName}`,
+    `  Fixer model:       ${fixerModel}`,
     `  Max iterations:    ${config.maxIterations}`,
     `  Iteration timeout: ${config.iterationTimeout / 1000 / 60} minutes`,
     `  Default review:    ${defaultReviewDisplay}`,
