@@ -16,6 +16,7 @@ const DATE_FORMAT = new Intl.DateTimeFormat(undefined, {
   dateStyle: "medium",
   timeStyle: "short",
 });
+const NUMBER_FORMAT = new Intl.NumberFormat();
 
 function formatDate(timestamp: number): string {
   return DATE_FORMAT.format(new Date(timestamp));
@@ -38,6 +39,50 @@ function formatDuration(ms: number | undefined): string {
   return `${seconds}s`;
 }
 
+function formatFixesLabel(totalFixes: number): string {
+  if (totalFixes === 0) return "No Issues";
+  const count = NUMBER_FORMAT.format(totalFixes);
+  return `${count} fixes`;
+}
+
+interface SessionBadgeInput {
+  status: string;
+  totalFixes: number;
+  totalSkipped: number;
+}
+
+function getSessionBadge(session: SessionBadgeInput): { label: string; className: string } {
+  // Non-completed statuses take precedence
+  if (session.status !== "completed") {
+    return {
+      label: session.status,
+      className: `status-${session.status}`,
+    };
+  }
+
+  // Completed with skipped items but no fixes - show skipped count
+  if (session.totalFixes === 0 && session.totalSkipped > 0) {
+    return {
+      label: `${NUMBER_FORMAT.format(session.totalSkipped)} skipped`,
+      className: "status-has-skipped",
+    };
+  }
+
+  // Completed with fixes
+  if (session.totalFixes > 0) {
+    return {
+      label: formatFixesLabel(session.totalFixes),
+      className: "status-has-fixes",
+    };
+  }
+
+  // Truly clean: completed, no fixes, no skipped
+  return {
+    label: "No Issues",
+    className: "status-no-issues",
+  };
+}
+
 function escapeHtml(value: string): string {
   return value
     .replace(/&/g, "&amp;")
@@ -57,6 +102,11 @@ function serializeForScript(value: unknown): string {
 function formatAgent(settings: AgentSettings | undefined): string {
   if (!settings) return "unknown";
   return settings.model ? `${settings.agent} (${settings.model})` : settings.agent;
+}
+
+function formatRoleDisplay(name: string, model: string | undefined): string {
+  if (!model) return name;
+  return `${name} (${model})`;
 }
 
 function getPriorityPillClass(priority: string): string {
@@ -438,6 +488,7 @@ function renderSessionList(sessions: SessionStats[]): string {
   return sessions
     .map((session, index) => {
       const branch = session.gitBranch ?? "no branch";
+      const badge = getSessionBadge(session);
       return `
         <button class="session-card ${index === 0 ? "active" : ""}" data-session="${
           session.sessionPath
@@ -447,10 +498,9 @@ function renderSessionList(sessions: SessionStats[]): string {
               <div class="session-title">${escapeHtml(branch)}</div>
               <div class="session-meta">${formatDate(session.timestamp)}</div>
             </div>
-            <div class="status status-${session.status}">${session.status}</div>
+            <div class="status ${badge.className}">${badge.label}</div>
           </div>
           <div class="session-stats">
-            <span>${session.totalFixes} fixes</span>
             <span>${session.iterations} iterations</span>
           </div>
         </button>
@@ -468,6 +518,12 @@ function renderSessionDetail(session: SessionStats | undefined): string {
   const fixes = sortFixesByPriority(rawFixes);
   const branch = session.gitBranch ?? "no branch";
   const totalDuration = formatDuration(session.totalDuration);
+  const reviewerName = session.reviewerDisplayName ?? session.reviewer;
+  const reviewerModel = session.reviewerModelDisplayName ?? session.reviewerModel;
+  const fixerName = session.fixerDisplayName ?? session.fixer;
+  const fixerModel = session.fixerModelDisplayName ?? session.fixerModel;
+  const reviewerDisplay = formatRoleDisplay(reviewerName, reviewerModel);
+  const fixerDisplay = formatRoleDisplay(fixerName, fixerModel);
   const showSkippedPanel = skipped.length > 1;
 
   return `
@@ -478,9 +534,9 @@ function renderSessionDetail(session: SessionStats | undefined): string {
           ${formatDate(session.timestamp)}
           <span class="dot">•</span>
           ${totalDuration}
-          <span class="dot">•</span>
-          <span class="status status-${session.status}">${session.status}</span>
         </div>
+        <div class="detail-meta">Reviewer: ${escapeHtml(reviewerDisplay)}</div>
+        <div class="detail-meta">Fixer: ${escapeHtml(fixerDisplay)}</div>
       </div>
       <div class="detail-stats">
         <div class="stat">
@@ -528,7 +584,7 @@ export function generateDashboardHtml(data: DashboardData): string {
   const initialSession = sessions[0];
 
   const totalFixes = data.globalStats.totalFixes;
-  const highImpact = data.globalStats.priorityCounts.P0 + data.globalStats.priorityCounts.P1;
+  const _highImpact = data.globalStats.priorityCounts.P0 + data.globalStats.priorityCounts.P1;
 
   return `
     <!DOCTYPE html>
@@ -667,6 +723,7 @@ export function generateDashboardHtml(data: DashboardData): string {
             display: block;
             color: var(--muted);
             font-size: 12px;
+            font-weight: 600;
             text-transform: uppercase;
             letter-spacing: 0.1em;
           }
@@ -706,6 +763,16 @@ export function generateDashboardHtml(data: DashboardData): string {
           .project-item.active, .session-card.active {
             border-color: rgba(244, 195, 79, 0.6);
             box-shadow: 0 0 0 1px rgba(244, 195, 79, 0.2);
+          }
+          .session-card {
+            position: relative;
+            padding-right: 130px;
+          }
+          .session-card .status {
+            position: absolute;
+            right: 16px;
+            top: 50%;
+            transform: translateY(-50%);
           }
           .project-title { font-weight: 600; font-size: 15px; }
           .project-meta { display: flex; gap: 12px; color: var(--muted); font-size: 12px; margin-top: 6px; }
@@ -761,7 +828,25 @@ export function generateDashboardHtml(data: DashboardData): string {
             font-weight: 600;
             text-transform: uppercase;
             letter-spacing: 0.08em;
+            display: inline-flex;
+            align-items: center;
+            align-self: center;
+            justify-content: center;
+            line-height: 1;
           }
+          .status-has-fixes,
+          .status-no-issues {
+            min-width: 100px;
+            text-align: center;
+            justify-content: center;
+            display: inline-flex;
+            align-items: center;
+            align-self: center;
+            min-height: 28px;
+          }
+          .status-has-fixes { background: rgba(69, 212, 159, 0.18); color: var(--success); }
+          .status-no-issues { background: rgba(126, 178, 255, 0.18); color: var(--accent-3); }
+          .status-has-skipped { background: rgba(244, 195, 79, 0.18); color: var(--warning); }
           .status-completed { background: rgba(69, 212, 159, 0.18); color: var(--success); }
           .status-running { background: rgba(126, 178, 255, 0.18); color: var(--accent-3); }
           .status-failed { background: rgba(255, 123, 123, 0.18); color: var(--danger); }
@@ -823,19 +908,54 @@ export function generateDashboardHtml(data: DashboardData): string {
           .muted { color: var(--muted); }
           .empty { padding: 24px; text-align: center; color: var(--muted); border: 1px dashed var(--border); border-radius: 16px; background: rgba(9, 14, 23, 0.6); }
           .empty.tiny { padding: 12px; font-size: 12px; }
-          .filter {
+          .filter-wrapper {
+            position: relative;
             margin-top: 10px;
             margin-bottom: 10px;
+          }
+          .filter {
             background: var(--panel-2);
             border: 1px solid var(--border);
             border-radius: 12px;
-            padding: 8px 12px;
+            padding: 8px 36px 8px 12px;
             color: var(--text);
             font-size: 13px;
             width: 100%;
           }
+          .filter:focus {
+            outline: none;
+            border-color: var(--accent-3);
+          }
+          .filter-clear {
+            position: absolute;
+            right: 8px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: none;
+            border: none;
+            color: var(--muted);
+            font-size: 16px;
+            cursor: pointer;
+            padding: 4px 8px;
+            line-height: 1;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 120ms ease;
+          }
+          .filter-wrapper.has-value .filter-clear {
+            opacity: 1;
+            pointer-events: auto;
+          }
+          .filter-clear:hover {
+            color: var(--text);
+          }
+          .filter-count {
+            font-size: 12px;
+            color: var(--muted);
+            margin-bottom: 8px;
+          }
           .mono { font-family: "Space Grotesk", monospace; }
-          @media (max-width: 1100px) {
+          @media (max-width: 1280px) {
             body { height: auto; overflow: auto; }
             .app { height: auto; }
             main { min-height: 100vh; }
@@ -859,12 +979,15 @@ export function generateDashboardHtml(data: DashboardData): string {
             <div class="card hero">
               <div class="hero-label">Issues Resolved</div>
               <div class="hero-number">${totalFixes}</div>
-              <div class="hero-sub">Each fix is a bug that never ships.</div>
-              <div class="hero-glow">${highImpact} high-impact fixes delivered</div>
               ${renderPriorityBreakdown(data.globalStats.priorityCounts)}
             </div>
             <div>
               <div class="section-title">Projects</div>
+              <div id="projectFilterWrapper" class="filter-wrapper">
+                <input id="projectFilter" class="filter" placeholder="Filter projects..." />
+                <button id="projectFilterClear" class="filter-clear" type="button">×</button>
+              </div>
+              <div id="projectFilterCount" class="filter-count"></div>
               <div id="projectList" class="project-list">
                 ${renderProjectList(data, currentProject)}
               </div>
@@ -887,7 +1010,11 @@ export function generateDashboardHtml(data: DashboardData): string {
                 <div class="session-header">
                   <div class="section-title">Sessions</div>
                 </div>
-                <input id="sessionFilter" class="filter" placeholder="Filter by branch or status" />
+                <div id="filterWrapper" class="filter-wrapper">
+                  <input id="sessionFilter" class="filter" placeholder="Filter by branch, agent, p0..." />
+                  <button id="filterClear" class="filter-clear" type="button">×</button>
+                </div>
+                <div id="filterCount" class="filter-count"></div>
                 <div id="sessionList" class="session-list">
                   ${renderSessionList(sessions)}
                 </div>
@@ -903,19 +1030,76 @@ export function generateDashboardHtml(data: DashboardData): string {
           const state = {
             projectName: ${serializeForScript(currentProject ?? null)},
             sessionPath: ${serializeForScript(initialSession?.sessionPath ?? null)},
-            filter: ""
+            filter: "",
+            projectFilter: ""
           };
 
           const numberFormat = new Intl.NumberFormat();
 
+          const debounce = (fn, ms) => {
+            let timeout;
+            return (...args) => {
+              clearTimeout(timeout);
+              timeout = setTimeout(() => fn(...args), ms);
+            };
+          };
+
+          const formatFixesLabel = (totalFixes) => {
+            if (totalFixes === 0) return "No Issues";
+            const count = numberFormat.format(totalFixes);
+            return count + " fixes";
+          };
+
+          const getFixesLabelClass = (totalFixes) =>
+            totalFixes === 0 ? "status-no-issues" : "status-has-fixes";
+
+          const getSessionBadge = (session) => {
+            // Non-completed statuses take precedence
+            if (session.status !== "completed") {
+              return {
+                label: session.status,
+                className: \`status-\${session.status}\`,
+              };
+            }
+
+            // Completed with skipped items but no fixes - show skipped count
+            if (session.totalFixes === 0 && session.totalSkipped > 0) {
+              return {
+                label: \`\${numberFormat.format(session.totalSkipped)} skipped\`,
+                className: "status-has-skipped",
+              };
+            }
+
+            // Completed with fixes
+            if (session.totalFixes > 0) {
+              return {
+                label: formatFixesLabel(session.totalFixes),
+                className: "status-has-fixes",
+              };
+            }
+
+            // Truly clean: completed, no fixes, no skipped
+            return {
+              label: "No Issues",
+              className: "status-no-issues",
+            };
+          };
+
           const projectList = document.getElementById("projectList");
+          const projectFilterEl = document.getElementById("projectFilter");
+          const projectFilterWrapper = document.getElementById("projectFilterWrapper");
+          const projectFilterClear = document.getElementById("projectFilterClear");
+          const projectFilterCount = document.getElementById("projectFilterCount");
           const sessionList = document.getElementById("sessionList");
           const sessionDetail = document.getElementById("sessionDetail");
           const sessionFilter = document.getElementById("sessionFilter");
+          const filterWrapper = document.getElementById("filterWrapper");
+          const filterClear = document.getElementById("filterClear");
+          const filterCount = document.getElementById("filterCount");
           const projectTitle = document.getElementById("projectTitle");
 
           const formatDate = (timestamp) => new Date(timestamp).toLocaleString();
-          const isMobileView = () => window.matchMedia("(max-width: 1100px)").matches;
+          const isMobileView = () => window.matchMedia("(max-width: 1280px)").matches;
 
           const formatDuration = (ms) => {
             if (ms === undefined || ms === null) return "—";
@@ -935,6 +1119,11 @@ export function generateDashboardHtml(data: DashboardData): string {
               .replace(/>/g, "&gt;")
               .replace(/"/g, "&quot;")
               .replace(/'/g, "&#39;");
+
+          const formatRoleDisplay = (name, model) => {
+            if (!model) return name;
+            return \`\${name} (\${model})\`;
+          };
 
           const getPriorityPillClass = (priority) => {
             switch (priority) {
@@ -980,6 +1169,12 @@ export function generateDashboardHtml(data: DashboardData): string {
             return { fixes, skipped };
           };
 
+          const getSessionPriorities = (session) => {
+            const { fixes } = extractFixes(session.entries || []);
+            const priorities = new Set(fixes.map((fix) => fix.priority));
+            return Array.from(priorities).join(" ");
+          };
+
           const getProject = (name) =>
             dashboardData.projects.find((project) => project.projectName === name);
 
@@ -997,6 +1192,12 @@ export function generateDashboardHtml(data: DashboardData): string {
             const { fixes: rawFixes, skipped } = extractFixes(session.entries || []);
             const fixes = sortFixesByPriority(rawFixes);
             const showSkippedPanel = skipped.length > 1;
+            const reviewerName = session.reviewerDisplayName || session.reviewer || "unknown";
+            const reviewerModel = session.reviewerModelDisplayName || session.reviewerModel || "";
+            const fixerName = session.fixerDisplayName || session.fixer || "unknown";
+            const fixerModel = session.fixerModelDisplayName || session.fixerModel || "";
+            const reviewerDisplay = formatRoleDisplay(reviewerName, reviewerModel);
+            const fixerDisplay = formatRoleDisplay(fixerName, fixerModel);
 
             return \`
               <div class="detail-header">
@@ -1006,9 +1207,9 @@ export function generateDashboardHtml(data: DashboardData): string {
                     \${formatDate(session.timestamp)}
                     <span class="dot">•</span>
                     \${formatDuration(session.totalDuration)}
-                    <span class="dot">•</span>
-                    <span class="status status-\${session.status}">\${session.status}</span>
                   </div>
+                  <div class="detail-meta">Reviewer: \${escapeHtml(reviewerDisplay)}</div>
+                  <div class="detail-meta">Fixer: \${escapeHtml(fixerDisplay)}</div>
                 </div>
                 <div class="detail-stats">
                   <div class="stat">
@@ -1076,12 +1277,38 @@ export function generateDashboardHtml(data: DashboardData): string {
           const renderProjects = () => {
             if (!projectList) return;
             projectList.innerHTML = "";
-            if (dashboardData.projects.length === 0) {
+            const totalCount = dashboardData.projects.length;
+            if (totalCount === 0) {
               projectList.innerHTML =
                 '<div class="empty tiny">No projects yet. Run <span class="mono">rr run</span> to start.</div>';
+              if (projectFilterCount) projectFilterCount.textContent = "";
               return;
             }
-            for (const project of dashboardData.projects) {
+
+            const filter = (state.projectFilter || "").toLowerCase().trim();
+            const projects = dashboardData.projects.filter((project) => {
+              if (!filter) return true;
+              const haystack = [project.projectName, project.displayName]
+                .filter(Boolean)
+                .join(" ")
+                .toLowerCase();
+              return haystack.includes(filter);
+            });
+
+            if (projectFilterCount) {
+              if (filter) {
+                projectFilterCount.textContent = \`\${projects.length} of \${totalCount} projects\`;
+              } else {
+                projectFilterCount.textContent = \`\${totalCount} projects\`;
+              }
+            }
+
+            if (!projects.length) {
+              projectList.innerHTML = '<div class="empty tiny">No projects match that filter.</div>';
+              return;
+            }
+
+            for (const project of projects) {
               const btn = document.createElement("button");
               btn.className = "project-item" + (project.projectName === state.projectName ? " active" : "");
               btn.dataset.project = project.projectName;
@@ -1111,14 +1338,32 @@ export function generateDashboardHtml(data: DashboardData): string {
             }
 
             const filter = (state.filter || "").toLowerCase().trim();
+            const totalCount = project.sessions.length;
             const sessions = project.sessions.filter((session) => {
               if (!filter) return true;
-              const haystack = [session.gitBranch, session.status, session.sessionName]
+              const haystack = [
+                session.gitBranch,
+                session.status,
+                session.sessionName,
+                session.reviewer,
+                session.fixer,
+                session.reviewerDisplayName,
+                session.fixerDisplayName,
+                getSessionPriorities(session)
+              ]
                 .filter(Boolean)
                 .join(" ")
                 .toLowerCase();
               return haystack.includes(filter);
             });
+
+            if (filterCount) {
+              if (filter) {
+                filterCount.textContent = \`\${sessions.length} of \${totalCount} sessions\`;
+              } else {
+                filterCount.textContent = \`\${totalCount} sessions\`;
+              }
+            }
 
             if (!sessions.length) {
               sessionList.innerHTML = '<div class="empty tiny">No sessions match that filter.</div>';
@@ -1139,16 +1384,16 @@ export function generateDashboardHtml(data: DashboardData): string {
               const btn = document.createElement("button");
               btn.className = "session-card" + (isSelected ? " active" : "");
               btn.dataset.session = session.sessionPath;
+              const badge = getSessionBadge(session);
               btn.innerHTML = \`
                 <div class="session-row">
                   <div>
                     <div class="session-title">\${escapeHtml(session.gitBranch || "no branch")}</div>
                     <div class="session-meta">\${formatDate(session.timestamp)}</div>
                   </div>
-                  <div class="status status-\${session.status}">\${session.status}</div>
+                  <div class="status \${badge.className}">\${badge.label}</div>
                 </div>
                 <div class="session-stats">
-                  <span>\${numberFormat.format(session.totalFixes)} fixes</span>
                   <span>\${numberFormat.format(session.iterations)} iterations</span>
                 </div>
               \`;
@@ -1186,10 +1431,63 @@ export function generateDashboardHtml(data: DashboardData): string {
             renderDetails();
           };
 
+          const updateFilter = (value) => {
+            state.filter = value;
+            if (filterWrapper) {
+              filterWrapper.classList.toggle("has-value", value.length > 0);
+            }
+            render();
+          };
+
+          const debouncedUpdate = debounce((value) => updateFilter(value), 150);
+
           if (sessionFilter) {
             sessionFilter.addEventListener("input", (event) => {
-              state.filter = event.target.value || "";
-              render();
+              const value = event.target.value || "";
+              if (filterWrapper) {
+                filterWrapper.classList.toggle("has-value", value.length > 0);
+              }
+              debouncedUpdate(value);
+            });
+          }
+
+          if (filterClear) {
+            filterClear.addEventListener("click", () => {
+              if (sessionFilter) {
+                sessionFilter.value = "";
+                sessionFilter.focus();
+              }
+              updateFilter("");
+            });
+          }
+
+          const updateProjectFilter = (value) => {
+            state.projectFilter = value;
+            if (projectFilterWrapper) {
+              projectFilterWrapper.classList.toggle("has-value", value.length > 0);
+            }
+            render();
+          };
+
+          const debouncedProjectUpdate = debounce((value) => updateProjectFilter(value), 150);
+
+          if (projectFilterEl) {
+            projectFilterEl.addEventListener("input", (event) => {
+              const value = event.target.value || "";
+              if (projectFilterWrapper) {
+                projectFilterWrapper.classList.toggle("has-value", value.length > 0);
+              }
+              debouncedProjectUpdate(value);
+            });
+          }
+
+          if (projectFilterClear) {
+            projectFilterClear.addEventListener("click", () => {
+              if (projectFilterEl) {
+                projectFilterEl.value = "";
+                projectFilterEl.focus();
+              }
+              updateProjectFilter("");
             });
           }
 
