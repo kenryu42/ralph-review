@@ -91,8 +91,12 @@ describe("SessionPanel helpers", () => {
       entries,
       reviewer: "claude",
       reviewerModel: "opus",
+      reviewerDisplayName: "Claude",
+      reviewerModelDisplayName: "Claude Opus 4.5",
       fixer: "claude",
       fixerModel: "opus",
+      fixerDisplayName: "Claude",
+      fixerModelDisplayName: "Claude Opus 4.5",
     });
 
     test("extracts fixes from single iteration", () => {

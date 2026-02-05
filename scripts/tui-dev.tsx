@@ -234,8 +234,12 @@ const mockLastSessionStats: SessionStats = {
   entries: [],
   reviewer: "claude",
   reviewerModel: "claude-sonnet-4-20250514",
+  reviewerDisplayName: "Claude",
+  reviewerModelDisplayName: "claude-sonnet-4-20250514",
   fixer: "claude",
   fixerModel: "claude-sonnet-4-20250514",
+  fixerDisplayName: "Claude",
+  fixerModelDisplayName: "claude-sonnet-4-20250514",
 };
 
 const mockProjectStats: ProjectStats = {

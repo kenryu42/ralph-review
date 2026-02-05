@@ -34,8 +34,12 @@ export interface SessionStats {
   entries: LogEntry[];
   reviewer: AgentType;
   reviewerModel: string;
+  reviewerDisplayName: string;
+  reviewerModelDisplayName: string;
   fixer: AgentType;
   fixerModel: string;
+  fixerDisplayName: string;
+  fixerModelDisplayName: string;
 }
 
 export interface ProjectStats {

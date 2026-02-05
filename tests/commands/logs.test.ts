@@ -40,8 +40,12 @@ function createSessionStats(overrides: Partial<SessionStats> = {}): SessionStats
     entries: [],
     reviewer: "claude",
     reviewerModel: "claude-sonnet-4-20250514",
+    reviewerDisplayName: "Claude",
+    reviewerModelDisplayName: "claude-sonnet-4-20250514",
     fixer: "claude",
     fixerModel: "claude-sonnet-4-20250514",
+    fixerDisplayName: "Claude",
+    fixerModelDisplayName: "claude-sonnet-4-20250514",
   };
   return { ...defaults, ...overrides };
 }
@@ -113,8 +117,12 @@ function createDashboardData(projectPath: string, branch?: string): DashboardDat
             entries: [],
             reviewer: "claude",
             reviewerModel: "claude-sonnet-4-20250514",
+            reviewerDisplayName: "Claude",
+            reviewerModelDisplayName: "claude-sonnet-4-20250514",
             fixer: "claude",
             fixerModel: "claude-sonnet-4-20250514",
+            fixerDisplayName: "Claude",
+            fixerModelDisplayName: "claude-sonnet-4-20250514",
           },
         ],
       },

@@ -1,4 +1,5 @@
 import { basename, dirname, join } from "node:path";
+import { getAgentDisplayName, getModelDisplayName } from "./agents/display";
 import { LOGS_DIR } from "./config";
 import type {
   AgentStats,
@@ -371,6 +372,11 @@ export async function computeSessionStats(session: LogSession): Promise<SessionS
 
   const systemEntry = entries.find((e): e is SystemEntry => e.type === "system");
 
+  const reviewer = systemEntry?.reviewer?.agent ?? "claude";
+  const reviewerModel = systemEntry?.reviewer?.model ?? "unknown";
+  const fixer = systemEntry?.fixer?.agent ?? "claude";
+  const fixerModel = systemEntry?.fixer?.model ?? "unknown";
+
   return {
     sessionPath: session.path,
     sessionName: session.name,
@@ -384,10 +390,14 @@ export async function computeSessionStats(session: LogSession): Promise<SessionS
     iterations: summary?.iterations ?? metrics.iterations.length,
     totalDuration: summary?.totalDuration ?? metrics.totalDuration,
     entries,
-    reviewer: systemEntry?.reviewer?.agent ?? "claude",
-    reviewerModel: systemEntry?.reviewer?.model ?? "unknown",
-    fixer: systemEntry?.fixer?.agent ?? "claude",
-    fixerModel: systemEntry?.fixer?.model ?? "unknown",
+    reviewer,
+    reviewerModel,
+    reviewerDisplayName: getAgentDisplayName(reviewer),
+    reviewerModelDisplayName: getModelDisplayName(reviewer, reviewerModel),
+    fixer,
+    fixerModel,
+    fixerDisplayName: getAgentDisplayName(fixer),
+    fixerModelDisplayName: getModelDisplayName(fixer, fixerModel),
   };
 }
 
