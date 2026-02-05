@@ -1,10 +1,13 @@
 import { basename, dirname, join } from "node:path";
 import { LOGS_DIR } from "./config";
 import type {
+  AgentStats,
+  AgentType,
   DashboardData,
   DerivedRunStatus,
   IterationEntry,
   LogEntry,
+  ModelStats,
   Priority,
   ProjectStats,
   SessionEndEntry,
@@ -381,6 +384,10 @@ export async function computeSessionStats(session: LogSession): Promise<SessionS
     iterations: summary?.iterations ?? metrics.iterations.length,
     totalDuration: summary?.totalDuration ?? metrics.totalDuration,
     entries,
+    reviewer: systemEntry?.reviewer?.agent ?? "claude",
+    reviewerModel: systemEntry?.reviewer?.model ?? "unknown",
+    fixer: systemEntry?.fixer?.agent ?? "claude",
+    fixerModel: systemEntry?.fixer?.model ?? "unknown",
   };
 }
 
@@ -404,17 +411,18 @@ export async function computeProjectStats(
 
   let totalFixes = 0;
   let totalSkipped = 0;
+  let totalIterations = 0;
   const priorityCounts = emptyPriorityCounts();
-  let successCount = 0;
 
   for (const stats of sessionStats) {
     totalFixes += stats.totalFixes;
     totalSkipped += stats.totalSkipped;
+    totalIterations += stats.iterations;
     aggregatePriorityCounts(priorityCounts, stats.priorityCounts);
-    if (stats.status === "completed") {
-      successCount++;
-    }
   }
+
+  const averageIterations = sessionStats.length > 0 ? totalIterations / sessionStats.length : 0;
+  const fixRate = totalFixes + totalSkipped > 0 ? totalFixes / (totalFixes + totalSkipped) : 0;
 
   return {
     projectName,
@@ -423,9 +431,104 @@ export async function computeProjectStats(
     totalSkipped,
     priorityCounts,
     sessionCount: sessions.length,
-    successCount,
+    averageIterations,
+    fixRate,
     sessions: sessionStats,
   };
+}
+
+export function buildAgentStats(projects: ProjectStats[]): AgentStats[] {
+  const agentMap = new Map<AgentType, AgentStats>();
+
+  for (const project of projects) {
+    for (const session of project.sessions) {
+      if (!session.reviewer) continue;
+
+      const existing = agentMap.get(session.reviewer);
+      if (existing) {
+        existing.sessionCount++;
+        existing.totalFixes += session.totalFixes;
+        existing.totalSkipped += session.totalSkipped;
+      } else {
+        agentMap.set(session.reviewer, {
+          agent: session.reviewer,
+          sessionCount: 1,
+          totalFixes: session.totalFixes,
+          totalSkipped: session.totalSkipped,
+          averageIterations: 0,
+        });
+      }
+    }
+  }
+
+  // Compute average iterations per agent
+  for (const project of projects) {
+    for (const session of project.sessions) {
+      if (!session.reviewer) continue;
+      const stats = agentMap.get(session.reviewer);
+      if (stats) {
+        stats.averageIterations += session.iterations;
+      }
+    }
+  }
+
+  for (const stats of agentMap.values()) {
+    if (stats.sessionCount > 0) {
+      stats.averageIterations = stats.averageIterations / stats.sessionCount;
+    }
+  }
+
+  return Array.from(agentMap.values()).sort((a, b) => b.sessionCount - a.sessionCount);
+}
+
+export function buildModelStats(
+  projects: ProjectStats[],
+  role: "reviewer" | "fixer"
+): ModelStats[] {
+  const modelMap = new Map<string, ModelStats>();
+  const modelField = role === "reviewer" ? "reviewerModel" : "fixerModel";
+
+  for (const project of projects) {
+    for (const session of project.sessions) {
+      const model = session[modelField];
+      if (!model) continue;
+
+      const existing = modelMap.get(model);
+      if (existing) {
+        existing.sessionCount++;
+        existing.totalFixes += session.totalFixes;
+        existing.totalSkipped += session.totalSkipped;
+      } else {
+        modelMap.set(model, {
+          model,
+          sessionCount: 1,
+          totalFixes: session.totalFixes,
+          totalSkipped: session.totalSkipped,
+          averageIterations: 0,
+        });
+      }
+    }
+  }
+
+  // Compute average iterations per model
+  for (const project of projects) {
+    for (const session of project.sessions) {
+      const model = session[modelField];
+      if (!model) continue;
+      const stats = modelMap.get(model);
+      if (stats) {
+        stats.averageIterations += session.iterations;
+      }
+    }
+  }
+
+  for (const stats of modelMap.values()) {
+    if (stats.sessionCount > 0) {
+      stats.averageIterations = stats.averageIterations / stats.sessionCount;
+    }
+  }
+
+  return Array.from(modelMap.values()).sort((a, b) => b.sessionCount - a.sessionCount);
 }
 
 export async function buildDashboardData(
@@ -452,19 +555,20 @@ export async function buildDashboardData(
   projects.sort((a, b) => b.totalFixes - a.totalFixes);
   let totalFixes = 0;
   let totalSkipped = 0;
+  let totalIterations = 0;
   const priorityCounts = emptyPriorityCounts();
   let totalSessions = 0;
-  let totalSuccessful = 0;
 
   for (const project of projects) {
     totalFixes += project.totalFixes;
     totalSkipped += project.totalSkipped;
     totalSessions += project.sessionCount;
+    totalIterations += project.averageIterations * project.sessionCount;
     aggregatePriorityCounts(priorityCounts, project.priorityCounts);
-    totalSuccessful += project.successCount;
   }
 
-  const successRate = totalSessions > 0 ? Math.round((totalSuccessful / totalSessions) * 100) : 0;
+  const averageIterations = totalSessions > 0 ? totalIterations / totalSessions : 0;
+  const fixRate = totalFixes + totalSkipped > 0 ? totalFixes / (totalFixes + totalSkipped) : 0;
   const currentProject =
     requestedProject && projects.some((project) => project.projectName === requestedProject)
       ? requestedProject
@@ -478,8 +582,12 @@ export async function buildDashboardData(
       totalSkipped,
       priorityCounts,
       totalSessions,
-      successRate,
+      averageIterations,
+      fixRate,
     },
     projects,
+    agentStats: buildAgentStats(projects),
+    reviewerModelStats: buildModelStats(projects, "reviewer"),
+    fixerModelStats: buildModelStats(projects, "fixer"),
   };
 }
