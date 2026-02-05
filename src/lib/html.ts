@@ -1,8 +1,10 @@
 import { join } from "node:path";
+import { getAgentDisplayName } from "@/lib/agents/display";
 import { readLog } from "@/lib/logger";
 import { PRIORITY_COLORS } from "@/lib/tui/session-panel-utils";
 import type {
   AgentSettings,
+  AgentStats,
   DashboardData,
   FixEntry,
   IterationEntry,
@@ -227,6 +229,35 @@ function renderPriorityBreakdown(counts: Record<"P0" | "P1" | "P2" | "P3", numbe
         <span class="priority-label">P3</span>
         <span class="priority-value">${counts.P3}</span>
       </div>
+    </div>
+  `;
+}
+
+function renderAgentStats(stats: AgentStats[], role: "reviewer" | "fixer"): string {
+  if (stats.length === 0) return "";
+
+  const label = role === "reviewer" ? "Reviewers" : "Fixers";
+  const tooltip = role === "reviewer" ? "Issues Found" : "Issues Fixed";
+
+  const items = stats
+    .map((stat) => {
+      const displayName = getAgentDisplayName(stat.agent);
+      return `
+        <div class="agent-row">
+          <div class="agent-name">${escapeHtml(displayName)}</div>
+          <div class="agent-right">
+            <span class="agent-runs">${NUMBER_FORMAT.format(stat.sessionCount)} runs</span>
+            <span class="agent-metric" title="${tooltip}">${NUMBER_FORMAT.format(stat.totalIssues)}</span>
+          </div>
+        </div>
+      `;
+    })
+    .join("");
+
+  return `
+    <div class="agent-section">
+      <div class="agent-section-label">${label}</div>
+      <div class="agent-list">${items}</div>
     </div>
   `;
 }
@@ -652,6 +683,8 @@ export function generateDashboardHtml(data: DashboardData): string {
             display: flex;
             flex-direction: column;
             gap: 24px;
+            overflow-y: auto;
+            min-height: 0;
           }
           main {
             padding: 32px 36px;
@@ -954,6 +987,61 @@ export function generateDashboardHtml(data: DashboardData): string {
             color: var(--muted);
             margin-bottom: 8px;
           }
+          .agent-section {
+            margin-top: 24px;
+            padding-top: 16px;
+            border-top: 1px solid rgba(255, 255, 255, 0.06);
+          }
+          .agent-section:first-of-type {
+            border-top: none;
+            padding-top: 0;
+            margin-top: 16px;
+          }
+          .agent-section-label {
+            font-size: 11px;
+            letter-spacing: 0.16em;
+            text-transform: uppercase;
+            color: var(--muted);
+            margin-bottom: 12px;
+          }
+          .agent-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+          }
+          .agent-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 13px;
+          }
+          .agent-name {
+            font-weight: 500;
+            color: var(--text);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+          }
+          .agent-right {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-shrink: 0;
+          }
+          .agent-runs {
+            font-size: 12px;
+            color: var(--muted);
+          }
+          .agent-metric {
+            font-family: "Space Grotesk", sans-serif;
+            font-weight: 600;
+            color: var(--accent);
+            background: rgba(244, 195, 79, 0.12);
+            padding: 2px 8px;
+            border-radius: 6px;
+            min-width: 32px;
+            text-align: center;
+          }
           .mono { font-family: "Space Grotesk", monospace; }
           @media (max-width: 1280px) {
             body { height: auto; overflow: auto; }
@@ -980,6 +1068,8 @@ export function generateDashboardHtml(data: DashboardData): string {
               <div class="hero-label">Issues Resolved</div>
               <div class="hero-number">${totalFixes}</div>
               ${renderPriorityBreakdown(data.globalStats.priorityCounts)}
+              ${renderAgentStats(data.reviewerAgentStats, "reviewer")}
+              ${renderAgentStats(data.fixerAgentStats, "fixer")}
             </div>
             <div>
               <div class="section-title">Projects</div>
