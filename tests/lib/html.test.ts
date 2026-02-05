@@ -218,7 +218,8 @@ describe("html", () => {
         totalSkipped: 5,
         priorityCounts: { P0: 10, P1: 15, P2: 12, P3: 5 },
         totalSessions: 8,
-        successRate: 87,
+        averageIterations: 2.5,
+        fixRate: 0.89,
       },
       projects: [
         {
@@ -228,7 +229,8 @@ describe("html", () => {
           totalSkipped: 3,
           priorityCounts: { P0: 8, P1: 10, P2: 5, P3: 2 },
           sessionCount: 5,
-          successCount: 4,
+          averageIterations: 2.5,
+          fixRate: 0.89,
           sessions: [
             {
               sessionPath: "/logs/work-project-a/session1.jsonl",
@@ -241,6 +243,10 @@ describe("html", () => {
               priorityCounts: { P0: 3, P1: 4, P2: 2, P3: 1 },
               iterations: 2,
               entries: [],
+              reviewer: "claude",
+              reviewerModel: "claude-sonnet-4-20250514",
+              fixer: "claude",
+              fixerModel: "claude-sonnet-4-20250514",
             } as SessionStats,
           ],
         },
@@ -251,10 +257,14 @@ describe("html", () => {
           totalSkipped: 2,
           priorityCounts: { P0: 2, P1: 5, P2: 7, P3: 3 },
           sessionCount: 3,
-          successCount: 3,
+          averageIterations: 2,
+          fixRate: 0.89,
           sessions: [],
         },
       ],
+      agentStats: [],
+      reviewerModelStats: [],
+      fixerModelStats: [],
     });
 
     test("generates valid HTML structure", () => {
@@ -328,9 +338,13 @@ describe("html", () => {
           totalSkipped: 0,
           priorityCounts: { P0: 0, P1: 0, P2: 0, P3: 0 },
           totalSessions: 0,
-          successRate: 0,
+          averageIterations: 0,
+          fixRate: 0,
         },
         projects: [],
+        agentStats: [],
+        reviewerModelStats: [],
+        fixerModelStats: [],
       };
       const html = generateDashboardHtml(data);
 
@@ -358,9 +372,13 @@ describe("html", () => {
           totalSkipped: 1,
           priorityCounts: { P0: 2, P1: 2, P2: 1, P3: 0 },
           totalSessions: 2,
-          successRate: 100,
+          averageIterations: 1.5,
+          fixRate: 0.83,
         },
         projects: [],
+        agentStats: [],
+        reviewerModelStats: [],
+        fixerModelStats: [],
       };
 
       const dashboardPath = join(tempDir, "dashboard.html");
@@ -378,9 +396,13 @@ describe("html", () => {
           totalSkipped: 3,
           priorityCounts: { P0: 10, P1: 15, P2: 12, P3: 5 },
           totalSessions: 5,
-          successRate: 80,
+          averageIterations: 2,
+          fixRate: 0.93,
         },
         projects: [],
+        agentStats: [],
+        reviewerModelStats: [],
+        fixerModelStats: [],
       };
 
       const dashboardPath = join(tempDir, "dashboard.html");

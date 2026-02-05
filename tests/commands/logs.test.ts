@@ -38,6 +38,10 @@ function createSessionStats(overrides: Partial<SessionStats> = {}): SessionStats
     iterations: 3,
     totalDuration: 15000,
     entries: [],
+    reviewer: "claude",
+    reviewerModel: "claude-sonnet-4-20250514",
+    fixer: "claude",
+    fixerModel: "claude-sonnet-4-20250514",
   };
   return { ...defaults, ...overrides };
 }
@@ -82,7 +86,8 @@ function createDashboardData(projectPath: string, branch?: string): DashboardDat
       totalSkipped: 0,
       priorityCounts: emptyCounts,
       totalSessions: 1,
-      successRate: 100,
+      averageIterations: 1,
+      fixRate: 0,
     },
     projects: [
       {
@@ -92,7 +97,8 @@ function createDashboardData(projectPath: string, branch?: string): DashboardDat
         totalSkipped: 0,
         priorityCounts: emptyCounts,
         sessionCount: 1,
-        successCount: 1,
+        averageIterations: 1,
+        fixRate: 0,
         sessions: [
           {
             sessionPath: "/logs/session.jsonl",
@@ -105,10 +111,17 @@ function createDashboardData(projectPath: string, branch?: string): DashboardDat
             priorityCounts: emptyCounts,
             iterations: 1,
             entries: [],
+            reviewer: "claude",
+            reviewerModel: "claude-sonnet-4-20250514",
+            fixer: "claude",
+            fixerModel: "claude-sonnet-4-20250514",
           },
         ],
       },
     ],
+    agentStats: [],
+    reviewerModelStats: [],
+    fixerModelStats: [],
   };
 }
 
@@ -183,7 +196,8 @@ describe("pruneUnknownEmptySessions", () => {
         totalSkipped: 999,
         priorityCounts: { P0: 999, P1: 999, P2: 999, P3: 999 },
         totalSessions: 999,
-        successRate: 0,
+        averageIterations: 0,
+        fixRate: 0,
       },
       projects: [
         {
@@ -193,10 +207,14 @@ describe("pruneUnknownEmptySessions", () => {
           totalSkipped: 999,
           priorityCounts: { P0: 999, P1: 999, P2: 999, P3: 999 },
           sessionCount: 2,
-          successCount: 1,
+          averageIterations: 0,
+          fixRate: 0,
           sessions: [unknownEmpty, completed],
         },
       ],
+      agentStats: [],
+      reviewerModelStats: [],
+      fixerModelStats: [],
     };
 
     const removed = pruneUnknownEmptySessions(data);
@@ -205,14 +223,14 @@ describe("pruneUnknownEmptySessions", () => {
     expect(data.projects).toHaveLength(1);
     expect(data.projects[0]?.sessions).toHaveLength(1);
     expect(data.projects[0]?.sessionCount).toBe(1);
-    expect(data.projects[0]?.successCount).toBe(1);
+    expect(data.projects[0]?.averageIterations).toBe(1);
     expect(data.projects[0]?.totalFixes).toBe(2);
     expect(data.projects[0]?.totalSkipped).toBe(1);
     expect(data.projects[0]?.priorityCounts.P0).toBe(1);
     expect(data.projects[0]?.priorityCounts.P2).toBe(1);
 
     expect(data.globalStats.totalSessions).toBe(1);
-    expect(data.globalStats.successRate).toBe(100);
+    expect(data.globalStats.averageIterations).toBe(1);
   });
 
   test("keeps empty sessions once marked as running", () => {
@@ -240,7 +258,8 @@ describe("pruneUnknownEmptySessions", () => {
         totalSkipped: 0,
         priorityCounts: emptyCounts,
         totalSessions: 1,
-        successRate: 0,
+        averageIterations: 0,
+        fixRate: 0,
       },
       projects: [
         {
@@ -250,10 +269,14 @@ describe("pruneUnknownEmptySessions", () => {
           totalSkipped: 0,
           priorityCounts: emptyCounts,
           sessionCount: 1,
-          successCount: 0,
+          averageIterations: 0,
+          fixRate: 0,
           sessions: [unknownEmpty],
         },
       ],
+      agentStats: [],
+      reviewerModelStats: [],
+      fixerModelStats: [],
     };
 
     const active = createActiveSession(projectPath, "main");

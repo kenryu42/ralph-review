@@ -765,7 +765,7 @@ describe("logger", () => {
       expect(projectStats.priorityCounts.P1).toBe(1);
       expect(projectStats.priorityCounts.P2).toBe(1);
       expect(projectStats.sessionCount).toBe(2);
-      expect(projectStats.successCount).toBe(2);
+      expect(projectStats.averageIterations).toBe(1);
       expect(projectStats.displayName).toBe("project");
     });
 
@@ -885,7 +885,7 @@ describe("logger", () => {
       expect(dashboard.globalStats.totalSessions).toBe(2);
       expect(dashboard.globalStats.priorityCounts.P0).toBe(2);
       expect(dashboard.globalStats.priorityCounts.P1).toBe(1);
-      expect(dashboard.globalStats.successRate).toBe(100);
+      expect(dashboard.globalStats.averageIterations).toBe(1);
       expect(dashboard.projects.length).toBe(2);
     });
 
@@ -894,7 +894,7 @@ describe("logger", () => {
 
       expect(dashboard.globalStats.totalFixes).toBe(0);
       expect(dashboard.globalStats.totalSessions).toBe(0);
-      expect(dashboard.globalStats.successRate).toBe(0);
+      expect(dashboard.globalStats.averageIterations).toBe(0);
       expect(dashboard.projects.length).toBe(0);
     });
 
@@ -964,7 +964,7 @@ describe("logger", () => {
       const dashboard = await buildDashboardData(tempDir);
 
       expect(dashboard.globalStats.totalSessions).toBe(2);
-      expect(dashboard.globalStats.successRate).toBe(50);
+      expect(dashboard.globalStats.averageIterations).toBe(1);
     });
   });
 });

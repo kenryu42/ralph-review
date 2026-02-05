@@ -89,6 +89,10 @@ describe("SessionPanel helpers", () => {
       priorityCounts: { P0: 0, P1: 0, P2: 0, P3: 0 },
       iterations: 0,
       entries,
+      reviewer: "claude",
+      reviewerModel: "opus",
+      fixer: "claude",
+      fixerModel: "opus",
     });
 
     test("extracts fixes from single iteration", () => {
