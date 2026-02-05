@@ -854,7 +854,7 @@ export function generateDashboardHtml(data: DashboardData): string {
           <aside>
             <div class="brand">
               <div class="brand-title">RALPH REVIEW</div>
-              <div class="brand-sub">Code Review Dashboard</div>
+              <div class="brand-sub">Dashboard</div>
             </div>
             <div class="card hero">
               <div class="hero-label">Issues Resolved</div>
