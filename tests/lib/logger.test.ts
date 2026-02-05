@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   appendLog,
+  buildAgentStats,
   buildDashboardData,
   computeProjectStats,
   computeSessionStats,
@@ -965,6 +966,151 @@ describe("logger", () => {
 
       expect(dashboard.globalStats.totalSessions).toBe(2);
       expect(dashboard.globalStats.averageIterations).toBe(1);
+    });
+  });
+
+  describe("buildAgentStats", () => {
+    const createMockSession = (
+      overrides: Partial<{
+        reviewer: "claude" | "codex" | "opencode" | "gemini" | "droid";
+        fixer: "claude" | "codex" | "opencode" | "gemini" | "droid";
+        totalFixes: number;
+        totalSkipped: number;
+        iterations: number;
+      }> = {}
+    ) => ({
+      sessionPath: "/logs/test.jsonl",
+      sessionName: "test.jsonl",
+      timestamp: Date.now(),
+      status: "completed" as const,
+      totalFixes: overrides.totalFixes ?? 0,
+      totalSkipped: overrides.totalSkipped ?? 0,
+      priorityCounts: { P0: 0, P1: 0, P2: 0, P3: 0 },
+      iterations: overrides.iterations ?? 1,
+      entries: [],
+      reviewer: overrides.reviewer ?? "claude",
+      reviewerModel: "claude-sonnet-4",
+      reviewerDisplayName: "Claude",
+      reviewerModelDisplayName: "claude-sonnet-4",
+      fixer: overrides.fixer ?? "codex",
+      fixerModel: "gpt-4",
+      fixerDisplayName: "Codex",
+      fixerModelDisplayName: "gpt-4",
+    });
+
+    test("reviewer totalIssues includes both fixes and skipped", () => {
+      const projects = [
+        {
+          projectName: "test-project",
+          displayName: "test",
+          totalFixes: 5,
+          totalSkipped: 3,
+          priorityCounts: { P0: 0, P1: 0, P2: 0, P3: 0 },
+          sessionCount: 1,
+          averageIterations: 1,
+          fixRate: 1,
+          sessions: [createMockSession({ reviewer: "claude", totalFixes: 5, totalSkipped: 3 })],
+        },
+      ];
+
+      const stats = buildAgentStats(projects, "reviewer");
+
+      expect(stats.length).toBe(1);
+      expect(stats[0]?.agent).toBe("claude");
+      // Reviewer finds all issues: fixes + skipped = 5 + 3 = 8
+      expect(stats[0]?.totalIssues).toBe(8);
+      expect(stats[0]?.totalSkipped).toBe(3);
+    });
+
+    test("fixer totalIssues counts only fixes applied", () => {
+      const projects = [
+        {
+          projectName: "test-project",
+          displayName: "test",
+          totalFixes: 5,
+          totalSkipped: 3,
+          priorityCounts: { P0: 0, P1: 0, P2: 0, P3: 0 },
+          sessionCount: 1,
+          averageIterations: 1,
+          fixRate: 1,
+          sessions: [createMockSession({ fixer: "codex", totalFixes: 5, totalSkipped: 3 })],
+        },
+      ];
+
+      const stats = buildAgentStats(projects, "fixer");
+
+      expect(stats.length).toBe(1);
+      expect(stats[0]?.agent).toBe("codex");
+      // Fixer only counts fixes applied, not skipped
+      expect(stats[0]?.totalIssues).toBe(5);
+      expect(stats[0]?.totalSkipped).toBe(3);
+    });
+
+    test("aggregates stats across multiple sessions for same agent", () => {
+      const projects = [
+        {
+          projectName: "test-project",
+          displayName: "test",
+          totalFixes: 10,
+          totalSkipped: 4,
+          priorityCounts: { P0: 0, P1: 0, P2: 0, P3: 0 },
+          sessionCount: 2,
+          averageIterations: 1.5,
+          fixRate: 1,
+          sessions: [
+            createMockSession({
+              reviewer: "claude",
+              totalFixes: 6,
+              totalSkipped: 2,
+              iterations: 2,
+            }),
+            createMockSession({
+              reviewer: "claude",
+              totalFixes: 4,
+              totalSkipped: 2,
+              iterations: 1,
+            }),
+          ],
+        },
+      ];
+
+      const stats = buildAgentStats(projects, "reviewer");
+
+      expect(stats.length).toBe(1);
+      expect(stats[0]?.agent).toBe("claude");
+      expect(stats[0]?.sessionCount).toBe(2);
+      // Reviewer: (6+2) + (4+2) = 14 total issues found
+      expect(stats[0]?.totalIssues).toBe(14);
+      expect(stats[0]?.totalSkipped).toBe(4);
+      expect(stats[0]?.averageIterations).toBe(1.5);
+    });
+
+    test("separates stats by agent type", () => {
+      const projects = [
+        {
+          projectName: "test-project",
+          displayName: "test",
+          totalFixes: 8,
+          totalSkipped: 2,
+          priorityCounts: { P0: 0, P1: 0, P2: 0, P3: 0 },
+          sessionCount: 2,
+          averageIterations: 1,
+          fixRate: 1,
+          sessions: [
+            createMockSession({ reviewer: "claude", totalFixes: 5, totalSkipped: 1 }),
+            createMockSession({ reviewer: "codex", totalFixes: 3, totalSkipped: 1 }),
+          ],
+        },
+      ];
+
+      const stats = buildAgentStats(projects, "reviewer");
+
+      expect(stats.length).toBe(2);
+      const claudeStats = stats.find((s) => s.agent === "claude");
+      const codexStats = stats.find((s) => s.agent === "codex");
+
+      expect(claudeStats?.totalIssues).toBe(6); // 5 + 1
+      expect(codexStats?.totalIssues).toBe(4); // 3 + 1
     });
   });
 });

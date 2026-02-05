@@ -266,7 +266,8 @@ describe("html", () => {
           sessions: [],
         },
       ],
-      agentStats: [],
+      reviewerAgentStats: [],
+      fixerAgentStats: [],
       reviewerModelStats: [],
       fixerModelStats: [],
     });
@@ -346,7 +347,8 @@ describe("html", () => {
           fixRate: 0,
         },
         projects: [],
-        agentStats: [],
+        reviewerAgentStats: [],
+        fixerAgentStats: [],
         reviewerModelStats: [],
         fixerModelStats: [],
       };
@@ -365,6 +367,35 @@ describe("html", () => {
       // Data is embedded directly as JSON object, not via JSON.parse
       expect(html).toContain("const dashboardData =");
     });
+
+    test("renders agent stats", () => {
+      const data = createTestDashboardData();
+      data.reviewerAgentStats = [
+        {
+          agent: "claude",
+          totalIssues: 10,
+          sessionCount: 5,
+          totalSkipped: 2,
+          averageIterations: 3,
+        },
+      ];
+      data.fixerAgentStats = [
+        { agent: "codex", totalIssues: 5, sessionCount: 2, totalSkipped: 1, averageIterations: 2 },
+      ];
+      const html = generateDashboardHtml(data);
+
+      expect(html).toContain("Reviewers");
+      expect(html).toContain("claude");
+      expect(html).toContain("10");
+      expect(html).toContain("5 runs");
+      expect(html).toContain('title="Issues Found"');
+
+      expect(html).toContain("Fixers");
+      expect(html).toContain("codex");
+      expect(html).toContain("5");
+      expect(html).toContain("2 runs");
+      expect(html).toContain('title="Issues Fixed"');
+    });
   });
 
   describe("writeDashboardHtml", () => {
@@ -380,7 +411,8 @@ describe("html", () => {
           fixRate: 0.83,
         },
         projects: [],
-        agentStats: [],
+        reviewerAgentStats: [],
+        fixerAgentStats: [],
         reviewerModelStats: [],
         fixerModelStats: [],
       };
@@ -404,7 +436,8 @@ describe("html", () => {
           fixRate: 0.93,
         },
         projects: [],
-        agentStats: [],
+        reviewerAgentStats: [],
+        fixerAgentStats: [],
         reviewerModelStats: [],
         fixerModelStats: [],
       };

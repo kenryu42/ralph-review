@@ -127,7 +127,8 @@ function createDashboardData(projectPath: string, branch?: string): DashboardDat
         ],
       },
     ],
-    agentStats: [],
+    reviewerAgentStats: [],
+    fixerAgentStats: [],
     reviewerModelStats: [],
     fixerModelStats: [],
   };
@@ -220,7 +221,8 @@ describe("pruneUnknownEmptySessions", () => {
           sessions: [unknownEmpty, completed],
         },
       ],
-      agentStats: [],
+      reviewerAgentStats: [],
+      fixerAgentStats: [],
       reviewerModelStats: [],
       fixerModelStats: [],
     };
@@ -282,7 +284,8 @@ describe("pruneUnknownEmptySessions", () => {
           sessions: [unknownEmpty],
         },
       ],
-      agentStats: [],
+      reviewerAgentStats: [],
+      fixerAgentStats: [],
       reviewerModelStats: [],
       fixerModelStats: [],
     };
