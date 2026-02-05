@@ -1,5 +1,23 @@
-import type { DerivedRunStatus, Priority } from "./domain";
+import type { AgentType, DerivedRunStatus, Priority } from "./domain";
 import type { LogEntry } from "./log";
+
+/** Stats breakdown per agent */
+export interface AgentStats {
+  agent: AgentType;
+  sessionCount: number;
+  totalFixes: number;
+  totalSkipped: number;
+  averageIterations: number;
+}
+
+/** Stats breakdown per model */
+export interface ModelStats {
+  model: string;
+  sessionCount: number;
+  totalFixes: number;
+  totalSkipped: number;
+  averageIterations: number;
+}
 
 export interface SessionStats {
   sessionPath: string;
@@ -14,6 +32,10 @@ export interface SessionStats {
   iterations: number;
   totalDuration?: number;
   entries: LogEntry[];
+  reviewer: AgentType;
+  reviewerModel: string;
+  fixer: AgentType;
+  fixerModel: string;
 }
 
 export interface ProjectStats {
@@ -23,7 +45,8 @@ export interface ProjectStats {
   totalSkipped: number;
   priorityCounts: Record<Priority, number>;
   sessionCount: number;
-  successCount: number;
+  averageIterations: number;
+  fixRate: number;
   sessions: SessionStats[];
 }
 
@@ -35,7 +58,11 @@ export interface DashboardData {
     totalSkipped: number;
     priorityCounts: Record<Priority, number>;
     totalSessions: number;
-    successRate: number;
+    averageIterations: number;
+    fixRate: number;
   };
   projects: ProjectStats[];
+  agentStats: AgentStats[];
+  reviewerModelStats: ModelStats[];
+  fixerModelStats: ModelStats[];
 }

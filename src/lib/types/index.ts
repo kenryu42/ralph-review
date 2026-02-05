@@ -24,4 +24,4 @@ export {
   type ReviewSummary,
 } from "./review";
 export type { IterationResult, ReviewOptions, RunState } from "./run";
-export type { DashboardData, ProjectStats, SessionStats } from "./stats";
+export type { AgentStats, DashboardData, ModelStats, ProjectStats, SessionStats } from "./stats";
