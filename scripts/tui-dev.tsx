@@ -232,6 +232,10 @@ const mockLastSessionStats: SessionStats = {
   iterations: 2,
   totalDuration: 180000,
   entries: [],
+  reviewer: "claude",
+  reviewerModel: "claude-sonnet-4-20250514",
+  fixer: "claude",
+  fixerModel: "claude-sonnet-4-20250514",
 };
 
 const mockProjectStats: ProjectStats = {
@@ -241,7 +245,8 @@ const mockProjectStats: ProjectStats = {
   totalSkipped: 4,
   priorityCounts: { P0: 5, P1: 10, P2: 6, P3: 2 },
   sessionCount: 8,
-  successCount: 7,
+  averageIterations: 2.5,
+  fixRate: 0.85,
   sessions: [],
 };
 

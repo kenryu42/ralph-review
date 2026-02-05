@@ -7,7 +7,9 @@ import { LOGS_DIR } from "@/lib/config";
 import { getDashboardPath, getHtmlPath, writeDashboardHtml } from "@/lib/html";
 import { type ActiveSession, listAllActiveSessions } from "@/lib/lockfile";
 import {
+  buildAgentStats,
   buildDashboardData,
+  buildModelStats,
   computeSessionStats,
   getProjectName,
   getSummaryPath,
@@ -112,47 +114,53 @@ function accumulatePriorityCounts(
 function recomputeProjectAggregates(project: DashboardData["projects"][number]): void {
   const totalFixes = project.sessions.reduce((sum, s) => sum + s.totalFixes, 0);
   const totalSkipped = project.sessions.reduce((sum, s) => sum + s.totalSkipped, 0);
+  const totalIterations = project.sessions.reduce((sum, s) => sum + s.iterations, 0);
   const priorityCounts = emptyPriorityCounts();
-  let successCount = 0;
 
   for (const session of project.sessions) {
     accumulatePriorityCounts(priorityCounts, session.priorityCounts);
-    if (session.status === "completed") {
-      successCount++;
-    }
   }
 
   project.totalFixes = totalFixes;
   project.totalSkipped = totalSkipped;
   project.priorityCounts = priorityCounts;
   project.sessionCount = project.sessions.length;
-  project.successCount = successCount;
+  project.averageIterations =
+    project.sessions.length > 0 ? totalIterations / project.sessions.length : 0;
+  project.fixRate = totalFixes + totalSkipped > 0 ? totalFixes / (totalFixes + totalSkipped) : 0;
 }
 
 function recomputeDashboardAggregates(data: DashboardData): void {
   let totalFixes = 0;
   let totalSkipped = 0;
+  let totalIterations = 0;
   const priorityCounts = emptyPriorityCounts();
   let totalSessions = 0;
-  let totalSuccessful = 0;
 
   for (const project of data.projects) {
     totalFixes += project.totalFixes;
     totalSkipped += project.totalSkipped;
     totalSessions += project.sessionCount;
-    totalSuccessful += project.successCount;
+    totalIterations += project.averageIterations * project.sessionCount;
     accumulatePriorityCounts(priorityCounts, project.priorityCounts);
   }
 
-  const successRate = totalSessions > 0 ? Math.round((totalSuccessful / totalSessions) * 100) : 0;
+  const averageIterations = totalSessions > 0 ? totalIterations / totalSessions : 0;
+  const fixRate = totalFixes + totalSkipped > 0 ? totalFixes / (totalFixes + totalSkipped) : 0;
 
   data.globalStats = {
     totalFixes,
     totalSkipped,
     priorityCounts,
     totalSessions,
-    successRate,
+    averageIterations,
+    fixRate,
   };
+
+  // Recompute agent/model breakdowns from current (possibly pruned) projects
+  data.agentStats = buildAgentStats(data.projects);
+  data.reviewerModelStats = buildModelStats(data.projects, "reviewer");
+  data.fixerModelStats = buildModelStats(data.projects, "fixer");
 
   if (data.currentProject && !data.projects.some((p) => p.projectName === data.currentProject)) {
     data.currentProject = undefined;
