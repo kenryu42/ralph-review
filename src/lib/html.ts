@@ -560,7 +560,8 @@ export function generateDashboardHtml(data: DashboardData): string {
           * { box-sizing: border-box; }
           body {
             margin: 0;
-            min-height: 100vh;
+            height: 100vh;
+            overflow: hidden;
             font-family: "IBM Plex Sans", sans-serif;
             color: var(--text);
             background:
@@ -582,6 +583,7 @@ export function generateDashboardHtml(data: DashboardData): string {
           .app {
             display: grid;
             grid-template-columns: 320px 1fr;
+            height: 100vh;
             min-height: 100vh;
             position: relative;
             z-index: 1;
@@ -595,7 +597,13 @@ export function generateDashboardHtml(data: DashboardData): string {
             flex-direction: column;
             gap: 24px;
           }
-          main { padding: 32px 36px; display: flex; flex-direction: column; gap: 24px; }
+          main {
+            padding: 32px 36px;
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+            min-height: 0;
+          }
           .brand { display: grid; gap: 6px; }
           .brand-title {
             font-family: "Space Grotesk", sans-serif;
@@ -675,6 +683,13 @@ export function generateDashboardHtml(data: DashboardData): string {
           .priority-item-p3 .priority-label { color: ${PRIORITY_COLORS.P3}; }
           .section-title { font-size: 12px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
           .project-list, .session-list { display: grid; gap: 10px; }
+          .session-list {
+            overflow-y: auto;
+            min-height: 0;
+            flex: 1;
+            scrollbar-gutter: stable;
+            padding-top: 6px;
+          }
           .project-item, .session-card {
             background: var(--panel);
             border: 1px solid transparent;
@@ -724,7 +739,15 @@ export function generateDashboardHtml(data: DashboardData): string {
           .content-grid {
             display: grid;
             grid-template-columns: 320px 1fr;
+            grid-template-rows: 1fr;
             gap: 24px;
+            flex: 1;
+            min-height: 0;
+          }
+          .content-grid > div:first-child {
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
           }
           .session-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
           .session-title { font-weight: 600; font-size: 15px; }
@@ -749,7 +772,8 @@ export function generateDashboardHtml(data: DashboardData): string {
             border: 1px solid var(--border);
             border-radius: 18px;
             padding: 20px;
-            min-height: 320px;
+            overflow: auto;
+            min-height: 0;
           }
           .session-inline-detail {
             display: none;
@@ -812,11 +836,16 @@ export function generateDashboardHtml(data: DashboardData): string {
           }
           .mono { font-family: "Space Grotesk", monospace; }
           @media (max-width: 1100px) {
+            body { height: auto; overflow: auto; }
+            .app { height: auto; }
+            main { min-height: 100vh; }
             .app { grid-template-columns: 1fr; }
             aside { border-right: none; border-bottom: 1px solid var(--border); }
             .content-grid { grid-template-columns: 1fr; }
             .desktop-detail { display: none; }
             .session-inline-detail { display: block; }
+            .session-list { overflow: visible; }
+            .detail-card { overflow: visible; }
           }
         </style>
       </head>
