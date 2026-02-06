@@ -1,5 +1,5 @@
 import { basename, dirname, join } from "node:path";
-import { getAgentDisplayName, getModelDisplayName } from "./agents/display";
+import { getAgentDisplayName, getModelDisplayName } from "./agents/models";
 import { LOGS_DIR } from "./config";
 import type {
   AgentStats,

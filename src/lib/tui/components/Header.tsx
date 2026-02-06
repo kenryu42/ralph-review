@@ -1,4 +1,4 @@
-import { getAgentDisplayName, getModelDisplayName } from "@/lib/agents/display";
+import { getAgentDisplayName, getModelDisplayName } from "@/lib/agents/models";
 import type { LockData } from "@/lib/lockfile";
 import { TUI_COLORS } from "@/lib/tui/colors";
 import type { Config } from "@/lib/types";

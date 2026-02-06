@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { getAgentDisplayName } from "@/lib/agents/display";
+import { getAgentDisplayName } from "@/lib/agents/models";
 import { readLog } from "@/lib/logger";
 import { PRIORITY_COLORS } from "@/lib/tui/session-panel-utils";
 import type {

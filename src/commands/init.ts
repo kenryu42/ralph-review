@@ -7,7 +7,7 @@ import {
   geminiModelOptions,
   getAgentDisplayName,
   getModelDisplayName,
-} from "@/lib/agents/display";
+} from "@/lib/agents/models";
 import {
   CONFIG_PATH,
   configExists,
