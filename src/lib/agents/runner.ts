@@ -19,7 +19,8 @@ export async function runAgent(
     prompt,
     agentSettings.model,
     reviewOptions,
-    agentSettings.agent === "pi" ? agentSettings.provider : undefined
+    agentSettings.agent === "pi" ? agentSettings.provider : undefined,
+    agentSettings.thinking
   );
   const env = agentModule.config.buildEnv();
 
