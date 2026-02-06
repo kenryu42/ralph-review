@@ -2,7 +2,7 @@
  * OpenCode agent configuration
  */
 
-import type { AgentConfig, AgentRole, ReviewOptions } from "@/lib/types";
+import { type AgentConfig, type AgentRole, isThinkingLevel, type ReviewOptions } from "@/lib/types";
 import { defaultBuildEnv } from "./core";
 
 export const opencodeConfig: AgentConfig = {
@@ -12,11 +12,15 @@ export const opencodeConfig: AgentConfig = {
     prompt: string,
     model?: string,
     _reviewOptions?: ReviewOptions,
-    _provider?: string
+    _provider?: string,
+    thinking?: string
   ): string[] => {
     const args = ["run"];
     if (model) {
       args.push("--model", model);
+    }
+    if (isThinkingLevel(thinking) && thinking !== "max") {
+      args.push("--variant", thinking);
     }
     args.push(prompt);
     return args;

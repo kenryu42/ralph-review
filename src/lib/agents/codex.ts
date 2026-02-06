@@ -2,7 +2,7 @@
  * Codex agent configuration and stream handling
  */
 
-import type { AgentConfig, AgentRole, ReviewOptions } from "@/lib/types";
+import { type AgentConfig, type AgentRole, isThinkingLevel, type ReviewOptions } from "@/lib/types";
 import { createLineFormatter, defaultBuildEnv, parseJsonlEvent } from "./core";
 import type {
   CodexAgentMessageItem,
@@ -11,7 +11,19 @@ import type {
   CodexStreamEvent,
 } from "./types";
 
-const commonConfig = ["--config", "model_reasoning_effort=high"] as const;
+const defaultCodexReasoningEffort = "high";
+const codexReasoningOptions = new Set(["low", "medium", "high", "xhigh"]);
+
+function resolveCodexReasoningEffort(thinking?: string): string {
+  if (isThinkingLevel(thinking) && codexReasoningOptions.has(thinking)) {
+    return thinking;
+  }
+  return defaultCodexReasoningEffort;
+}
+
+function withReasoningEffort(args: string[], thinking?: string): string[] {
+  return [...args, "--config", `model_reasoning_effort=${resolveCodexReasoningEffort(thinking)}`];
+}
 
 function withModel(args: string[], model?: string): string[] {
   return model ? [...args, "--model", model] : args;
@@ -24,29 +36,31 @@ export const codexConfig: AgentConfig = {
     prompt: string,
     model?: string,
     reviewOptions?: ReviewOptions,
-    _provider?: string
+    _provider?: string,
+    thinking?: string
   ): string[] => {
     if (role !== "reviewer") {
-      const args = ["exec", "--full-auto", ...commonConfig];
+      const args = withReasoningEffort(["exec", "--full-auto"], thinking);
       return prompt ? withModel([...args, prompt], model) : withModel(args, model);
     }
 
-    const baseReviewArgs = ["exec", "--json", ...commonConfig, "review"];
+    const baseReviewArgs = withReasoningEffort(["exec", "--json"], thinking);
 
     if (reviewOptions?.commitSha) {
-      return withModel([...baseReviewArgs, "--commit", reviewOptions.commitSha], model);
+      return withModel([...baseReviewArgs, "review", "--commit", reviewOptions.commitSha], model);
     }
 
     if (reviewOptions?.baseBranch) {
-      return withModel([...baseReviewArgs, "--base", reviewOptions.baseBranch], model);
+      return withModel([...baseReviewArgs, "review", "--base", reviewOptions.baseBranch], model);
     }
 
     if (reviewOptions?.customInstructions) {
       const fullPrompt = prompt ? `review ${prompt}` : "review";
-      return withModel(["exec", "--full-auto", "--json", ...commonConfig, fullPrompt], model);
+      const customArgs = withReasoningEffort(["exec", "--full-auto", "--json"], thinking);
+      return withModel([...customArgs, fullPrompt], model);
     }
 
-    return withModel([...baseReviewArgs, "--uncommitted"], model);
+    return withModel([...baseReviewArgs, "review", "--uncommitted"], model);
   },
   buildEnv: defaultBuildEnv,
 };

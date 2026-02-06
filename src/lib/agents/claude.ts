@@ -20,7 +20,8 @@ export const claudeConfig: AgentConfig = {
     prompt: string,
     model?: string,
     _reviewOptions?: ReviewOptions,
-    _provider?: string
+    _provider?: string,
+    _thinking?: string
   ): string[] => {
     const baseArgs: string[] = [];
     if (model) {

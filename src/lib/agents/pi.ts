@@ -2,7 +2,7 @@
  * Pi agent configuration and stream handling
  */
 
-import type { AgentConfig, AgentRole, ReviewOptions } from "@/lib/types";
+import { type AgentConfig, type AgentRole, isThinkingLevel, type ReviewOptions } from "@/lib/types";
 import { defaultBuildEnv, parseJsonlEvent } from "./core";
 import type { PiContentBlock, PiMessage, PiStreamEvent } from "./types";
 
@@ -13,13 +13,22 @@ export const piConfig: AgentConfig = {
     prompt: string,
     model?: string,
     _reviewOptions?: ReviewOptions,
-    provider?: string
+    provider?: string,
+    thinking?: string
   ): string[] => {
     if (!provider || !model) {
       throw new Error("Pi agent requires both provider and model");
     }
 
-    return ["--provider", provider, "--model", model, "--mode", "json", "-p", prompt];
+    const args = ["--provider", provider, "--model", model];
+
+    if (isThinkingLevel(thinking) && thinking !== "max") {
+      args.push("--thinking", thinking);
+    }
+
+    args.push("--mode", "json", "-p", prompt);
+
+    return args;
   },
   buildEnv: defaultBuildEnv,
 };
