@@ -6,6 +6,7 @@ export const agentOptions = [
   { value: "droid", label: "Droid", hint: "Factory" },
   { value: "gemini", label: "Gemini", hint: "Google" },
   { value: "opencode", label: "OpenCode", hint: "Anomaly" },
+  { value: "pi", label: "Pi", hint: "Mario Zechner" },
 ] as const;
 
 export const claudeModelOptions = [
@@ -54,6 +55,7 @@ const modelOptionsMap: Record<AgentType, readonly { value: string; label: string
   droid: droidModelOptions,
   gemini: geminiModelOptions,
   opencode: null,
+  pi: null,
 };
 
 export function getModelDisplayName(agent: AgentType, model: string): string {

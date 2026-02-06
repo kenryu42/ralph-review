@@ -14,7 +14,13 @@ export async function runAgent(
   const agentModule = AGENTS[agentSettings.agent];
 
   const command = agentModule.config.command;
-  const args = agentModule.config.buildArgs(role, prompt, agentSettings.model, reviewOptions);
+  const args = agentModule.config.buildArgs(
+    role,
+    prompt,
+    agentSettings.model,
+    reviewOptions,
+    agentSettings.agent === "pi" ? agentSettings.provider : undefined
+  );
   const env = agentModule.config.buildEnv();
 
   let output = "";

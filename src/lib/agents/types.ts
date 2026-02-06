@@ -259,3 +259,145 @@ export interface CodexAgentMessageItem {
   id: string;
   text: string;
 }
+
+export type PiStreamEvent =
+  | PiSessionEvent
+  | PiAgentStartEvent
+  | PiTurnStartEvent
+  | PiMessageStartEvent
+  | PiMessageUpdateEvent
+  | PiMessageEndEvent
+  | PiTurnEndEvent
+  | PiAgentEndEvent;
+
+export interface PiSessionEvent {
+  type: "session";
+  version: number;
+  id: string;
+  timestamp: string;
+  cwd: string;
+}
+
+export interface PiAgentStartEvent {
+  type: "agent_start";
+}
+
+export interface PiTurnStartEvent {
+  type: "turn_start";
+}
+
+export interface PiMessageStartEvent {
+  type: "message_start";
+  message: PiMessage;
+}
+
+export interface PiMessageUpdateEvent {
+  type: "message_update";
+  assistantMessageEvent: PiAssistantMessageEvent;
+  message?: PiAssistantMessage;
+}
+
+export interface PiMessageEndEvent {
+  type: "message_end";
+  message: PiMessage;
+}
+
+export interface PiTurnEndEvent {
+  type: "turn_end";
+  message?: PiAssistantMessage;
+  toolResults?: unknown[];
+}
+
+export interface PiAgentEndEvent {
+  type: "agent_end";
+  messages?: PiMessage[];
+}
+
+export interface PiMessage {
+  role: "user" | "assistant";
+  content: PiContentBlock[];
+  timestamp?: number;
+}
+
+interface PiAssistantMessage extends PiMessage {
+  role: "assistant";
+  api?: string;
+  provider?: string;
+  model?: string;
+  stopReason?: string;
+  usage?: {
+    input?: number;
+    output?: number;
+    cacheRead?: number;
+    cacheWrite?: number;
+    totalTokens?: number;
+    cost?: {
+      input?: number;
+      output?: number;
+      cacheRead?: number;
+      cacheWrite?: number;
+      total?: number;
+    };
+  };
+}
+
+export type PiContentBlock = PiTextContentBlock | PiThinkingContentBlock;
+
+export interface PiTextContentBlock {
+  type: "text";
+  text: string;
+}
+
+export interface PiThinkingContentBlock {
+  type: "thinking";
+  thinking: string;
+  thinkingSignature?: string;
+}
+
+type PiAssistantMessageEvent =
+  | PiThinkingStartEvent
+  | PiThinkingDeltaEvent
+  | PiThinkingEndEvent
+  | PiTextStartEvent
+  | PiTextDeltaEvent
+  | PiTextEndEvent;
+
+interface PiThinkingStartEvent {
+  type: "thinking_start";
+  contentIndex: number;
+  partial: PiAssistantMessage;
+}
+
+interface PiThinkingDeltaEvent {
+  type: "thinking_delta";
+  contentIndex: number;
+  delta: string;
+  partial: PiAssistantMessage;
+}
+
+interface PiThinkingEndEvent {
+  type: "thinking_end";
+  contentIndex: number;
+  content: string;
+  partial: PiAssistantMessage;
+}
+
+interface PiTextStartEvent {
+  type: "text_start";
+  contentIndex: number;
+  partial: PiAssistantMessage;
+}
+
+interface PiTextDeltaEvent {
+  type: "text_delta";
+  contentIndex: number;
+  delta: string;
+  partial: PiAssistantMessage;
+}
+
+interface PiTextEndEvent {
+  type: "text_end";
+  contentIndex: number;
+  content: string;
+  partial: PiAssistantMessage;
+}

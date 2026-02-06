@@ -5,6 +5,7 @@ import { codexConfig, extractCodexResult, formatCodexLine } from "./codex";
 import { droidConfig, extractDroidResult, formatDroidLine } from "./droid";
 import { extractGeminiResult, formatGeminiLine, geminiConfig } from "./gemini";
 import { opencodeConfig } from "./opencode";
+import { extractPiResult, formatPiLine, piConfig } from "./pi";
 
 interface AgentModule {
   config: AgentConfig;
@@ -42,5 +43,11 @@ export const AGENTS: Record<AgentType, AgentModule> = {
     config: opencodeConfig,
     usesJsonl: false,
     extractResult: (output: string) => output.trim() || null,
+  },
+  pi: {
+    config: piConfig,
+    usesJsonl: true,
+    formatLine: formatPiLine,
+    extractResult: extractPiResult,
   },
 };
