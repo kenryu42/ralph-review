@@ -16,7 +16,7 @@ import {
   loadConfig,
   saveConfig,
 } from "@/lib/config";
-import type { AgentType, Config, DefaultReview } from "@/lib/types";
+import type { AgentSettings, AgentType, Config, DefaultReview } from "@/lib/types";
 import { isAgentType } from "@/lib/types";
 
 export type AgentAvailability = Record<AgentType, boolean>;
@@ -40,18 +40,35 @@ export function checkAllAgents(): AgentAvailability {
     claude: Bun.which("claude") !== null,
     droid: Bun.which("droid") !== null,
     gemini: Bun.which("gemini") !== null,
+    pi: Bun.which("pi") !== null,
   };
 }
 
 interface InitInput {
   reviewerAgent: string;
   reviewerModel: string;
+  reviewerProvider?: string;
   fixerAgent: string;
   fixerModel: string;
+  fixerProvider?: string;
   maxIterations: number;
   iterationTimeoutMinutes: number;
   defaultReviewType: string;
   defaultReviewBranch?: string;
+}
+
+function createAgentSettings(agent: string, model: string, provider?: string): AgentSettings {
+  if (agent === "pi") {
+    if (!provider || !model) {
+      throw new Error("Pi agent requires provider and model");
+    }
+    return { agent: "pi", provider, model };
+  }
+
+  return {
+    agent: agent as Exclude<AgentType, "pi">,
+    model: model || undefined,
+  };
 }
 
 export function buildConfig(input: InitInput): Config {
@@ -61,14 +78,8 @@ export function buildConfig(input: InitInput): Config {
       : { type: "uncommitted" };
 
   return {
-    reviewer: {
-      agent: input.reviewerAgent as AgentType,
-      model: input.reviewerModel || undefined,
-    },
-    fixer: {
-      agent: input.fixerAgent as AgentType,
-      model: input.fixerModel || undefined,
-    },
+    reviewer: createAgentSettings(input.reviewerAgent, input.reviewerModel, input.reviewerProvider),
+    fixer: createAgentSettings(input.fixerAgent, input.fixerModel, input.fixerProvider),
     maxIterations: input.maxIterations,
     iterationTimeout: input.iterationTimeoutMinutes * 60 * 1000,
     defaultReview,
@@ -85,6 +96,7 @@ function buildAgentSelectOptions(availability: AgentAvailability) {
 }
 
 let cachedOpencodeModels: { value: string; label: string }[] | null = null;
+let cachedPiModels: { provider: string; model: string }[] | null = null;
 
 async function fetchOpencodeModels(): Promise<{ value: string; label: string }[]> {
   if (cachedOpencodeModels) {
@@ -116,6 +128,66 @@ async function fetchOpencodeModels(): Promise<{ value: string; label: string }[]
   return cachedOpencodeModels;
 }
 
+export function parsePiListModelsOutput(output: string): { provider: string; model: string }[] {
+  const models: { provider: string; model: string }[] = [];
+  const seen = new Set<string>();
+
+  for (const rawLine of output.split("\n")) {
+    const line = rawLine.trim();
+    if (!line) {
+      continue;
+    }
+    if (line.startsWith("provider") && line.includes("model")) {
+      continue;
+    }
+
+    const columns = line.split(/\s+/);
+    if (columns.length < 2) {
+      continue;
+    }
+
+    const provider = columns[0]?.trim();
+    const model = columns[1]?.trim();
+    if (!provider || !model) {
+      continue;
+    }
+
+    const key = `${provider}\u0000${model}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    models.push({ provider, model });
+  }
+
+  return models;
+}
+
+async function fetchPiModels(): Promise<{ provider: string; model: string }[]> {
+  if (cachedPiModels) {
+    return cachedPiModels;
+  }
+
+  const proc = Bun.spawn(["pi", "--list-models"], {
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+
+  const [stdout, stderr] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+  ]);
+  const exitCode = await proc.exited;
+
+  if (exitCode !== 0) {
+    const errMsg = stderr.trim() || `exit code ${exitCode}`;
+    throw new Error(`Failed to fetch Pi models: ${errMsg}`);
+  }
+
+  cachedPiModels = parsePiListModelsOutput(stdout);
+  return cachedPiModels;
+}
+
 function handleCancel(value: unknown): asserts value is string {
   if (p.isCancel(value)) {
     p.cancel("Setup cancelled.");
@@ -130,7 +202,31 @@ const modelOptionsMap: Record<string, readonly { value: string; label: string }[
   gemini: geminiModelOptions,
 };
 
-async function promptForModel(agent: string, role: "reviewer" | "fixer"): Promise<string> {
+interface ModelSelection {
+  model: string;
+  provider?: string;
+}
+
+function encodePiSelection(selection: { provider: string; model: string }): string {
+  return JSON.stringify(selection);
+}
+
+function decodePiSelection(value: string): { provider: string; model: string } | null {
+  try {
+    const parsed = JSON.parse(value) as { provider?: unknown; model?: unknown };
+    if (typeof parsed.provider !== "string" || typeof parsed.model !== "string") {
+      return null;
+    }
+    if (!parsed.provider.trim() || !parsed.model.trim()) {
+      return null;
+    }
+    return { provider: parsed.provider, model: parsed.model };
+  } catch {
+    return null;
+  }
+}
+
+async function promptForModel(agent: string, role: "reviewer" | "fixer"): Promise<ModelSelection> {
   const staticOptions = modelOptionsMap[agent];
 
   if (staticOptions) {
@@ -139,7 +235,7 @@ async function promptForModel(agent: string, role: "reviewer" | "fixer"): Promis
       options: [...staticOptions],
     });
     handleCancel(model);
-    return model as string;
+    return { model: model as string };
   }
 
   if (agent === "opencode") {
@@ -163,7 +259,51 @@ async function promptForModel(agent: string, role: "reviewer" | "fixer"): Promis
       options: opencodeModels,
     });
     handleCancel(model);
-    return model as string;
+    return { model: model as string };
+  }
+
+  if (agent === "pi") {
+    let piModels: { provider: string; model: string }[];
+
+    if (cachedPiModels) {
+      piModels = cachedPiModels;
+    } else {
+      const spinner = p.spinner();
+      spinner.start("Fetching available models...");
+      try {
+        piModels = await fetchPiModels();
+      } catch (error) {
+        spinner.stop("Failed to load models");
+        p.log.error(`${error}`);
+        process.exit(1);
+      }
+      spinner.stop("Models loaded");
+    }
+
+    if (!piModels || piModels.length === 0) {
+      p.log.error("No models available from Pi");
+      process.exit(1);
+    }
+
+    const piOptions = piModels.map((entry) => ({
+      value: encodePiSelection(entry),
+      label: entry.model,
+      hint: entry.provider,
+    }));
+
+    const rawSelection = await p.select({
+      message: `Select ${role} model`,
+      options: piOptions,
+    });
+    handleCancel(rawSelection);
+
+    const selection = decodePiSelection(rawSelection as string);
+    if (!selection) {
+      p.log.error("Invalid Pi model selection");
+      process.exit(1);
+    }
+
+    return selection;
   }
 
   const model = await p.text({
@@ -172,19 +312,25 @@ async function promptForModel(agent: string, role: "reviewer" | "fixer"): Promis
     defaultValue: "",
   });
   handleCancel(model);
-  return model as string;
+  return { model: model as string };
 }
 
 function formatConfigDisplay(config: Config): string {
   const reviewerName = getAgentDisplayName(config.reviewer.agent);
   const fixerName = getAgentDisplayName(config.fixer.agent);
 
-  const reviewerModel = config.reviewer.model
-    ? getModelDisplayName(config.reviewer.agent, config.reviewer.model)
-    : "Default";
-  const fixerModel = config.fixer.model
-    ? getModelDisplayName(config.fixer.agent, config.fixer.model)
-    : "Default";
+  const reviewerModel =
+    config.reviewer.agent === "pi"
+      ? `${config.reviewer.provider}/${config.reviewer.model}`
+      : config.reviewer.model
+        ? getModelDisplayName(config.reviewer.agent, config.reviewer.model)
+        : "Default";
+  const fixerModel =
+    config.fixer.agent === "pi"
+      ? `${config.fixer.provider}/${config.fixer.model}`
+      : config.fixer.model
+        ? getModelDisplayName(config.fixer.agent, config.fixer.model)
+        : "Default";
 
   const defaultReviewDisplay =
     config.defaultReview.type === "base"
@@ -238,7 +384,7 @@ export async function runInit(): Promise<void> {
   if (availableCount === 0) {
     p.log.error(
       "No supported agents are installed.\n" +
-        "   Install at least one of: codex, claude, opencode, droid, gemini"
+        "   Install at least one of: codex, claude, opencode, droid, gemini, pi"
     );
     process.exit(1);
   }
@@ -252,7 +398,7 @@ export async function runInit(): Promise<void> {
 
   handleCancel(reviewerAgent);
 
-  const reviewerModel = await promptForModel(reviewerAgent as string, "reviewer");
+  const reviewerSelection = await promptForModel(reviewerAgent as string, "reviewer");
 
   const fixerAgent = await p.select({
     message: "Select fixer agent",
@@ -261,7 +407,7 @@ export async function runInit(): Promise<void> {
 
   handleCancel(fixerAgent);
 
-  const fixerModel = await promptForModel(fixerAgent as string, "fixer");
+  const fixerSelection = await promptForModel(fixerAgent as string, "fixer");
 
   const maxIterationsStr = await p.text({
     message: `Maximum iterations (default: ${DEFAULT_CONFIG.maxIterations ?? 5})`,
@@ -322,9 +468,11 @@ export async function runInit(): Promise<void> {
 
   const config = buildConfig({
     reviewerAgent: reviewerAgent as string,
-    reviewerModel: reviewerModel as string,
+    reviewerModel: reviewerSelection.model,
+    reviewerProvider: reviewerSelection.provider,
     fixerAgent: fixerAgent as string,
-    fixerModel: fixerModel as string,
+    fixerModel: fixerSelection.model,
+    fixerProvider: fixerSelection.provider,
     maxIterations: Number.parseInt(maxIterationsStr as string, 10),
     iterationTimeoutMinutes: Number.parseInt(iterationTimeoutStr as string, 10),
     defaultReviewType: defaultReviewType as string,

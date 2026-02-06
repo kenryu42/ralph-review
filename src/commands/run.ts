@@ -75,6 +75,15 @@ export async function validatePrerequisites(
   if (!isAgentType(config.reviewer.agent)) {
     errors.push(`Unknown reviewer agent: "${config.reviewer.agent}"`);
   } else {
+    if (
+      config.reviewer.agent === "pi" &&
+      (!config.reviewer.provider?.trim() || !config.reviewer.model?.trim())
+    ) {
+      errors.push(
+        'Reviewer agent "pi" requires provider and model. Run "rr init" to update config.'
+      );
+    }
+
     const reviewerCommand = AGENTS[config.reviewer.agent].config.command;
     if (!isAgentAvailable(reviewerCommand)) {
       errors.push(
@@ -87,6 +96,13 @@ export async function validatePrerequisites(
   if (!isAgentType(config.fixer.agent)) {
     errors.push(`Unknown fixer agent: "${config.fixer.agent}"`);
   } else {
+    if (
+      config.fixer.agent === "pi" &&
+      (!config.fixer.provider?.trim() || !config.fixer.model?.trim())
+    ) {
+      errors.push('Fixer agent "pi" requires provider and model. Run "rr init" to update config.');
+    }
+
     const fixerCommand = AGENTS[config.fixer.agent].config.command;
     if (!isAgentAvailable(fixerCommand)) {
       errors.push(
