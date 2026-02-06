@@ -117,6 +117,32 @@ describe("agents", () => {
       expect(args).toContain("abc123");
       expect(args).not.toContain("--base");
     });
+
+    test("uses configured thinking level when valid", () => {
+      const args = AGENTS.codex.config.buildArgs(
+        "reviewer",
+        "",
+        undefined,
+        undefined,
+        undefined,
+        "xhigh"
+      );
+      expect(args).toContain("--config");
+      expect(args).toContain("model_reasoning_effort=xhigh");
+    });
+
+    test("falls back to high thinking when config value is invalid", () => {
+      const args = AGENTS.codex.config.buildArgs(
+        "reviewer",
+        "",
+        undefined,
+        undefined,
+        undefined,
+        "max"
+      );
+      expect(args).toContain("--config");
+      expect(args).toContain("model_reasoning_effort=high");
+    });
   });
 
   describe("claude buildArgs", () => {
@@ -145,6 +171,31 @@ describe("agents", () => {
       expect(args[0]).toBe("run");
       expect(args.some((a: string) => a.includes("apply changes"))).toBe(true);
     });
+
+    test("adds variant when thinking level is valid", () => {
+      const args = AGENTS.opencode.config.buildArgs(
+        "reviewer",
+        "review the code",
+        "gpt-5.2-codex",
+        undefined,
+        undefined,
+        "xhigh"
+      );
+      expect(args).toContain("--variant");
+      expect(args).toContain("xhigh");
+    });
+
+    test("omits variant when thinking level is invalid", () => {
+      const args = AGENTS.opencode.config.buildArgs(
+        "reviewer",
+        "review the code",
+        "gpt-5.2-codex",
+        undefined,
+        undefined,
+        "max"
+      );
+      expect(args).not.toContain("--variant");
+    });
   });
 
   describe("droid buildArgs", () => {
@@ -169,6 +220,24 @@ describe("agents", () => {
       const args = AGENTS.droid.config.buildArgs("reviewer", "", "custom-model");
       expect(args).toContain("custom-model");
       expect(args).not.toContain("gpt-5.2-codex");
+    });
+
+    test("uses configured thinking level for supported model", () => {
+      const args = AGENTS.droid.config.buildArgs(
+        "reviewer",
+        "review",
+        "gpt-5.2-codex",
+        undefined,
+        undefined,
+        "xhigh"
+      );
+      expect(args).toContain("--reasoning-effort");
+      expect(args).toContain("xhigh");
+    });
+
+    test("omits reasoning effort for unsupported model", () => {
+      const args = AGENTS.droid.config.buildArgs("reviewer", "review", "glm-4.7");
+      expect(args).not.toContain("--reasoning-effort");
     });
   });
 
@@ -214,6 +283,33 @@ describe("agents", () => {
         "-p",
         "review current changes",
       ]);
+    });
+
+    test("adds thinking when level is valid", () => {
+      const args = AGENTS.pi.config.buildArgs(
+        "reviewer",
+        "review current changes",
+        "gemini_cli/gemini-3-flash-preview",
+        undefined,
+        "llm-proxy",
+        "xhigh"
+      );
+
+      expect(args).toContain("--thinking");
+      expect(args).toContain("xhigh");
+    });
+
+    test("omits thinking when level is invalid", () => {
+      const args = AGENTS.pi.config.buildArgs(
+        "reviewer",
+        "review current changes",
+        "gemini_cli/gemini-3-flash-preview",
+        undefined,
+        "llm-proxy",
+        "max"
+      );
+
+      expect(args).not.toContain("--thinking");
     });
   });
 
