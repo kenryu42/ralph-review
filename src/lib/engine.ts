@@ -161,6 +161,8 @@ export interface CycleResult {
   sessionPath: string;
 }
 
+const FIXER_SUMMARY_RETRY_COUNT = 1;
+
 export type OnIterationCallback = (
   iteration: number,
   role: "reviewer" | "fixer",
@@ -173,6 +175,107 @@ export function extractJsonBlock(output: string): string | null {
     return null;
   }
   return match[1].trim();
+}
+
+function extractBalancedJsonObjects(text: string): string[] {
+  const objects: string[] = [];
+  let depth = 0;
+  let startIndex = -1;
+  let inString = false;
+  let escaped = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+
+    if (char === "\\") {
+      escaped = true;
+      continue;
+    }
+
+    if (inString) {
+      if (char === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === '"') {
+      inString = true;
+      continue;
+    }
+
+    if (char === "{") {
+      if (depth === 0) {
+        startIndex = i;
+      }
+      depth += 1;
+      continue;
+    }
+
+    if (char === "}") {
+      if (depth === 0) {
+        continue;
+      }
+
+      depth -= 1;
+      if (depth === 0 && startIndex >= 0) {
+        objects.push(text.slice(startIndex, i + 1));
+        startIndex = -1;
+      }
+    }
+  }
+
+  return objects;
+}
+
+export function extractFixSummaryFromOutput(
+  resultText: string | null,
+  rawOutput: string
+): FixSummary | null {
+  const candidates = [resultText, rawOutput]
+    .filter((value): value is string => Boolean(value?.trim()))
+    .map((value) => value.trim());
+  const seen = new Set<string>();
+
+  for (const candidate of candidates) {
+    if (seen.has(candidate)) {
+      continue;
+    }
+    seen.add(candidate);
+
+    const blockJson = extractJsonBlock(candidate);
+    if (blockJson) {
+      const parsedBlock = parseFixSummary(blockJson);
+      if (parsedBlock) {
+        return parsedBlock;
+      }
+    }
+
+    const parsedDirect = parseFixSummary(candidate);
+    if (parsedDirect) {
+      return parsedDirect;
+    }
+
+    const objects = extractBalancedJsonObjects(candidate);
+    for (let index = objects.length - 1; index >= 0; index--) {
+      const objectJson = objects[index];
+      if (!objectJson) {
+        continue;
+      }
+
+      const parsedObject = parseFixSummary(objectJson);
+      if (parsedObject) {
+        return parsedObject;
+      }
+    }
+  }
+
+  return null;
 }
 
 export function parseFixSummary(jsonString: string): FixSummary | null {
@@ -414,17 +517,45 @@ export async function runReviewCycle(
       }
 
       const fixerPrompt = createFixerPrompt(reviewJson ?? reviewTextForFixer);
-      const fixResult = await runAgentWithRetry("fixer", config, fixerPrompt);
-
       const fixerAgentModule = AGENTS[config.fixer.agent];
-      const resultText = fixerAgentModule.extractResult(fixResult.output);
-      const jsonString = resultText
-        ? extractJsonBlock(resultText)
-        : extractJsonBlock(fixResult.output);
-      const fixSummary = jsonString ? parseFixSummary(jsonString) : null;
+      let fixResult = await runAgentWithRetry("fixer", config, fixerPrompt);
+      let resultText = fixerAgentModule.extractResult(fixResult.output);
+      let fixSummary = extractFixSummaryFromOutput(resultText, fixResult.output);
+
+      if (fixResult.success && !fixSummary) {
+        for (
+          let attempt = 1;
+          attempt <= FIXER_SUMMARY_RETRY_COUNT && fixResult.success && !fixSummary;
+          attempt++
+        ) {
+          console.log(
+            "  ⚠️  Fixer output missing parsable JSON summary. Retrying fixer with strict JSON reminder..."
+          );
+          const summaryRetryPrompt = `${fixerPrompt}
+
+IMPORTANT: Your previous response was incomplete or missing the REQUIRED final JSON block.
+Do not make additional file edits in this retry.
+Return ONLY one valid \`\`\`json ... \`\`\` block matching the required schema as your final output.`;
+          fixResult = await runAgentWithRetry("fixer", config, summaryRetryPrompt);
+          resultText = fixerAgentModule.extractResult(fixResult.output);
+          fixSummary = extractFixSummaryFromOutput(resultText, fixResult.output);
+        }
+      }
 
       if (!fixSummary && fixResult.success) {
-        console.log("  ⚠️  Could not parse fix summary JSON from fixer output");
+        console.log("  ❌ Fixer returned incomplete output (missing fix summary JSON).");
+        const entry = createIterationEntry(iteration, iterationStartTime, {
+          error: { phase: "fixer", message: "Fixer output incomplete: missing fix summary JSON" },
+          review: reviewSummary ?? undefined,
+          codexReview: codexReviewSummary ?? undefined,
+        });
+        await appendLog(sessionPath, entry);
+        return finish({
+          success: false,
+          iterations: iteration,
+          reason: "Fixer output incomplete (missing fix summary JSON)",
+          sessionPath,
+        });
       }
 
       if (onIteration) {

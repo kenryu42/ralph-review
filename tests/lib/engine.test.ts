@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   calculateRetryDelay,
   determineCycleResult,
+  extractFixSummaryFromOutput,
   extractJsonBlock,
   formatAgentFailureWarning,
   parseFixSummary,
@@ -314,6 +315,44 @@ End of output.`;
       const result = parseFixSummary(json);
       expect(result).not.toBeNull();
       expect(result?.stop_iteration).toBeUndefined();
+    });
+  });
+
+  describe("extractFixSummaryFromOutput", () => {
+    test("parses fix summary from raw JSON without fenced block", () => {
+      const raw = JSON.stringify({
+        decision: "APPLY_SELECTIVELY",
+        stop_iteration: false,
+        fixes: [],
+        skipped: [],
+      });
+
+      const result = extractFixSummaryFromOutput(raw, raw);
+      expect(result).not.toBeNull();
+      expect(result?.decision).toBe("APPLY_SELECTIVELY");
+      expect(result?.stop_iteration).toBe(false);
+    });
+
+    test("parses latest valid fix summary from mixed text output", () => {
+      const summary = JSON.stringify({
+        decision: "NO_CHANGES_NEEDED",
+        stop_iteration: true,
+        fixes: [],
+        skipped: [
+          {
+            id: 1,
+            title: "Not applicable",
+            priority: "P3",
+            reason: "SKIP: not a real issue",
+          },
+        ],
+      });
+      const output = `DECISION: NO CHANGES NEEDED\n${summary}\nDone.`;
+
+      const result = extractFixSummaryFromOutput(output, output);
+      expect(result).not.toBeNull();
+      expect(result?.decision).toBe("NO_CHANGES_NEEDED");
+      expect(result?.skipped).toHaveLength(1);
     });
   });
 
