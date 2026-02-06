@@ -142,8 +142,8 @@ function getPriorityRank(priority: string): number {
   }
 }
 
-function sortFixesByPriority(fixes: FixEntry[]): FixEntry[] {
-  return [...fixes].sort((a, b) => getPriorityRank(a.priority) - getPriorityRank(b.priority));
+function sortByPriority<T extends { priority: string }>(items: T[]): T[] {
+  return [...items].sort((a, b) => getPriorityRank(a.priority) - getPriorityRank(b.priority));
 }
 
 function renderFixEntry(fix: FixEntry): string {
@@ -184,11 +184,17 @@ function renderCompactSkipped(skipped: SkippedEntry[]): string {
   }
 
   const [item] = skipped;
+  const pillClass = getPriorityPillClass(item?.priority ?? "");
   return `
     <div class="skipped-compact">
       <div class="skipped-compact-label">Skipped (1)</div>
-      <div class="skip-title">${escapeHtml(item?.title ?? "")}</div>
-      <div class="skip-reason muted">${escapeHtml(item?.reason ?? "")}</div>
+      <div class="skip-item">
+        <div class="fix-pill ${pillClass}">${escapeHtml(item?.priority ?? "")}</div>
+        <div>
+          <div class="skip-title">${escapeHtml(item?.title ?? "")}</div>
+          <div class="skip-reason muted">${escapeHtml(item?.reason ?? "")}</div>
+        </div>
+      </div>
     </div>
   `;
 }
@@ -598,8 +604,9 @@ function renderSessionDetail(session: SessionStats | undefined): string {
     return `<div class="empty">Select a session to see the full story.</div>`;
   }
 
-  const { fixes: rawFixes, skipped } = extractFixesAndSkipped(session.entries);
-  const fixes = sortFixesByPriority(rawFixes);
+  const { fixes: rawFixes, skipped: rawSkipped } = extractFixesAndSkipped(session.entries);
+  const fixes = sortByPriority(rawFixes);
+  const skipped = sortByPriority(rawSkipped);
   const branch = session.gitBranch ?? "no branch";
   const totalDuration = formatDuration(session.totalDuration);
   const reviewerName = session.reviewerDisplayName ?? session.reviewer;
@@ -1355,7 +1362,7 @@ export function generateDashboardHtml(data: DashboardData): string {
             }
           };
 
-          const sortFixesByPriority = (fixes) =>
+          const sortByPriority = (fixes) =>
             [...fixes].sort((a, b) => getPriorityRank(a.priority) - getPriorityRank(b.priority));
 
           const extractFixes = (entries) => {
@@ -1389,8 +1396,9 @@ export function generateDashboardHtml(data: DashboardData): string {
             }
 
             const branch = session.gitBranch || "no branch";
-            const { fixes: rawFixes, skipped } = extractFixes(session.entries || []);
-            const fixes = sortFixesByPriority(rawFixes);
+            const { fixes: rawFixes, skipped: rawSkipped } = extractFixes(session.entries || []);
+            const fixes = sortByPriority(rawFixes);
+            const skipped = sortByPriority(rawSkipped);
             const showSkippedPanel = skipped.length > 1;
             const reviewerName = session.reviewerDisplayName || session.reviewer || "unknown";
             const reviewerModel = session.reviewerModelDisplayName || session.reviewerModel || "";
@@ -1449,6 +1457,7 @@ export function generateDashboardHtml(data: DashboardData): string {
                       <ul class="skip-list">\${skipped
                         .map((item) => \`
                           <li class="skip-item">
+                            <div class="fix-pill \${getPriorityPillClass(item.priority)}">\${escapeHtml(item.priority)}</div>
                             <div>
                               <div class="skip-title">\${escapeHtml(item.title)}</div>
                               <div class="skip-reason muted">\${escapeHtml(item.reason)}</div>
@@ -1464,8 +1473,13 @@ export function generateDashboardHtml(data: DashboardData): string {
                 : skipped.length
                   ? \`<div class="skipped-compact">
                       <div class="skipped-compact-label">Skipped (1)</div>
-                      <div class="skip-title">\${escapeHtml(skipped[0]?.title || "")}</div>
-                      <div class="skip-reason muted">\${escapeHtml(skipped[0]?.reason || "")}</div>
+                      <div class="skip-item">
+                        <div class="fix-pill \${getPriorityPillClass(skipped[0]?.priority || "")}">\${escapeHtml(skipped[0]?.priority || "")}</div>
+                        <div>
+                          <div class="skip-title">\${escapeHtml(skipped[0]?.title || "")}</div>
+                          <div class="skip-reason muted">\${escapeHtml(skipped[0]?.reason || "")}</div>
+                        </div>
+                      </div>
                     </div>\`
                   : \`<div class="skipped-compact">
                       <div class="skipped-compact-label">Skipped</div>
