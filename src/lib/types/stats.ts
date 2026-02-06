@@ -14,8 +14,10 @@ export interface AgentStats {
 /** Stats breakdown per model */
 export interface ModelStats {
   model: string;
+  displayName: string;
   sessionCount: number;
-  totalFixes: number;
+  /** For reviewers: issues found. For fixers: fixes applied. */
+  totalIssues: number;
   totalSkipped: number;
   averageIterations: number;
 }

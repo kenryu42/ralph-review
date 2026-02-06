@@ -6,6 +6,7 @@ import {
   appendLog,
   buildAgentStats,
   buildDashboardData,
+  buildModelStats,
   computeProjectStats,
   computeSessionStats,
   createLogSession,
@@ -1111,6 +1112,124 @@ describe("logger", () => {
 
       expect(claudeStats?.totalIssues).toBe(6); // 5 + 1
       expect(codexStats?.totalIssues).toBe(4); // 3 + 1
+    });
+  });
+
+  describe("buildModelStats", () => {
+    const createMockSession = (
+      overrides: Partial<{
+        reviewerModel: string;
+        fixerModel: string;
+        totalFixes: number;
+        totalSkipped: number;
+        iterations: number;
+      }> = {}
+    ) => ({
+      sessionPath: "/logs/test.jsonl",
+      sessionName: "test.jsonl",
+      timestamp: Date.now(),
+      status: "completed" as const,
+      totalFixes: overrides.totalFixes ?? 0,
+      totalSkipped: overrides.totalSkipped ?? 0,
+      priorityCounts: { P0: 0, P1: 0, P2: 0, P3: 0 },
+      iterations: overrides.iterations ?? 1,
+      entries: [],
+      reviewer: "claude" as const,
+      reviewerModel: overrides.reviewerModel ?? "claude-sonnet-4",
+      reviewerDisplayName: "Claude",
+      reviewerModelDisplayName: overrides.reviewerModel ?? "claude-sonnet-4",
+      fixer: "codex" as const,
+      fixerModel: overrides.fixerModel ?? "gpt-4",
+      fixerDisplayName: "Codex",
+      fixerModelDisplayName: overrides.fixerModel ?? "gpt-4",
+    });
+
+    test("reviewer model totalIssues includes both fixes and skipped", () => {
+      const projects = [
+        {
+          projectName: "test-project",
+          displayName: "test",
+          totalFixes: 5,
+          totalSkipped: 3,
+          priorityCounts: { P0: 0, P1: 0, P2: 0, P3: 0 },
+          sessionCount: 1,
+          averageIterations: 1,
+          fixRate: 1,
+          sessions: [
+            createMockSession({ reviewerModel: "claude-sonnet-4", totalFixes: 5, totalSkipped: 3 }),
+          ],
+        },
+      ];
+
+      const stats = buildModelStats(projects, "reviewer");
+
+      expect(stats.length).toBe(1);
+      expect(stats[0]?.model).toBe("claude-sonnet-4");
+      expect(stats[0]?.displayName).toBe("claude-sonnet-4");
+      expect(stats[0]?.totalIssues).toBe(8);
+      expect(stats[0]?.totalSkipped).toBe(3);
+    });
+
+    test("fixer model totalIssues counts only fixes applied", () => {
+      const projects = [
+        {
+          projectName: "test-project",
+          displayName: "test",
+          totalFixes: 5,
+          totalSkipped: 3,
+          priorityCounts: { P0: 0, P1: 0, P2: 0, P3: 0 },
+          sessionCount: 1,
+          averageIterations: 1,
+          fixRate: 1,
+          sessions: [createMockSession({ fixerModel: "gpt-4", totalFixes: 5, totalSkipped: 3 })],
+        },
+      ];
+
+      const stats = buildModelStats(projects, "fixer");
+
+      expect(stats.length).toBe(1);
+      expect(stats[0]?.model).toBe("gpt-4");
+      expect(stats[0]?.displayName).toBe("gpt-4");
+      expect(stats[0]?.totalIssues).toBe(5);
+      expect(stats[0]?.totalSkipped).toBe(3);
+    });
+
+    test("aggregates stats across multiple sessions for same model", () => {
+      const projects = [
+        {
+          projectName: "test-project",
+          displayName: "test",
+          totalFixes: 10,
+          totalSkipped: 4,
+          priorityCounts: { P0: 0, P1: 0, P2: 0, P3: 0 },
+          sessionCount: 2,
+          averageIterations: 1.5,
+          fixRate: 1,
+          sessions: [
+            createMockSession({
+              reviewerModel: "claude-sonnet-4",
+              totalFixes: 6,
+              totalSkipped: 2,
+              iterations: 2,
+            }),
+            createMockSession({
+              reviewerModel: "claude-sonnet-4",
+              totalFixes: 4,
+              totalSkipped: 2,
+              iterations: 1,
+            }),
+          ],
+        },
+      ];
+
+      const stats = buildModelStats(projects, "reviewer");
+
+      expect(stats.length).toBe(1);
+      expect(stats[0]?.model).toBe("claude-sonnet-4");
+      expect(stats[0]?.sessionCount).toBe(2);
+      expect(stats[0]?.totalIssues).toBe(14);
+      expect(stats[0]?.totalSkipped).toBe(4);
+      expect(stats[0]?.averageIterations).toBe(1.5);
     });
   });
 });

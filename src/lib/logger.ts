@@ -508,22 +508,26 @@ export function buildModelStats(
 ): ModelStats[] {
   const modelMap = new Map<string, ModelStats>();
   const modelField = role === "reviewer" ? "reviewerModel" : "fixerModel";
+  const displayField = role === "reviewer" ? "reviewerModelDisplayName" : "fixerModelDisplayName";
 
   for (const project of projects) {
     for (const session of project.sessions) {
       const model = session[modelField];
       if (!model) continue;
+      const issueCount =
+        role === "reviewer" ? session.totalFixes + session.totalSkipped : session.totalFixes;
 
       const existing = modelMap.get(model);
       if (existing) {
         existing.sessionCount++;
-        existing.totalFixes += session.totalFixes;
+        existing.totalIssues += issueCount;
         existing.totalSkipped += session.totalSkipped;
       } else {
         modelMap.set(model, {
           model,
+          displayName: session[displayField],
           sessionCount: 1,
-          totalFixes: session.totalFixes,
+          totalIssues: issueCount,
           totalSkipped: session.totalSkipped,
           averageIterations: 0,
         });
