@@ -784,6 +784,8 @@ export function generateDashboardHtml(data: DashboardData): string {
             scrollbar-gutter: stable;
             padding-top: 6px;
             padding-bottom: 6px;
+            align-content: start;
+            grid-auto-rows: max-content;
           }
           .project-item, .session-card {
             background: var(--panel);
