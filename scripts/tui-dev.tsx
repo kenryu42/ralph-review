@@ -259,6 +259,7 @@ interface MockData {
   fixes: FixEntry[];
   skipped: SkippedEntry[];
   findings: Finding[];
+  latestReviewIteration: number | null;
   totalFixes: number;
   totalSkipped: number;
   codexReviewText: string | null;
@@ -278,6 +279,7 @@ function getMockData(state: MockState): MockData {
     fixes: [],
     skipped: [],
     findings: [],
+    latestReviewIteration: null,
     totalFixes: 0,
     totalSkipped: 0,
     codexReviewText: null,
@@ -299,6 +301,7 @@ function getMockData(state: MockState): MockData {
         fixes: mockFixes.slice(0, 2),
         skipped: [],
         findings: mockFindings,
+        latestReviewIteration: mockSession.iteration ?? null,
         totalFixes: mockFixes.length,
         totalSkipped: mockSkipped.length,
         maxIterations: 5,
@@ -313,6 +316,7 @@ function getMockData(state: MockState): MockData {
         fixes: mockFixes.slice(0, 1),
         skipped: [],
         findings: [],
+        latestReviewIteration: mockSession.iteration ?? null,
         totalFixes: mockFixes.length,
         totalSkipped: mockSkipped.length,
         codexReviewText: mockCodexReviewText,
@@ -328,6 +332,7 @@ function getMockData(state: MockState): MockData {
         fixes: mockFixes,
         skipped: mockSkipped,
         findings: mockFindings.slice(0, 3),
+        latestReviewIteration: mockCompletedSession.iteration ?? null,
         totalFixes: mockFixes.length,
         totalSkipped: mockSkipped.length,
         maxIterations: 5,
@@ -344,6 +349,7 @@ function getMockData(state: MockState): MockData {
         ...base,
         session: { ...mockSession, iteration: 4 },
         findings: manyFindings,
+        latestReviewIteration: 4,
         fixes: manyFixes,
         skipped: manySkipped,
         totalFixes: 42,
@@ -397,6 +403,7 @@ async function main() {
       fixes={mockData.fixes}
       skipped={mockData.skipped}
       findings={mockData.findings}
+      latestReviewIteration={mockData.latestReviewIteration}
       codexReviewText={mockData.codexReviewText}
       tmuxOutput={mockData.tmuxOutput}
       maxIterations={mockData.maxIterations}
