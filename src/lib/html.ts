@@ -832,10 +832,9 @@ export function generateDashboardHtml(data: DashboardData): string {
             border: 1px solid var(--border);
             border-radius: 16px;
             padding: 14px 16px;
-            min-width: 160px;
           }
           .summary-label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em; }
-          .summary-value { font-size: 20px; font-weight: 600; margin-top: 6px; }
+          .summary-value { font-size: 20px; font-weight: 600; margin-top: 6px; text-align: center; }
           .content-grid {
             display: grid;
             grid-template-columns: 320px 1fr;
