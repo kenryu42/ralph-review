@@ -566,8 +566,8 @@ function renderSessionDetail(session: SessionStats | undefined): string {
           <span class="dot">•</span>
           ${totalDuration}
         </div>
-        <div class="detail-meta">Reviewer: ${escapeHtml(reviewerDisplay)}</div>
-        <div class="detail-meta">Fixer: ${escapeHtml(fixerDisplay)}</div>
+        <div class="detail-meta"><span class="detail-meta-label">Reviewer:</span> ${escapeHtml(reviewerDisplay)}</div>
+        <div class="detail-meta"><span class="detail-meta-label">Fixer:</span> ${escapeHtml(fixerDisplay)}</div>
       </div>
       <div class="detail-stats">
         <div class="stat">
@@ -899,7 +899,19 @@ export function generateDashboardHtml(data: DashboardData): string {
           }
           .detail-header { display: flex; justify-content: space-between; align-items: start; gap: 12px; margin-bottom: 16px; }
           .detail-title { font-family: "Space Grotesk", sans-serif; font-size: 20px; font-weight: 600; }
-          .detail-meta { color: var(--muted); font-size: 13px; margin-top: 6px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+          .detail-meta {
+            color: rgba(237, 242, 255, 0.78);
+            font-size: 14px;
+            line-height: 1.5;
+            font-weight: 500;
+            margin-top: 6px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            align-items: center;
+          }
+          .detail-meta .dot { color: rgba(237, 242, 255, 0.45); }
+          .detail-meta-label { color: var(--muted); font-weight: 600; }
           .detail-stats { display: flex; gap: 12px; }
           .stat { background: var(--panel-2); border-radius: 12px; padding: 10px 12px; min-width: 90px; text-align: center; }
           .stat-label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; }
@@ -1054,6 +1066,7 @@ export function generateDashboardHtml(data: DashboardData): string {
             .session-inline-detail { display: block; }
             .session-list { overflow: visible; }
             .detail-card { overflow: visible; }
+            .detail-meta { row-gap: 6px; }
           }
         </style>
       </head>
@@ -1298,8 +1311,8 @@ export function generateDashboardHtml(data: DashboardData): string {
                     <span class="dot">•</span>
                     \${formatDuration(session.totalDuration)}
                   </div>
-                  <div class="detail-meta">Reviewer: \${escapeHtml(reviewerDisplay)}</div>
-                  <div class="detail-meta">Fixer: \${escapeHtml(fixerDisplay)}</div>
+                  <div class="detail-meta"><span class="detail-meta-label">Reviewer:</span> \${escapeHtml(reviewerDisplay)}</div>
+                  <div class="detail-meta"><span class="detail-meta-label">Fixer:</span> \${escapeHtml(fixerDisplay)}</div>
                 </div>
                 <div class="detail-stats">
                   <div class="stat">
