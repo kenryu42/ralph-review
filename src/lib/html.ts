@@ -1052,10 +1052,14 @@ export function generateDashboardHtml(data: DashboardData): string {
             font-weight: 600;
             color: var(--accent);
             background: rgba(244, 195, 79, 0.12);
-            padding: 2px 8px;
+            padding: 2px 0;
             border-radius: 6px;
-            min-width: 32px;
-            text-align: center;
+            inline-size: 48px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-variant-numeric: tabular-nums;
+            font-feature-settings: "tnum" 1;
           }
           .mono { font-family: "Space Grotesk", monospace; }
           @media (max-width: 1280px) {
