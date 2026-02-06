@@ -7,6 +7,7 @@ import {
   geminiModelOptions,
   getAgentDisplayName,
   getModelDisplayName,
+  getThinkingOptions,
 } from "@/lib/agents/models";
 import {
   CONFIG_PATH,
@@ -16,7 +17,7 @@ import {
   loadConfig,
   saveConfig,
 } from "@/lib/config";
-import type { AgentSettings, AgentType, Config, DefaultReview } from "@/lib/types";
+import type { AgentSettings, AgentType, Config, DefaultReview, ThinkingLevel } from "@/lib/types";
 import { isAgentType } from "@/lib/types";
 
 export type AgentAvailability = Record<AgentType, boolean>;
@@ -48,26 +49,34 @@ interface InitInput {
   reviewerAgent: string;
   reviewerModel: string;
   reviewerProvider?: string;
+  reviewerThinking?: ThinkingLevel;
   fixerAgent: string;
   fixerModel: string;
   fixerProvider?: string;
+  fixerThinking?: ThinkingLevel;
   maxIterations: number;
   iterationTimeoutMinutes: number;
   defaultReviewType: string;
   defaultReviewBranch?: string;
 }
 
-function createAgentSettings(agent: string, model: string, provider?: string): AgentSettings {
+function createAgentSettings(
+  agent: string,
+  model: string,
+  provider?: string,
+  thinking?: ThinkingLevel
+): AgentSettings {
   if (agent === "pi") {
     if (!provider || !model) {
       throw new Error("Pi agent requires provider and model");
     }
-    return { agent: "pi", provider, model };
+    return { agent: "pi", provider, model, thinking };
   }
 
   return {
     agent: agent as Exclude<AgentType, "pi">,
     model: model || undefined,
+    thinking,
   };
 }
 
@@ -78,8 +87,18 @@ export function buildConfig(input: InitInput): Config {
       : { type: "uncommitted" };
 
   return {
-    reviewer: createAgentSettings(input.reviewerAgent, input.reviewerModel, input.reviewerProvider),
-    fixer: createAgentSettings(input.fixerAgent, input.fixerModel, input.fixerProvider),
+    reviewer: createAgentSettings(
+      input.reviewerAgent,
+      input.reviewerModel,
+      input.reviewerProvider,
+      input.reviewerThinking
+    ),
+    fixer: createAgentSettings(
+      input.fixerAgent,
+      input.fixerModel,
+      input.fixerProvider,
+      input.fixerThinking
+    ),
     maxIterations: input.maxIterations,
     iterationTimeout: input.iterationTimeoutMinutes * 60 * 1000,
     defaultReview,
@@ -205,6 +224,38 @@ const modelOptionsMap: Record<string, readonly { value: string; label: string }[
 interface ModelSelection {
   model: string;
   provider?: string;
+}
+
+function selectThinkingInitialValue(levels: ThinkingLevel[]): ThinkingLevel {
+  return levels.includes("high") ? "high" : (levels[0] ?? "high");
+}
+
+async function promptForThinking(
+  agent: string,
+  model: string,
+  role: "reviewer" | "fixer"
+): Promise<ThinkingLevel | undefined> {
+  if (!isAgentType(agent)) {
+    return undefined;
+  }
+
+  const levels = getThinkingOptions(agent, model);
+  if (levels.length === 0) {
+    return undefined;
+  }
+
+  const thinking = await p.select({
+    message: `Select ${role} thinking level`,
+    options: levels.map((level) => ({
+      value: level,
+      label: level,
+      hint: level === "high" ? "recommended" : undefined,
+    })),
+    initialValue: selectThinkingInitialValue(levels),
+  });
+  handleCancel(thinking);
+
+  return thinking as ThinkingLevel;
 }
 
 function encodePiSelection(selection: { provider: string; model: string }): string {
@@ -336,12 +387,16 @@ function formatConfigDisplay(config: Config): string {
     config.defaultReview.type === "base"
       ? `base branch (${config.defaultReview.branch})`
       : "uncommitted changes";
+  const reviewerThinking = config.reviewer.thinking ?? "Default";
+  const fixerThinking = config.fixer.thinking ?? "Default";
 
   return [
     `  Reviewer:          ${reviewerName}`,
     `  Reviewer model:    ${reviewerModel}`,
+    `  Reviewer thinking: ${reviewerThinking}`,
     `  Fixer:             ${fixerName}`,
     `  Fixer model:       ${fixerModel}`,
+    `  Fixer thinking:    ${fixerThinking}`,
     `  Max iterations:    ${config.maxIterations}`,
     `  Iteration timeout: ${config.iterationTimeout / 1000 / 60} minutes`,
     `  Default review:    ${defaultReviewDisplay}`,
@@ -399,6 +454,11 @@ export async function runInit(): Promise<void> {
   handleCancel(reviewerAgent);
 
   const reviewerSelection = await promptForModel(reviewerAgent as string, "reviewer");
+  const reviewerThinking = await promptForThinking(
+    reviewerAgent as string,
+    reviewerSelection.model,
+    "reviewer"
+  );
 
   const fixerAgent = await p.select({
     message: "Select fixer agent",
@@ -408,6 +468,11 @@ export async function runInit(): Promise<void> {
   handleCancel(fixerAgent);
 
   const fixerSelection = await promptForModel(fixerAgent as string, "fixer");
+  const fixerThinking = await promptForThinking(
+    fixerAgent as string,
+    fixerSelection.model,
+    "fixer"
+  );
 
   const maxIterationsStr = await p.text({
     message: `Maximum iterations (default: ${DEFAULT_CONFIG.maxIterations ?? 5})`,
@@ -470,9 +535,11 @@ export async function runInit(): Promise<void> {
     reviewerAgent: reviewerAgent as string,
     reviewerModel: reviewerSelection.model,
     reviewerProvider: reviewerSelection.provider,
+    reviewerThinking,
     fixerAgent: fixerAgent as string,
     fixerModel: fixerSelection.model,
     fixerProvider: fixerSelection.provider,
+    fixerThinking,
     maxIterations: Number.parseInt(maxIterationsStr as string, 10),
     iterationTimeoutMinutes: Number.parseInt(iterationTimeoutStr as string, 10),
     defaultReviewType: defaultReviewType as string,
