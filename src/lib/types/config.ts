@@ -3,10 +3,21 @@ import type { ReviewOptions } from "./run";
 
 export type DefaultReview = { type: "uncommitted" } | { type: "base"; branch: string };
 
-export interface AgentSettings {
-  agent: AgentType;
-  model?: string;
+type NonPiAgentType = Exclude<AgentType, "pi">;
+
+interface PiAgentSettings {
+  agent: "pi";
+  provider: string;
+  model: string;
 }
+
+interface NonPiAgentSettings {
+  agent: NonPiAgentType;
+  model?: string;
+  provider?: never;
+}
+
+export type AgentSettings = PiAgentSettings | NonPiAgentSettings;
 
 export interface RetryConfig {
   maxRetries: number;
@@ -38,7 +49,8 @@ export interface AgentConfig {
     role: AgentRole,
     prompt: string,
     model?: string,
-    reviewOptions?: ReviewOptions
+    reviewOptions?: ReviewOptions,
+    provider?: string
   ) => string[];
   buildEnv: () => Record<string, string>;
 }

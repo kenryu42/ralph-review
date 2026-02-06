@@ -1,11 +1,18 @@
-export type AgentType = "codex" | "claude" | "opencode" | "droid" | "gemini";
+export type AgentType = "codex" | "claude" | "opencode" | "droid" | "gemini" | "pi";
 export type AgentRole = "reviewer" | "fixer";
 export type Priority = "P0" | "P1" | "P2" | "P3";
 export type FixDecision = "NO_CHANGES_NEEDED" | "APPLY_SELECTIVELY" | "APPLY_MOST" | "NEED_INFO";
 export type OverallCorrectness = "patch is correct" | "patch is incorrect";
 export type DerivedRunStatus = "running" | "completed" | "failed" | "interrupted" | "unknown";
 
-const VALID_AGENT_TYPES: readonly AgentType[] = ["codex", "claude", "opencode", "droid", "gemini"];
+const VALID_AGENT_TYPES: readonly AgentType[] = [
+  "codex",
+  "claude",
+  "opencode",
+  "droid",
+  "gemini",
+  "pi",
+];
 const VALID_AGENT_ROLES: readonly AgentRole[] = ["reviewer", "fixer"];
 export const VALID_PRIORITIES: readonly Priority[] = ["P0", "P1", "P2", "P3"];
 export const VALID_FIX_DECISIONS: readonly FixDecision[] = [

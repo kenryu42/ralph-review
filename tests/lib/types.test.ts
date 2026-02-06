@@ -14,6 +14,7 @@ describe("type guards", () => {
       expect(isAgentType("claude")).toBe(true);
       expect(isAgentType("opencode")).toBe(true);
       expect(isAgentType("droid")).toBe(true);
+      expect(isAgentType("pi")).toBe(true);
     });
 
     test("returns false for invalid agent types", () => {
