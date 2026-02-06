@@ -1,5 +1,5 @@
 import { useTerminalDimensions } from "@opentui/react";
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import type { LockData } from "@/lib/lockfile";
 import { TUI_COLORS } from "@/lib/tui/colors";
 import type {
@@ -9,6 +9,7 @@ import type {
   Priority,
   ProjectStats,
   ReviewOptions,
+  ReviewSummary,
   SessionStats,
   SkippedEntry,
 } from "@/lib/types";
@@ -17,11 +18,12 @@ import { VALID_PRIORITIES } from "@/lib/types/domain";
 import {
   extractFixesFromStats,
   extractLatestReviewSummary,
-  findLatestIterationMarker,
+  findLatestReviewerPhaseStart,
   formatPriorityBreakdown,
   formatProjectStatsSummary,
   formatRelativeTime,
   PRIORITY_COLORS,
+  resolveIssuesFoundDisplay,
   truncateFilePath,
   truncateText,
   UNKNOWN_PRIORITY_COLOR,
@@ -34,6 +36,7 @@ interface SessionPanelProps {
   fixes: FixEntry[];
   skipped: SkippedEntry[];
   findings: Finding[];
+  latestReviewIteration: number | null;
   codexReviewText: string | null;
   tmuxOutput: string;
   maxIterations: number;
@@ -340,6 +343,7 @@ export function SessionPanel({
   fixes,
   skipped,
   findings,
+  latestReviewIteration,
   codexReviewText,
   tmuxOutput,
   maxIterations,
@@ -356,19 +360,42 @@ export function SessionPanel({
   const minWidth = 50;
   const borderColor = focused ? TUI_COLORS.ui.borderFocused : TUI_COLORS.ui.border;
   const { height: terminalHeight } = useTerminalDimensions();
-  const latestIterationMarker = useMemo(() => findLatestIterationMarker(tmuxOutput), [tmuxOutput]);
+  const sessionIteration = session?.iteration ?? 0;
   const parsedCodexSummary = useMemo(() => {
     if (!codexReviewText) return null;
     return parseCodexReviewText(codexReviewText);
   }, [codexReviewText]);
+  const reviewerPhaseStart = useMemo(() => findLatestReviewerPhaseStart(tmuxOutput), [tmuxOutput]);
   const liveReviewSummary = useMemo(() => {
     if (!tmuxOutput.trim()) return null;
-
-    const minIndex =
-      currentAgent === "reviewer" && latestIterationMarker ? latestIterationMarker.index : 0;
-
+    const minIndex = reviewerPhaseStart >= 0 ? reviewerPhaseStart : 0;
     return extractLatestReviewSummary(tmuxOutput, minIndex);
-  }, [tmuxOutput, currentAgent, latestIterationMarker]);
+  }, [tmuxOutput, reviewerPhaseStart]);
+  const lastLiveReviewSummaryRef = useRef<{ iteration: number; summary: ReviewSummary } | null>(
+    null
+  );
+
+  useEffect(() => {
+    if (!session) {
+      lastLiveReviewSummaryRef.current = null;
+      return;
+    }
+
+    if (liveReviewSummary) {
+      lastLiveReviewSummaryRef.current = {
+        iteration: sessionIteration,
+        summary: liveReviewSummary,
+      };
+      return;
+    }
+
+    if (
+      lastLiveReviewSummaryRef.current &&
+      lastLiveReviewSummaryRef.current.iteration !== sessionIteration
+    ) {
+      lastLiveReviewSummaryRef.current = null;
+    }
+  }, [session, sessionIteration, liveReviewSummary]);
 
   if (isLoading) {
     return (
@@ -497,26 +524,23 @@ export function SessionPanel({
     );
   }
 
-  const iteration = session.iteration ?? 0;
+  const iteration = sessionIteration;
   const statusDisplay = getStatusDisplay(session.status ?? "unknown", currentAgent);
+  const cachedLiveReviewSummary =
+    lastLiveReviewSummaryRef.current?.iteration === iteration
+      ? lastLiveReviewSummaryRef.current.summary
+      : null;
 
-  const shouldClearForNewReview = currentAgent === "reviewer" && !liveReviewSummary;
-
-  let displayFindings = findings;
-  let displayCodexText = codexReviewText;
-
-  if (liveReviewSummary) {
-    displayFindings = liveReviewSummary.findings;
-    displayCodexText = null;
-  } else if (shouldClearForNewReview) {
-    displayFindings = [];
-    displayCodexText = null;
-  } else if (findings.length > 0) {
-    displayCodexText = null;
-  } else if (parsedCodexSummary && parsedCodexSummary.findings.length > 0) {
-    displayFindings = parsedCodexSummary.findings;
-    displayCodexText = null;
-  }
+  const { findings: displayFindings, codexText: displayCodexText } = resolveIssuesFoundDisplay({
+    sessionStatus: session.status,
+    sessionIteration: iteration,
+    latestReviewIteration,
+    persistedFindings: findings,
+    persistedCodexText: codexReviewText,
+    parsedCodexSummary,
+    liveReviewSummary,
+    cachedLiveReviewSummary,
+  });
 
   const showingCodex = displayCodexText !== null && displayFindings.length === 0;
   const verifyCount =

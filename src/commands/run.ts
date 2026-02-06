@@ -211,14 +211,12 @@ export async function runForeground(args: string[] = []): Promise<void> {
   });
 
   try {
-    const result = await runReviewCycle(
-      config,
-      (iteration, _role, _iterResult) => {
-        // Update lockfile with iteration progress
-        updateLockfile(undefined, projectPath, { iteration }).catch(() => {});
-      },
-      { baseBranch, commitSha, customInstructions, forceMaxIterations }
-    );
+    const result = await runReviewCycle(config, undefined, {
+      baseBranch,
+      commitSha,
+      customInstructions,
+      forceMaxIterations,
+    });
 
     console.log(`\n${"=".repeat(50)}`);
     if (result.success) {

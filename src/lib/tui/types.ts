@@ -21,6 +21,7 @@ export interface DashboardState {
   iterationFixes: FixEntry[];
   iterationSkipped: SkippedEntry[];
   iterationFindings: Finding[];
+  latestReviewIteration: number | null;
   codexReviewText: string | null;
   tmuxOutput: string;
   elapsed: number;

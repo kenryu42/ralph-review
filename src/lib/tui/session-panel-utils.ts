@@ -1,5 +1,6 @@
 import { TUI_COLORS } from "@/lib/tui/colors";
 import {
+  type Finding,
   type FixEntry,
   type IterationEntry,
   isReviewSummary,
@@ -180,28 +181,83 @@ export function extractLatestReviewSummary(
   return null;
 }
 
-export function findLatestIterationMarker(
-  text: string
-): { iteration: number; total?: number; index: number } | null {
-  const pattern = /Iteration\s+(\d+)\s*\/\s*(\d+)/g;
-  let match: RegExpExecArray | null = null;
-  let latest: { iteration: number; total?: number; index: number } | null = null;
+export function findLatestReviewerPhaseStart(text: string): number {
+  if (!text) return -1;
 
-  match = pattern.exec(text);
-  while (match !== null) {
-    const iteration = Number.parseInt(match[1] ?? "", 10);
-    const total = Number.parseInt(match[2] ?? "", 10);
+  const markers = ["Running reviewer...", "Fixes applied. Re-running reviewer..."];
+  let latestIndex = -1;
 
-    if (!Number.isNaN(iteration)) {
-      latest = {
-        iteration,
-        total: Number.isNaN(total) ? undefined : total,
-        index: match.index,
-      };
+  for (const marker of markers) {
+    const index = text.lastIndexOf(marker);
+    if (index > latestIndex) {
+      latestIndex = index;
     }
-
-    match = pattern.exec(text);
   }
 
-  return latest;
+  return latestIndex;
+}
+
+interface ResolveIssuesFoundDisplayInput {
+  sessionStatus: string | undefined;
+  sessionIteration: number;
+  latestReviewIteration: number | null;
+  persistedFindings: Finding[];
+  persistedCodexText: string | null;
+  parsedCodexSummary: ReviewSummary | null;
+  liveReviewSummary: ReviewSummary | null;
+  cachedLiveReviewSummary: ReviewSummary | null;
+}
+
+interface IssuesFoundDisplay {
+  findings: Finding[];
+  codexText: string | null;
+}
+
+export function resolveIssuesFoundDisplay({
+  sessionStatus,
+  sessionIteration,
+  latestReviewIteration,
+  persistedFindings,
+  persistedCodexText,
+  parsedCodexSummary,
+  liveReviewSummary,
+  cachedLiveReviewSummary,
+}: ResolveIssuesFoundDisplayInput): IssuesFoundDisplay {
+  const activeLiveSummary = liveReviewSummary ?? cachedLiveReviewSummary;
+  if (activeLiveSummary) {
+    return {
+      findings: activeLiveSummary.findings,
+      codexText: null,
+    };
+  }
+
+  const hasCurrentIterationPersistedReview = latestReviewIteration === sessionIteration;
+  const isRunning = sessionStatus === "running";
+
+  // Avoid showing stale previous-iteration review data during an active run.
+  if (isRunning && !hasCurrentIterationPersistedReview) {
+    return {
+      findings: [],
+      codexText: null,
+    };
+  }
+
+  if (persistedFindings.length > 0) {
+    return {
+      findings: persistedFindings,
+      codexText: null,
+    };
+  }
+
+  if (parsedCodexSummary && parsedCodexSummary.findings.length > 0) {
+    return {
+      findings: parsedCodexSummary.findings,
+      codexText: null,
+    };
+  }
+
+  return {
+    findings: persistedFindings,
+    codexText: persistedCodexText,
+  };
 }
