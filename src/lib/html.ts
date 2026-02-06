@@ -858,6 +858,8 @@ export function generateDashboardHtml(data: DashboardData): string {
           .session-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
           .session-stats { display: flex; gap: 12px; color: var(--muted); font-size: 12px; margin-top: 8px; }
           .status {
+            min-width: 100px;
+            min-height: 28px;
             padding: 4px 10px;
             border-radius: 999px;
             font-size: 12px;
@@ -872,13 +874,11 @@ export function generateDashboardHtml(data: DashboardData): string {
           }
           .status-has-fixes,
           .status-no-issues {
-            min-width: 100px;
             text-align: center;
             justify-content: center;
             display: inline-flex;
             align-items: center;
             align-self: center;
-            min-height: 28px;
           }
           .status-has-fixes { background: rgba(69, 212, 159, 0.18); color: var(--success); }
           .status-no-issues { background: rgba(126, 178, 255, 0.18); color: var(--accent-3); }
