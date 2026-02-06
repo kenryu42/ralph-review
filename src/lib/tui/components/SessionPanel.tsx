@@ -469,7 +469,7 @@ export function SessionPanel({
               {formatProjectStatsSummary(projectStats.totalFixes, projectStats.sessionCount)}
             </text>
             <text fg={TUI_COLORS.text.dim} paddingLeft={2}>
-              "rr logs --html" for more details
+              "rr logs --html" for more insights
             </text>
           </box>
         )}
