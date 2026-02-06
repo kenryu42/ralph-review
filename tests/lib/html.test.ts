@@ -384,17 +384,88 @@ describe("html", () => {
       ];
       const html = generateDashboardHtml(data);
 
-      expect(html).toContain("Reviewers");
+      expect(html).toContain("Reviewer Agents");
       expect(html).toContain("claude");
       expect(html).toContain("10");
       expect(html).toContain("5 runs");
       expect(html).toContain('title="Issues Found"');
 
-      expect(html).toContain("Fixers");
+      expect(html).toContain("Fixer Agents");
       expect(html).toContain("codex");
       expect(html).toContain("5");
       expect(html).toContain("2 runs");
       expect(html).toContain('title="Issues Fixed"');
+    });
+
+    test("renders model stats with display names", () => {
+      const data = createTestDashboardData();
+      data.reviewerModelStats = [
+        {
+          model: "claude-sonnet-4-20250514",
+          displayName: "Claude Sonnet 4",
+          totalIssues: 12,
+          sessionCount: 4,
+          totalSkipped: 3,
+          averageIterations: 2,
+        },
+      ];
+      data.fixerModelStats = [
+        {
+          model: "gpt-4.1",
+          displayName: "GPT-4.1",
+          totalIssues: 7,
+          sessionCount: 3,
+          totalSkipped: 1,
+          averageIterations: 1.5,
+        },
+      ];
+      const html = generateDashboardHtml(data);
+
+      expect(html).toContain("Reviewer Models");
+      // Display name shown as text, raw model in title for tooltip
+      expect(html).toContain("Claude Sonnet 4");
+      expect(html).toContain('title="claude-sonnet-4-20250514"');
+      expect(html).toContain("12");
+      expect(html).toContain("4 runs");
+      expect(html).toContain('title="Issues Found"');
+
+      expect(html).toContain("Fixer Models");
+      expect(html).toContain("GPT-4.1");
+      expect(html).toContain('title="gpt-4.1"');
+      expect(html).toContain("7");
+      expect(html).toContain("3 runs");
+      expect(html).toContain('title="Issues Fixed"');
+    });
+
+    test("renders model stats using same layout as agent stats", () => {
+      const data = createTestDashboardData();
+      const longModel =
+        "llm-proxy/claude-opus-4-5-thinking-super-long-model-id-with-no-spaces-20260101";
+      data.reviewerModelStats = [
+        {
+          model: longModel,
+          displayName: longModel,
+          totalIssues: 21,
+          sessionCount: 9,
+          totalSkipped: 3,
+          averageIterations: 2.2,
+        },
+      ];
+      data.fixerModelStats = [];
+      data.reviewerAgentStats = [];
+      data.fixerAgentStats = [];
+
+      const html = generateDashboardHtml(data);
+
+      expect(html).toContain("Reviewer Models");
+      expect(html).toContain(longModel);
+      expect(html).toContain("9 runs");
+      expect(html).toContain('title="Issues Found"');
+      // Model stats reuse agent-row/agent-name classes for consistent styling
+      expect(html).toContain('class="agent-row"');
+      expect(html).toContain('class="agent-name"');
+      // Raw model in title attribute for hover tooltip on truncated names
+      expect(html).toContain(`title="${longModel}"`);
     });
   });
 

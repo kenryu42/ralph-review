@@ -9,6 +9,7 @@ import type {
   FixEntry,
   IterationEntry,
   LogEntry,
+  ModelStats,
   SessionStats,
   SkippedEntry,
   SystemEntry,
@@ -236,7 +237,7 @@ function renderPriorityBreakdown(counts: Record<"P0" | "P1" | "P2" | "P3", numbe
 function renderAgentStats(stats: AgentStats[], role: "reviewer" | "fixer"): string {
   if (stats.length === 0) return "";
 
-  const label = role === "reviewer" ? "Reviewers" : "Fixers";
+  const label = role === "reviewer" ? "Reviewer Agents" : "Fixer Agents";
   const tooltip = role === "reviewer" ? "Issues Found" : "Issues Fixed";
 
   const items = stats
@@ -245,6 +246,34 @@ function renderAgentStats(stats: AgentStats[], role: "reviewer" | "fixer"): stri
       return `
         <div class="agent-row">
           <div class="agent-name">${escapeHtml(displayName)}</div>
+          <div class="agent-right">
+            <span class="agent-runs">${NUMBER_FORMAT.format(stat.sessionCount)} runs</span>
+            <span class="agent-metric" title="${tooltip}">${NUMBER_FORMAT.format(stat.totalIssues)}</span>
+          </div>
+        </div>
+      `;
+    })
+    .join("");
+
+  return `
+    <div class="agent-section">
+      <div class="agent-section-label">${label}</div>
+      <div class="agent-list">${items}</div>
+    </div>
+  `;
+}
+
+function renderModelStats(stats: ModelStats[], role: "reviewer" | "fixer"): string {
+  if (stats.length === 0) return "";
+
+  const label = role === "reviewer" ? "Reviewer Models" : "Fixer Models";
+  const tooltip = role === "reviewer" ? "Issues Found" : "Issues Fixed";
+
+  const items = stats
+    .map((stat) => {
+      return `
+        <div class="agent-row">
+          <div class="agent-name" title="${escapeHtml(stat.model)}">${escapeHtml(stat.displayName)}</div>
           <div class="agent-right">
             <span class="agent-runs">${NUMBER_FORMAT.format(stat.sessionCount)} runs</span>
             <span class="agent-metric" title="${tooltip}">${NUMBER_FORMAT.format(stat.totalIssues)}</span>
@@ -711,6 +740,7 @@ export function generateDashboardHtml(data: DashboardData): string {
           .hero {
             display: grid;
             gap: 14px;
+            overflow-x: clip;
             background:
               linear-gradient(135deg, rgba(244, 195, 79, 0.18), transparent 55%),
               linear-gradient(135deg, rgba(126, 178, 255, 0.12), transparent 60%),
@@ -1009,6 +1039,7 @@ export function generateDashboardHtml(data: DashboardData): string {
             margin-top: 24px;
             padding-top: 16px;
             border-top: 1px solid rgba(255, 255, 255, 0.06);
+            min-width: 0;
           }
           .agent-section:first-of-type {
             border-top: none;
@@ -1032,8 +1063,12 @@ export function generateDashboardHtml(data: DashboardData): string {
             align-items: center;
             justify-content: space-between;
             font-size: 13px;
+            gap: 12px;
+            min-width: 0;
           }
           .agent-name {
+            flex: 1;
+            min-width: 0;
             font-weight: 500;
             color: var(--text);
             overflow: hidden;
@@ -1045,6 +1080,7 @@ export function generateDashboardHtml(data: DashboardData): string {
             align-items: center;
             gap: 12px;
             flex-shrink: 0;
+            margin-left: auto;
           }
           .agent-runs {
             font-size: 12px;
@@ -1093,6 +1129,8 @@ export function generateDashboardHtml(data: DashboardData): string {
               ${renderPriorityBreakdown(data.globalStats.priorityCounts)}
               ${renderAgentStats(data.reviewerAgentStats, "reviewer")}
               ${renderAgentStats(data.fixerAgentStats, "fixer")}
+              ${renderModelStats(data.reviewerModelStats, "reviewer")}
+              ${renderModelStats(data.fixerModelStats, "fixer")}
             </div>
             <div>
               <div class="section-title">Projects</div>
