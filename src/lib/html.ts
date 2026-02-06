@@ -234,21 +234,29 @@ function renderPriorityBreakdown(counts: Record<"P0" | "P1" | "P2" | "P3", numbe
   `;
 }
 
-function renderAgentStats(stats: AgentStats[], role: "reviewer" | "fixer"): string {
-  if (stats.length === 0) return "";
+interface StatsRow {
+  name: string;
+  nameTitle?: string;
+  totalIssues: number;
+  sessionCount: number;
+}
 
-  const label = role === "reviewer" ? "Reviewer Agents" : "Fixer Agents";
+function renderStatsSection(rows: StatsRow[], label: string, role: "reviewer" | "fixer"): string {
+  if (rows.length === 0) return "";
+
   const tooltip = role === "reviewer" ? "Issues Found" : "Issues Fixed";
+  const metricClass = role === "fixer" ? "agent-metric agent-metric-fixer" : "agent-metric";
+  const sorted = [...rows].sort((a, b) => b.totalIssues - a.totalIssues);
 
-  const items = stats
-    .map((stat) => {
-      const displayName = getAgentDisplayName(stat.agent);
+  const items = sorted
+    .map((row) => {
+      const titleAttr = row.nameTitle ? ` title="${escapeHtml(row.nameTitle)}"` : "";
       return `
         <div class="agent-row">
-          <div class="agent-name">${escapeHtml(displayName)}</div>
+          <div class="agent-name"${titleAttr}>${escapeHtml(row.name)}</div>
           <div class="agent-right">
-            <span class="agent-runs">${NUMBER_FORMAT.format(stat.sessionCount)} runs</span>
-            <span class="agent-metric" title="${tooltip}">${NUMBER_FORMAT.format(stat.totalIssues)}</span>
+            <span class="agent-runs">${NUMBER_FORMAT.format(row.sessionCount)} runs</span>
+            <span class="${metricClass}" title="${tooltip}">${NUMBER_FORMAT.format(row.totalIssues)}</span>
           </div>
         </div>
       `;
@@ -263,32 +271,25 @@ function renderAgentStats(stats: AgentStats[], role: "reviewer" | "fixer"): stri
   `;
 }
 
+function renderAgentStats(stats: AgentStats[], role: "reviewer" | "fixer"): string {
+  const label = role === "reviewer" ? "Reviewer Agents" : "Fixer Agents";
+  const rows: StatsRow[] = stats.map((s) => ({
+    name: getAgentDisplayName(s.agent),
+    totalIssues: s.totalIssues,
+    sessionCount: s.sessionCount,
+  }));
+  return renderStatsSection(rows, label, role);
+}
+
 function renderModelStats(stats: ModelStats[], role: "reviewer" | "fixer"): string {
-  if (stats.length === 0) return "";
-
   const label = role === "reviewer" ? "Reviewer Models" : "Fixer Models";
-  const tooltip = role === "reviewer" ? "Issues Found" : "Issues Fixed";
-
-  const items = stats
-    .map((stat) => {
-      return `
-        <div class="agent-row">
-          <div class="agent-name" title="${escapeHtml(stat.model)}">${escapeHtml(stat.displayName)}</div>
-          <div class="agent-right">
-            <span class="agent-runs">${NUMBER_FORMAT.format(stat.sessionCount)} runs</span>
-            <span class="agent-metric" title="${tooltip}">${NUMBER_FORMAT.format(stat.totalIssues)}</span>
-          </div>
-        </div>
-      `;
-    })
-    .join("");
-
-  return `
-    <div class="agent-section">
-      <div class="agent-section-label">${label}</div>
-      <div class="agent-list">${items}</div>
-    </div>
-  `;
+  const rows: StatsRow[] = stats.map((s) => ({
+    name: s.displayName,
+    nameTitle: s.model,
+    totalIssues: s.totalIssues,
+    sessionCount: s.sessionCount,
+  }));
+  return renderStatsSection(rows, label, role);
 }
 
 function renderInsightsSection(
@@ -1146,6 +1147,10 @@ export function generateDashboardHtml(data: DashboardData): string {
             justify-content: center;
             font-variant-numeric: tabular-nums;
             font-feature-settings: "tnum" 1;
+          }
+          .agent-metric-fixer {
+            background: rgba(69, 212, 159, 0.18);
+            color: var(--success);
           }
           .mono { font-family: "Space Grotesk", monospace; }
           @media (max-width: 1280px) {

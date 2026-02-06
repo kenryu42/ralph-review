@@ -368,7 +368,7 @@ describe("html", () => {
       expect(html).toContain("const dashboardData =");
     });
 
-    test("renders agent stats", () => {
+    test("renders agent stats with fixer metric styled differently", () => {
       const data = createTestDashboardData();
       data.reviewerAgentStats = [
         {
@@ -388,13 +388,13 @@ describe("html", () => {
       expect(html).toContain("claude");
       expect(html).toContain("10");
       expect(html).toContain("5 runs");
-      expect(html).toContain('title="Issues Found"');
+      expect(html).toContain('class="agent-metric" title="Issues Found"');
 
       expect(html).toContain("Fixer Agents");
       expect(html).toContain("codex");
       expect(html).toContain("5");
       expect(html).toContain("2 runs");
-      expect(html).toContain('title="Issues Fixed"');
+      expect(html).toContain('class="agent-metric agent-metric-fixer" title="Issues Fixed"');
     });
 
     test("renders model stats with display names", () => {
@@ -427,14 +427,57 @@ describe("html", () => {
       expect(html).toContain('title="claude-sonnet-4-20250514"');
       expect(html).toContain("12");
       expect(html).toContain("4 runs");
-      expect(html).toContain('title="Issues Found"');
+      expect(html).toContain('class="agent-metric" title="Issues Found"');
 
       expect(html).toContain("Fixer Models");
       expect(html).toContain("GPT-4.1");
       expect(html).toContain('title="gpt-4.1"');
       expect(html).toContain("7");
       expect(html).toContain("3 runs");
-      expect(html).toContain('title="Issues Fixed"');
+      expect(html).toContain('class="agent-metric agent-metric-fixer" title="Issues Fixed"');
+    });
+
+    test("sorts agent and model stats by totalIssues descending", () => {
+      const data = createTestDashboardData();
+      data.reviewerAgentStats = [
+        { agent: "codex", totalIssues: 3, sessionCount: 10, totalSkipped: 0, averageIterations: 1 },
+        {
+          agent: "claude",
+          totalIssues: 20,
+          sessionCount: 2,
+          totalSkipped: 1,
+          averageIterations: 2,
+        },
+      ];
+      data.reviewerModelStats = [
+        {
+          model: "gpt-4.1",
+          displayName: "GPT-4.1",
+          totalIssues: 1,
+          sessionCount: 5,
+          totalSkipped: 0,
+          averageIterations: 1,
+        },
+        {
+          model: "claude-sonnet",
+          displayName: "Claude Sonnet",
+          totalIssues: 15,
+          sessionCount: 2,
+          totalSkipped: 0,
+          averageIterations: 1,
+        },
+      ];
+      const html = generateDashboardHtml(data);
+
+      // claude (20 issues) should appear before codex (3 issues) despite fewer runs
+      const claudePos = html.indexOf("Claude");
+      const codexPos = html.indexOf("Codex");
+      expect(claudePos).toBeLessThan(codexPos);
+
+      // Claude Sonnet (15 issues) should appear before GPT-4.1 (1 issue)
+      const sonnetPos = html.indexOf("Claude Sonnet");
+      const gptPos = html.indexOf("GPT-4.1");
+      expect(sonnetPos).toBeLessThan(gptPos);
     });
 
     test("wraps agent and model stats in a single collapsible Insights section", () => {
