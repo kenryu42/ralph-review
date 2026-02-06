@@ -9,12 +9,13 @@ export const agentOptions = [
 ] as const;
 
 export const claudeModelOptions = [
-  { value: "opus", label: "Claude Opus 4.5" },
+  { value: "opus", label: "Claude Opus 4.6" },
   { value: "sonnet", label: "Claude Sonnet 4.5" },
   { value: "haiku", label: "Claude Haiku 4.5" },
 ] as const;
 
 export const codexModelOptions = [
+  { value: "gpt-5.3-codex", label: "GPT-5.3 Codex" },
   { value: "gpt-5.2-codex", label: "GPT-5.2 Codex" },
   { value: "gpt-5.2", label: "GPT-5.2" },
   { value: "gpt-5.1-codex-max", label: "GPT-5.1 Codex Max" },
@@ -27,6 +28,7 @@ export const droidModelOptions = [
   { value: "gpt-5.1-codex-max", label: "GPT-5.1 Codex Max" },
   { value: "gpt-5.2", label: "GPT-5.2" },
   { value: "gpt-5.2-codex", label: "GPT-5.2 Codex" },
+  { value: "claude-sonnet-4-6", label: "Claude Sonnet 4.6" },
   { value: "claude-sonnet-4-5-20250929", label: "Claude Sonnet 4.5" },
   { value: "claude-opus-4-5-20251101", label: "Claude Opus 4.5" },
   { value: "claude-haiku-4-5-20251001", label: "Claude Haiku 4.5" },
