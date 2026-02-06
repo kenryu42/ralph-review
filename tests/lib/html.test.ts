@@ -437,6 +437,45 @@ describe("html", () => {
       expect(html).toContain('title="Issues Fixed"');
     });
 
+    test("wraps agent and model stats in a single collapsible Insights section", () => {
+      const data = createTestDashboardData();
+      data.reviewerAgentStats = [
+        {
+          agent: "claude",
+          totalIssues: 10,
+          sessionCount: 5,
+          totalSkipped: 2,
+          averageIterations: 3,
+        },
+      ];
+      data.fixerModelStats = [
+        {
+          model: "gpt-4.1",
+          displayName: "GPT-4.1",
+          totalIssues: 7,
+          sessionCount: 3,
+          totalSkipped: 1,
+          averageIterations: 1.5,
+        },
+      ];
+      const html = generateDashboardHtml(data);
+
+      expect(html).toContain('<details class="insights-section"');
+      expect(html).toContain("<summary");
+      expect(html).toContain("Insights");
+    });
+
+    test("omits Insights section when all stats are empty", () => {
+      const data = createTestDashboardData();
+      data.reviewerAgentStats = [];
+      data.fixerAgentStats = [];
+      data.reviewerModelStats = [];
+      data.fixerModelStats = [];
+      const html = generateDashboardHtml(data);
+
+      expect(html).not.toContain('<details class="insights-section"');
+    });
+
     test("renders model stats using same layout as agent stats", () => {
       const data = createTestDashboardData();
       const longModel =

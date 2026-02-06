@@ -291,6 +291,29 @@ function renderModelStats(stats: ModelStats[], role: "reviewer" | "fixer"): stri
   `;
 }
 
+function renderInsightsSection(
+  reviewerAgentStats: AgentStats[],
+  fixerAgentStats: AgentStats[],
+  reviewerModelStats: ModelStats[],
+  fixerModelStats: ModelStats[]
+): string {
+  const content = [
+    renderAgentStats(reviewerAgentStats, "reviewer"),
+    renderAgentStats(fixerAgentStats, "fixer"),
+    renderModelStats(reviewerModelStats, "reviewer"),
+    renderModelStats(fixerModelStats, "fixer"),
+  ].join("");
+
+  if (!content) return "";
+
+  return `
+    <details class="insights-section">
+      <summary class="insights-label">Insights</summary>
+      ${content}
+    </details>
+  `;
+}
+
 export function getHtmlPath(logPath: string): string {
   if (logPath.endsWith(".jsonl")) {
     return `${logPath.slice(0, -".jsonl".length)}.html`;
@@ -1053,6 +1076,30 @@ export function generateDashboardHtml(data: DashboardData): string {
             color: var(--muted);
             margin-bottom: 12px;
           }
+          .insights-section {
+            margin-top: 16px;
+            padding-top: 16px;
+            border-top: 1px solid rgba(255, 255, 255, 0.06);
+            min-width: 0;
+          }
+          .insights-label {
+            font-size: 11px;
+            letter-spacing: 0.16em;
+            text-transform: uppercase;
+            color: var(--muted);
+            cursor: pointer;
+            list-style: none;
+          }
+          .insights-label::-webkit-details-marker { display: none; }
+          .insights-label::before {
+            content: "\\25B8";
+            display: inline-block;
+            margin-right: 6px;
+            transition: transform 120ms ease;
+          }
+          .insights-section[open] > .insights-label::before {
+            transform: rotate(90deg);
+          }
           .agent-list {
             display: flex;
             flex-direction: column;
@@ -1127,10 +1174,7 @@ export function generateDashboardHtml(data: DashboardData): string {
               <div class="hero-label">Issues Resolved</div>
               <div class="hero-number">${totalFixes}</div>
               ${renderPriorityBreakdown(data.globalStats.priorityCounts)}
-              ${renderAgentStats(data.reviewerAgentStats, "reviewer")}
-              ${renderAgentStats(data.fixerAgentStats, "fixer")}
-              ${renderModelStats(data.reviewerModelStats, "reviewer")}
-              ${renderModelStats(data.fixerModelStats, "fixer")}
+              ${renderInsightsSection(data.reviewerAgentStats, data.fixerAgentStats, data.reviewerModelStats, data.fixerModelStats)}
             </div>
             <div>
               <div class="section-title">Projects</div>
