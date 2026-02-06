@@ -11,7 +11,8 @@ export const opencodeConfig: AgentConfig = {
     _role: AgentRole,
     prompt: string,
     model?: string,
-    _reviewOptions?: ReviewOptions
+    _reviewOptions?: ReviewOptions,
+    _provider?: string
   ): string[] => {
     const args = ["run"];
     if (model) {

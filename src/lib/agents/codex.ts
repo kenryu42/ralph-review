@@ -23,7 +23,8 @@ export const codexConfig: AgentConfig = {
     role: AgentRole,
     prompt: string,
     model?: string,
-    reviewOptions?: ReviewOptions
+    reviewOptions?: ReviewOptions,
+    _provider?: string
   ): string[] => {
     if (role !== "reviewer") {
       const args = ["exec", "--full-auto", ...commonConfig];

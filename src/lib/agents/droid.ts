@@ -23,7 +23,8 @@ export const droidConfig: AgentConfig = {
     _role: AgentRole,
     prompt: string,
     model?: string,
-    _reviewOptions?: ReviewOptions
+    _reviewOptions?: ReviewOptions,
+    _provider?: string
   ): string[] => {
     const effectiveModel = model ?? "gpt-5.2-codex";
 

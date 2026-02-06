@@ -19,7 +19,8 @@ export const claudeConfig: AgentConfig = {
     _role: AgentRole,
     prompt: string,
     model?: string,
-    _reviewOptions?: ReviewOptions
+    _reviewOptions?: ReviewOptions,
+    _provider?: string
   ): string[] => {
     const baseArgs: string[] = [];
     if (model) {
