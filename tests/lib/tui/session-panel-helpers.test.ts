@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   extractFixesFromStats,
   extractLatestReviewSummary,
-  findLatestIterationMarker,
+  findLatestReviewerPhaseStart,
   formatPriorityBreakdown,
   formatProjectStatsSummary,
   truncateFilePath,
@@ -292,14 +292,59 @@ describe("SessionPanel helpers", () => {
       const result = extractLatestReviewSummary(text, minIndex);
       expect(result).toBeNull();
     });
+
+    test("extracts only summaries in latest reviewer phase", () => {
+      const oldSummary = JSON.stringify({
+        ...baseReview,
+        overall_explanation: "old iteration",
+      });
+      const newSummary = JSON.stringify({
+        ...baseReview,
+        overall_explanation: "current iteration",
+      });
+      const text = [
+        "noise",
+        oldSummary,
+        "  │  Fixes applied. Re-running reviewer...                      │",
+        "more output",
+        newSummary,
+      ].join("\n");
+
+      const reviewerPhaseStart = findLatestReviewerPhaseStart(text);
+      const result = extractLatestReviewSummary(
+        text,
+        reviewerPhaseStart >= 0 ? reviewerPhaseStart : 0
+      );
+
+      expect(result?.overall_explanation).toBe("current iteration");
+    });
   });
 
-  describe("findLatestIterationMarker", () => {
-    test("finds the most recent iteration marker in output", () => {
-      const text = "📋 Iteration 1/3\nstuff\n📋 Iteration 2/3\nmore";
-      const marker = findLatestIterationMarker(text);
-      expect(marker?.iteration).toBe(2);
-      expect(marker?.index).toBe(text.lastIndexOf("Iteration 2/3"));
+  describe("findLatestReviewerPhaseStart", () => {
+    test("finds latest reviewer phase header from running reviewer marker", () => {
+      const text = [
+        "old output",
+        "  │  Running reviewer...                                        │",
+        "new output",
+      ].join("\n");
+
+      expect(findLatestReviewerPhaseStart(text)).toBe(text.indexOf("Running reviewer..."));
+    });
+
+    test("prefers the most recent reviewer phase marker", () => {
+      const text = [
+        "  │  Running reviewer...                                        │",
+        "something",
+        "  │  Fixes applied. Re-running reviewer...                      │",
+      ].join("\n");
+
+      expect(findLatestReviewerPhaseStart(text)).toBe(
+        text.lastIndexOf("Fixes applied. Re-running reviewer...")
+      );
+    });
+
+    test("returns -1 when no reviewer marker exists", () => {
+      expect(findLatestReviewerPhaseStart("no phase markers here")).toBe(-1);
     });
   });
 });
