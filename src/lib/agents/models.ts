@@ -1,4 +1,4 @@
-import type { AgentType } from "@/lib/types";
+import type { AgentType, ThinkingLevel } from "@/lib/types";
 
 export const agentOptions = [
   { value: "claude", label: "Claude", hint: "Anthropic" },
@@ -29,7 +29,7 @@ export const droidModelOptions = [
   { value: "gpt-5.1-codex-max", label: "GPT-5.1 Codex Max" },
   { value: "gpt-5.2", label: "GPT-5.2" },
   { value: "gpt-5.2-codex", label: "GPT-5.2 Codex" },
-  { value: "claude-sonnet-4-6", label: "Claude Sonnet 4.6" },
+  { value: "claude-opus-4-6", label: "Claude Opus 4.6" },
   { value: "claude-sonnet-4-5-20250929", label: "Claude Sonnet 4.5" },
   { value: "claude-opus-4-5-20251101", label: "Claude Opus 4.5" },
   { value: "claude-haiku-4-5-20251001", label: "Claude Haiku 4.5" },
@@ -43,6 +43,53 @@ export const geminiModelOptions = [
   { value: "gemini-3-pro-preview", label: "Gemini 3 Pro" },
   { value: "gemini-3-flash-preview", label: "Gemini 3 Flash" },
 ] as const;
+
+const commonThinkingLevels: readonly ThinkingLevel[] = ["low", "medium", "high", "xhigh"];
+
+const droidThinkingLevelsByModel: Record<string, readonly ThinkingLevel[]> = {
+  "gpt-5.1": ["low", "medium", "high"],
+  "gpt-5.1-codex": ["low", "medium", "high"],
+  "gpt-5.1-codex-max": ["low", "medium", "high", "xhigh"],
+  "gpt-5.2": ["low", "medium", "high", "xhigh"],
+  "gpt-5.2-codex": ["low", "medium", "high", "xhigh"],
+  "claude-sonnet-4-5-20250929": ["low", "medium", "high"],
+  "claude-opus-4-5-20251101": ["low", "medium", "high"],
+  "claude-haiku-4-5-20251001": ["low", "medium", "high"],
+  "claude-opus-4-6": ["low", "medium", "high", "max"],
+  "gemini-3-pro-preview": ["low", "medium", "high"],
+  "gemini-3-flash-preview": ["low", "medium", "high"],
+};
+
+export function getDroidThinkingOptions(model: string): ThinkingLevel[] {
+  const levels = droidThinkingLevelsByModel[model];
+  return levels ? [...levels] : [];
+}
+
+export function getThinkingOptions(agent: AgentType, model?: string): ThinkingLevel[] {
+  switch (agent) {
+    case "codex":
+    case "opencode":
+    case "pi":
+      return [...commonThinkingLevels];
+
+    case "droid":
+      if (!model) {
+        return [];
+      }
+      return getDroidThinkingOptions(model);
+
+    case "claude":
+    case "gemini":
+      return [];
+
+    default:
+      return [];
+  }
+}
+
+export function supportsThinking(agent: AgentType, model?: string): boolean {
+  return getThinkingOptions(agent, model).length > 0;
+}
 
 export function getAgentDisplayName(agent: AgentType): string {
   const option = agentOptions.find((opt) => opt.value === agent);
