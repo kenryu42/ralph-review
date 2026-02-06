@@ -739,7 +739,7 @@ export function generateDashboardHtml(data: DashboardData): string {
           }
           .priority-grid {
             display: grid;
-            grid-template-columns: repeat(4, 1fr);
+            grid-template-columns: repeat(4, minmax(0, 1fr));
             gap: 8px;
           }
           .priority-item {
@@ -761,11 +761,15 @@ export function generateDashboardHtml(data: DashboardData): string {
             letter-spacing: 0.1em;
           }
           .priority-value {
-            display: block;
+            display: inline-block;
             font-size: 18px;
             font-weight: 600;
             margin-top: 4px;
             line-height: 1;
+            min-inline-size: 3ch;
+            text-align: center;
+            font-variant-numeric: tabular-nums;
+            font-feature-settings: "tnum" 1;
           }
           .priority-item-p0 .priority-label { color: ${PRIORITY_COLORS.P0}; }
           .priority-item-p1 .priority-label { color: ${PRIORITY_COLORS.P1}; }
