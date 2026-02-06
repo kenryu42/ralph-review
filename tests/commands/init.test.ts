@@ -7,6 +7,7 @@ import {
   checkAgentInstalled,
   checkAllAgents,
   checkTmuxInstalled,
+  parsePiListModelsOutput,
   validateAgentSelection,
 } from "@/commands/init";
 
@@ -29,6 +30,7 @@ describe("init command", () => {
       expect(validateAgentSelection("codex")).toBe(true);
       expect(validateAgentSelection("claude")).toBe(true);
       expect(validateAgentSelection("opencode")).toBe(true);
+      expect(validateAgentSelection("pi")).toBe(true);
     });
 
     test("returns false for invalid agent", () => {
@@ -63,9 +65,10 @@ describe("init command", () => {
       expect(typeof result.opencode).toBe("boolean");
       expect(typeof result.claude).toBe("boolean");
       expect(typeof result.droid).toBe("boolean");
+      expect(typeof result.pi).toBe("boolean");
     });
 
-    test("returns object with all five agent types", () => {
+    test("returns object with all six agent types", () => {
       const result = checkAllAgents();
       const keys = Object.keys(result);
 
@@ -74,7 +77,8 @@ describe("init command", () => {
       expect(keys).toContain("claude");
       expect(keys).toContain("droid");
       expect(keys).toContain("gemini");
-      expect(keys.length).toBe(5);
+      expect(keys).toContain("pi");
+      expect(keys.length).toBe(6);
     });
   });
 
@@ -129,6 +133,32 @@ describe("init command", () => {
       expect(config.iterationTimeout).toBe(600000); // 10 min * 60 * 1000
     });
 
+    test("stores provider and model for pi", () => {
+      const config = buildConfig({
+        reviewerAgent: "pi",
+        reviewerModel: "gemini_cli/gemini-3-flash-preview",
+        reviewerProvider: "llm-proxy",
+        fixerAgent: "pi",
+        fixerModel: "claude-sonnet-4-5",
+        fixerProvider: "anthropic",
+        maxIterations: 3,
+        iterationTimeoutMinutes: 10,
+        defaultReviewType: "uncommitted",
+      });
+
+      expect(config.reviewer.agent).toBe("pi");
+      if (config.reviewer.agent === "pi") {
+        expect(config.reviewer.provider).toBe("llm-proxy");
+        expect(config.reviewer.model).toBe("gemini_cli/gemini-3-flash-preview");
+      }
+
+      expect(config.fixer.agent).toBe("pi");
+      if (config.fixer.agent === "pi") {
+        expect(config.fixer.provider).toBe("anthropic");
+        expect(config.fixer.model).toBe("claude-sonnet-4-5");
+      }
+    });
+
     test("creates config with base branch default review", () => {
       const config = buildConfig({
         reviewerAgent: "codex",
@@ -158,6 +188,41 @@ describe("init command", () => {
 
       // Should fall back to uncommitted when branch is not provided for base type
       expect(config.defaultReview).toEqual({ type: "uncommitted" });
+    });
+  });
+
+  describe("parsePiListModelsOutput", () => {
+    test("parses provider and model columns", () => {
+      const output = [
+        "provider   model                              context  max-out",
+        "anthropic  claude-sonnet-4-5                 200K     64K",
+        "llm-proxy  gemini_cli/gemini-3-flash-preview 1M       64K",
+      ].join("\n");
+
+      const models = parsePiListModelsOutput(output);
+
+      expect(models).toEqual([
+        { provider: "anthropic", model: "claude-sonnet-4-5" },
+        { provider: "llm-proxy", model: "gemini_cli/gemini-3-flash-preview" },
+      ]);
+    });
+
+    test("deduplicates exact provider/model pairs and ignores malformed lines", () => {
+      const output = [
+        "provider   model                              context  max-out",
+        "anthropic  claude-sonnet-4-5                 200K     64K",
+        "anthropic  claude-sonnet-4-5                 200K     64K",
+        "",
+        "invalid-line",
+        "llm-proxy  gemini_cli/gemini-3-pro-preview   1M       64K",
+      ].join("\n");
+
+      const models = parsePiListModelsOutput(output);
+
+      expect(models).toEqual([
+        { provider: "anthropic", model: "claude-sonnet-4-5" },
+        { provider: "llm-proxy", model: "gemini_cli/gemini-3-pro-preview" },
+      ]);
     });
   });
 });

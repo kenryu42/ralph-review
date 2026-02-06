@@ -973,8 +973,8 @@ describe("logger", () => {
   describe("buildAgentStats", () => {
     const createMockSession = (
       overrides: Partial<{
-        reviewer: "claude" | "codex" | "opencode" | "gemini" | "droid";
-        fixer: "claude" | "codex" | "opencode" | "gemini" | "droid";
+        reviewer: "claude" | "codex" | "opencode" | "gemini" | "droid" | "pi";
+        fixer: "claude" | "codex" | "opencode" | "gemini" | "droid" | "pi";
         totalFixes: number;
         totalSkipped: number;
         iterations: number;

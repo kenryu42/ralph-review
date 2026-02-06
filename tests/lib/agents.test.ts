@@ -4,12 +4,13 @@ import type { AgentConfig, ReviewOptions } from "@/lib/types";
 
 describe("agents", () => {
   describe("AGENTS registry", () => {
-    test("has all five agent types", () => {
+    test("has all six agent types", () => {
       expect(AGENTS.codex).toBeDefined();
       expect(AGENTS.claude).toBeDefined();
       expect(AGENTS.opencode).toBeDefined();
       expect(AGENTS.droid).toBeDefined();
       expect(AGENTS.gemini).toBeDefined();
+      expect(AGENTS.pi).toBeDefined();
     });
 
     test("each agent has required config properties", () => {
@@ -190,6 +191,29 @@ describe("agents", () => {
       expect(args).toContain("--output-format");
       expect(args).toContain("stream-json");
       expect(args.some((a: string) => a.includes("fix the issue"))).toBe(true);
+    });
+  });
+
+  describe("pi buildArgs", () => {
+    test("builds args with provider and model", () => {
+      const args = AGENTS.pi.config.buildArgs(
+        "reviewer",
+        "review current changes",
+        "gemini_cli/gemini-3-flash-preview",
+        undefined,
+        "llm-proxy"
+      );
+
+      expect(args).toEqual([
+        "--provider",
+        "llm-proxy",
+        "--model",
+        "gemini_cli/gemini-3-flash-preview",
+        "--mode",
+        "json",
+        "-p",
+        "review current changes",
+      ]);
     });
   });
 
