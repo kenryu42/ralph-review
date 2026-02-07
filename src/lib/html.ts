@@ -4,13 +4,11 @@ import { readLog } from "@/lib/logger";
 import { PRIORITY_COLORS } from "@/lib/tui/session-panel-utils";
 import type {
   AgentSettings,
-  AgentStats,
   DashboardData,
   FixEntry,
   IterationEntry,
   LogEntry,
   ModelStats,
-  SessionStats,
   SkippedEntry,
   SystemEntry,
 } from "@/lib/types";
@@ -42,50 +40,6 @@ function formatDuration(ms: number | undefined): string {
   return `${seconds}s`;
 }
 
-function formatFixesLabel(totalFixes: number): string {
-  if (totalFixes === 0) return "No Issues";
-  const count = NUMBER_FORMAT.format(totalFixes);
-  return `${count} fixes`;
-}
-
-interface SessionBadgeInput {
-  status: string;
-  totalFixes: number;
-  totalSkipped: number;
-}
-
-function getSessionBadge(session: SessionBadgeInput): { label: string; className: string } {
-  // Non-completed statuses take precedence
-  if (session.status !== "completed") {
-    return {
-      label: session.status,
-      className: `status-${session.status}`,
-    };
-  }
-
-  // Completed with skipped items but no fixes - show skipped count
-  if (session.totalFixes === 0 && session.totalSkipped > 0) {
-    return {
-      label: `${NUMBER_FORMAT.format(session.totalSkipped)} skipped`,
-      className: "status-has-skipped",
-    };
-  }
-
-  // Completed with fixes
-  if (session.totalFixes > 0) {
-    return {
-      label: formatFixesLabel(session.totalFixes),
-      className: "status-has-fixes",
-    };
-  }
-
-  // Truly clean: completed, no fixes, no skipped
-  return {
-    label: "No Issues",
-    className: "status-no-issues",
-  };
-}
-
 function escapeHtml(value: string): string {
   return value
     .replace(/&/g, "&amp;")
@@ -107,11 +61,6 @@ function formatAgent(settings: AgentSettings | undefined): string {
   return settings.model ? `${settings.agent} (${settings.model})` : settings.agent;
 }
 
-function formatRoleDisplay(name: string, model: string | undefined): string {
-  if (!model) return name;
-  return `${name} (${model})`;
-}
-
 function getPriorityPillClass(priority: string): string {
   switch (priority) {
     case "P0":
@@ -125,25 +74,6 @@ function getPriorityPillClass(priority: string): string {
     default:
       return "fix-pill-default";
   }
-}
-
-function getPriorityRank(priority: string): number {
-  switch (priority) {
-    case "P0":
-      return 0;
-    case "P1":
-      return 1;
-    case "P2":
-      return 2;
-    case "P3":
-      return 3;
-    default:
-      return 99;
-  }
-}
-
-function sortByPriority<T extends { priority: string }>(items: T[]): T[] {
-  return [...items].sort((a, b) => getPriorityRank(a.priority) - getPriorityRank(b.priority));
 }
 
 function renderFixEntry(fix: FixEntry): string {
@@ -161,60 +91,19 @@ function renderFixEntry(fix: FixEntry): string {
 }
 
 function renderSkippedEntry(item: SkippedEntry): string {
-  const pillClass = getPriorityPillClass(item.priority);
+  const hasPriority = typeof item.priority === "string" && item.priority.length > 0;
+  const pill = hasPriority
+    ? `<div class="fix-pill ${getPriorityPillClass(item.priority)}">${escapeHtml(item.priority)}</div>`
+    : "";
   return `
-    <li class="skip-item">
-      <div class="fix-pill ${pillClass}">${escapeHtml(item.priority ?? "P?")}</div>
+    <li class="skip-item${hasPriority ? "" : " no-pill"}">
+      ${pill}
       <div>
         <div class="skip-title">${escapeHtml(item.title)}</div>
         <div class="skip-reason muted">${escapeHtml(item.reason)}</div>
       </div>
     </li>
   `;
-}
-
-function renderCompactSkipped(skipped: SkippedEntry[]): string {
-  if (skipped.length === 0) {
-    return `
-      <div class="skipped-compact">
-        <div class="skipped-compact-label">Skipped</div>
-        <div class="muted">None</div>
-      </div>
-    `;
-  }
-
-  const [item] = skipped;
-  const pillClass = getPriorityPillClass(item?.priority ?? "");
-  return `
-    <div class="skipped-compact">
-      <div class="skipped-compact-label">Skipped (1)</div>
-      <div class="skip-item">
-        <div class="fix-pill ${pillClass}">${escapeHtml(item?.priority ?? "")}</div>
-        <div>
-          <div class="skip-title">${escapeHtml(item?.title ?? "")}</div>
-          <div class="skip-reason muted">${escapeHtml(item?.reason ?? "")}</div>
-        </div>
-      </div>
-    </div>
-  `;
-}
-
-function extractFixesAndSkipped(entries: LogEntry[]): {
-  fixes: FixEntry[];
-  skipped: SkippedEntry[];
-} {
-  const fixes: FixEntry[] = [];
-  const skipped: SkippedEntry[] = [];
-
-  for (const entry of entries) {
-    if (entry.type !== "iteration") continue;
-    const iteration = entry as IterationEntry;
-    if (!iteration.fixes) continue;
-    fixes.push(...iteration.fixes.fixes);
-    skipped.push(...iteration.fixes.skipped);
-  }
-
-  return { fixes, skipped };
 }
 
 function renderPriorityBreakdown(counts: Record<"P0" | "P1" | "P2" | "P3", number>): string {
@@ -240,30 +129,31 @@ function renderPriorityBreakdown(counts: Record<"P0" | "P1" | "P2" | "P3", numbe
   `;
 }
 
-interface StatsRow {
-  name: string;
-  nameTitle?: string;
-  totalIssues: number;
-  sessionCount: number;
+function formatThinkingLevel(level: ModelStats["thinkingLevel"]): string {
+  return level.toUpperCase();
 }
 
-function renderStatsSection(rows: StatsRow[], label: string, role: "reviewer" | "fixer"): string {
-  if (rows.length === 0) return "";
+function renderInsightsModelSection(stats: ModelStats[], role: "reviewer" | "fixer"): string {
+  if (stats.length === 0) return "";
 
+  const label = role === "reviewer" ? "Reviewer" : "Fixer";
   const tooltip = role === "reviewer" ? "Issues Found" : "Issues Fixed";
   const metricClass = role === "fixer" ? "agent-metric agent-metric-fixer" : "agent-metric";
-  const sorted = [...rows].sort((a, b) => b.totalIssues - a.totalIssues);
+  const sorted = [...stats].sort((a, b) => b.totalIssues - a.totalIssues);
 
   const items = sorted
     .map((row) => {
-      const titleAttr = row.nameTitle ? ` title="${escapeHtml(row.nameTitle)}"` : "";
+      const modelTitle = ` title="${escapeHtml(row.model)}"`;
       return `
         <div class="agent-row">
-          <div class="agent-name"${titleAttr}>${escapeHtml(row.name)}</div>
-          <div class="agent-right">
-            <span class="agent-runs">${NUMBER_FORMAT.format(row.sessionCount)} runs</span>
-            <span class="${metricClass}" title="${tooltip}">${NUMBER_FORMAT.format(row.totalIssues)}</span>
-          </div>
+          <span class="agent-metric agent-metric-agent">${escapeHtml(getAgentDisplayName(row.agent))}</span>
+          <div class="agent-name"${modelTitle}>${escapeHtml(row.displayName)}</div>
+          <span class="agent-metric agent-metric-thinking">${escapeHtml(formatThinkingLevel(row.thinkingLevel))}</span>
+          <span class="agent-runs">
+            <span class="agent-runs-count">${NUMBER_FORMAT.format(row.sessionCount)}</span>
+            <span class="agent-runs-label">runs</span>
+          </span>
+          <span class="${metricClass}" title="${tooltip}">${NUMBER_FORMAT.format(row.totalIssues)}</span>
         </div>
       `;
     })
@@ -277,38 +167,13 @@ function renderStatsSection(rows: StatsRow[], label: string, role: "reviewer" | 
   `;
 }
 
-function renderAgentStats(stats: AgentStats[], role: "reviewer" | "fixer"): string {
-  const label = role === "reviewer" ? "Reviewer Agents" : "Fixer Agents";
-  const rows: StatsRow[] = stats.map((s) => ({
-    name: getAgentDisplayName(s.agent),
-    totalIssues: s.totalIssues,
-    sessionCount: s.sessionCount,
-  }));
-  return renderStatsSection(rows, label, role);
-}
-
-function renderModelStats(stats: ModelStats[], role: "reviewer" | "fixer"): string {
-  const label = role === "reviewer" ? "Reviewer Models" : "Fixer Models";
-  const rows: StatsRow[] = stats.map((s) => ({
-    name: s.displayName,
-    nameTitle: s.model,
-    totalIssues: s.totalIssues,
-    sessionCount: s.sessionCount,
-  }));
-  return renderStatsSection(rows, label, role);
-}
-
 function renderInsightsSection(
-  reviewerAgentStats: AgentStats[],
-  fixerAgentStats: AgentStats[],
   reviewerModelStats: ModelStats[],
   fixerModelStats: ModelStats[]
 ): string {
   const content = [
-    renderAgentStats(reviewerAgentStats, "reviewer"),
-    renderAgentStats(fixerAgentStats, "fixer"),
-    renderModelStats(reviewerModelStats, "reviewer"),
-    renderModelStats(fixerModelStats, "fixer"),
+    renderInsightsModelSection(reviewerModelStats, "reviewer"),
+    renderInsightsModelSection(fixerModelStats, "fixer"),
   ].join("");
 
   if (!content) return "";
@@ -484,6 +349,7 @@ export function generateLogHtml(entries: LogEntry[]): string {
           .section-title { margin: 16px 0 8px; font-size: 13px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
           .fix-list, .skip-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
           .fix-item, .skip-item { display: grid; grid-template-columns: auto 1fr; gap: 12px; padding: 12px; background: var(--panel-strong); border-radius: 12px; border: 1px solid transparent; }
+          .skip-item.no-pill { grid-template-columns: 1fr; }
           .fix-pill {
             color: #0b0f17;
             font-weight: 700;
@@ -547,132 +413,12 @@ function getInitialProjectName(data: DashboardData): string | undefined {
   return data.projects[0]?.projectName;
 }
 
-function renderProjectList(data: DashboardData, currentProject: string | undefined): string {
-  if (data.projects.length === 0) {
-    return `<div class="empty tiny">No projects yet. Run <span class="mono">rr run</span> to start.</div>`;
-  }
-
-  return data.projects
-    .map((project) => {
-      const selected = project.projectName === currentProject;
-      return `
-        <button class="project-item ${selected ? "active" : ""}" data-project="${
-          project.projectName
-        }">
-          <div class="project-title">${escapeHtml(project.displayName)}</div>
-          <div class="project-meta">
-            <span>${project.totalFixes} fixes</span>
-            <span>${project.sessionCount} sessions</span>
-          </div>
-        </button>
-      `;
-    })
-    .join("");
-}
-
-function renderSessionList(sessions: SessionStats[]): string {
-  if (sessions.length === 0) {
-    return `<div class="empty tiny">No sessions for this project yet.</div>`;
-  }
-
-  return sessions
-    .map((session, index) => {
-      const branch = session.gitBranch ?? "no branch";
-      const badge = getSessionBadge(session);
-      return `
-        <button class="session-card ${index === 0 ? "active" : ""}" data-session="${
-          session.sessionPath
-        }">
-          <div class="session-row">
-            <div>
-              <div class="session-title">${escapeHtml(branch)}</div>
-              <div class="session-meta">${formatDate(session.timestamp)}</div>
-            </div>
-            <div class="status ${badge.className}">${badge.label}</div>
-          </div>
-          <div class="session-stats">
-            <span>${session.iterations} iterations</span>
-          </div>
-        </button>
-      `;
-    })
-    .join("");
-}
-
-function renderSessionDetail(session: SessionStats | undefined): string {
-  if (!session) {
-    return `<div class="empty">Select a session to see the full story.</div>`;
-  }
-
-  const { fixes: rawFixes, skipped: rawSkipped } = extractFixesAndSkipped(session.entries);
-  const fixes = sortByPriority(rawFixes);
-  const skipped = sortByPriority(rawSkipped);
-  const branch = session.gitBranch ?? "no branch";
-  const totalDuration = formatDuration(session.totalDuration);
-  const reviewerName = session.reviewerDisplayName ?? session.reviewer;
-  const reviewerModel = session.reviewerModelDisplayName ?? session.reviewerModel;
-  const fixerName = session.fixerDisplayName ?? session.fixer;
-  const fixerModel = session.fixerModelDisplayName ?? session.fixerModel;
-  const reviewerDisplay = formatRoleDisplay(reviewerName, reviewerModel);
-  const fixerDisplay = formatRoleDisplay(fixerName, fixerModel);
-  const showSkippedPanel = skipped.length > 1;
-
-  return `
-    <div class="detail-header">
-      <div>
-        <div class="detail-title">${escapeHtml(branch)}</div>
-        <div class="detail-meta">
-          ${formatDate(session.timestamp)}
-          <span class="dot">•</span>
-          ${totalDuration}
-        </div>
-        <div class="detail-meta"><span class="detail-meta-label">Reviewer:</span> ${escapeHtml(reviewerDisplay)}</div>
-        <div class="detail-meta"><span class="detail-meta-label">Fixer:</span> ${escapeHtml(fixerDisplay)}</div>
-      </div>
-      <div class="detail-stats">
-        <div class="stat">
-          <div class="stat-label">Fixes</div>
-          <div class="stat-value">${session.totalFixes}</div>
-        </div>
-        <div class="stat">
-          <div class="stat-label">Skipped</div>
-          <div class="stat-value">${session.totalSkipped}</div>
-        </div>
-        <div class="stat">
-          <div class="stat-label">Iterations</div>
-          <div class="stat-value">${session.iterations}</div>
-        </div>
-      </div>
-    </div>
-    <div class="detail-grid">
-      <div class="panel">
-        <div class="panel-title">Fixes Applied</div>
-        ${
-          fixes.length > 0
-            ? `<ul class="fix-list">${fixes.map(renderFixEntry).join("")}</ul>`
-            : `<div class="muted">No fixes recorded for this session.</div>`
-        }
-      </div>
-      ${
-        showSkippedPanel
-          ? `<div class="panel">
-              <div class="panel-title">Skipped</div>
-              <ul class="skip-list">${skipped.map(renderSkippedEntry).join("")}</ul>
-            </div>`
-          : ""
-      }
-    </div>
-    ${showSkippedPanel ? "" : renderCompactSkipped(skipped)}
-  `;
-}
-
 export function generateDashboardHtml(data: DashboardData): string {
   const currentProject = getInitialProjectName(data);
   const projectStats = currentProject
     ? data.projects.find((project) => project.projectName === currentProject)
     : undefined;
-  const sessions = projectStats?.sessions ?? [];
-  const initialSession = sessions[0];
+  const initialSession = projectStats?.sessions[0];
 
   const totalFixes = data.globalStats.totalFixes;
   const _highImpact = data.globalStats.priorityCounts.P0 + data.globalStats.priorityCounts.P1;
@@ -699,6 +445,7 @@ export function generateDashboardHtml(data: DashboardData): string {
             --accent: #f4c34f;
             --accent-2: #f09a3e;
             --accent-3: #7eb2ff;
+            --accent-4: #c59dff;
             --success: #45d49f;
             --warning: #f4c34f;
             --danger: #ff7b7b;
@@ -729,7 +476,7 @@ export function generateDashboardHtml(data: DashboardData): string {
           }
           .app {
             display: grid;
-            grid-template-columns: 320px 1fr;
+            grid-template-columns: 500px 1fr;
             height: 100vh;
             min-height: 100vh;
             position: relative;
@@ -905,7 +652,7 @@ export function generateDashboardHtml(data: DashboardData): string {
           .summary-value { font-size: 20px; font-weight: 600; margin-top: 6px; text-align: center; }
           .content-grid {
             display: grid;
-            grid-template-columns: 320px 1fr;
+            grid-template-columns: 500px 1fr;
             grid-template-rows: 1fr;
             gap: 24px;
             flex: 1;
@@ -1002,6 +749,7 @@ export function generateDashboardHtml(data: DashboardData): string {
           }
           .fix-list, .skip-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
           .fix-item, .skip-item { display: grid; grid-template-columns: auto 1fr; gap: 10px; background: var(--panel-3); border-radius: 10px; padding: 10px; }
+          .skip-item.no-pill { grid-template-columns: 1fr; }
           .fix-pill {
             color: #0b0f17;
             font-weight: 700;
@@ -1114,15 +862,14 @@ export function generateDashboardHtml(data: DashboardData): string {
             gap: 8px;
           }
           .agent-row {
-            display: flex;
+            display: grid;
+            grid-template-columns: 75px minmax(0, 1fr) 65px max-content 48px;
             align-items: center;
-            justify-content: space-between;
+            column-gap: 8px;
             font-size: 13px;
-            gap: 12px;
             min-width: 0;
           }
           .agent-name {
-            flex: 1;
             min-width: 0;
             font-weight: 500;
             color: var(--text);
@@ -1130,16 +877,19 @@ export function generateDashboardHtml(data: DashboardData): string {
             text-overflow: ellipsis;
             white-space: nowrap;
           }
-          .agent-right {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            flex-shrink: 0;
-            margin-left: auto;
-          }
           .agent-runs {
             font-size: 12px;
             color: var(--muted);
+            display: inline-grid;
+            grid-template-columns: 3ch max-content;
+            justify-content: end;
+            column-gap: 4px;
+            white-space: nowrap;
+          }
+          .agent-runs-count {
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+            font-feature-settings: "tnum" 1;
           }
           .agent-metric {
             font-family: "Space Grotesk", sans-serif;
@@ -1159,7 +909,37 @@ export function generateDashboardHtml(data: DashboardData): string {
             background: rgba(69, 212, 159, 0.18);
             color: var(--success);
           }
+          .agent-metric-agent,
+          .agent-metric-thinking {
+            padding: 2px 6px;
+            font-size: 11px;
+            border-radius: 999px;
+            letter-spacing: 0.04em;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            text-align: center;
+          }
+          .agent-metric-agent {
+            inline-size: 75px;
+          }
+          .agent-metric-thinking {
+            inline-size: 65px;
+          }
+          .agent-metric-agent {
+            background: rgba(126, 178, 255, 0.18);
+            color: var(--accent-3);
+          }
+          .agent-metric-thinking {
+            background: rgba(197, 157, 255, 0.2);
+            color: var(--accent-4);
+          }
           .mono { font-family: "Space Grotesk", monospace; }
+          @media (min-width: 1281px) {
+            .detail-meta-block {
+              margin-top: 10px;
+            }
+          }
           @media (max-width: 1280px) {
             body { height: auto; overflow: auto; }
             .app { height: auto; }
@@ -1172,6 +952,41 @@ export function generateDashboardHtml(data: DashboardData): string {
             .session-list { overflow: visible; }
             .detail-card { overflow: visible; }
             .detail-meta { row-gap: 6px; }
+            .detail-summary {
+              display: grid;
+              grid-template-columns: minmax(0, 1fr) auto;
+              column-gap: 12px;
+              align-items: start;
+              width: 100%;
+            }
+            .detail-summary .detail-meta { grid-column: 1; }
+            .detail-summary .detail-stats {
+              grid-column: 2;
+              grid-row: 1 / span 3;
+              margin-top: 0;
+              justify-self: end;
+            }
+            .agent-row {
+              grid-template-columns: 75px fit-content(34ch) 65px 1fr max-content 48px;
+              grid-template-areas: "agent model thinking . runs issues";
+            }
+            .agent-row > .agent-metric-agent {
+              grid-area: agent;
+            }
+            .agent-row > .agent-name {
+              grid-area: model;
+              max-inline-size: 100%;
+            }
+            .agent-row > .agent-metric-thinking {
+              grid-area: thinking;
+              justify-self: start;
+            }
+            .agent-row > .agent-runs {
+              grid-area: runs;
+            }
+            .agent-row > .agent-metric:not(.agent-metric-agent):not(.agent-metric-thinking) {
+              grid-area: issues;
+            }
           }
         </style>
       </head>
@@ -1186,7 +1001,7 @@ export function generateDashboardHtml(data: DashboardData): string {
               <div class="hero-label">Issues Resolved</div>
               <div class="hero-number">${totalFixes}</div>
               ${renderPriorityBreakdown(data.globalStats.priorityCounts)}
-              ${renderInsightsSection(data.reviewerAgentStats, data.fixerAgentStats, data.reviewerModelStats, data.fixerModelStats)}
+              ${renderInsightsSection(data.reviewerModelStats, data.fixerModelStats)}
             </div>
             <div>
               <div class="section-title">Projects</div>
@@ -1195,9 +1010,7 @@ export function generateDashboardHtml(data: DashboardData): string {
                 <button id="projectFilterClear" class="filter-clear" type="button">×</button>
               </div>
               <div id="projectFilterCount" class="filter-count"></div>
-              <div id="projectList" class="project-list">
-                ${renderProjectList(data, currentProject)}
-              </div>
+              <div id="projectList" class="project-list"></div>
             </div>
           </aside>
           <main>
@@ -1222,13 +1035,9 @@ export function generateDashboardHtml(data: DashboardData): string {
                   <button id="filterClear" class="filter-clear" type="button">×</button>
                 </div>
                 <div id="filterCount" class="filter-count"></div>
-                <div id="sessionList" class="session-list">
-                  ${renderSessionList(sessions)}
-                </div>
+                <div id="sessionList" class="session-list"></div>
               </div>
-              <div class="detail-card desktop-detail" id="sessionDetail">
-                ${renderSessionDetail(initialSession)}
-              </div>
+              <div class="detail-card desktop-detail" id="sessionDetail"></div>
             </div>
           </main>
         </div>
@@ -1327,9 +1136,10 @@ export function generateDashboardHtml(data: DashboardData): string {
               .replace(/"/g, "&quot;")
               .replace(/'/g, "&#39;");
 
-          const formatRoleDisplay = (name, model) => {
-            if (!model) return name;
-            return \`\${name} (\${model})\`;
+          const formatRoleDisplay = (name, model, thinking) => {
+            const details = [model, thinking].filter(Boolean);
+            if (details.length === 0) return name;
+            return \`\${name} (\${details.join(", ")})\`;
           };
 
           const getPriorityPillClass = (priority) => {
@@ -1402,35 +1212,34 @@ export function generateDashboardHtml(data: DashboardData): string {
             const showSkippedPanel = skipped.length > 1;
             const reviewerName = session.reviewerDisplayName || session.reviewer || "unknown";
             const reviewerModel = session.reviewerModelDisplayName || session.reviewerModel || "";
+            const reviewerThinking = session.reviewerThinking || "";
             const fixerName = session.fixerDisplayName || session.fixer || "unknown";
             const fixerModel = session.fixerModelDisplayName || session.fixerModel || "";
-            const reviewerDisplay = formatRoleDisplay(reviewerName, reviewerModel);
-            const fixerDisplay = formatRoleDisplay(fixerName, fixerModel);
+            const fixerThinking = session.fixerThinking || "";
+            const reviewerDisplay = formatRoleDisplay(reviewerName, reviewerModel, reviewerThinking);
+            const fixerDisplay = formatRoleDisplay(fixerName, fixerModel, fixerThinking);
 
             return \`
               <div class="detail-header">
-                <div>
-                  <div class="detail-title">\${escapeHtml(branch)}</div>
-                  <div class="detail-meta">
-                    \${formatDate(session.timestamp)}
-                    <span class="dot">•</span>
-                    \${formatDuration(session.totalDuration)}
+                <div class="detail-summary">
+                  <div class="detail-stats">
+                    <div class="stat">
+                      <div class="stat-label">Fixes</div>
+                      <div class="stat-value">\${numberFormat.format(session.totalFixes)}</div>
+                    </div>
+                    <div class="stat">
+                      <div class="stat-label">Skipped</div>
+                      <div class="stat-value">\${numberFormat.format(session.totalSkipped)}</div>
+                    </div>
+                    <div class="stat">
+                      <div class="stat-label">Iterations</div>
+                      <div class="stat-value">\${numberFormat.format(session.iterations)}</div>
+                    </div>
                   </div>
-                  <div class="detail-meta"><span class="detail-meta-label">Reviewer:</span> \${escapeHtml(reviewerDisplay)}</div>
-                  <div class="detail-meta"><span class="detail-meta-label">Fixer:</span> \${escapeHtml(fixerDisplay)}</div>
-                </div>
-                <div class="detail-stats">
-                  <div class="stat">
-                    <div class="stat-label">Fixes</div>
-                    <div class="stat-value">\${numberFormat.format(session.totalFixes)}</div>
-                  </div>
-                  <div class="stat">
-                    <div class="stat-label">Skipped</div>
-                    <div class="stat-value">\${numberFormat.format(session.totalSkipped)}</div>
-                  </div>
-                  <div class="stat">
-                    <div class="stat-label">Iterations</div>
-                    <div class="stat-value">\${numberFormat.format(session.iterations)}</div>
+                  <div class="detail-meta-block">
+                    <div class="detail-meta"><span class="detail-meta-label">Duration:</span> \${formatDuration(session.totalDuration)}</div>
+                    <div class="detail-meta"><span class="detail-meta-label">Reviewer:</span> \${escapeHtml(reviewerDisplay)}</div>
+                    <div class="detail-meta"><span class="detail-meta-label">Fixer:</span> \${escapeHtml(fixerDisplay)}</div>
                   </div>
                 </div>
               </div>
@@ -1456,8 +1265,10 @@ export function generateDashboardHtml(data: DashboardData): string {
                       <div class="panel-title">Skipped</div>
                       <ul class="skip-list">\${skipped
                         .map((item) => \`
-                          <li class="skip-item">
-                            <div class="fix-pill \${getPriorityPillClass(item.priority)}">\${escapeHtml(item.priority)}</div>
+                          <li class="skip-item\${item.priority ? "" : " no-pill"}">
+                            \${item.priority
+                              ? \`<div class="fix-pill \${getPriorityPillClass(item.priority)}">\${escapeHtml(item.priority)}</div>\`
+                              : ""}
                             <div>
                               <div class="skip-title">\${escapeHtml(item.title)}</div>
                               <div class="skip-reason muted">\${escapeHtml(item.reason)}</div>
@@ -1473,8 +1284,10 @@ export function generateDashboardHtml(data: DashboardData): string {
                 : skipped.length
                   ? \`<div class="skipped-compact">
                       <div class="skipped-compact-label">Skipped (1)</div>
-                      <div class="skip-item">
-                        <div class="fix-pill \${getPriorityPillClass(skipped[0]?.priority || "")}">\${escapeHtml(skipped[0]?.priority || "")}</div>
+                      <div class="skip-item\${skipped[0]?.priority ? "" : " no-pill"}">
+                        \${skipped[0]?.priority
+                          ? \`<div class="fix-pill \${getPriorityPillClass(skipped[0].priority)}">\${escapeHtml(skipped[0].priority)}</div>\`
+                          : ""}
                         <div>
                           <div class="skip-title">\${escapeHtml(skipped[0]?.title || "")}</div>
                           <div class="skip-reason muted">\${escapeHtml(skipped[0]?.reason || "")}</div>

@@ -368,41 +368,59 @@ describe("html", () => {
       expect(html).toContain("const dashboardData =");
     });
 
-    test("renders agent stats with fixer metric styled differently", () => {
+    test("renders insights rows with agent and thinking badges", () => {
       const data = createTestDashboardData();
-      data.reviewerAgentStats = [
+      data.reviewerModelStats = [
         {
           agent: "claude",
+          model: "claude-sonnet-4-20250514",
+          displayName: "Claude Sonnet 4",
+          thinkingLevel: "high",
           totalIssues: 10,
           sessionCount: 5,
           totalSkipped: 2,
           averageIterations: 3,
         },
       ];
-      data.fixerAgentStats = [
-        { agent: "codex", totalIssues: 5, sessionCount: 2, totalSkipped: 1, averageIterations: 2 },
+      data.fixerModelStats = [
+        {
+          agent: "codex",
+          model: "gpt-4.1",
+          displayName: "GPT-4.1",
+          thinkingLevel: "default",
+          totalIssues: 5,
+          sessionCount: 2,
+          totalSkipped: 1,
+          averageIterations: 2,
+        },
       ];
       const html = generateDashboardHtml(data);
 
-      expect(html).toContain("Reviewer Agents");
-      expect(html).toContain("claude");
+      expect(html).toContain("Reviewer");
+      expect(html).toContain("Claude");
+      expect(html).toContain("HIGH");
       expect(html).toContain("10");
-      expect(html).toContain("5 runs");
+      expect(html).toContain('class="agent-runs-count">5<');
       expect(html).toContain('class="agent-metric" title="Issues Found"');
+      expect(html).toContain('class="agent-metric agent-metric-agent"');
+      expect(html).toContain('class="agent-metric agent-metric-thinking"');
 
-      expect(html).toContain("Fixer Agents");
-      expect(html).toContain("codex");
+      expect(html).toContain("Fixer");
+      expect(html).toContain("Codex");
+      expect(html).toContain("DEFAULT");
       expect(html).toContain("5");
-      expect(html).toContain("2 runs");
+      expect(html).toContain('class="agent-runs-count">2<');
       expect(html).toContain('class="agent-metric agent-metric-fixer" title="Issues Fixed"');
     });
 
-    test("renders model stats with display names", () => {
+    test("renders model stats with display names and tooltips", () => {
       const data = createTestDashboardData();
       data.reviewerModelStats = [
         {
+          agent: "claude",
           model: "claude-sonnet-4-20250514",
           displayName: "Claude Sonnet 4",
+          thinkingLevel: "high",
           totalIssues: 12,
           sessionCount: 4,
           totalSkipped: 3,
@@ -411,8 +429,10 @@ describe("html", () => {
       ];
       data.fixerModelStats = [
         {
+          agent: "codex",
           model: "gpt-4.1",
           displayName: "GPT-4.1",
+          thinkingLevel: "default",
           totalIssues: 7,
           sessionCount: 3,
           totalSkipped: 1,
@@ -421,46 +441,41 @@ describe("html", () => {
       ];
       const html = generateDashboardHtml(data);
 
-      expect(html).toContain("Reviewer Models");
-      // Display name shown as text, raw model in title for tooltip
+      expect(html).toContain("Reviewer");
       expect(html).toContain("Claude Sonnet 4");
       expect(html).toContain('title="claude-sonnet-4-20250514"');
+      expect(html).toContain("HIGH");
       expect(html).toContain("12");
-      expect(html).toContain("4 runs");
+      expect(html).toContain('class="agent-runs-count">4<');
       expect(html).toContain('class="agent-metric" title="Issues Found"');
 
-      expect(html).toContain("Fixer Models");
+      expect(html).toContain("Fixer");
       expect(html).toContain("GPT-4.1");
       expect(html).toContain('title="gpt-4.1"');
+      expect(html).toContain("DEFAULT");
       expect(html).toContain("7");
-      expect(html).toContain("3 runs");
+      expect(html).toContain('class="agent-runs-count">3<');
       expect(html).toContain('class="agent-metric agent-metric-fixer" title="Issues Fixed"');
     });
 
-    test("sorts agent and model stats by totalIssues descending", () => {
+    test("sorts insights rows by totalIssues descending", () => {
       const data = createTestDashboardData();
-      data.reviewerAgentStats = [
-        { agent: "codex", totalIssues: 3, sessionCount: 10, totalSkipped: 0, averageIterations: 1 },
-        {
-          agent: "claude",
-          totalIssues: 20,
-          sessionCount: 2,
-          totalSkipped: 1,
-          averageIterations: 2,
-        },
-      ];
       data.reviewerModelStats = [
         {
+          agent: "codex",
           model: "gpt-4.1",
           displayName: "GPT-4.1",
+          thinkingLevel: "default",
           totalIssues: 1,
           sessionCount: 5,
           totalSkipped: 0,
           averageIterations: 1,
         },
         {
+          agent: "claude",
           model: "claude-sonnet",
           displayName: "Claude Sonnet",
+          thinkingLevel: "high",
           totalIssues: 15,
           sessionCount: 2,
           totalSkipped: 0,
@@ -469,32 +484,19 @@ describe("html", () => {
       ];
       const html = generateDashboardHtml(data);
 
-      // claude (20 issues) should appear before codex (3 issues) despite fewer runs
-      const claudePos = html.indexOf("Claude");
-      const codexPos = html.indexOf("Codex");
-      expect(claudePos).toBeLessThan(codexPos);
-
-      // Claude Sonnet (15 issues) should appear before GPT-4.1 (1 issue)
       const sonnetPos = html.indexOf("Claude Sonnet");
       const gptPos = html.indexOf("GPT-4.1");
       expect(sonnetPos).toBeLessThan(gptPos);
     });
 
-    test("wraps agent and model stats in a single collapsible Insights section", () => {
+    test("wraps insights stats in a single collapsible Insights section", () => {
       const data = createTestDashboardData();
-      data.reviewerAgentStats = [
-        {
-          agent: "claude",
-          totalIssues: 10,
-          sessionCount: 5,
-          totalSkipped: 2,
-          averageIterations: 3,
-        },
-      ];
       data.fixerModelStats = [
         {
+          agent: "codex",
           model: "gpt-4.1",
           displayName: "GPT-4.1",
+          thinkingLevel: "default",
           totalIssues: 7,
           sessionCount: 3,
           totalSkipped: 1,
@@ -525,8 +527,10 @@ describe("html", () => {
         "llm-proxy/claude-opus-4-5-thinking-super-long-model-id-with-no-spaces-20260101";
       data.reviewerModelStats = [
         {
+          agent: "claude",
           model: longModel,
           displayName: longModel,
+          thinkingLevel: "default",
           totalIssues: 21,
           sessionCount: 9,
           totalSkipped: 3,
@@ -539,15 +543,54 @@ describe("html", () => {
 
       const html = generateDashboardHtml(data);
 
-      expect(html).toContain("Reviewer Models");
+      expect(html).toContain("Reviewer");
       expect(html).toContain(longModel);
-      expect(html).toContain("9 runs");
+      expect(html).toContain('class="agent-runs-count">9<');
       expect(html).toContain('title="Issues Found"');
-      // Model stats reuse agent-row/agent-name classes for consistent styling
       expect(html).toContain('class="agent-row"');
       expect(html).toContain('class="agent-name"');
-      // Raw model in title attribute for hover tooltip on truncated names
       expect(html).toContain(`title="${longModel}"`);
+    });
+
+    test("does not render removed reviewer and fixer agent section labels", () => {
+      const data = createTestDashboardData();
+      data.reviewerModelStats = [
+        {
+          agent: "claude",
+          model: "claude-sonnet-4-20250514",
+          displayName: "Claude Sonnet 4",
+          thinkingLevel: "high",
+          totalIssues: 12,
+          sessionCount: 4,
+          totalSkipped: 3,
+          averageIterations: 2,
+        },
+      ];
+
+      const html = generateDashboardHtml(data);
+
+      expect(html).not.toContain("Reviewer Agents");
+      expect(html).not.toContain("Fixer Agents");
+    });
+
+    test("uses 500px desktop columns for aside and session list", () => {
+      const data = createTestDashboardData();
+      const html = generateDashboardHtml(data);
+
+      expect(html).toContain("grid-template-columns: 500px 1fr;");
+      expect(html).toContain("grid-template-columns: 75px minmax(0, 1fr) 65px max-content 48px;");
+      expect(html).toContain("grid-template-columns: 3ch max-content;");
+    });
+
+    test("places thinking badge beside agent on mobile insights rows", () => {
+      const data = createTestDashboardData();
+      const html = generateDashboardHtml(data);
+
+      expect(html).toContain(
+        "grid-template-columns: 75px fit-content(34ch) 65px 1fr max-content 48px;"
+      );
+      expect(html).toContain('grid-template-areas: "agent model thinking . runs issues";');
+      expect(html).toContain("justify-self: start;");
     });
   });
 
