@@ -1,4 +1,5 @@
-import { getAgentDisplayName, getModelDisplayName } from "@/lib/agents/models";
+import { getVersion } from "@/cli-core";
+import { getAgentDisplayInfo } from "@/lib/agents/display";
 import type { LockData } from "@/lib/lockfile";
 import { TUI_COLORS } from "@/lib/tui/colors";
 import type { Config } from "@/lib/types";
@@ -11,6 +12,8 @@ interface HeaderProps {
   projectPath: string;
   config?: Config | null;
 }
+
+const APP_VERSION = getVersion();
 
 function formatDuration(ms: number): string {
   const seconds = Math.floor(ms / 1000);
@@ -36,17 +39,14 @@ export function Header({ branch, elapsed, session, projectPath, config }: Header
       ? projectPath.replace(homeDir, "~")
       : projectPath;
 
-  const reviewerName = config?.reviewer.agent
-    ? getAgentDisplayName(config.reviewer.agent)
-    : "Unknown";
-  const reviewerModel = config?.reviewer.model
-    ? ` (${getModelDisplayName(config.reviewer.agent, config.reviewer.model)})`
-    : "";
-
-  const fixerName = config?.fixer.agent ? getAgentDisplayName(config.fixer.agent) : "Unknown";
-  const fixerModel = config?.fixer.model
-    ? ` (${getModelDisplayName(config.fixer.agent, config.fixer.model)})`
-    : "";
+  const reviewer = config ? getAgentDisplayInfo(config.reviewer) : null;
+  const fixer = config ? getAgentDisplayInfo(config.fixer) : null;
+  const reviewerDisplay = reviewer
+    ? `${reviewer.agentName} (${reviewer.modelName}, reasoning: ${reviewer.thinking})`
+    : "Unknown (Default, reasoning: Default)";
+  const fixerDisplay = fixer
+    ? `${fixer.agentName} (${fixer.modelName}, reasoning: ${fixer.thinking})`
+    : "Unknown (Default, reasoning: Default)";
 
   return (
     <box
@@ -76,22 +76,16 @@ export function Header({ branch, elapsed, session, projectPath, config }: Header
           <text>
             <span fg={TUI_COLORS.brand.title}>
               <strong>Ralph Review</strong>
-              <span fg={TUI_COLORS.text.subtle}> v0.1.0</span>
+              <span fg={TUI_COLORS.text.subtle}> v{APP_VERSION}</span>
             </span>
           </text>
           <text>
             <span fg={TUI_COLORS.text.subtle}>Reviewer: </span>
-            <span fg={TUI_COLORS.text.subtle}>
-              {reviewerName}
-              {reviewerModel}
-            </span>
+            <span fg={TUI_COLORS.text.subtle}>{reviewerDisplay}</span>
           </text>
           <text>
             <span fg={TUI_COLORS.text.subtle}>Fixer: </span>
-            <span fg={TUI_COLORS.text.subtle}>
-              {fixerName}
-              {fixerModel}
-            </span>
+            <span fg={TUI_COLORS.text.subtle}>{fixerDisplay}</span>
           </text>
           <text>
             <span fg={TUI_COLORS.text.subtle}>{displayPath}</span>
