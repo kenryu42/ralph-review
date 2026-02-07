@@ -1,7 +1,14 @@
 import { mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { Config } from "./types";
+import {
+  type AgentSettings,
+  type Config,
+  type DefaultReview,
+  isAgentType,
+  isReasoningLevel,
+  type RetryConfig,
+} from "./types";
 
 const CONFIG_DIR = join(homedir(), ".config", "ralph-review");
 export const CONFIG_PATH = join(CONFIG_DIR, "config.json");
@@ -20,6 +27,124 @@ export async function saveConfig(config: Config, path: string = CONFIG_PATH): Pr
   await Bun.write(path, JSON.stringify(config, null, 2));
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function parseRetryConfig(value: unknown): RetryConfig | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  const maxRetries = value.maxRetries;
+  const baseDelayMs = value.baseDelayMs;
+  const maxDelayMs = value.maxDelayMs;
+
+  if (
+    typeof maxRetries !== "number" ||
+    typeof baseDelayMs !== "number" ||
+    typeof maxDelayMs !== "number"
+  ) {
+    return undefined;
+  }
+
+  return { maxRetries, baseDelayMs, maxDelayMs };
+}
+
+function parseDefaultReview(value: unknown): DefaultReview | null {
+  if (!isRecord(value) || typeof value.type !== "string") {
+    return null;
+  }
+
+  if (value.type === "uncommitted") {
+    return { type: "uncommitted" };
+  }
+
+  if (value.type === "base" && typeof value.branch === "string" && value.branch.trim() !== "") {
+    return { type: "base", branch: value.branch };
+  }
+
+  return null;
+}
+
+function parseAgentSettings(value: unknown): AgentSettings | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  // Breaking change: legacy key is intentionally rejected.
+  if ("thinking" in value) {
+    return null;
+  }
+
+  if (!isAgentType(value.agent)) {
+    return null;
+  }
+
+  if (value.reasoning !== undefined && !isReasoningLevel(value.reasoning)) {
+    return null;
+  }
+
+  if (value.agent === "pi") {
+    if (typeof value.provider !== "string" || typeof value.model !== "string") {
+      return null;
+    }
+
+    return {
+      agent: "pi",
+      provider: value.provider,
+      model: value.model,
+      reasoning: value.reasoning,
+    };
+  }
+
+  if (value.provider !== undefined) {
+    return null;
+  }
+  if (value.model !== undefined && typeof value.model !== "string") {
+    return null;
+  }
+
+  return {
+    agent: value.agent,
+    model: value.model,
+    reasoning: value.reasoning,
+  };
+}
+
+function parseConfig(value: unknown): Config | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const reviewer = parseAgentSettings(value.reviewer);
+  const fixer = parseAgentSettings(value.fixer);
+  const defaultReview = parseDefaultReview(value.defaultReview);
+  const retry = parseRetryConfig(value.retry);
+
+  if (!reviewer || !fixer || !defaultReview) {
+    return null;
+  }
+  if (value.retry !== undefined && !retry) {
+    return null;
+  }
+  if (typeof value.maxIterations !== "number" || typeof value.iterationTimeout !== "number") {
+    return null;
+  }
+
+  return {
+    reviewer,
+    fixer,
+    maxIterations: value.maxIterations,
+    iterationTimeout: value.iterationTimeout,
+    ...(retry ? { retry } : {}),
+    defaultReview,
+  };
+}
+
 export async function loadConfig(path: string = CONFIG_PATH): Promise<Config | null> {
   const file = Bun.file(path);
 
@@ -29,7 +154,8 @@ export async function loadConfig(path: string = CONFIG_PATH): Promise<Config | n
 
   try {
     const content = await file.text();
-    return JSON.parse(content) as Config;
+    const parsed = JSON.parse(content) as unknown;
+    return parseConfig(parsed);
   } catch {
     return null;
   }
