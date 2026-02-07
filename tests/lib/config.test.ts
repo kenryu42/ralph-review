@@ -10,8 +10,8 @@ describe("config", () => {
 
   // Create a valid test config
   const testConfig: Config = {
-    reviewer: { agent: "codex", model: "gpt-4" },
-    fixer: { agent: "claude" },
+    reviewer: { agent: "codex", model: "gpt-4", reasoning: "high" },
+    fixer: { agent: "claude", reasoning: "medium" },
     maxIterations: 10,
     iterationTimeout: 600000,
     defaultReview: { type: "uncommitted" },
@@ -63,6 +63,21 @@ describe("config", () => {
 
     test("loadConfig returns null for missing file", async () => {
       const configPath = join(tempDir, "nonexistent.json");
+      const loaded = await loadConfig(configPath);
+      expect(loaded).toBeNull();
+    });
+
+    test("loadConfig returns null for legacy thinking keys", async () => {
+      const configPath = join(tempDir, "config.json");
+      const legacyConfig = {
+        reviewer: { agent: "codex", model: "gpt-4", thinking: "high" },
+        fixer: { agent: "claude", thinking: "medium" },
+        maxIterations: 10,
+        iterationTimeout: 600000,
+        defaultReview: { type: "uncommitted" },
+      };
+
+      await Bun.write(configPath, JSON.stringify(legacyConfig, null, 2));
       const loaded = await loadConfig(configPath);
       expect(loaded).toBeNull();
     });

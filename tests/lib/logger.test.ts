@@ -1121,9 +1121,9 @@ describe("logger", () => {
         reviewer: "claude" | "codex" | "opencode" | "gemini" | "droid" | "pi";
         fixer: "claude" | "codex" | "opencode" | "gemini" | "droid" | "pi";
         reviewerModel: string;
-        reviewerThinking: "low" | "medium" | "high" | "xhigh" | "max";
+        reviewerReasoning: "low" | "medium" | "high" | "xhigh" | "max";
         fixerModel: string;
-        fixerThinking: "low" | "medium" | "high" | "xhigh" | "max";
+        fixerReasoning: "low" | "medium" | "high" | "xhigh" | "max";
         totalFixes: number;
         totalSkipped: number;
         iterations: number;
@@ -1140,12 +1140,12 @@ describe("logger", () => {
       entries: [],
       reviewer: overrides.reviewer ?? "claude",
       reviewerModel: overrides.reviewerModel ?? "claude-sonnet-4",
-      reviewerThinking: overrides.reviewerThinking,
+      reviewerReasoning: overrides.reviewerReasoning,
       reviewerDisplayName: "Claude",
       reviewerModelDisplayName: overrides.reviewerModel ?? "claude-sonnet-4",
       fixer: overrides.fixer ?? "codex",
       fixerModel: overrides.fixerModel ?? "gpt-4",
-      fixerThinking: overrides.fixerThinking,
+      fixerReasoning: overrides.fixerReasoning,
       fixerDisplayName: "Codex",
       fixerModelDisplayName: overrides.fixerModel ?? "gpt-4",
     });
@@ -1173,7 +1173,7 @@ describe("logger", () => {
       expect(stats[0]?.agent).toBe("claude");
       expect(stats[0]?.model).toBe("claude-sonnet-4");
       expect(stats[0]?.displayName).toBe("claude-sonnet-4");
-      expect(stats[0]?.thinkingLevel).toBe("default");
+      expect(stats[0]?.reasoningLevel).toBe("default");
       expect(stats[0]?.totalIssues).toBe(8);
       expect(stats[0]?.totalSkipped).toBe(3);
     });
@@ -1199,7 +1199,7 @@ describe("logger", () => {
       expect(stats[0]?.agent).toBe("codex");
       expect(stats[0]?.model).toBe("gpt-4");
       expect(stats[0]?.displayName).toBe("gpt-4");
-      expect(stats[0]?.thinkingLevel).toBe("default");
+      expect(stats[0]?.reasoningLevel).toBe("default");
       expect(stats[0]?.totalIssues).toBe(5);
       expect(stats[0]?.totalSkipped).toBe(3);
     });
@@ -1237,7 +1237,7 @@ describe("logger", () => {
       expect(stats.length).toBe(1);
       expect(stats[0]?.agent).toBe("claude");
       expect(stats[0]?.model).toBe("claude-sonnet-4");
-      expect(stats[0]?.thinkingLevel).toBe("default");
+      expect(stats[0]?.reasoningLevel).toBe("default");
       expect(stats[0]?.sessionCount).toBe(2);
       expect(stats[0]?.totalIssues).toBe(14);
       expect(stats[0]?.totalSkipped).toBe(4);
@@ -1282,7 +1282,7 @@ describe("logger", () => {
       expect(droidStats?.totalIssues).toBe(5);
     });
 
-    test("marks model thinking level as mixed when multiple levels exist", () => {
+    test("marks model reasoning level as mixed when multiple levels exist", () => {
       const projects = [
         {
           projectName: "test-project",
@@ -1297,13 +1297,13 @@ describe("logger", () => {
             createMockSession({
               reviewer: "codex",
               reviewerModel: "gpt-5.2-codex",
-              reviewerThinking: "high",
+              reviewerReasoning: "high",
               totalFixes: 2,
             }),
             createMockSession({
               reviewer: "codex",
               reviewerModel: "gpt-5.2-codex",
-              reviewerThinking: "xhigh",
+              reviewerReasoning: "xhigh",
               totalFixes: 3,
             }),
           ],
@@ -1313,10 +1313,10 @@ describe("logger", () => {
       const stats = buildModelStats(projects, "reviewer");
 
       expect(stats.length).toBe(1);
-      expect(stats[0]?.thinkingLevel).toBe("mixed");
+      expect(stats[0]?.reasoningLevel).toBe("mixed");
     });
 
-    test("keeps thinking level when only one level is observed with defaults", () => {
+    test("keeps reasoning level when only one level is observed with defaults", () => {
       const projects = [
         {
           projectName: "test-project",
@@ -1331,7 +1331,7 @@ describe("logger", () => {
             createMockSession({
               reviewer: "codex",
               reviewerModel: "gpt-5.2-codex",
-              reviewerThinking: "high",
+              reviewerReasoning: "high",
               totalFixes: 2,
             }),
             createMockSession({
@@ -1346,7 +1346,7 @@ describe("logger", () => {
       const stats = buildModelStats(projects, "reviewer");
 
       expect(stats.length).toBe(1);
-      expect(stats[0]?.thinkingLevel).toBe("high");
+      expect(stats[0]?.reasoningLevel).toBe("high");
     });
   });
 });

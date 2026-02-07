@@ -375,7 +375,7 @@ describe("html", () => {
           agent: "claude",
           model: "claude-sonnet-4-20250514",
           displayName: "Claude Sonnet 4",
-          thinkingLevel: "high",
+          reasoningLevel: "high",
           totalIssues: 10,
           sessionCount: 5,
           totalSkipped: 2,
@@ -387,7 +387,7 @@ describe("html", () => {
           agent: "codex",
           model: "gpt-4.1",
           displayName: "GPT-4.1",
-          thinkingLevel: "default",
+          reasoningLevel: "default",
           totalIssues: 5,
           sessionCount: 2,
           totalSkipped: 1,
@@ -398,16 +398,16 @@ describe("html", () => {
 
       expect(html).toContain("Reviewer");
       expect(html).toContain("Claude");
-      expect(html).toContain("HIGH");
+      expect(html).toContain("high");
       expect(html).toContain("10");
       expect(html).toContain('class="agent-runs-count">5<');
       expect(html).toContain('class="agent-metric" title="Issues Found"');
       expect(html).toContain('class="agent-metric agent-metric-agent"');
-      expect(html).toContain('class="agent-metric agent-metric-thinking"');
+      expect(html).toContain('class="agent-metric agent-metric-reasoning"');
 
       expect(html).toContain("Fixer");
       expect(html).toContain("Codex");
-      expect(html).toContain("DEFAULT");
+      expect(html).toContain("default");
       expect(html).toContain("5");
       expect(html).toContain('class="agent-runs-count">2<');
       expect(html).toContain('class="agent-metric agent-metric-fixer" title="Issues Fixed"');
@@ -420,7 +420,7 @@ describe("html", () => {
           agent: "claude",
           model: "claude-sonnet-4-20250514",
           displayName: "Claude Sonnet 4",
-          thinkingLevel: "high",
+          reasoningLevel: "high",
           totalIssues: 12,
           sessionCount: 4,
           totalSkipped: 3,
@@ -432,7 +432,7 @@ describe("html", () => {
           agent: "codex",
           model: "gpt-4.1",
           displayName: "GPT-4.1",
-          thinkingLevel: "default",
+          reasoningLevel: "default",
           totalIssues: 7,
           sessionCount: 3,
           totalSkipped: 1,
@@ -444,7 +444,7 @@ describe("html", () => {
       expect(html).toContain("Reviewer");
       expect(html).toContain("Claude Sonnet 4");
       expect(html).toContain('title="claude-sonnet-4-20250514"');
-      expect(html).toContain("HIGH");
+      expect(html).toContain("high");
       expect(html).toContain("12");
       expect(html).toContain('class="agent-runs-count">4<');
       expect(html).toContain('class="agent-metric" title="Issues Found"');
@@ -452,7 +452,7 @@ describe("html", () => {
       expect(html).toContain("Fixer");
       expect(html).toContain("GPT-4.1");
       expect(html).toContain('title="gpt-4.1"');
-      expect(html).toContain("DEFAULT");
+      expect(html).toContain("default");
       expect(html).toContain("7");
       expect(html).toContain('class="agent-runs-count">3<');
       expect(html).toContain('class="agent-metric agent-metric-fixer" title="Issues Fixed"');
@@ -465,7 +465,7 @@ describe("html", () => {
           agent: "codex",
           model: "gpt-4.1",
           displayName: "GPT-4.1",
-          thinkingLevel: "default",
+          reasoningLevel: "default",
           totalIssues: 1,
           sessionCount: 5,
           totalSkipped: 0,
@@ -475,7 +475,7 @@ describe("html", () => {
           agent: "claude",
           model: "claude-sonnet",
           displayName: "Claude Sonnet",
-          thinkingLevel: "high",
+          reasoningLevel: "high",
           totalIssues: 15,
           sessionCount: 2,
           totalSkipped: 0,
@@ -496,7 +496,7 @@ describe("html", () => {
           agent: "codex",
           model: "gpt-4.1",
           displayName: "GPT-4.1",
-          thinkingLevel: "default",
+          reasoningLevel: "default",
           totalIssues: 7,
           sessionCount: 3,
           totalSkipped: 1,
@@ -530,7 +530,7 @@ describe("html", () => {
           agent: "claude",
           model: longModel,
           displayName: longModel,
-          thinkingLevel: "default",
+          reasoningLevel: "default",
           totalIssues: 21,
           sessionCount: 9,
           totalSkipped: 3,
@@ -559,7 +559,7 @@ describe("html", () => {
           agent: "claude",
           model: "claude-sonnet-4-20250514",
           displayName: "Claude Sonnet 4",
-          thinkingLevel: "high",
+          reasoningLevel: "high",
           totalIssues: 12,
           sessionCount: 4,
           totalSkipped: 3,
@@ -589,7 +589,7 @@ describe("html", () => {
       expect(html).toContain(
         "grid-template-columns: 75px fit-content(34ch) 65px 1fr max-content 48px;"
       );
-      expect(html).toContain('grid-template-areas: "agent model thinking . runs issues";');
+      expect(html).toContain('grid-template-areas: "agent model reasoning . runs issues";');
       expect(html).toContain("justify-self: start;");
     });
   });

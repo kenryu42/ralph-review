@@ -255,7 +255,7 @@ describe("pi-stream", () => {
 
       expect(thinkingStart).toBe("");
       expect(thinkingDelta).toBe("");
-      expect(thinkingEnd).toBe("--- Thinking ---\nAnalyzing the repository");
+      expect(thinkingEnd).toBe("--- Reasoning ---\nAnalyzing the repository");
     });
 
     test("suppresses boilerplate events", () => {

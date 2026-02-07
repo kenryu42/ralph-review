@@ -174,7 +174,7 @@ describe("codex-stream", () => {
   });
 
   describe("formatCodexEventForDisplay", () => {
-    test("formats reasoning item.completed event with Thinking label", () => {
+    test("formats reasoning item.completed event with Reasoning label", () => {
       const event = {
         type: "item.completed" as const,
         item: {
@@ -186,7 +186,7 @@ describe("codex-stream", () => {
 
       const output = formatCodexEventForDisplay(event);
 
-      expect(output).toContain("[Thinking]");
+      expect(output).toContain("[Reasoning]");
       expect(output).toContain("Analyzing the code structure");
     });
 

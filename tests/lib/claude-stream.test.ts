@@ -195,7 +195,7 @@ describe("claude-stream", () => {
 
       const output = formatClaudeEventForDisplay(event);
 
-      expect(output).toContain("Thinking");
+      expect(output).toContain("Reasoning");
       expect(output).toContain("Analyzing the code...");
     });
 
@@ -315,7 +315,7 @@ describe("claude-stream", () => {
 
       const output = formatClaudeEventForDisplay(event);
 
-      expect(output).toContain("Thinking");
+      expect(output).toContain("Reasoning");
       expect(output).toContain("First I think...");
       expect(output).toContain("Then I say...");
     });

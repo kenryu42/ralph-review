@@ -1,71 +1,75 @@
 import { describe, expect, test } from "bun:test";
-import { getDroidThinkingOptions, getThinkingOptions, supportsThinking } from "@/lib/agents/models";
+import {
+  getDroidReasoningOptions,
+  getReasoningOptions,
+  supportsReasoning,
+} from "@/lib/agents/models";
 
 describe("agent model metadata", () => {
-  describe("getThinkingOptions", () => {
+  describe("getReasoningOptions", () => {
     test("returns shared options for codex, opencode, and pi", () => {
-      expect(getThinkingOptions("codex", "gpt-5.2-codex")).toEqual([
+      expect(getReasoningOptions("codex", "gpt-5.2-codex")).toEqual([
         "low",
         "medium",
         "high",
         "xhigh",
       ]);
-      expect(getThinkingOptions("opencode", "any-model")).toEqual([
+      expect(getReasoningOptions("opencode", "any-model")).toEqual([
         "low",
         "medium",
         "high",
         "xhigh",
       ]);
-      expect(getThinkingOptions("pi", "any-model")).toEqual(["low", "medium", "high", "xhigh"]);
+      expect(getReasoningOptions("pi", "any-model")).toEqual(["low", "medium", "high", "xhigh"]);
     });
 
     test("returns model-specific options for droid", () => {
-      expect(getThinkingOptions("droid", "gpt-5.1")).toEqual(["low", "medium", "high"]);
-      expect(getThinkingOptions("droid", "gpt-5.1-codex-max")).toEqual([
+      expect(getReasoningOptions("droid", "gpt-5.1")).toEqual(["low", "medium", "high"]);
+      expect(getReasoningOptions("droid", "gpt-5.1-codex-max")).toEqual([
         "low",
         "medium",
         "high",
         "xhigh",
       ]);
-      expect(getThinkingOptions("droid", "glm-4.7")).toEqual([]);
-      expect(getThinkingOptions("droid", "unknown-model")).toEqual([]);
+      expect(getReasoningOptions("droid", "glm-4.7")).toEqual([]);
+      expect(getReasoningOptions("droid", "unknown-model")).toEqual([]);
     });
 
     test("returns no options for claude and gemini", () => {
-      expect(getThinkingOptions("claude", "sonnet")).toEqual([]);
-      expect(getThinkingOptions("gemini", "gemini-3-pro-preview")).toEqual([]);
+      expect(getReasoningOptions("claude", "sonnet")).toEqual([]);
+      expect(getReasoningOptions("gemini", "gemini-3-pro-preview")).toEqual([]);
     });
 
     test("never includes banned levels", () => {
-      const droidLevels = getThinkingOptions("droid", "gemini-3-flash-preview");
+      const droidLevels = getReasoningOptions("droid", "gemini-3-flash-preview");
       expect(droidLevels).not.toContain("off");
       expect(droidLevels).not.toContain("none");
       expect(droidLevels).not.toContain("minimal");
     });
   });
 
-  describe("supportsThinking", () => {
+  describe("supportsReasoning", () => {
     test("returns true when options exist", () => {
-      expect(supportsThinking("codex", "gpt-5.2-codex")).toBe(true);
-      expect(supportsThinking("droid", "gpt-5.2-codex")).toBe(true);
-      expect(supportsThinking("pi", "model")).toBe(true);
+      expect(supportsReasoning("codex", "gpt-5.2-codex")).toBe(true);
+      expect(supportsReasoning("droid", "gpt-5.2-codex")).toBe(true);
+      expect(supportsReasoning("pi", "model")).toBe(true);
     });
 
     test("returns false for unsupported selections", () => {
-      expect(supportsThinking("droid", "glm-4.7")).toBe(false);
-      expect(supportsThinking("claude", "opus")).toBe(false);
-      expect(supportsThinking("gemini", "gemini-3-pro-preview")).toBe(false);
+      expect(supportsReasoning("droid", "glm-4.7")).toBe(false);
+      expect(supportsReasoning("claude", "opus")).toBe(false);
+      expect(supportsReasoning("gemini", "gemini-3-pro-preview")).toBe(false);
     });
   });
 
-  describe("getDroidThinkingOptions", () => {
+  describe("getDroidReasoningOptions", () => {
     test("includes xhigh for models that support it", () => {
-      const levels = getDroidThinkingOptions("gpt-5.1-codex-max");
+      const levels = getDroidReasoningOptions("gpt-5.1-codex-max");
       expect(levels).toContain("xhigh");
     });
 
     test("returns empty array for unsupported droid models", () => {
-      expect(getDroidThinkingOptions("kimi-k2.5")).toEqual([]);
+      expect(getDroidReasoningOptions("kimi-k2.5")).toEqual([]);
     });
   });
 });

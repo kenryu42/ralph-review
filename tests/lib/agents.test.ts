@@ -118,7 +118,7 @@ describe("agents", () => {
       expect(args).not.toContain("--base");
     });
 
-    test("uses configured thinking level when valid", () => {
+    test("uses configured reasoning level when valid", () => {
       const args = AGENTS.codex.config.buildArgs(
         "reviewer",
         "",
@@ -172,7 +172,7 @@ describe("agents", () => {
       expect(args.some((a: string) => a.includes("apply changes"))).toBe(true);
     });
 
-    test("adds variant when thinking level is valid", () => {
+    test("adds variant when reasoning level is valid", () => {
       const args = AGENTS.opencode.config.buildArgs(
         "reviewer",
         "review the code",
@@ -185,7 +185,7 @@ describe("agents", () => {
       expect(args).toContain("xhigh");
     });
 
-    test("omits variant when thinking level is invalid", () => {
+    test("omits variant when reasoning level is invalid", () => {
       const args = AGENTS.opencode.config.buildArgs(
         "reviewer",
         "review the code",
@@ -222,7 +222,7 @@ describe("agents", () => {
       expect(args).not.toContain("gpt-5.2-codex");
     });
 
-    test("uses configured thinking level for supported model", () => {
+    test("uses configured reasoning level for supported model", () => {
       const args = AGENTS.droid.config.buildArgs(
         "reviewer",
         "review",

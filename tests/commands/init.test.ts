@@ -138,11 +138,11 @@ describe("init command", () => {
         reviewerAgent: "pi",
         reviewerModel: "gemini_cli/gemini-3-flash-preview",
         reviewerProvider: "llm-proxy",
-        reviewerThinking: "high",
+        reviewerReasoning: "high",
         fixerAgent: "pi",
         fixerModel: "claude-sonnet-4-5",
         fixerProvider: "anthropic",
-        fixerThinking: "medium",
+        fixerReasoning: "medium",
         maxIterations: 3,
         iterationTimeoutMinutes: 10,
         defaultReviewType: "uncommitted",
@@ -152,32 +152,32 @@ describe("init command", () => {
       if (config.reviewer.agent === "pi") {
         expect(config.reviewer.provider).toBe("llm-proxy");
         expect(config.reviewer.model).toBe("gemini_cli/gemini-3-flash-preview");
-        expect(config.reviewer.thinking).toBe("high");
+        expect(config.reviewer.reasoning).toBe("high");
       }
 
       expect(config.fixer.agent).toBe("pi");
       if (config.fixer.agent === "pi") {
         expect(config.fixer.provider).toBe("anthropic");
         expect(config.fixer.model).toBe("claude-sonnet-4-5");
-        expect(config.fixer.thinking).toBe("medium");
+        expect(config.fixer.reasoning).toBe("medium");
       }
     });
 
-    test("stores thinking for non-pi agents", () => {
+    test("stores reasoning for non-pi agents", () => {
       const config = buildConfig({
         reviewerAgent: "codex",
         reviewerModel: "gpt-5.2-codex",
-        reviewerThinking: "xhigh",
+        reviewerReasoning: "xhigh",
         fixerAgent: "droid",
         fixerModel: "gpt-5.2-codex",
-        fixerThinking: "high",
+        fixerReasoning: "high",
         maxIterations: 4,
         iterationTimeoutMinutes: 20,
         defaultReviewType: "uncommitted",
       });
 
-      expect(config.reviewer.thinking).toBe("xhigh");
-      expect(config.fixer.thinking).toBe("high");
+      expect(config.reviewer.reasoning).toBe("xhigh");
+      expect(config.fixer.reasoning).toBe("high");
     });
 
     test("creates config with base branch default review", () => {
