@@ -65,11 +65,11 @@ rr init
 
 You'll be prompted to select:
 - **Reviewer agent**: Which AI to use for code review
-- **Reviewer thinking**: Thinking level for supported reviewer selections
+- **Reviewer reasoning**: Reasoning level for supported reviewer selections
 - **Fixer agent**: Which AI to use for fixing issues
-- **Fixer thinking**: Thinking level for supported fixer selections
+- **Fixer reasoning**: Reasoning level for supported fixer selections
 
-`rr init` only asks for thinking level when the selected agent/model supports it.
+`rr init` only asks for reasoning level when the selected agent/model supports it.
 
 ### Running Reviews
 
@@ -121,12 +121,12 @@ Configuration is stored at `~/.config/ralph-review/config.json`:
   "reviewer": {
     "agent": "codex",
     "model": "gpt-5.2-codex",
-    "thinking": "high"
+    "reasoning": "high"
   },
   "fixer": {
     "agent": "droid",
     "model": "gpt-5.2-codex",
-    "thinking": "high"
+    "reasoning": "high"
   },
   "maxIterations": 10,
   "iterationTimeout": 600000,
