@@ -1,5 +1,5 @@
 import { basename, dirname, join } from "node:path";
-import { getAgentDisplayName, getModelDisplayName } from "./agents/models";
+import { getAgentDisplayName, getAgentModelStatsKey, getModelDisplayName } from "./agents/models";
 import { LOGS_DIR } from "./config";
 import type {
   AgentStats,
@@ -374,8 +374,10 @@ export async function computeSessionStats(session: LogSession): Promise<SessionS
 
   const reviewer = systemEntry?.reviewer?.agent ?? "claude";
   const reviewerModel = systemEntry?.reviewer?.model ?? "unknown";
+  const reviewerThinking = systemEntry?.reviewer?.thinking;
   const fixer = systemEntry?.fixer?.agent ?? "claude";
   const fixerModel = systemEntry?.fixer?.model ?? "unknown";
+  const fixerThinking = systemEntry?.fixer?.thinking;
 
   return {
     sessionPath: session.path,
@@ -392,10 +394,12 @@ export async function computeSessionStats(session: LogSession): Promise<SessionS
     entries,
     reviewer,
     reviewerModel,
+    reviewerThinking,
     reviewerDisplayName: getAgentDisplayName(reviewer),
     reviewerModelDisplayName: getModelDisplayName(reviewer, reviewerModel),
     fixer,
     fixerModel,
+    fixerThinking,
     fixerDisplayName: getAgentDisplayName(fixer),
     fixerModelDisplayName: getModelDisplayName(fixer, fixerModel),
   };
@@ -507,25 +511,39 @@ export function buildModelStats(
   role: "reviewer" | "fixer"
 ): ModelStats[] {
   const modelMap = new Map<string, ModelStats>();
+  const agentField = role === "reviewer" ? "reviewer" : "fixer";
   const modelField = role === "reviewer" ? "reviewerModel" : "fixerModel";
   const displayField = role === "reviewer" ? "reviewerModelDisplayName" : "fixerModelDisplayName";
+  const thinkingField = role === "reviewer" ? "reviewerThinking" : "fixerThinking";
 
   for (const project of projects) {
     for (const session of project.sessions) {
+      const agent = session[agentField];
       const model = session[modelField];
-      if (!model) continue;
+      if (!agent || !model) continue;
       const issueCount =
         role === "reviewer" ? session.totalFixes + session.totalSkipped : session.totalFixes;
+      const modelKey = getAgentModelStatsKey(agent, model);
+      const thinkingLevel = session[thinkingField];
 
-      const existing = modelMap.get(model);
+      const existing = modelMap.get(modelKey);
       if (existing) {
         existing.sessionCount++;
         existing.totalIssues += issueCount;
         existing.totalSkipped += session.totalSkipped;
+        if (thinkingLevel) {
+          if (existing.thinkingLevel === "default") {
+            existing.thinkingLevel = thinkingLevel;
+          } else if (existing.thinkingLevel !== thinkingLevel) {
+            existing.thinkingLevel = "mixed";
+          }
+        }
       } else {
-        modelMap.set(model, {
+        modelMap.set(modelKey, {
+          agent,
           model,
           displayName: session[displayField],
+          thinkingLevel: thinkingLevel ?? "default",
           sessionCount: 1,
           totalIssues: issueCount,
           totalSkipped: session.totalSkipped,
@@ -538,9 +556,11 @@ export function buildModelStats(
   // Compute average iterations per model
   for (const project of projects) {
     for (const session of project.sessions) {
+      const agent = session[agentField];
       const model = session[modelField];
-      if (!model) continue;
-      const stats = modelMap.get(model);
+      if (!agent || !model) continue;
+      const modelKey = getAgentModelStatsKey(agent, model);
+      const stats = modelMap.get(modelKey);
       if (stats) {
         stats.averageIterations += session.iterations;
       }
