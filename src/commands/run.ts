@@ -169,8 +169,8 @@ async function runInBackground(
     const reviewer = getAgentDisplayInfo(config.reviewer);
     const fixer = getAgentDisplayInfo(config.fixer);
     p.note(
-      `Reviewer: ${reviewer.agentName} (${reviewer.modelName}, reasoning: ${reviewer.thinking})\n` +
-        `Fixer:    ${fixer.agentName} (${fixer.modelName}, reasoning: ${fixer.thinking})`,
+      `Reviewer: ${reviewer.agentName} (${reviewer.modelName}, reasoning: ${reviewer.reasoning})\n` +
+        `Fixer:    ${fixer.agentName} (${fixer.modelName}, reasoning: ${fixer.reasoning})`,
       "Agents"
     );
     p.note("rr status  - Check status\n" + "rr stop    - Stop the review", "Commands");

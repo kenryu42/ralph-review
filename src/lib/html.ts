@@ -129,8 +129,8 @@ function renderPriorityBreakdown(counts: Record<"P0" | "P1" | "P2" | "P3", numbe
   `;
 }
 
-function formatThinkingLevel(level: ModelStats["thinkingLevel"]): string {
-  return level.toUpperCase();
+function formatReasoningLevel(level: ModelStats["reasoningLevel"]): string {
+  return level.toLowerCase();
 }
 
 function renderInsightsModelSection(stats: ModelStats[], role: "reviewer" | "fixer"): string {
@@ -148,7 +148,7 @@ function renderInsightsModelSection(stats: ModelStats[], role: "reviewer" | "fix
         <div class="agent-row">
           <span class="agent-metric agent-metric-agent">${escapeHtml(getAgentDisplayName(row.agent))}</span>
           <div class="agent-name"${modelTitle}>${escapeHtml(row.displayName)}</div>
-          <span class="agent-metric agent-metric-thinking">${escapeHtml(formatThinkingLevel(row.thinkingLevel))}</span>
+          <span class="agent-metric agent-metric-reasoning">${escapeHtml(formatReasoningLevel(row.reasoningLevel))}</span>
           <span class="agent-runs">
             <span class="agent-runs-count">${NUMBER_FORMAT.format(row.sessionCount)}</span>
             <span class="agent-runs-label">runs</span>
@@ -910,7 +910,7 @@ export function generateDashboardHtml(data: DashboardData): string {
             color: var(--success);
           }
           .agent-metric-agent,
-          .agent-metric-thinking {
+          .agent-metric-reasoning {
             padding: 2px 6px;
             font-size: 11px;
             border-radius: 999px;
@@ -923,14 +923,14 @@ export function generateDashboardHtml(data: DashboardData): string {
           .agent-metric-agent {
             inline-size: 75px;
           }
-          .agent-metric-thinking {
+          .agent-metric-reasoning {
             inline-size: 65px;
           }
           .agent-metric-agent {
             background: rgba(126, 178, 255, 0.18);
             color: var(--accent-3);
           }
-          .agent-metric-thinking {
+          .agent-metric-reasoning {
             background: rgba(197, 157, 255, 0.2);
             color: var(--accent-4);
           }
@@ -968,7 +968,7 @@ export function generateDashboardHtml(data: DashboardData): string {
             }
             .agent-row {
               grid-template-columns: 75px fit-content(34ch) 65px 1fr max-content 48px;
-              grid-template-areas: "agent model thinking . runs issues";
+              grid-template-areas: "agent model reasoning . runs issues";
             }
             .agent-row > .agent-metric-agent {
               grid-area: agent;
@@ -977,14 +977,14 @@ export function generateDashboardHtml(data: DashboardData): string {
               grid-area: model;
               max-inline-size: 100%;
             }
-            .agent-row > .agent-metric-thinking {
-              grid-area: thinking;
+            .agent-row > .agent-metric-reasoning {
+              grid-area: reasoning;
               justify-self: start;
             }
             .agent-row > .agent-runs {
               grid-area: runs;
             }
-            .agent-row > .agent-metric:not(.agent-metric-agent):not(.agent-metric-thinking) {
+            .agent-row > .agent-metric:not(.agent-metric-agent):not(.agent-metric-reasoning) {
               grid-area: issues;
             }
           }
@@ -1136,8 +1136,8 @@ export function generateDashboardHtml(data: DashboardData): string {
               .replace(/"/g, "&quot;")
               .replace(/'/g, "&#39;");
 
-          const formatRoleDisplay = (name, model, thinking) => {
-            const details = [model, thinking].filter(Boolean);
+          const formatRoleDisplay = (name, model, reasoning) => {
+            const details = [model, reasoning].filter(Boolean);
             if (details.length === 0) return name;
             return \`\${name} (\${details.join(", ")})\`;
           };
@@ -1212,12 +1212,12 @@ export function generateDashboardHtml(data: DashboardData): string {
             const showSkippedPanel = skipped.length > 1;
             const reviewerName = session.reviewerDisplayName || session.reviewer || "unknown";
             const reviewerModel = session.reviewerModelDisplayName || session.reviewerModel || "";
-            const reviewerThinking = session.reviewerThinking || "";
+            const reviewerReasoning = session.reviewerReasoning || "";
             const fixerName = session.fixerDisplayName || session.fixer || "unknown";
             const fixerModel = session.fixerModelDisplayName || session.fixerModel || "";
-            const fixerThinking = session.fixerThinking || "";
-            const reviewerDisplay = formatRoleDisplay(reviewerName, reviewerModel, reviewerThinking);
-            const fixerDisplay = formatRoleDisplay(fixerName, fixerModel, fixerThinking);
+            const fixerReasoning = session.fixerReasoning || "";
+            const reviewerDisplay = formatRoleDisplay(reviewerName, reviewerModel, reviewerReasoning);
+            const fixerDisplay = formatRoleDisplay(fixerName, fixerModel, fixerReasoning);
 
             return \`
               <div class="detail-header">

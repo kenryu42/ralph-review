@@ -11,6 +11,7 @@ import type {
   ModelStats,
   Priority,
   ProjectStats,
+  ReasoningLevel,
   SessionEndEntry,
   SessionStats,
   SessionSummary,
@@ -374,10 +375,16 @@ export async function computeSessionStats(session: LogSession): Promise<SessionS
 
   const reviewer = systemEntry?.reviewer?.agent ?? "claude";
   const reviewerModel = systemEntry?.reviewer?.model ?? "unknown";
-  const reviewerThinking = systemEntry?.reviewer?.thinking;
+  // Fall back to legacy 'thinking' field for backward compatibility with old logs
+  const reviewerReasoning =
+    systemEntry?.reviewer?.reasoning ??
+    (systemEntry?.reviewer as { thinking?: ReasoningLevel })?.thinking;
   const fixer = systemEntry?.fixer?.agent ?? "claude";
   const fixerModel = systemEntry?.fixer?.model ?? "unknown";
-  const fixerThinking = systemEntry?.fixer?.thinking;
+  // Fall back to legacy 'thinking' field for backward compatibility with old logs
+  const fixerReasoning =
+    systemEntry?.fixer?.reasoning ??
+    (systemEntry?.fixer as { thinking?: ReasoningLevel })?.thinking;
 
   return {
     sessionPath: session.path,
@@ -394,12 +401,12 @@ export async function computeSessionStats(session: LogSession): Promise<SessionS
     entries,
     reviewer,
     reviewerModel,
-    reviewerThinking,
+    reviewerReasoning,
     reviewerDisplayName: getAgentDisplayName(reviewer),
     reviewerModelDisplayName: getModelDisplayName(reviewer, reviewerModel),
     fixer,
     fixerModel,
-    fixerThinking,
+    fixerReasoning,
     fixerDisplayName: getAgentDisplayName(fixer),
     fixerModelDisplayName: getModelDisplayName(fixer, fixerModel),
   };
@@ -514,7 +521,7 @@ export function buildModelStats(
   const agentField = role === "reviewer" ? "reviewer" : "fixer";
   const modelField = role === "reviewer" ? "reviewerModel" : "fixerModel";
   const displayField = role === "reviewer" ? "reviewerModelDisplayName" : "fixerModelDisplayName";
-  const thinkingField = role === "reviewer" ? "reviewerThinking" : "fixerThinking";
+  const reasoningField = role === "reviewer" ? "reviewerReasoning" : "fixerReasoning";
 
   for (const project of projects) {
     for (const session of project.sessions) {
@@ -524,18 +531,18 @@ export function buildModelStats(
       const issueCount =
         role === "reviewer" ? session.totalFixes + session.totalSkipped : session.totalFixes;
       const modelKey = getAgentModelStatsKey(agent, model);
-      const thinkingLevel = session[thinkingField];
+      const reasoningLevel = session[reasoningField];
 
       const existing = modelMap.get(modelKey);
       if (existing) {
         existing.sessionCount++;
         existing.totalIssues += issueCount;
         existing.totalSkipped += session.totalSkipped;
-        if (thinkingLevel) {
-          if (existing.thinkingLevel === "default") {
-            existing.thinkingLevel = thinkingLevel;
-          } else if (existing.thinkingLevel !== thinkingLevel) {
-            existing.thinkingLevel = "mixed";
+        if (reasoningLevel) {
+          if (existing.reasoningLevel === "default") {
+            existing.reasoningLevel = reasoningLevel;
+          } else if (existing.reasoningLevel !== reasoningLevel) {
+            existing.reasoningLevel = "mixed";
           }
         }
       } else {
@@ -543,7 +550,7 @@ export function buildModelStats(
           agent,
           model,
           displayName: session[displayField],
-          thinkingLevel: thinkingLevel ?? "default",
+          reasoningLevel: reasoningLevel ?? "default",
           sessionCount: 1,
           totalIssues: issueCount,
           totalSkipped: session.totalSkipped,
