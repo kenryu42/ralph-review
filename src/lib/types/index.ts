@@ -4,9 +4,9 @@ export {
   type Config,
   DEFAULT_RETRY_CONFIG,
   type DefaultReview,
-  isThinkingLevel,
+  isReasoningLevel,
+  type ReasoningLevel,
   type RetryConfig,
-  type ThinkingLevel,
 } from "./config";
 export {
   type AgentRole,

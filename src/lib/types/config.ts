@@ -2,12 +2,12 @@ import type { AgentRole, AgentType } from "./domain";
 import type { ReviewOptions } from "./run";
 
 export type DefaultReview = { type: "uncommitted" } | { type: "base"; branch: string };
-export type ThinkingLevel = "low" | "medium" | "high" | "xhigh" | "max";
+export type ReasoningLevel = "low" | "medium" | "high" | "xhigh" | "max";
 
-const VALID_THINKING_LEVELS: readonly ThinkingLevel[] = ["low", "medium", "high", "xhigh", "max"];
+const VALID_REASONING_LEVELS: readonly ReasoningLevel[] = ["low", "medium", "high", "xhigh", "max"];
 
-export function isThinkingLevel(value: unknown): value is ThinkingLevel {
-  return typeof value === "string" && VALID_THINKING_LEVELS.includes(value as ThinkingLevel);
+export function isReasoningLevel(value: unknown): value is ReasoningLevel {
+  return typeof value === "string" && VALID_REASONING_LEVELS.includes(value as ReasoningLevel);
 }
 
 type NonPiAgentType = Exclude<AgentType, "pi">;
@@ -16,13 +16,13 @@ interface PiAgentSettings {
   agent: "pi";
   provider: string;
   model: string;
-  thinking?: ThinkingLevel;
+  reasoning?: ReasoningLevel;
 }
 
 interface NonPiAgentSettings {
   agent: NonPiAgentType;
   model?: string;
-  thinking?: ThinkingLevel;
+  reasoning?: ReasoningLevel;
   provider?: never;
 }
 
@@ -60,7 +60,7 @@ export interface AgentConfig {
     model?: string,
     reviewOptions?: ReviewOptions,
     provider?: string,
-    thinking?: string
+    reasoning?: string
   ) => string[];
   buildEnv: () => Record<string, string>;
 }
