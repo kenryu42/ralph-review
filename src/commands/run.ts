@@ -2,6 +2,7 @@ import * as p from "@clack/prompts";
 import { $ } from "bun";
 import { getCommandDef } from "@/cli";
 import { AGENTS, isAgentAvailable } from "@/lib/agents";
+import { getAgentDisplayInfo } from "@/lib/agents/display";
 import { parseCommand } from "@/lib/cli-parser";
 import { configExists, loadConfig } from "@/lib/config";
 import { runReviewCycle } from "@/lib/engine";
@@ -132,7 +133,7 @@ function shellEscape(str: string): string {
 }
 
 async function runInBackground(
-  _config: Config,
+  config: Config,
   maxIterations?: number,
   baseBranch?: string,
   commitSha?: string,
@@ -165,6 +166,13 @@ async function runInBackground(
   try {
     await createSession(sessionName, command);
     p.log.success(`Review started in background session: ${sessionName}`);
+    const reviewer = getAgentDisplayInfo(config.reviewer);
+    const fixer = getAgentDisplayInfo(config.fixer);
+    p.note(
+      `Reviewer: ${reviewer.agentName} (${reviewer.modelName}, reasoning: ${reviewer.thinking})\n` +
+        `Fixer:    ${fixer.agentName} (${fixer.modelName}, reasoning: ${fixer.thinking})`,
+      "Agents"
+    );
     p.note("rr status  - Check status\n" + "rr stop    - Stop the review", "Commands");
   } catch (error) {
     await removeLockfile(undefined, projectPath);

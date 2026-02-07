@@ -113,3 +113,7 @@ export function getModelDisplayName(agent: AgentType, model: string): string {
   const option = options.find((opt) => opt.value === model);
   return option?.label ?? model;
 }
+
+export function getAgentModelStatsKey(agent: AgentType, model: string): string {
+  return `${agent}::${model}`;
+}
