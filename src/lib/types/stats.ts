@@ -1,3 +1,4 @@
+import type { ThinkingLevel } from "./config";
 import type { AgentType, DerivedRunStatus, Priority } from "./domain";
 import type { LogEntry } from "./log";
 
@@ -13,8 +14,10 @@ export interface AgentStats {
 
 /** Stats breakdown per model */
 export interface ModelStats {
+  agent: AgentType;
   model: string;
   displayName: string;
+  thinkingLevel: ThinkingLevel | "default" | "mixed";
   sessionCount: number;
   /** For reviewers: issues found. For fixers: fixes applied. */
   totalIssues: number;
@@ -37,10 +40,12 @@ export interface SessionStats {
   entries: LogEntry[];
   reviewer: AgentType;
   reviewerModel: string;
+  reviewerThinking?: ThinkingLevel;
   reviewerDisplayName: string;
   reviewerModelDisplayName: string;
   fixer: AgentType;
   fixerModel: string;
+  fixerThinking?: ThinkingLevel;
   fixerDisplayName: string;
   fixerModelDisplayName: string;
 }
