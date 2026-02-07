@@ -2,7 +2,12 @@
  * Pi agent configuration and stream handling
  */
 
-import { type AgentConfig, type AgentRole, isThinkingLevel, type ReviewOptions } from "@/lib/types";
+import {
+  type AgentConfig,
+  type AgentRole,
+  isReasoningLevel,
+  type ReviewOptions,
+} from "@/lib/types";
 import { defaultBuildEnv, parseJsonlEvent } from "./core";
 import type { PiContentBlock, PiMessage, PiStreamEvent } from "./types";
 
@@ -14,7 +19,7 @@ export const piConfig: AgentConfig = {
     model?: string,
     _reviewOptions?: ReviewOptions,
     provider?: string,
-    thinking?: string
+    reasoning?: string
   ): string[] => {
     if (!provider || !model) {
       throw new Error("Pi agent requires both provider and model");
@@ -22,8 +27,8 @@ export const piConfig: AgentConfig = {
 
     const args = ["--provider", provider, "--model", model];
 
-    if (isThinkingLevel(thinking) && thinking !== "max") {
-      args.push("--thinking", thinking);
+    if (isReasoningLevel(reasoning) && reasoning !== "max") {
+      args.push("--thinking", reasoning);
     }
 
     args.push("--mode", "json", "-p", prompt);
@@ -40,17 +45,17 @@ export function parsePiStreamEvent(line: string): PiStreamEvent | null {
 const MAX_PI_CHUNK_LENGTH = 160;
 
 interface PiFormatterState {
-  thinkingBuffer: string;
+  reasoningBuffer: string;
   assistantBuffer: string;
-  emittedThinkingHeader: boolean;
+  emittedReasoningHeader: boolean;
   emittedAssistantHeader: boolean;
 }
 
 function createInitialState(): PiFormatterState {
   return {
-    thinkingBuffer: "",
+    reasoningBuffer: "",
     assistantBuffer: "",
-    emittedThinkingHeader: false,
+    emittedReasoningHeader: false,
     emittedAssistantHeader: false,
   };
 }
@@ -117,9 +122,10 @@ function flushBufferedContent(
   kind: "thinking" | "assistant",
   force: boolean = false
 ): string | null {
-  const bufferKey = kind === "thinking" ? "thinkingBuffer" : "assistantBuffer";
-  const emittedHeaderKey = kind === "thinking" ? "emittedThinkingHeader" : "emittedAssistantHeader";
-  const header = kind === "thinking" ? "--- Thinking ---" : "--- Assistant ---";
+  const bufferKey = kind === "thinking" ? "reasoningBuffer" : "assistantBuffer";
+  const emittedHeaderKey =
+    kind === "thinking" ? "emittedReasoningHeader" : "emittedAssistantHeader";
+  const header = kind === "thinking" ? "--- Reasoning ---" : "--- Assistant ---";
   const current = state[bufferKey];
 
   if (!current) {
@@ -157,18 +163,18 @@ function formatMessageUpdateEvent(
 
   switch (update.type) {
     case "thinking_start":
-      state.thinkingBuffer = "";
-      state.emittedThinkingHeader = false;
+      state.reasoningBuffer = "";
+      state.emittedReasoningHeader = false;
       return null;
 
     case "thinking_delta":
-      state.thinkingBuffer += update.delta;
+      state.reasoningBuffer += update.delta;
       return flushBufferedContent(state, "thinking");
 
     case "thinking_end":
       // Only use fallback content if nothing was emitted during streaming
-      if (!state.thinkingBuffer && !state.emittedThinkingHeader && update.content) {
-        state.thinkingBuffer = update.content;
+      if (!state.reasoningBuffer && !state.emittedReasoningHeader && update.content) {
+        state.reasoningBuffer = update.content;
       }
       return flushBufferedContent(state, "thinking", true);
 
@@ -198,9 +204,9 @@ function formatTurnEndEvent(
   state: PiFormatterState
 ): string | null {
   const outputs: string[] = [];
-  const thinkingOutput = flushBufferedContent(state, "thinking", true);
-  if (thinkingOutput) {
-    outputs.push(thinkingOutput);
+  const reasoningOutput = flushBufferedContent(state, "thinking", true);
+  if (reasoningOutput) {
+    outputs.push(reasoningOutput);
   }
 
   const assistantOutput = flushBufferedContent(state, "assistant", true);
@@ -236,9 +242,9 @@ function formatPiEventForDisplay(event: PiStreamEvent, state: PiFormatterState):
       return null;
 
     case "turn_start":
-      state.thinkingBuffer = "";
+      state.reasoningBuffer = "";
       state.assistantBuffer = "";
-      state.emittedThinkingHeader = false;
+      state.emittedReasoningHeader = false;
       state.emittedAssistantHeader = false;
       return null;
 

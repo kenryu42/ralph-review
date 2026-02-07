@@ -20,7 +20,7 @@ export async function runAgent(
     agentSettings.model,
     reviewOptions,
     agentSettings.agent === "pi" ? agentSettings.provider : undefined,
-    agentSettings.thinking
+    agentSettings.reasoning
   );
   const env = agentModule.config.buildEnv();
 

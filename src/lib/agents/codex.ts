@@ -2,7 +2,12 @@
  * Codex agent configuration and stream handling
  */
 
-import { type AgentConfig, type AgentRole, isThinkingLevel, type ReviewOptions } from "@/lib/types";
+import {
+  type AgentConfig,
+  type AgentRole,
+  isReasoningLevel,
+  type ReviewOptions,
+} from "@/lib/types";
 import { createLineFormatter, defaultBuildEnv, parseJsonlEvent } from "./core";
 import type {
   CodexAgentMessageItem,
@@ -14,15 +19,15 @@ import type {
 const defaultCodexReasoningEffort = "high";
 const codexReasoningOptions = new Set(["low", "medium", "high", "xhigh"]);
 
-function resolveCodexReasoningEffort(thinking?: string): string {
-  if (isThinkingLevel(thinking) && codexReasoningOptions.has(thinking)) {
-    return thinking;
+function resolveCodexReasoningEffort(reasoning?: string): string {
+  if (isReasoningLevel(reasoning) && codexReasoningOptions.has(reasoning)) {
+    return reasoning;
   }
   return defaultCodexReasoningEffort;
 }
 
-function withReasoningEffort(args: string[], thinking?: string): string[] {
-  return [...args, "--config", `model_reasoning_effort=${resolveCodexReasoningEffort(thinking)}`];
+function withReasoningEffort(args: string[], reasoning?: string): string[] {
+  return [...args, "--config", `model_reasoning_effort=${resolveCodexReasoningEffort(reasoning)}`];
 }
 
 function withModel(args: string[], model?: string): string[] {
@@ -37,14 +42,14 @@ export const codexConfig: AgentConfig = {
     model?: string,
     reviewOptions?: ReviewOptions,
     _provider?: string,
-    thinking?: string
+    reasoning?: string
   ): string[] => {
     if (role !== "reviewer") {
-      const args = withReasoningEffort(["exec", "--full-auto"], thinking);
+      const args = withReasoningEffort(["exec", "--full-auto"], reasoning);
       return prompt ? withModel([...args, prompt], model) : withModel(args, model);
     }
 
-    const baseReviewArgs = withReasoningEffort(["exec", "--json"], thinking);
+    const baseReviewArgs = withReasoningEffort(["exec", "--json"], reasoning);
 
     if (reviewOptions?.commitSha) {
       return withModel([...baseReviewArgs, "review", "--commit", reviewOptions.commitSha], model);
@@ -56,7 +61,7 @@ export const codexConfig: AgentConfig = {
 
     if (reviewOptions?.customInstructions) {
       const fullPrompt = prompt ? `review ${prompt}` : "review";
-      const customArgs = withReasoningEffort(["exec", "--full-auto", "--json"], thinking);
+      const customArgs = withReasoningEffort(["exec", "--full-auto", "--json"], reasoning);
       return withModel([...customArgs, fullPrompt], model);
     }
 
@@ -78,7 +83,7 @@ function extractShellCommand(fullCommand: string): string {
 }
 
 function formatReasoningForDisplay(item: CodexReasoningItem): string {
-  return `[Thinking] ${item.text}`;
+  return `[Reasoning] ${item.text}`;
 }
 
 function formatCommandExecutionForDisplay(item: CodexCommandExecutionItem): string {

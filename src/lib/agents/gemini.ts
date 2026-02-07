@@ -25,7 +25,7 @@ export const geminiConfig: AgentConfig = {
     model?: string,
     _reviewOptions?: ReviewOptions,
     _provider?: string,
-    _thinking?: string
+    _reasoning?: string
   ): string[] => {
     const args = ["--yolo"];
 

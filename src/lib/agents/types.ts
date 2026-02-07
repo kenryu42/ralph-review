@@ -23,9 +23,9 @@ export interface AssistantMessage {
   stop_reason: string | null;
 }
 
-export type AssistantContentBlock = ThinkingBlock | TextBlock | ToolUseBlock;
+export type AssistantContentBlock = ReasoningBlock | TextBlock | ToolUseBlock;
 
-export interface ThinkingBlock {
+export interface ReasoningBlock {
   type: "thinking";
   thinking: string;
 }
@@ -341,41 +341,41 @@ interface PiAssistantMessage extends PiMessage {
   };
 }
 
-export type PiContentBlock = PiTextContentBlock | PiThinkingContentBlock;
+export type PiContentBlock = PiTextContentBlock | PiReasoningContentBlock;
 
 export interface PiTextContentBlock {
   type: "text";
   text: string;
 }
 
-export interface PiThinkingContentBlock {
+export interface PiReasoningContentBlock {
   type: "thinking";
   thinking: string;
   thinkingSignature?: string;
 }
 
 type PiAssistantMessageEvent =
-  | PiThinkingStartEvent
-  | PiThinkingDeltaEvent
-  | PiThinkingEndEvent
+  | PiReasoningStartEvent
+  | PiReasoningDeltaEvent
+  | PiReasoningEndEvent
   | PiTextStartEvent
   | PiTextDeltaEvent
   | PiTextEndEvent;
 
-interface PiThinkingStartEvent {
+interface PiReasoningStartEvent {
   type: "thinking_start";
   contentIndex: number;
   partial: PiAssistantMessage;
 }
 
-interface PiThinkingDeltaEvent {
+interface PiReasoningDeltaEvent {
   type: "thinking_delta";
   contentIndex: number;
   delta: string;
   partial: PiAssistantMessage;
 }
 
-interface PiThinkingEndEvent {
+interface PiReasoningEndEvent {
   type: "thinking_end";
   contentIndex: number;
   content: string;

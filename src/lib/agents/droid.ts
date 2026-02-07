@@ -2,14 +2,19 @@
  * Droid agent configuration and stream handling
  */
 
-import { type AgentConfig, type AgentRole, isThinkingLevel, type ReviewOptions } from "@/lib/types";
+import {
+  type AgentConfig,
+  type AgentRole,
+  isReasoningLevel,
+  type ReviewOptions,
+} from "@/lib/types";
 import {
   createLineFormatter,
   defaultBuildEnv,
   parseJsonlEvent,
   stripSystemReminders,
 } from "./core";
-import { getThinkingOptions } from "./models";
+import { getReasoningOptions } from "./models";
 import type {
   DroidCompletionEvent,
   DroidMessageEvent,
@@ -26,10 +31,10 @@ export const droidConfig: AgentConfig = {
     model?: string,
     _reviewOptions?: ReviewOptions,
     _provider?: string,
-    thinking?: string
+    reasoning?: string
   ): string[] => {
     const effectiveModel = model ?? "gpt-5.2-codex";
-    const supportedThinkingOptions = getThinkingOptions("droid", effectiveModel);
+    const supportedReasoningOptions = getReasoningOptions("droid", effectiveModel);
 
     const args: string[] = [
       "exec",
@@ -41,12 +46,12 @@ export const droidConfig: AgentConfig = {
       "stream-json",
     ];
 
-    if (supportedThinkingOptions.length > 0) {
-      const thinkingLevel =
-        isThinkingLevel(thinking) && supportedThinkingOptions.includes(thinking)
-          ? thinking
+    if (supportedReasoningOptions.length > 0) {
+      const reasoningLevel =
+        isReasoningLevel(reasoning) && supportedReasoningOptions.includes(reasoning)
+          ? reasoning
           : "high";
-      args.push("--reasoning-effort", thinkingLevel);
+      args.push("--reasoning-effort", reasoningLevel);
     }
 
     args.push(prompt);

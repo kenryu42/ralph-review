@@ -21,7 +21,7 @@ export const claudeConfig: AgentConfig = {
     model?: string,
     _reviewOptions?: ReviewOptions,
     _provider?: string,
-    _thinking?: string
+    _reasoning?: string
   ): string[] => {
     const baseArgs: string[] = [];
     if (model) {
@@ -60,7 +60,7 @@ function isResultEvent(event: ClaudeStreamEvent): event is ResultEvent {
 function formatContentBlock(block: AssistantContentBlock): string {
   switch (block.type) {
     case "thinking":
-      return `--- Thinking ---\n${block.thinking}`;
+      return `--- Reasoning ---\n${block.thinking}`;
 
     case "text":
       return block.text;

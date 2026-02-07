@@ -1,4 +1,4 @@
-import type { AgentType, ThinkingLevel } from "@/lib/types";
+import type { AgentType, ReasoningLevel } from "@/lib/types";
 
 export const agentOptions = [
   { value: "claude", label: "Claude", hint: "Anthropic" },
@@ -44,9 +44,9 @@ export const geminiModelOptions = [
   { value: "gemini-3-flash-preview", label: "Gemini 3 Flash" },
 ] as const;
 
-const commonThinkingLevels: readonly ThinkingLevel[] = ["low", "medium", "high", "xhigh"];
+const commonReasoningLevels: readonly ReasoningLevel[] = ["low", "medium", "high", "xhigh"];
 
-const droidThinkingLevelsByModel: Record<string, readonly ThinkingLevel[]> = {
+const droidReasoningLevelsByModel: Record<string, readonly ReasoningLevel[]> = {
   "gpt-5.1": ["low", "medium", "high"],
   "gpt-5.1-codex": ["low", "medium", "high"],
   "gpt-5.1-codex-max": ["low", "medium", "high", "xhigh"],
@@ -60,23 +60,23 @@ const droidThinkingLevelsByModel: Record<string, readonly ThinkingLevel[]> = {
   "gemini-3-flash-preview": ["low", "medium", "high"],
 };
 
-export function getDroidThinkingOptions(model: string): ThinkingLevel[] {
-  const levels = droidThinkingLevelsByModel[model];
+export function getDroidReasoningOptions(model: string): ReasoningLevel[] {
+  const levels = droidReasoningLevelsByModel[model];
   return levels ? [...levels] : [];
 }
 
-export function getThinkingOptions(agent: AgentType, model?: string): ThinkingLevel[] {
+export function getReasoningOptions(agent: AgentType, model?: string): ReasoningLevel[] {
   switch (agent) {
     case "codex":
     case "opencode":
     case "pi":
-      return [...commonThinkingLevels];
+      return [...commonReasoningLevels];
 
     case "droid":
       if (!model) {
         return [];
       }
-      return getDroidThinkingOptions(model);
+      return getDroidReasoningOptions(model);
 
     case "claude":
     case "gemini":
@@ -87,8 +87,8 @@ export function getThinkingOptions(agent: AgentType, model?: string): ThinkingLe
   }
 }
 
-export function supportsThinking(agent: AgentType, model?: string): boolean {
-  return getThinkingOptions(agent, model).length > 0;
+export function supportsReasoning(agent: AgentType, model?: string): boolean {
+  return getReasoningOptions(agent, model).length > 0;
 }
 
 export function getAgentDisplayName(agent: AgentType): string {
