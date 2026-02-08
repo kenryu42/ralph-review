@@ -186,6 +186,7 @@ export async function runDashboard(_args: string[]): Promise<void> {
 
   p.log.success(`Opening dashboard (${data.globalStats.totalFixes} issues resolved)`);
   p.log.info(url);
+  p.log.info("Press Ctrl+C to stop the dashboard.");
   await openInBrowser(url);
   await new Promise<never>(() => {});
 }
