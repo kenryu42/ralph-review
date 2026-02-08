@@ -11,6 +11,7 @@ export interface SystemEntry {
   gitBranch?: string;
   reviewer: AgentSettings;
   fixer: AgentSettings;
+  codeSimplifier?: AgentSettings;
   maxIterations: number;
   reviewOptions?: ReviewOptions;
 }

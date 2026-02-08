@@ -13,7 +13,7 @@ export interface LockData {
   branch: string;
   iteration?: number;
   status?: "pending" | "running" | "completed" | "failed";
-  currentAgent?: "reviewer" | "fixer" | null;
+  currentAgent?: "reviewer" | "fixer" | "code-simplifier" | null;
 }
 
 export interface ActiveSession extends LockData {

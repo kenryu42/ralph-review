@@ -31,6 +31,7 @@ describe("type guards", () => {
     test("returns true for valid agent roles", () => {
       expect(isAgentRole("reviewer")).toBe(true);
       expect(isAgentRole("fixer")).toBe(true);
+      expect(isAgentRole("code-simplifier")).toBe(true);
     });
 
     test("returns false for invalid agent roles", () => {

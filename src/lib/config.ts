@@ -122,10 +122,14 @@ function parseConfig(value: unknown): Config | null {
 
   const reviewer = parseAgentSettings(value.reviewer);
   const fixer = parseAgentSettings(value.fixer);
+  const codeSimplifier = parseAgentSettings(value["code-simplifier"]);
   const defaultReview = parseDefaultReview(value.defaultReview);
   const retry = parseRetryConfig(value.retry);
 
   if (!reviewer || !fixer || !defaultReview) {
+    return null;
+  }
+  if (value["code-simplifier"] !== undefined && !codeSimplifier) {
     return null;
   }
   if (value.retry !== undefined && !retry) {
@@ -138,6 +142,7 @@ function parseConfig(value: unknown): Config | null {
   return {
     reviewer,
     fixer,
+    ...(codeSimplifier ? { "code-simplifier": codeSimplifier } : {}),
     maxIterations: value.maxIterations,
     iterationTimeout: value.iterationTimeout,
     ...(retry ? { retry } : {}),

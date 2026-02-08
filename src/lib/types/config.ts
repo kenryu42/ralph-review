@@ -46,6 +46,7 @@ export const DEFAULT_RETRY_CONFIG: RetryConfig = {
 export interface Config {
   reviewer: AgentSettings;
   fixer: AgentSettings;
+  "code-simplifier"?: AgentSettings;
   maxIterations: number;
   iterationTimeout: number; // in milliseconds
   retry?: RetryConfig; // Optional retry config, uses DEFAULT_RETRY_CONFIG if not set

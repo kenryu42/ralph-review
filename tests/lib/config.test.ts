@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { configExists, ensureConfigDir, loadConfig, saveConfig } from "@/lib/config";
-import type { Config } from "@/lib/types";
+import type { AgentSettings, Config } from "@/lib/types";
 
 describe("config", () => {
   let tempDir: string;
@@ -78,6 +78,38 @@ describe("config", () => {
       };
 
       await Bun.write(configPath, JSON.stringify(legacyConfig, null, 2));
+      const loaded = await loadConfig(configPath);
+      expect(loaded).toBeNull();
+    });
+
+    test("loadConfig accepts optional code-simplifier agent settings", async () => {
+      const configPath = join(tempDir, "config.json");
+      const codeSimplifier: AgentSettings = {
+        agent: "codex",
+        model: "gpt-5.2-codex",
+        reasoning: "high",
+      };
+      const configWithSimplifier = {
+        ...testConfig,
+        "code-simplifier": codeSimplifier,
+      };
+
+      await Bun.write(configPath, JSON.stringify(configWithSimplifier, null, 2));
+      const loaded = await loadConfig(configPath);
+      expect(loaded?.["code-simplifier"]).toEqual(codeSimplifier);
+    });
+
+    test("loadConfig rejects invalid code-simplifier settings", async () => {
+      const configPath = join(tempDir, "config.json");
+      const configWithInvalidSimplifier = {
+        ...testConfig,
+        "code-simplifier": {
+          agent: "pi",
+          model: "gemini-2.5-pro",
+        },
+      };
+
+      await Bun.write(configPath, JSON.stringify(configWithInvalidSimplifier, null, 2));
       const loaded = await loadConfig(configPath);
       expect(loaded).toBeNull();
     });
