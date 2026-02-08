@@ -23,7 +23,7 @@ export async function runAgent(
     agentSettings.agent === "pi" ? agentSettings.provider : undefined,
     agentSettings.reasoning
   );
-  const env = agentModule.config.buildEnv();
+  const env = agentModule.config.buildEnv(agentSettings.reasoning);
 
   let output = "";
   let exitCode = 1;

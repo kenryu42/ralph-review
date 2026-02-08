@@ -27,7 +27,7 @@ export function parseJsonlEvent<T>(line: string, requiresObjectPrefix?: boolean)
   }
 }
 
-export function defaultBuildEnv(): Record<string, string> {
+export function defaultBuildEnv(_reasoning?: string): Record<string, string> {
   return {
     ...(process.env as Record<string, string>),
   };

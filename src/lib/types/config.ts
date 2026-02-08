@@ -63,5 +63,5 @@ export interface AgentConfig {
     provider?: string,
     reasoning?: string
   ) => string[];
-  buildEnv: () => Record<string, string>;
+  buildEnv: (reasoning?: string) => Record<string, string>;
 }
