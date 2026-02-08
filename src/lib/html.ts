@@ -1155,7 +1155,7 @@ export function generateDashboardHtml(data: DashboardData): string {
           };
 
           const getSessionSystemEntry = (session) =>
-            (session.entries || []).find((entry) => entry.type === "system");
+            session.entries?.find((entry) => entry.type === "system");
 
           const formatAgentSettings = (settings) => {
             if (!settings?.agent) return "unknown";

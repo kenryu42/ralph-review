@@ -432,11 +432,13 @@ export async function runReviewCycle(
       );
       printHeader("Running code simplifier agent...", "\x1b[34m");
 
+      const { baseBranch, commitSha, customInstructions } = reviewOptions;
+
       const simplifierPrompt = createCodeSimplifierPrompt({
         repoPath: projectPath,
-        baseBranch: reviewOptions.baseBranch,
-        commitSha: reviewOptions.commitSha,
-        customInstructions: reviewOptions.customInstructions,
+        baseBranch,
+        commitSha,
+        customInstructions,
       });
       const simplifierResult = await runAgentWithRetry(
         "code-simplifier",
@@ -447,19 +449,14 @@ export async function runReviewCycle(
       );
 
       if (!simplifierResult.success) {
-        console.log(
-          formatAgentFailureWarning(
-            "code-simplifier",
-            simplifierResult.exitCode,
-            retryConfig.maxRetries
-          )
-        );
+        const exitCode = simplifierResult.exitCode;
+        console.log(formatAgentFailureWarning("code-simplifier", exitCode, retryConfig.maxRetries));
         return finish({
           success: false,
           finalStatus: "failed",
           iterations: 0,
           reason:
-            `Code simplifier failed with exit code ${simplifierResult.exitCode} ` +
+            `Code simplifier failed with exit code ${exitCode} ` +
             `after ${retryConfig.maxRetries} retries.`,
           sessionPath,
         });
