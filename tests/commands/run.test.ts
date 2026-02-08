@@ -98,6 +98,11 @@ describe("run command", () => {
       const { values } = parseCommand<RunOptions>(runDef, ["--custom", "Focus on security"]);
       expect(values.custom).toBe("Focus on security");
     });
+
+    test("parses --simplifier option", () => {
+      const { values } = parseCommand<RunOptions>(runDef, ["--simplifier"]);
+      expect(values.simplifier).toBe(true);
+    });
   });
 
   describe("validatePrerequisites", () => {

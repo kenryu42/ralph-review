@@ -40,6 +40,11 @@ export const COMMANDS: CommandDef[] = [
         placeholder: "PROMPT",
         description: "Custom review instructions",
       },
+      {
+        name: "simplifier",
+        type: "boolean",
+        description: "Run one code simplifier phase before review iterations",
+      },
     ],
     examples: ["rr run", "rr run --base main"],
   },
@@ -98,6 +103,11 @@ export const COMMANDS: CommandDef[] = [
         alias: "f",
         type: "boolean",
         description: "Run full max iterations even if stop_iteration is true",
+      },
+      {
+        name: "simplifier",
+        type: "boolean",
+        description: "Run one code simplifier phase before review iterations",
       },
     ],
   },

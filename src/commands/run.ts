@@ -26,6 +26,7 @@ export interface RunOptions {
   uncommitted?: boolean;
   commit?: string;
   custom?: string;
+  simplifier?: boolean;
 }
 
 export function classifyRunCompletion(result: CycleResult): "success" | "warning" | "error" {
@@ -151,7 +152,8 @@ async function runInBackground(
   baseBranch?: string,
   commitSha?: string,
   customInstructions?: string,
-  force?: boolean
+  force?: boolean,
+  simplifier?: boolean
 ): Promise<void> {
   // Check tmux is installed
   if (!isTmuxInstalled()) {
@@ -168,20 +170,21 @@ async function runInBackground(
 
   const maxIterArg = maxIterations ? ` --max ${maxIterations}` : "";
   const forceArg = force ? " --force" : "";
+  const simplifierArg = simplifier ? " --simplifier" : "";
   const baseBranchEnv = baseBranch ? ` RR_BASE_BRANCH=${shellEscape(baseBranch)}` : "";
   const commitShaEnv = commitSha ? ` RR_COMMIT_SHA=${shellEscape(commitSha)}` : "";
   const customPromptEnv = customInstructions
     ? ` RR_CUSTOM_PROMPT=${shellEscape(customInstructions)}`
     : "";
   const envVars = `RR_PROJECT_PATH=${shellEscape(projectPath)} RR_GIT_BRANCH=${shellEscape(branch ?? "")}${baseBranchEnv}${commitShaEnv}${customPromptEnv}`;
-  const command = `${envVars} ${process.execPath} ${CLI_PATH} _run-foreground${maxIterArg}${forceArg}`;
+  const command = `${envVars} ${process.execPath} ${CLI_PATH} _run-foreground${maxIterArg}${forceArg}${simplifierArg}`;
 
   try {
     await createSession(sessionName, command);
     p.log.success(`Review started in background session: ${sessionName}`);
     const reviewer = getAgentDisplayInfo(config.reviewer);
     const fixer = getAgentDisplayInfo(config.fixer);
-    const reviewOptions: ReviewOptions = { baseBranch, commitSha, customInstructions };
+    const reviewOptions: ReviewOptions = { baseBranch, commitSha, customInstructions, simplifier };
     p.note(
       `Reviewer: ${reviewer.agentName} (${reviewer.modelName}, reasoning: ${reviewer.reasoning})\n` +
         `Fixer:    ${fixer.agentName} (${fixer.modelName}, reasoning: ${fixer.reasoning})\n` +
@@ -209,17 +212,24 @@ export async function runForeground(args: string[] = []): Promise<void> {
   const commitSha = process.env.RR_COMMIT_SHA || undefined;
   const customInstructions = process.env.RR_CUSTOM_PROMPT || undefined;
   let forceMaxIterations = false;
+  let runSimplifier = false;
 
   // Parse --max option using the _run-foreground command def
   const foregroundDef = getCommandDef("_run-foreground");
   if (foregroundDef) {
     try {
-      const { values } = parseCommand<{ max?: number; force?: boolean }>(foregroundDef, args);
+      const { values } = parseCommand<{ max?: number; force?: boolean; simplifier?: boolean }>(
+        foregroundDef,
+        args
+      );
       if (values.max !== undefined) {
         config.maxIterations = values.max;
       }
       if (values.force) {
         forceMaxIterations = true;
+      }
+      if (values.simplifier) {
+        runSimplifier = true;
       }
     } catch {
       // Ignore parse errors for internal command
@@ -230,7 +240,7 @@ export async function runForeground(args: string[] = []): Promise<void> {
   await updateLockfile(undefined, projectPath, {
     pid: process.pid,
     status: "running",
-    currentAgent: "reviewer",
+    currentAgent: runSimplifier ? "code-simplifier" : "reviewer",
   });
 
   try {
@@ -238,6 +248,7 @@ export async function runForeground(args: string[] = []): Promise<void> {
       baseBranch,
       commitSha,
       customInstructions,
+      simplifier: runSimplifier,
       forceMaxIterations,
     });
 
@@ -331,6 +342,7 @@ export async function startReview(args: string[]): Promise<void> {
     options.base,
     options.commit,
     options.custom,
-    options.force
+    options.force,
+    options.simplifier
   );
 }
