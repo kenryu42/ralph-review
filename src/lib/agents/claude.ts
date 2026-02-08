@@ -3,7 +3,7 @@
  */
 
 import type { AgentConfig, AgentRole, ReviewOptions } from "@/lib/types";
-import { createLineFormatter, defaultBuildEnv, parseJsonlEvent } from "./core";
+import { createLineFormatter, parseJsonlEvent } from "./core";
 import type {
   AssistantContentBlock,
   AssistantEvent,
@@ -38,7 +38,15 @@ export const claudeConfig: AgentConfig = {
       "stream-json",
     ];
   },
-  buildEnv: defaultBuildEnv,
+  buildEnv: (reasoning?: string): Record<string, string> => {
+    const env: Record<string, string> = {
+      ...(process.env as Record<string, string>),
+    };
+    if (reasoning === "low" || reasoning === "medium" || reasoning === "high") {
+      env.CLAUDE_CODE_EFFORT_LEVEL = reasoning;
+    }
+    return env;
+  },
 };
 
 export function parseClaudeStreamEvent(line: string): ClaudeStreamEvent | null {

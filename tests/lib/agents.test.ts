@@ -319,4 +319,36 @@ describe("agents", () => {
       expect(typeof env).toBe("object");
     });
   });
+
+  describe("claude buildEnv", () => {
+    test("sets CLAUDE_CODE_EFFORT_LEVEL when reasoning is provided", () => {
+      const env = AGENTS.claude.config.buildEnv("high");
+      expect(env.CLAUDE_CODE_EFFORT_LEVEL).toBe("high");
+    });
+
+    test("sets CLAUDE_CODE_EFFORT_LEVEL for each valid level", () => {
+      for (const level of ["low", "medium", "high"]) {
+        const env = AGENTS.claude.config.buildEnv(level);
+        expect(env.CLAUDE_CODE_EFFORT_LEVEL).toBe(level);
+      }
+    });
+
+    test("does not override CLAUDE_CODE_EFFORT_LEVEL when reasoning is undefined", () => {
+      const env = AGENTS.claude.config.buildEnv();
+      // Should inherit from process.env (if set) rather than explicitly setting a value
+      expect(env.CLAUDE_CODE_EFFORT_LEVEL).toBe(process.env.CLAUDE_CODE_EFFORT_LEVEL);
+    });
+
+    test("spreads process.env into the result", () => {
+      const env = AGENTS.claude.config.buildEnv();
+      expect(env.PATH).toBe(process.env.PATH);
+    });
+
+    test("ignores unsupported reasoning levels", () => {
+      for (const level of ["xhigh", "max", "invalid"]) {
+        const env = AGENTS.claude.config.buildEnv(level);
+        expect(env.CLAUDE_CODE_EFFORT_LEVEL).toBe(process.env.CLAUDE_CODE_EFFORT_LEVEL);
+      }
+    });
+  });
 });
