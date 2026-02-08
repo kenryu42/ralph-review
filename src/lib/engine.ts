@@ -95,6 +95,7 @@ async function handleAgentFailure(
   const brokenWarning = role === "fixer" ? " Code may be in a broken state!" : "";
   return {
     success: false,
+    finalStatus: "failed",
     iterations: iteration,
     reason: `${role.charAt(0).toUpperCase() + role.slice(1)} failed with exit code ${exitCode} after ${retryConfig.maxRetries} retries.${brokenWarning}`,
     sessionPath,
@@ -156,6 +157,7 @@ async function runAgentWithRetry(
 
 export interface CycleResult {
   success: boolean;
+  finalStatus: SessionEndEntry["status"];
   iterations: number;
   reason: string;
   sessionPath: string;
@@ -312,6 +314,7 @@ export function determineCycleResult(
   if (wasInterrupted) {
     return {
       success: false,
+      finalStatus: "interrupted",
       iterations,
       reason: "Review cycle was interrupted",
       sessionPath,
@@ -321,6 +324,7 @@ export function determineCycleResult(
   if (!hasIssues) {
     return {
       success: true,
+      finalStatus: "completed",
       iterations,
       reason: "No issues found - code is clean",
       sessionPath,
@@ -330,6 +334,7 @@ export function determineCycleResult(
   if (iterations >= maxIterations) {
     return {
       success: false,
+      finalStatus: "completed",
       iterations,
       reason: `Max iterations (${maxIterations}) reached - some issues may remain`,
       sessionPath,
@@ -338,6 +343,7 @@ export function determineCycleResult(
 
   return {
     success: false,
+    finalStatus: "failed",
     iterations,
     reason: "Review cycle ended unexpectedly",
     sessionPath,
@@ -350,11 +356,8 @@ function createSessionEndEntry(
   wasInterrupted: boolean,
   iterationsFallback: number
 ): SessionEndEntry {
-  const status: SessionEndEntry["status"] = result?.success
-    ? "completed"
-    : wasInterrupted || result?.reason.toLowerCase().includes("interrupt")
-      ? "interrupted"
-      : "failed";
+  const status: SessionEndEntry["status"] =
+    result?.finalStatus ?? (wasInterrupted ? "interrupted" : "failed");
 
   const reason =
     result?.reason ??
@@ -552,6 +555,7 @@ Return ONLY one valid \`\`\`json ... \`\`\` block matching the required schema a
         await appendLog(sessionPath, entry);
         return finish({
           success: false,
+          finalStatus: "failed",
           iterations: iteration,
           reason: "Fixer output incomplete (missing fix summary JSON)",
           sessionPath,
@@ -605,6 +609,7 @@ Return ONLY one valid \`\`\`json ... \`\`\` block matching the required schema a
         console.log("   Review may contain unverifiable claims. Stopping to avoid token waste.");
         return finish({
           success: false,
+          finalStatus: "failed",
           iterations: iteration,
           reason:
             "Fixer requested more information but could not proceed - review contains unverifiable claims",

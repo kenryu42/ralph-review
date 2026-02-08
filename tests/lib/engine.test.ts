@@ -41,13 +41,15 @@ describe("engine", () => {
     test("returns success when no issues", () => {
       const result = determineCycleResult(false, 3, 10, false, testSessionPath);
       expect(result.success).toBe(true);
+      expect(result.finalStatus).toBe("completed");
       expect(result.reason).toContain("No issues");
       expect(result.sessionPath).toBe(testSessionPath);
     });
 
-    test("returns failure when max iterations", () => {
+    test("returns completed terminal status when max iterations", () => {
       const result = determineCycleResult(true, 10, 10, false, testSessionPath);
       expect(result.success).toBe(false);
+      expect(result.finalStatus).toBe("completed");
       expect(result.reason).toContain("Max iterations");
       expect(result.sessionPath).toBe(testSessionPath);
     });
@@ -55,6 +57,7 @@ describe("engine", () => {
     test("returns failure when interrupted", () => {
       const result = determineCycleResult(true, 5, 10, true, testSessionPath);
       expect(result.success).toBe(false);
+      expect(result.finalStatus).toBe("interrupted");
       expect(result.reason).toContain("interrupted");
       expect(result.sessionPath).toBe(testSessionPath);
     });
