@@ -406,6 +406,7 @@ describe("html", () => {
       expect(html).toContain("dashboardData");
       // Data is embedded directly as JSON object, not via JSON.parse
       expect(html).toContain("const dashboardData =");
+      expect(html).toContain("const dashboardViewModel =");
     });
 
     test("embeds a parsable dashboard script", () => {
@@ -514,6 +515,44 @@ describe("html", () => {
 
       expect(html).toContain("delete-btn");
       expect(html).toContain("deleteSession");
+    });
+
+    test("exposes deleteSession globally for inline delete button handler", () => {
+      const data = createTestDashboardData();
+      const html = generateDashboardHtml(data);
+
+      expect(html).toContain("window.deleteSession = deleteSession;");
+      expect(html).toContain(
+        'onclick="deleteSession(decodeURIComponent(this.dataset.sessionPath))"'
+      );
+    });
+
+    test("escapes project title in server-rendered HTML context", () => {
+      const data = createTestDashboardData();
+      const project = data.projects[0];
+      if (!project) {
+        throw new Error("Expected at least one project");
+      }
+      project.displayName = '<img src=x onerror="alert(1)">';
+      const html = generateDashboardHtml(data);
+
+      expect(html).toContain(
+        '<h1 id="projectTitle">&lt;img src=x onerror=&quot;alert(1)&quot;&gt;</h1>'
+      );
+    });
+
+    test("serializes embedded script data with escaped angle brackets and ampersands", () => {
+      const data = createTestDashboardData();
+      const project = data.projects[0];
+      if (!project) {
+        throw new Error("Expected at least one project");
+      }
+      project.displayName = '</script><img src=x onerror="x"> & unsafe';
+      const html = generateDashboardHtml(data);
+
+      expect(html).toContain(
+        '\\u003c/script\\u003e\\u003cimg src=x onerror=\\"x\\"\\u003e \\u0026 unsafe'
+      );
     });
 
     test("includes code simplified badge in session detail rendering when present", () => {
