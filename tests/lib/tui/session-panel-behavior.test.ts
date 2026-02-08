@@ -31,6 +31,7 @@ describe("SessionPanel behavior", () => {
       parsedCodexSummary: null,
       liveReviewSummary: liveSummary,
       cachedLiveReviewSummary: null,
+      lockfileReviewSummary: null,
     });
 
     expect(result.codexText).toBeNull();
@@ -48,6 +49,7 @@ describe("SessionPanel behavior", () => {
       parsedCodexSummary: null,
       liveReviewSummary: null,
       cachedLiveReviewSummary: liveSummary,
+      lockfileReviewSummary: null,
     });
 
     expect(result.codexText).toBeNull();
@@ -65,9 +67,71 @@ describe("SessionPanel behavior", () => {
       parsedCodexSummary: null,
       liveReviewSummary: null,
       cachedLiveReviewSummary: null,
+      lockfileReviewSummary: null,
     });
 
     expect(result.codexText).toBeNull();
     expect(result.findings).toEqual([]);
+  });
+
+  test("shows lockfile review summary when running with no live or persisted review", () => {
+    const result = resolveIssuesFoundDisplay({
+      sessionStatus: "running",
+      sessionIteration: 2,
+      latestReviewIteration: 1,
+      persistedFindings: [],
+      persistedCodexText: null,
+      parsedCodexSummary: null,
+      liveReviewSummary: null,
+      cachedLiveReviewSummary: null,
+      lockfileReviewSummary: liveSummary,
+    });
+
+    expect(result.codexText).toBeNull();
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0]?.title).toBe("Fix race condition");
+  });
+
+  test("prefers live tmux summary over lockfile review summary", () => {
+    const lockfileSummary: ReviewSummary = {
+      findings: [{ ...finding, title: "Lockfile finding" }],
+      overall_correctness: "patch is incorrect",
+      overall_explanation: "From lockfile.",
+      overall_confidence_score: 0.7,
+    };
+
+    const result = resolveIssuesFoundDisplay({
+      sessionStatus: "running",
+      sessionIteration: 2,
+      latestReviewIteration: 1,
+      persistedFindings: [],
+      persistedCodexText: null,
+      parsedCodexSummary: null,
+      liveReviewSummary: liveSummary,
+      cachedLiveReviewSummary: null,
+      lockfileReviewSummary: lockfileSummary,
+    });
+
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0]?.title).toBe("Fix race condition");
+  });
+
+  test("ignores lockfile review summary when persisted review matches current iteration", () => {
+    const persistedFinding = { ...finding, title: "Persisted finding" };
+    const result = resolveIssuesFoundDisplay({
+      sessionStatus: "running",
+      sessionIteration: 2,
+      latestReviewIteration: 2,
+      persistedFindings: [persistedFinding],
+      persistedCodexText: null,
+      parsedCodexSummary: null,
+      liveReviewSummary: null,
+      cachedLiveReviewSummary: null,
+      lockfileReviewSummary: liveSummary,
+    });
+
+    // Persisted findings win because latestReviewIteration === sessionIteration
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0]?.title).toBe("Persisted finding");
   });
 });

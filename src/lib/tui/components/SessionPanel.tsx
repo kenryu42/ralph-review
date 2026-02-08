@@ -543,6 +543,7 @@ export function SessionPanel({
     parsedCodexSummary,
     liveReviewSummary,
     cachedLiveReviewSummary,
+    lockfileReviewSummary: session.reviewSummary ?? null,
   });
 
   const showingCodex = displayCodexText !== null && displayFindings.length === 0;

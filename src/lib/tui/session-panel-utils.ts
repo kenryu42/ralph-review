@@ -206,6 +206,7 @@ interface ResolveIssuesFoundDisplayInput {
   parsedCodexSummary: ReviewSummary | null;
   liveReviewSummary: ReviewSummary | null;
   cachedLiveReviewSummary: ReviewSummary | null;
+  lockfileReviewSummary: ReviewSummary | null;
 }
 
 interface IssuesFoundDisplay {
@@ -222,6 +223,7 @@ export function resolveIssuesFoundDisplay({
   parsedCodexSummary,
   liveReviewSummary,
   cachedLiveReviewSummary,
+  lockfileReviewSummary,
 }: ResolveIssuesFoundDisplayInput): IssuesFoundDisplay {
   const activeLiveSummary = liveReviewSummary ?? cachedLiveReviewSummary;
   if (activeLiveSummary) {
@@ -233,6 +235,22 @@ export function resolveIssuesFoundDisplay({
 
   const hasCurrentIterationPersistedReview = latestReviewIteration === sessionIteration;
   const isRunning = sessionStatus === "running";
+
+  // Persisted findings for current iteration take precedence over lockfile
+  if (hasCurrentIterationPersistedReview && persistedFindings.length > 0) {
+    return {
+      findings: persistedFindings,
+      codexText: null,
+    };
+  }
+
+  // Lockfile-based review: fallback when no persisted review for current iteration
+  if (lockfileReviewSummary) {
+    return {
+      findings: lockfileReviewSummary.findings,
+      codexText: null,
+    };
+  }
 
   // Avoid showing stale previous-iteration review data during an active run.
   if (isRunning && !hasCurrentIterationPersistedReview) {
