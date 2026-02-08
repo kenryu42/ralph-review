@@ -489,9 +489,12 @@ export async function runReviewCycle(
         );
       }
 
-      await updateLockfile(undefined, projectPath, { currentAgent: "reviewer", iteration }).catch(
-        () => {}
-      );
+      await updateLockfile(undefined, projectPath, {
+        currentAgent: "reviewer",
+        iteration,
+        reviewSummary: undefined,
+        codexReviewText: undefined,
+      }).catch(() => {});
       printHeader("Running reviewer...", "\x1b[36m");
 
       const reviewerPrompt = createReviewerPrompt({
@@ -551,11 +554,18 @@ export async function runReviewCycle(
 
       if (config.reviewer.agent === "codex") {
         codexReviewSummary = { text: reviewTextForFixer };
+        await updateLockfile(undefined, projectPath, { codexReviewText: reviewTextForFixer }).catch(
+          () => {}
+        );
       } else {
         reviewJson = extractedText ? (extractJsonBlock(extractedText) ?? extractedText) : null;
 
         if (reviewJson) {
           reviewSummary = parseReviewSummary(reviewJson);
+        }
+
+        if (reviewSummary) {
+          await updateLockfile(undefined, projectPath, { reviewSummary }).catch(() => {});
         }
 
         if (!reviewSummary && reviewResult.success) {

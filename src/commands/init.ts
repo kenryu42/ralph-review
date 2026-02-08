@@ -392,11 +392,9 @@ function formatConfigDisplay(config: Config): string {
 
   return [
     `  Reviewer:            ${reviewerName}`,
-    `  Reviewer model:      ${reviewerModel}`,
-    `  Reviewer reasoning:  ${reviewerReasoning}`,
+    `  Reviewer model:      ${reviewerModel}, ${reviewerReasoning}`,
     `  Fixer:               ${fixerName}`,
-    `  Fixer model:         ${fixerModel}`,
-    `  Fixer reasoning:     ${fixerReasoning}`,
+    `  Fixer model:         ${fixerModel}, ${fixerReasoning}`,
     `  Max iterations:      ${config.maxIterations}`,
     `  Iteration timeout:   ${config.iterationTimeout / 1000 / 60} minutes`,
     `  Default review:      ${defaultReviewDisplay}`,
