@@ -5,7 +5,7 @@ import { AGENTS, isAgentAvailable } from "@/lib/agents";
 import { getAgentDisplayInfo } from "@/lib/agents/display";
 import { parseCommand } from "@/lib/cli-parser";
 import { configExists, loadConfig } from "@/lib/config";
-import { runReviewCycle } from "@/lib/engine";
+import { type CycleResult, runReviewCycle } from "@/lib/engine";
 import { formatReviewType } from "@/lib/format";
 import {
   cleanupStaleLockfile,
@@ -26,6 +26,18 @@ export interface RunOptions {
   uncommitted?: boolean;
   commit?: string;
   custom?: string;
+}
+
+export function classifyRunCompletion(result: CycleResult): "success" | "warning" | "error" {
+  if (result.success) {
+    return "success";
+  }
+
+  if (result.finalStatus === "completed" || result.finalStatus === "interrupted") {
+    return "warning";
+  }
+
+  return "error";
 }
 
 export async function isGitRepo(): Promise<boolean> {
@@ -229,9 +241,14 @@ export async function runForeground(args: string[] = []): Promise<void> {
       forceMaxIterations,
     });
 
+    const completionState = classifyRunCompletion(result);
     console.log(`\n${"=".repeat(50)}`);
-    if (result.success) {
+    if (completionState === "success") {
       p.log.success(`Review cycle complete! (${result.iterations} iterations)`);
+    } else if (completionState === "warning") {
+      p.log.warn(
+        `Review cycle complete with warnings: ${result.reason} (${result.iterations} iterations)`
+      );
     } else {
       p.log.error(`Review stopped: ${result.reason} (${result.iterations} iterations)`);
     }

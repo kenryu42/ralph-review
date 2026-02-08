@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getCommandDef } from "@/cli";
 import {
+  classifyRunCompletion,
   hasUncommittedChanges,
   isGitRepo,
   type RunOptions,
@@ -13,6 +14,52 @@ import { parseCommand } from "@/lib/cli-parser";
 import { createLockfile, lockfileExists, removeLockfile } from "@/lib/lockfile";
 
 describe("run command", () => {
+  describe("classifyRunCompletion", () => {
+    test("returns success for clean run", () => {
+      const state = classifyRunCompletion({
+        success: true,
+        finalStatus: "completed",
+        iterations: 2,
+        reason: "No issues found - code is clean",
+        sessionPath: "/tmp/session",
+      });
+      expect(state).toBe("success");
+    });
+
+    test("returns warning for max-iteration completion with remaining issues", () => {
+      const state = classifyRunCompletion({
+        success: false,
+        finalStatus: "completed",
+        iterations: 5,
+        reason: "Max iterations (5) reached - some issues may remain",
+        sessionPath: "/tmp/session",
+      });
+      expect(state).toBe("warning");
+    });
+
+    test("returns warning for interrupted runs", () => {
+      const state = classifyRunCompletion({
+        success: false,
+        finalStatus: "interrupted",
+        iterations: 3,
+        reason: "Review cycle was interrupted",
+        sessionPath: "/tmp/session",
+      });
+      expect(state).toBe("warning");
+    });
+
+    test("returns error for failed terminal result", () => {
+      const state = classifyRunCompletion({
+        success: false,
+        finalStatus: "failed",
+        iterations: 1,
+        reason: "Reviewer failed with exit code 1",
+        sessionPath: "/tmp/session",
+      });
+      expect(state).toBe("error");
+    });
+  });
+
   describe("option parsing via cli-parser", () => {
     const runDef = getCommandDef("run");
     if (!runDef) throw new Error("run command def not found");
