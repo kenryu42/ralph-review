@@ -34,6 +34,11 @@ describe("getCurrentAgentFromLockData", () => {
     const data: LockData = { ...baseLockData, currentAgent: "fixer" };
     expect(getCurrentAgentFromLockData(data)).toBe("fixer");
   });
+
+  test("returns code-simplifier when currentAgent is code-simplifier", () => {
+    const data: LockData = { ...baseLockData, currentAgent: "code-simplifier" };
+    expect(getCurrentAgentFromLockData(data)).toBe("code-simplifier");
+  });
 });
 
 describe("selectLatestReviewFromEntries", () => {

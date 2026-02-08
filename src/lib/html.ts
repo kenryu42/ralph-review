@@ -1154,6 +1154,23 @@ export function generateDashboardHtml(data: DashboardData): string {
             return \`\${name} (\${details.join(", ")})\`;
           };
 
+          const getSessionSystemEntry = (session) =>
+            (session.entries || []).find((entry) => entry.type === "system");
+
+          const formatAgentSettings = (settings) => {
+            if (!settings?.agent) return "unknown";
+
+            const details = [];
+            if (settings.provider) details.push(settings.provider);
+            if (settings.model) details.push(settings.model);
+            if (settings.reasoning) details.push(settings.reasoning);
+
+            if (details.length === 0) {
+              return settings.agent;
+            }
+            return \`\${settings.agent} (\${details.join(", ")})\`;
+          };
+
           const getPriorityPillClass = (priority) => {
             switch (priority) {
               case "P0":
@@ -1264,6 +1281,10 @@ export function generateDashboardHtml(data: DashboardData): string {
             const fixerReasoning = session.fixerReasoning || "";
             const reviewerDisplay = formatRoleDisplay(reviewerName, reviewerModel, reviewerReasoning);
             const fixerDisplay = formatRoleDisplay(fixerName, fixerModel, fixerReasoning);
+            const systemEntry = getSessionSystemEntry(session);
+            const codeSimplifierDisplay = systemEntry?.codeSimplifier
+              ? formatAgentSettings(systemEntry.codeSimplifier)
+              : null;
 
             return \`
               <div class="detail-header">
@@ -1286,6 +1307,9 @@ export function generateDashboardHtml(data: DashboardData): string {
                     <div class="detail-meta"><span class="detail-meta-label">Duration:</span> \${formatDuration(session.totalDuration)}</div>
                     <div class="detail-meta"><span class="detail-meta-label">Reviewer:</span> \${escapeHtml(reviewerDisplay)}</div>
                     <div class="detail-meta"><span class="detail-meta-label">Fixer:</span> \${escapeHtml(fixerDisplay)}</div>
+                    \${codeSimplifierDisplay
+                      ? \`<div class="detail-meta"><span class="detail-meta-label">Code simplifier:</span> \${escapeHtml(codeSimplifierDisplay)}</div>\`
+                      : ""}
                   </div>
                 </div>
               </div>

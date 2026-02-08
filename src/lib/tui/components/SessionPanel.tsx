@@ -64,6 +64,9 @@ function getStatusDisplay(
       return { text: "interrupted", color: TUI_COLORS.status.warning };
     case "running":
       if (currentAgent) {
+        if (currentAgent === "code-simplifier") {
+          return { text: "running code simplifier agent", color: TUI_COLORS.status.success };
+        }
         return { text: `running ${currentAgent} agent`, color: TUI_COLORS.status.success };
       }
       return { text: "running", color: TUI_COLORS.status.success };

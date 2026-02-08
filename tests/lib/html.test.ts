@@ -476,6 +476,30 @@ describe("html", () => {
       expect(html).toContain("deleteSession");
     });
 
+    test("includes code simplifier metadata in session detail rendering when present", () => {
+      const data = createTestDashboardData();
+      const session = data.projects[0]?.sessions[0];
+      if (!session) {
+        throw new Error("Expected a test session");
+      }
+
+      const systemEntry: SystemEntry = {
+        type: "system",
+        timestamp: Date.now(),
+        projectPath: "/logs/work-project-a",
+        reviewer: { agent: "claude", model: "claude-sonnet-4-20250514" },
+        fixer: { agent: "claude", model: "claude-sonnet-4-20250514" },
+        codeSimplifier: { agent: "codex", model: "gpt-5.2-codex" },
+        maxIterations: 5,
+      };
+      session.entries = [systemEntry];
+
+      const html = generateDashboardHtml(data);
+
+      expect(html).toContain("Code simplifier:");
+      expect(html).toContain('"codeSimplifier":{"agent":"codex","model":"gpt-5.2-codex"}');
+    });
+
     test("sorts insights rows by totalIssues descending", () => {
       const data = createTestDashboardData();
       data.reviewerModelStats = [
