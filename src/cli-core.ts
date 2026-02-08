@@ -66,7 +66,6 @@ export const COMMANDS: CommandDef[] = [
     name: "logs",
     description: "View review logs",
     options: [
-      { name: "html", type: "boolean", description: "Open dashboard in browser" },
       { name: "json", type: "boolean", description: "Output as JSON" },
       {
         name: "last",
@@ -82,6 +81,11 @@ export const COMMANDS: CommandDef[] = [
       },
     ],
     examples: ["rr logs", "rr logs -n 5", "rr logs --json", "rr logs --json --global"],
+  },
+  {
+    name: "dashboard",
+    description: "Open review dashboard in browser",
+    examples: ["rr dashboard"],
   },
   {
     name: "_run-foreground",

@@ -368,6 +368,16 @@ describe("html", () => {
       expect(html).toContain("const dashboardData =");
     });
 
+    test("embeds a parsable dashboard script", () => {
+      const data = createTestDashboardData();
+      const html = generateDashboardHtml(data);
+      const scriptMatch = html.match(/<script>([\s\S]*?)<\/script>/);
+
+      expect(scriptMatch).not.toBeNull();
+      const scriptContent = scriptMatch?.[1] ?? "";
+      expect(() => new Function(scriptContent)).not.toThrow();
+    });
+
     test("renders insights rows with agent and thinking badges", () => {
       const data = createTestDashboardData();
       data.reviewerModelStats = [
@@ -456,6 +466,14 @@ describe("html", () => {
       expect(html).toContain("7");
       expect(html).toContain('class="agent-runs-count">3<');
       expect(html).toContain('class="agent-metric agent-metric-fixer" title="Issues Fixed"');
+    });
+
+    test("contains delete button element", () => {
+      const data = createTestDashboardData();
+      const html = generateDashboardHtml(data);
+
+      expect(html).toContain("delete-btn");
+      expect(html).toContain("deleteSession");
     });
 
     test("sorts insights rows by totalIssues descending", () => {

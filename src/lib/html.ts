@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { getAgentDisplayName } from "@/lib/agents/models";
-import { readLog } from "@/lib/logger";
+import { getHtmlPath, readLog } from "@/lib/logger";
 import { PRIORITY_COLORS } from "@/lib/tui/session-panel-utils";
 import type {
   AgentSettings,
@@ -181,17 +181,12 @@ function renderInsightsSection(
   return `
     <details class="insights-section">
       <summary class="insights-label">Insights</summary>
-      ${content}
+      <div id="insightsContent">${content}</div>
     </details>
   `;
 }
 
-export function getHtmlPath(logPath: string): string {
-  if (logPath.endsWith(".jsonl")) {
-    return `${logPath.slice(0, -".jsonl".length)}.html`;
-  }
-  return `${logPath}.html`;
-}
+export { getHtmlPath } from "@/lib/logger";
 
 export function getDashboardPath(logsDir: string): string {
   return join(logsDir, "dashboard.html");
@@ -935,6 +930,23 @@ export function generateDashboardHtml(data: DashboardData): string {
             color: var(--accent-4);
           }
           .mono { font-family: "Space Grotesk", monospace; }
+          .delete-btn {
+            background: rgba(255, 123, 123, 0.15);
+            border: 1px solid rgba(255, 123, 123, 0.3);
+            color: var(--danger);
+            font-size: 12px;
+            font-weight: 600;
+            padding: 6px 14px;
+            border-radius: 10px;
+            cursor: pointer;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            transition: background 120ms ease, border-color 120ms ease;
+          }
+          .delete-btn:hover {
+            background: rgba(255, 123, 123, 0.25);
+            border-color: rgba(255, 123, 123, 0.5);
+          }
           @media (min-width: 1281px) {
             .detail-meta-block {
               margin-top: 10px;
@@ -1195,6 +1207,39 @@ export function generateDashboardHtml(data: DashboardData): string {
           const getProject = (name) =>
             dashboardData.projects.find((project) => project.projectName === name);
 
+          const buildInsightsModelSection = (stats, role) => {
+            if (!stats || stats.length === 0) return "";
+            const label = role === "reviewer" ? "Reviewer" : "Fixer";
+            const tooltip = role === "reviewer" ? "Issues Found" : "Issues Fixed";
+            const metricClass = role === "fixer" ? "agent-metric agent-metric-fixer" : "agent-metric";
+            const sorted = [...stats].sort((a, b) => b.totalIssues - a.totalIssues);
+            const items = sorted.map((row) => \`
+              <div class="agent-row">
+                <span class="agent-metric agent-metric-agent">\${escapeHtml(row.agentDisplayName || row.agent)}</span>
+                <div class="agent-name" title="\${escapeHtml(row.model)}">\${escapeHtml(row.displayName)}</div>
+                <span class="agent-metric agent-metric-reasoning">\${escapeHtml((row.reasoningLevel || "").toLowerCase())}</span>
+                <span class="agent-runs">
+                  <span class="agent-runs-count">\${numberFormat.format(row.sessionCount)}</span>
+                  <span class="agent-runs-label">runs</span>
+                </span>
+                <span class="\${metricClass}" title="\${tooltip}">\${numberFormat.format(row.totalIssues)}</span>
+              </div>
+            \`).join("");
+            return \`
+              <div class="agent-section">
+                <div class="agent-section-label">\${label}</div>
+                <div class="agent-list">\${items}</div>
+              </div>
+            \`;
+          };
+
+          const buildInsightsContent = (reviewerModelStats, fixerModelStats) => {
+            return [
+              buildInsightsModelSection(reviewerModelStats, "reviewer"),
+              buildInsightsModelSection(fixerModelStats, "fixer"),
+            ].join("");
+          };
+
           const getSelectedSession = () => {
             const project = getProject(state.projectName);
             return project?.sessions.find((session) => session.sessionPath === state.sessionPath);
@@ -1209,6 +1254,7 @@ export function generateDashboardHtml(data: DashboardData): string {
             const { fixes: rawFixes, skipped: rawSkipped } = extractFixes(session.entries || []);
             const fixes = sortByPriority(rawFixes);
             const skipped = sortByPriority(rawSkipped);
+            const encodedSessionPath = encodeURIComponent(session.sessionPath);
             const showSkippedPanel = skipped.length > 1;
             const reviewerName = session.reviewerDisplayName || session.reviewer || "unknown";
             const reviewerModel = session.reviewerModelDisplayName || session.reviewerModel || "";
@@ -1242,6 +1288,15 @@ export function generateDashboardHtml(data: DashboardData): string {
                     <div class="detail-meta"><span class="detail-meta-label">Fixer:</span> \${escapeHtml(fixerDisplay)}</div>
                   </div>
                 </div>
+              </div>
+              <div style="display:flex;justify-content:flex-end;margin-bottom:12px;">
+                <button
+                  class="delete-btn"
+                  data-session-path="\${escapeHtml(encodedSessionPath)}"
+                  onclick="deleteSession(decodeURIComponent(this.dataset.sessionPath))"
+                >
+                  Delete Log
+                </button>
               </div>
               <div class="detail-grid">
                 <div class="panel">
@@ -1517,6 +1572,72 @@ export function generateDashboardHtml(data: DashboardData): string {
               updateProjectFilter("");
             });
           }
+
+          const deleteSession = async (sessionPath) => {
+            if (!confirm("Delete this session log? This cannot be undone.")) return;
+            try {
+              const res = await fetch("/api/sessions", {
+                method: "DELETE",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ sessionPath }),
+              });
+              if (!res.ok) {
+                const text = await res.text();
+                alert("Failed to delete session: " + text);
+                return;
+              }
+              const updated = await res.json();
+              dashboardData.globalStats = updated.globalStats;
+              dashboardData.projects = updated.projects;
+              dashboardData.reviewerAgentStats = updated.reviewerAgentStats;
+              dashboardData.fixerAgentStats = updated.fixerAgentStats;
+              dashboardData.reviewerModelStats = updated.reviewerModelStats;
+              dashboardData.fixerModelStats = updated.fixerModelStats;
+              state.sessionPath = null;
+
+              // If current project no longer exists, select first available or clear
+              if (state.projectName && !getProject(state.projectName)) {
+                state.projectName = dashboardData.projects.length > 0
+                  ? dashboardData.projects[0].projectName
+                  : null;
+              }
+
+              // Update global metrics in the hero card
+              const heroNumber = document.querySelector(".hero-number");
+              if (heroNumber) {
+                heroNumber.textContent = numberFormat.format(dashboardData.globalStats.totalFixes);
+              }
+              const totalSessionsEl = document.getElementById("totalSessions");
+              if (totalSessionsEl) {
+                totalSessionsEl.textContent = numberFormat.format(dashboardData.globalStats.totalSessions);
+              }
+
+              // Update priority breakdown counts
+              const pc = dashboardData.globalStats.priorityCounts;
+              const p0Val = document.querySelector(".priority-item-p0 .priority-value");
+              const p1Val = document.querySelector(".priority-item-p1 .priority-value");
+              const p2Val = document.querySelector(".priority-item-p2 .priority-value");
+              const p3Val = document.querySelector(".priority-item-p3 .priority-value");
+              if (p0Val) p0Val.textContent = pc.P0;
+              if (p1Val) p1Val.textContent = pc.P1;
+              if (p2Val) p2Val.textContent = pc.P2;
+              if (p3Val) p3Val.textContent = pc.P3;
+
+              // Refresh insights section with updated model stats
+              const insightsContent = document.getElementById("insightsContent");
+              if (insightsContent) {
+                insightsContent.innerHTML = buildInsightsContent(
+                  dashboardData.reviewerModelStats,
+                  dashboardData.fixerModelStats
+                );
+              }
+
+              render();
+            } catch (err) {
+              alert("Failed to delete session: " + err.message);
+            }
+          };
+          window.deleteSession = deleteSession;
 
           window.addEventListener("resize", render);
 

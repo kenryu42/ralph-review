@@ -2,6 +2,7 @@
 
 import * as p from "@clack/prompts";
 import { getCommandDef, getVersion, parseArgs, printCommandHelp, printUsage } from "./cli-core";
+import { runDashboard } from "./commands/dashboard";
 import { runInit } from "./commands/init";
 import { runList } from "./commands/list";
 import { runLogs } from "./commands/logs";
@@ -89,6 +90,10 @@ async function main(): Promise<void> {
 
       case "logs":
         await runLogs(args);
+        break;
+
+      case "dashboard":
+        await runDashboard(args);
         break;
 
       case "list":
