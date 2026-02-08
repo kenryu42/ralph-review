@@ -120,6 +120,76 @@ describe("lockfile", () => {
         updateLockfile(tempLogsDir, "/nonexistent/path", { iteration: 1 })
       ).resolves.toBeUndefined();
     });
+
+    test("stores and retrieves reviewSummary", async () => {
+      const projectPath = "/Users/test/project-review";
+
+      await createLockfile(tempLogsDir, projectPath, "rr-test-review", "main");
+      await updateLockfile(tempLogsDir, projectPath, {
+        reviewSummary: {
+          findings: [
+            {
+              title: "Missing null check",
+              body: "Could crash",
+              confidence_score: 0.9,
+              priority: 1,
+              code_location: {
+                absolute_file_path: "/src/foo.ts",
+                line_range: { start: 10, end: 12 },
+              },
+            },
+          ],
+          overall_correctness: "patch is incorrect",
+          overall_explanation: "Has issues",
+          overall_confidence_score: 0.85,
+        },
+      });
+
+      const data = await readLockfile(tempLogsDir, projectPath);
+      expect(data?.reviewSummary).toBeDefined();
+      expect(data?.reviewSummary?.findings).toHaveLength(1);
+      expect(data?.reviewSummary?.findings[0]?.title).toBe("Missing null check");
+    });
+
+    test("stores and retrieves codexReviewText", async () => {
+      const projectPath = "/Users/test/project-codex";
+
+      await createLockfile(tempLogsDir, projectPath, "rr-test-codex", "main");
+      await updateLockfile(tempLogsDir, projectPath, {
+        codexReviewText: "Some codex review output text",
+      });
+
+      const data = await readLockfile(tempLogsDir, projectPath);
+      expect(data?.codexReviewText).toBe("Some codex review output text");
+    });
+
+    test("clears reviewSummary when set to undefined via spread", async () => {
+      const projectPath = "/Users/test/project-clear";
+
+      await createLockfile(tempLogsDir, projectPath, "rr-test-clear", "main");
+      await updateLockfile(tempLogsDir, projectPath, {
+        reviewSummary: {
+          findings: [],
+          overall_correctness: "patch is correct",
+          overall_explanation: "Clean",
+          overall_confidence_score: 0.95,
+        },
+      });
+
+      // Verify it's set
+      let data = await readLockfile(tempLogsDir, projectPath);
+      expect(data?.reviewSummary).toBeDefined();
+
+      // Clear by setting undefined (spread semantics)
+      await updateLockfile(tempLogsDir, projectPath, {
+        reviewSummary: undefined,
+        codexReviewText: undefined,
+      });
+
+      data = await readLockfile(tempLogsDir, projectPath);
+      // Keys explicitly set to undefined are deleted from the lockfile
+      expect(data?.reviewSummary).toBeUndefined();
+    });
   });
 
   describe("isProcessAlive", () => {

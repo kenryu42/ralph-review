@@ -2,6 +2,7 @@ import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { LOGS_DIR } from "./config";
 import { getProjectName } from "./logger";
+import type { ReviewSummary } from "./types";
 
 const DEFAULT_BRANCH = "default";
 
@@ -14,6 +15,8 @@ export interface LockData {
   iteration?: number;
   status?: "pending" | "running" | "completed" | "failed";
   currentAgent?: "reviewer" | "fixer" | "code-simplifier" | null;
+  reviewSummary?: ReviewSummary;
+  codexReviewText?: string;
 }
 
 export interface ActiveSession extends LockData {
@@ -87,7 +90,15 @@ export async function updateLockfile(
     return; // No lockfile to update
   }
 
-  const updated: LockData = { ...existing, ...updates };
+  const updated = { ...existing } as Record<string, unknown>;
+  // Apply updates explicitly, deleting keys set to undefined
+  for (const [key, value] of Object.entries(updates)) {
+    if (value === undefined) {
+      delete updated[key];
+    } else {
+      updated[key] = value;
+    }
+  }
   const lockPath = getLockPath(logsDir, projectPath);
   await Bun.write(lockPath, JSON.stringify(updated, null, 2));
 }
