@@ -1,4 +1,4 @@
-import { createFixerPrompt, createReviewerPrompt } from "@/lib/prompts";
+import { createCodeSimplifierPrompt, createFixerPrompt, createReviewerPrompt } from "@/lib/prompts";
 import { AGENTS, runAgent } from "./agents";
 import { updateLockfile } from "./lockfile";
 import { appendLog, createLogSession, getGitBranch } from "./logger";
@@ -408,6 +408,7 @@ export async function runReviewCycle(
     gitBranch,
     reviewer: config.reviewer,
     fixer: config.fixer,
+    codeSimplifier: config["code-simplifier"],
     maxIterations: config.maxIterations,
     reviewOptions,
   };
@@ -422,8 +423,55 @@ export async function runReviewCycle(
 
   let iteration = 0;
   let hasRemainingIssues = true;
+  const retryConfig = config.retry ?? DEFAULT_RETRY_CONFIG;
 
   try {
+    if (reviewOptions?.simplifier) {
+      await updateLockfile(undefined, projectPath, { currentAgent: "code-simplifier" }).catch(
+        () => {}
+      );
+      printHeader("Running code simplifier agent...", "\x1b[34m");
+
+      const simplifierPrompt = createCodeSimplifierPrompt({
+        repoPath: projectPath,
+        baseBranch: reviewOptions.baseBranch,
+        commitSha: reviewOptions.commitSha,
+        customInstructions: reviewOptions.customInstructions,
+      });
+      const simplifierResult = await runAgentWithRetry(
+        "code-simplifier",
+        config,
+        simplifierPrompt,
+        config.iterationTimeout,
+        reviewOptions
+      );
+
+      if (!simplifierResult.success) {
+        console.log(
+          formatAgentFailureWarning(
+            "code-simplifier",
+            simplifierResult.exitCode,
+            retryConfig.maxRetries
+          )
+        );
+        return finish({
+          success: false,
+          finalStatus: "failed",
+          iterations: 0,
+          reason:
+            `Code simplifier failed with exit code ${simplifierResult.exitCode} ` +
+            `after ${retryConfig.maxRetries} retries.`,
+          sessionPath,
+        });
+      }
+
+      if (wasInterrupted()) {
+        return finish(
+          determineCycleResult(true, iteration, config.maxIterations, true, sessionPath)
+        );
+      }
+    }
+
     while (iteration < config.maxIterations) {
       iteration++;
       const iterationStartTime = Date.now();
@@ -457,7 +505,6 @@ export async function runReviewCycle(
       });
 
       // Run reviewer with retry
-      const retryConfig = config.retry ?? DEFAULT_RETRY_CONFIG;
       const reviewResult = await runAgentWithRetry(
         "reviewer",
         config,

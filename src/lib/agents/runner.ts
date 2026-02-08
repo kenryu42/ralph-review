@@ -10,7 +10,11 @@ export async function runAgent(
   reviewOptions?: ReviewOptions
 ): Promise<IterationResult> {
   const startTime = Date.now();
-  const agentSettings = role === "reviewer" ? config.reviewer : config.fixer;
+  const agentSettings =
+    role === "fixer"
+      ? config.fixer
+      : // Code simplifier intentionally reuses reviewer's agent+model settings.
+        config.reviewer;
   const agentModule = AGENTS[agentSettings.agent];
 
   const command = agentModule.config.command;
