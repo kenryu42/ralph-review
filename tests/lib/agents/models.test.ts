@@ -35,8 +35,11 @@ describe("agent model metadata", () => {
       expect(getReasoningOptions("droid", "unknown-model")).toEqual([]);
     });
 
-    test("returns no options for claude and gemini", () => {
-      expect(getReasoningOptions("claude", "sonnet")).toEqual([]);
+    test("returns effort levels for claude", () => {
+      expect(getReasoningOptions("claude", "sonnet")).toEqual(["low", "medium", "high"]);
+    });
+
+    test("returns no options for gemini", () => {
       expect(getReasoningOptions("gemini", "gemini-3-pro-preview")).toEqual([]);
     });
 
@@ -53,11 +56,11 @@ describe("agent model metadata", () => {
       expect(supportsReasoning("codex", "gpt-5.2-codex")).toBe(true);
       expect(supportsReasoning("droid", "gpt-5.2-codex")).toBe(true);
       expect(supportsReasoning("pi", "model")).toBe(true);
+      expect(supportsReasoning("claude", "sonnet")).toBe(true);
     });
 
     test("returns false for unsupported selections", () => {
       expect(supportsReasoning("droid", "glm-4.7")).toBe(false);
-      expect(supportsReasoning("claude", "opus")).toBe(false);
       expect(supportsReasoning("gemini", "gemini-3-pro-preview")).toBe(false);
     });
   });

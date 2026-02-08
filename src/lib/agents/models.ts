@@ -10,7 +10,8 @@ export const agentOptions = [
 ] as const;
 
 export const claudeModelOptions = [
-  { value: "opus", label: "Claude Opus 4.6" },
+  { value: "claude-opus-4-6", label: "Claude Opus 4.6" },
+  { value: "claude-opus-4-5", label: "Claude Opus 4.5" },
   { value: "sonnet", label: "Claude Sonnet 4.5" },
   { value: "haiku", label: "Claude Haiku 4.5" },
 ] as const;
@@ -79,6 +80,8 @@ export function getReasoningOptions(agent: AgentType, model?: string): Reasoning
       return getDroidReasoningOptions(model);
 
     case "claude":
+      return ["low", "medium", "high"];
+
     case "gemini":
       return [];
 
