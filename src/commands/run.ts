@@ -6,6 +6,7 @@ import { getAgentDisplayInfo } from "@/lib/agents/display";
 import { parseCommand } from "@/lib/cli-parser";
 import { configExists, loadConfig } from "@/lib/config";
 import { runReviewCycle } from "@/lib/engine";
+import { formatReviewType } from "@/lib/format";
 import {
   cleanupStaleLockfile,
   createLockfile,
@@ -16,7 +17,7 @@ import {
 import { getGitBranch } from "@/lib/logger";
 import { CLI_PATH } from "@/lib/paths";
 import { createSession, generateSessionName, isInsideTmux, isTmuxInstalled } from "@/lib/tmux";
-import { type Config, isAgentType } from "@/lib/types";
+import { type Config, isAgentType, type ReviewOptions } from "@/lib/types";
 
 export interface RunOptions {
   max?: number;
@@ -168,9 +169,11 @@ async function runInBackground(
     p.log.success(`Review started in background session: ${sessionName}`);
     const reviewer = getAgentDisplayInfo(config.reviewer);
     const fixer = getAgentDisplayInfo(config.fixer);
+    const reviewOptions: ReviewOptions = { baseBranch, commitSha, customInstructions };
     p.note(
       `Reviewer: ${reviewer.agentName} (${reviewer.modelName}, reasoning: ${reviewer.reasoning})\n` +
-        `Fixer:    ${fixer.agentName} (${fixer.modelName}, reasoning: ${fixer.reasoning})`,
+        `Fixer:    ${fixer.agentName} (${fixer.modelName}, reasoning: ${fixer.reasoning})\n` +
+        `Review:   ${formatReviewType(reviewOptions)}`,
       "Agents"
     );
     p.note("rr status  - Check status\n" + "rr stop    - Stop the review", "Commands");
