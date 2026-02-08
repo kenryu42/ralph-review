@@ -73,6 +73,46 @@ describe("html", () => {
       expect(html).toContain("5");
     });
 
+    test("renders code simplifier in log overview when configured", () => {
+      const systemEntry: SystemEntry = {
+        type: "system",
+        timestamp: Date.now(),
+        projectPath: "/path/to/project",
+        gitBranch: "main",
+        reviewer: { agent: "droid", model: "gpt-5.2" },
+        fixer: { agent: "opencode", model: "llm-proxy/claude-opus-4-5-thinking" },
+        codeSimplifier: { agent: "codex", model: "gpt-5.2-codex" },
+        maxIterations: 5,
+      };
+
+      const html = generateLogHtml([systemEntry]);
+      expect(html).toContain("Code Simplified");
+      expect(html).toContain("status status-has-fixes");
+      expect(html).not.toContain("gpt-5.2-codex");
+    });
+
+    test("falls back to reviewer settings when simplifier is enabled without config", () => {
+      const systemEntry: SystemEntry = {
+        type: "system",
+        timestamp: Date.now(),
+        projectPath: "/path/to/project",
+        gitBranch: "code-simplifier",
+        reviewer: { agent: "droid", model: "gpt-5.2", reasoning: "high" },
+        fixer: {
+          agent: "opencode",
+          model: "llm-proxy/claude-opus-4-5-thinking",
+          reasoning: "high",
+        },
+        maxIterations: 5,
+        reviewOptions: { simplifier: true },
+      };
+
+      const html = generateLogHtml([systemEntry]);
+      expect(html).toContain("Code Simplified");
+      expect(html).toContain("status status-has-fixes");
+      expect(html).not.toContain("inherits reviewer settings");
+    });
+
     test("renders iteration entry with fixes", () => {
       const iterEntry: IterationEntry = {
         type: "iteration",
@@ -476,7 +516,7 @@ describe("html", () => {
       expect(html).toContain("deleteSession");
     });
 
-    test("includes code simplifier metadata in session detail rendering when present", () => {
+    test("includes code simplified badge in session detail rendering when present", () => {
       const data = createTestDashboardData();
       const session = data.projects[0]?.sessions[0];
       if (!session) {
@@ -496,8 +536,36 @@ describe("html", () => {
 
       const html = generateDashboardHtml(data);
 
-      expect(html).toContain("Code simplifier:");
+      expect(html).toContain("CODE");
+      expect(html).toContain("SIMPLIFIED");
+      expect(html).toContain("stat stat-code-simplified");
       expect(html).toContain('"codeSimplifier":{"agent":"codex","model":"gpt-5.2-codex"}');
+    });
+
+    test("embeds simplifier-enabled reviewOptions for code simplified badge", () => {
+      const data = createTestDashboardData();
+      const session = data.projects[0]?.sessions[0];
+      if (!session) {
+        throw new Error("Expected a test session");
+      }
+
+      const systemEntry: SystemEntry = {
+        type: "system",
+        timestamp: Date.now(),
+        projectPath: "/logs/work-project-a",
+        reviewer: { agent: "droid", model: "gpt-5.2" },
+        fixer: { agent: "opencode", model: "llm-proxy/claude-opus-4-5-thinking" },
+        maxIterations: 5,
+        reviewOptions: { simplifier: true },
+      };
+      session.entries = [systemEntry];
+
+      const html = generateDashboardHtml(data);
+
+      expect(html).toContain('"reviewOptions":{"simplifier":true}');
+      expect(html).toContain("CODE");
+      expect(html).toContain("SIMPLIFIED");
+      expect(html).toContain("stat stat-code-simplified");
     });
 
     test("sorts insights rows by totalIssues descending", () => {

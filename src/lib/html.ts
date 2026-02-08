@@ -61,6 +61,11 @@ function formatAgent(settings: AgentSettings | undefined): string {
   return settings.model ? `${settings.agent} (${settings.model})` : settings.agent;
 }
 
+function isCodeSimplified(systemEntry: SystemEntry | undefined): boolean {
+  if (!systemEntry) return false;
+  return Boolean(systemEntry.codeSimplifier || systemEntry.reviewOptions?.simplifier);
+}
+
 function getPriorityPillClass(priority: string): string {
   switch (priority) {
     case "P0":
@@ -195,6 +200,7 @@ export function getDashboardPath(logsDir: string): string {
 export function generateLogHtml(entries: LogEntry[]): string {
   const systemEntry = entries.find((entry) => entry.type === "system") as SystemEntry | undefined;
   const iterations = entries.filter((entry) => entry.type === "iteration") as IterationEntry[];
+  const hasCodeSimplifier = isCodeSimplified(systemEntry);
 
   const header = systemEntry
     ? `
@@ -217,6 +223,7 @@ export function generateLogHtml(entries: LogEntry[]): string {
             <div class="label">Fixer</div>
             <div class="value">${escapeHtml(formatAgent(systemEntry.fixer))}</div>
           </div>
+          ${hasCodeSimplifier ? `<div><span class="status status-has-fixes">Code Simplified</span></div>` : ""}
           <div>
             <div class="label">Max Iterations</div>
             <div class="value">${systemEntry.maxIterations}</div>
@@ -308,6 +315,7 @@ export function generateLogHtml(entries: LogEntry[]): string {
             --muted: #a0b0cc;
             --accent: #f4c34f;
             --accent-2: #f09a3e;
+            --success: #45d49f;
             --error: #ff7b7b;
           }
           * { box-sizing: border-box; }
@@ -336,6 +344,25 @@ export function generateLogHtml(entries: LogEntry[]): string {
           }
           .label { font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
           .value { font-size: 15px; margin-top: 6px; }
+          .status {
+            min-width: 100px;
+            min-height: 28px;
+            padding: 4px 10px;
+            border-radius: 999px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            line-height: 1;
+          }
+          .status-has-fixes {
+            text-align: center;
+            background: rgba(69, 212, 159, 0.18);
+            color: var(--success);
+          }
           .card-title { font-weight: 600; font-size: 18px; margin-bottom: 16px; }
           .iteration-header { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
           .iteration-title { font-weight: 600; font-size: 17px; }
@@ -725,6 +752,22 @@ export function generateDashboardHtml(data: DashboardData): string {
           .stat { background: var(--panel-2); border-radius: 12px; padding: 10px 12px; min-width: 90px; text-align: center; }
           .stat-label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; }
           .stat-value { font-size: 18px; font-weight: 600; margin-top: 4px; }
+          .stat-code-simplified {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+          }
+          .stat-code-simplified .stat-value {
+            margin-top: 0;
+            font-size: 12px;
+            letter-spacing: 0.08em;
+            color: var(--muted);
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            align-items: center;
+            line-height: 1.05;
+          }
           .detail-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
           .panel { background: var(--panel-2); border-radius: 14px; padding: 14px; border: 1px solid transparent; }
           .panel-title { font-size: 13px; text-transform: uppercase; letter-spacing: 0.14em; color: var(--muted); margin-bottom: 10px; }
@@ -1157,19 +1200,8 @@ export function generateDashboardHtml(data: DashboardData): string {
           const getSessionSystemEntry = (session) =>
             session.entries?.find((entry) => entry.type === "system");
 
-          const formatAgentSettings = (settings) => {
-            if (!settings?.agent) return "unknown";
-
-            const details = [];
-            if (settings.provider) details.push(settings.provider);
-            if (settings.model) details.push(settings.model);
-            if (settings.reasoning) details.push(settings.reasoning);
-
-            if (details.length === 0) {
-              return settings.agent;
-            }
-            return \`\${settings.agent} (\${details.join(", ")})\`;
-          };
+          const isCodeSimplified = (systemEntry) =>
+            Boolean(systemEntry?.codeSimplifier || systemEntry?.reviewOptions?.simplifier);
 
           const getPriorityPillClass = (priority) => {
             switch (priority) {
@@ -1282,9 +1314,7 @@ export function generateDashboardHtml(data: DashboardData): string {
             const reviewerDisplay = formatRoleDisplay(reviewerName, reviewerModel, reviewerReasoning);
             const fixerDisplay = formatRoleDisplay(fixerName, fixerModel, fixerReasoning);
             const systemEntry = getSessionSystemEntry(session);
-            const codeSimplifierDisplay = systemEntry?.codeSimplifier
-              ? formatAgentSettings(systemEntry.codeSimplifier)
-              : null;
+            const hasCodeSimplifier = isCodeSimplified(systemEntry);
 
             return \`
               <div class="detail-header">
@@ -1302,14 +1332,14 @@ export function generateDashboardHtml(data: DashboardData): string {
                       <div class="stat-label">Iterations</div>
                       <div class="stat-value">\${numberFormat.format(session.iterations)}</div>
                     </div>
+                    \${hasCodeSimplifier
+                      ? \`<div class="stat stat-code-simplified"><div class="stat-value"><span>CODE</span><span>SIMPLIFIED</span></div></div>\`
+                      : ""}
                   </div>
                   <div class="detail-meta-block">
                     <div class="detail-meta"><span class="detail-meta-label">Duration:</span> \${formatDuration(session.totalDuration)}</div>
                     <div class="detail-meta"><span class="detail-meta-label">Reviewer:</span> \${escapeHtml(reviewerDisplay)}</div>
                     <div class="detail-meta"><span class="detail-meta-label">Fixer:</span> \${escapeHtml(fixerDisplay)}</div>
-                    \${codeSimplifierDisplay
-                      ? \`<div class="detail-meta"><span class="detail-meta-label">Code simplifier:</span> \${escapeHtml(codeSimplifierDisplay)}</div>\`
-                      : ""}
                   </div>
                 </div>
               </div>
