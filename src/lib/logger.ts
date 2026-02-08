@@ -72,11 +72,31 @@ export async function createLogSession(
   return join(logsDir, projectName, filename);
 }
 
+export function getHtmlPath(logPath: string): string {
+  if (logPath.endsWith(".jsonl")) {
+    return `${logPath.slice(0, -".jsonl".length)}.html`;
+  }
+  return `${logPath}.html`;
+}
+
 export function getSummaryPath(logPath: string): string {
   if (logPath.endsWith(LOG_FILE_EXTENSION)) {
     return `${logPath.slice(0, -LOG_FILE_EXTENSION.length)}${SUMMARY_FILE_SUFFIX}`;
   }
   return `${logPath}${SUMMARY_FILE_SUFFIX}`;
+}
+
+export async function deleteSessionFiles(sessionPath: string): Promise<void> {
+  const paths = [sessionPath, getHtmlPath(sessionPath), getSummaryPath(sessionPath)];
+  await Promise.all(
+    paths.map(async (p) => {
+      try {
+        await Bun.file(p).delete();
+      } catch {
+        // Ignore — file may not exist
+      }
+    })
+  );
 }
 
 function parseLogContent(content: string): LogEntry[] {

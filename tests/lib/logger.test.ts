@@ -10,8 +10,10 @@ import {
   computeProjectStats,
   computeSessionStats,
   createLogSession,
+  deleteSessionFiles,
   generateLogFilename,
   getGitBranch,
+  getHtmlPath,
   getProjectName,
   getSummaryPath,
   listLogSessions,
@@ -1347,6 +1349,68 @@ describe("logger", () => {
 
       expect(stats.length).toBe(1);
       expect(stats[0]?.reasoningLevel).toBe("high");
+    });
+  });
+
+  describe("deleteSessionFiles", () => {
+    test("deletes all 3 files when they exist", async () => {
+      const logPath = await createLogSession(tempDir, "/path/to/project", "main");
+
+      const systemEntry: SystemEntry = {
+        type: "system",
+        timestamp: Date.now(),
+        projectPath: "/path/to/project",
+        gitBranch: "main",
+        reviewer: { agent: "codex" },
+        fixer: { agent: "claude" },
+        maxIterations: 5,
+      };
+      await appendLog(logPath, systemEntry);
+
+      // appendLog creates the .jsonl and .summary.json files
+      // Manually create the .html file
+      const htmlPath = getHtmlPath(logPath);
+      await Bun.write(htmlPath, "<html></html>");
+
+      // Verify all 3 files exist
+      expect(await Bun.file(logPath).exists()).toBe(true);
+      expect(await Bun.file(getSummaryPath(logPath)).exists()).toBe(true);
+      expect(await Bun.file(htmlPath).exists()).toBe(true);
+
+      await deleteSessionFiles(logPath);
+
+      expect(await Bun.file(logPath).exists()).toBe(false);
+      expect(await Bun.file(getSummaryPath(logPath)).exists()).toBe(false);
+      expect(await Bun.file(htmlPath).exists()).toBe(false);
+    });
+
+    test("succeeds when some files do not exist", async () => {
+      const logPath = await createLogSession(tempDir, "/path/to/project");
+
+      const systemEntry: SystemEntry = {
+        type: "system",
+        timestamp: Date.now(),
+        projectPath: "/path/to/project",
+        reviewer: { agent: "codex" },
+        fixer: { agent: "claude" },
+        maxIterations: 5,
+      };
+      await appendLog(logPath, systemEntry);
+
+      // Only .jsonl and .summary.json exist, no .html
+      expect(await Bun.file(getHtmlPath(logPath)).exists()).toBe(false);
+
+      await deleteSessionFiles(logPath);
+
+      expect(await Bun.file(logPath).exists()).toBe(false);
+      expect(await Bun.file(getSummaryPath(logPath)).exists()).toBe(false);
+    });
+
+    test("succeeds when no files exist", async () => {
+      const logPath = join(tempDir, "nonexistent", "session.jsonl");
+
+      // Should not throw
+      await deleteSessionFiles(logPath);
     });
   });
 });
