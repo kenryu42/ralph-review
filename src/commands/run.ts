@@ -168,16 +168,33 @@ async function runInBackground(
   // Create lockfile for this project
   await createLockfile(undefined, projectPath, sessionName, branch);
 
-  const maxIterArg = maxIterations ? ` --max ${maxIterations}` : "";
-  const forceArg = force ? " --force" : "";
-  const simplifierArg = simplifier ? " --simplifier" : "";
-  const baseBranchEnv = baseBranch ? ` RR_BASE_BRANCH=${shellEscape(baseBranch)}` : "";
-  const commitShaEnv = commitSha ? ` RR_COMMIT_SHA=${shellEscape(commitSha)}` : "";
-  const customPromptEnv = customInstructions
-    ? ` RR_CUSTOM_PROMPT=${shellEscape(customInstructions)}`
-    : "";
-  const envVars = `RR_PROJECT_PATH=${shellEscape(projectPath)} RR_GIT_BRANCH=${shellEscape(branch ?? "")}${baseBranchEnv}${commitShaEnv}${customPromptEnv}`;
-  const command = `${envVars} ${process.execPath} ${CLI_PATH} _run-foreground${maxIterArg}${forceArg}${simplifierArg}`;
+  const envParts = [
+    `RR_PROJECT_PATH=${shellEscape(projectPath)}`,
+    `RR_GIT_BRANCH=${shellEscape(branch ?? "")}`,
+  ];
+  if (baseBranch) {
+    envParts.push(`RR_BASE_BRANCH=${shellEscape(baseBranch)}`);
+  }
+  if (commitSha) {
+    envParts.push(`RR_COMMIT_SHA=${shellEscape(commitSha)}`);
+  }
+  if (customInstructions) {
+    envParts.push(`RR_CUSTOM_PROMPT=${shellEscape(customInstructions)}`);
+  }
+
+  const commandArgs: string[] = ["_run-foreground"];
+  if (maxIterations) {
+    commandArgs.push("--max", String(maxIterations));
+  }
+  if (force) {
+    commandArgs.push("--force");
+  }
+  if (simplifier) {
+    commandArgs.push("--simplifier");
+  }
+
+  const envVars = envParts.join(" ");
+  const command = `${envVars} ${process.execPath} ${CLI_PATH} ${commandArgs.join(" ")}`;
 
   try {
     await createSession(sessionName, command);
@@ -225,12 +242,8 @@ export async function runForeground(args: string[] = []): Promise<void> {
       if (values.max !== undefined) {
         config.maxIterations = values.max;
       }
-      if (values.force) {
-        forceMaxIterations = true;
-      }
-      if (values.simplifier) {
-        runSimplifier = true;
-      }
+      forceMaxIterations = values.force === true;
+      runSimplifier = values.simplifier === true;
     } catch {
       // Ignore parse errors for internal command
     }

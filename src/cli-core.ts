@@ -1,4 +1,15 @@
-import { type CommandDef, formatCommandHelp, formatMainHelp } from "./lib/cli-parser";
+import {
+  type CommandDef,
+  formatCommandHelp,
+  formatMainHelp,
+  type OptionDef,
+} from "./lib/cli-parser";
+
+const SIMPLIFIER_OPTION: OptionDef = {
+  name: "simplifier",
+  type: "boolean",
+  description: "Run one code simplifier phase before review iterations",
+};
 
 export const COMMANDS: CommandDef[] = [
   {
@@ -40,11 +51,7 @@ export const COMMANDS: CommandDef[] = [
         placeholder: "PROMPT",
         description: "Custom review instructions",
       },
-      {
-        name: "simplifier",
-        type: "boolean",
-        description: "Run one code simplifier phase before review iterations",
-      },
+      SIMPLIFIER_OPTION,
     ],
     examples: ["rr run", "rr run --base main"],
   },
@@ -104,11 +111,7 @@ export const COMMANDS: CommandDef[] = [
         type: "boolean",
         description: "Run full max iterations even if stop_iteration is true",
       },
-      {
-        name: "simplifier",
-        type: "boolean",
-        description: "Run one code simplifier phase before review iterations",
-      },
+      SIMPLIFIER_OPTION,
     ],
   },
 ];
