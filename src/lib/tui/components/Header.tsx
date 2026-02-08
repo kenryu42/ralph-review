@@ -42,11 +42,11 @@ export function Header({ branch, elapsed, session, projectPath, config }: Header
   const reviewer = config ? getAgentDisplayInfo(config.reviewer) : null;
   const fixer = config ? getAgentDisplayInfo(config.fixer) : null;
   const reviewerDisplay = reviewer
-    ? `${reviewer.agentName} (${reviewer.modelName}, reasoning: ${reviewer.reasoning})`
-    : "Unknown (Default, reasoning: Default)";
+    ? `${reviewer.agentName} (${reviewer.modelName} • ${reviewer.reasoning})`
+    : "Unknown (Default, Default)";
   const fixerDisplay = fixer
-    ? `${fixer.agentName} (${fixer.modelName}, reasoning: ${fixer.reasoning})`
-    : "Unknown (Default, reasoning: Default)";
+    ? `${fixer.agentName} (${fixer.modelName} • ${fixer.reasoning})`
+    : "Unknown (Default, Default)";
 
   return (
     <box
