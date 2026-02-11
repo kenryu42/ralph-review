@@ -180,6 +180,67 @@ describe("init command", () => {
       expect(config.fixer.reasoning).toBe("high");
     });
 
+    test("uses reviewer config for simplifier when reviewer mode is selected", () => {
+      const config = buildConfig({
+        reviewerAgent: "codex",
+        reviewerModel: "gpt-5.2-codex",
+        fixerAgent: "claude",
+        fixerModel: "claude-sonnet-4-5",
+        simplifierMode: "reviewer",
+        maxIterations: 4,
+        iterationTimeoutMinutes: 20,
+        defaultReviewType: "uncommitted",
+      });
+
+      expect(config["code-simplifier"]).toBeUndefined();
+    });
+
+    test("stores custom simplifier settings for non-pi agents", () => {
+      const config = buildConfig({
+        reviewerAgent: "codex",
+        reviewerModel: "gpt-5.2-codex",
+        fixerAgent: "claude",
+        fixerModel: "claude-sonnet-4-5",
+        simplifierMode: "custom",
+        simplifierAgent: "droid",
+        simplifierModel: "gpt-5.2-codex",
+        simplifierReasoning: "xhigh",
+        maxIterations: 4,
+        iterationTimeoutMinutes: 20,
+        defaultReviewType: "uncommitted",
+      });
+
+      expect(config["code-simplifier"]).toEqual({
+        agent: "droid",
+        model: "gpt-5.2-codex",
+        reasoning: "xhigh",
+      });
+    });
+
+    test("stores custom simplifier settings for pi", () => {
+      const config = buildConfig({
+        reviewerAgent: "codex",
+        reviewerModel: "gpt-5.2-codex",
+        fixerAgent: "claude",
+        fixerModel: "claude-sonnet-4-5",
+        simplifierMode: "custom",
+        simplifierAgent: "pi",
+        simplifierModel: "claude-sonnet-4-5",
+        simplifierProvider: "anthropic",
+        simplifierReasoning: "medium",
+        maxIterations: 4,
+        iterationTimeoutMinutes: 20,
+        defaultReviewType: "uncommitted",
+      });
+
+      expect(config["code-simplifier"]).toEqual({
+        agent: "pi",
+        provider: "anthropic",
+        model: "claude-sonnet-4-5",
+        reasoning: "medium",
+      });
+    });
+
     test("creates config with base branch default review", () => {
       const config = buildConfig({
         reviewerAgent: "codex",

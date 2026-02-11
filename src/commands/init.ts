@@ -54,6 +54,11 @@ interface InitInput {
   fixerModel: string;
   fixerProvider?: string;
   fixerReasoning?: ReasoningLevel;
+  simplifierMode?: "reviewer" | "custom";
+  simplifierAgent?: string;
+  simplifierModel?: string;
+  simplifierProvider?: string;
+  simplifierReasoning?: ReasoningLevel;
   maxIterations: number;
   iterationTimeoutMinutes: number;
   defaultReviewType: string;
@@ -86,7 +91,7 @@ export function buildConfig(input: InitInput): Config {
       ? { type: "base", branch: input.defaultReviewBranch }
       : { type: "uncommitted" };
 
-  return {
+  const config: Config = {
     reviewer: createAgentSettings(
       input.reviewerAgent,
       input.reviewerModel,
@@ -103,6 +108,21 @@ export function buildConfig(input: InitInput): Config {
     iterationTimeout: input.iterationTimeoutMinutes * 60 * 1000,
     defaultReview,
   };
+
+  if (input.simplifierMode === "custom") {
+    if (!input.simplifierAgent || input.simplifierModel === undefined) {
+      throw new Error("Custom code simplifier settings require agent and model");
+    }
+
+    config["code-simplifier"] = createAgentSettings(
+      input.simplifierAgent,
+      input.simplifierModel,
+      input.simplifierProvider,
+      input.simplifierReasoning
+    );
+  }
+
+  return config;
 }
 
 function buildAgentSelectOptions(availability: AgentAvailability) {
@@ -230,10 +250,12 @@ function selectReasoningInitialValue(levels: ReasoningLevel[]): ReasoningLevel {
   return levels.includes("high") ? "high" : (levels[0] ?? "high");
 }
 
+type ConfiguredRole = "reviewer" | "fixer" | "code-simplifier";
+
 async function promptForReasoning(
   agent: string,
   model: string,
-  role: "reviewer" | "fixer"
+  role: ConfiguredRole
 ): Promise<ReasoningLevel | undefined> {
   if (!isAgentType(agent)) {
     return undefined;
@@ -277,7 +299,7 @@ function decodePiSelection(value: string): { provider: string; model: string } |
   }
 }
 
-async function promptForModel(agent: string, role: "reviewer" | "fixer"): Promise<ModelSelection> {
+async function promptForModel(agent: string, role: ConfiguredRole): Promise<ModelSelection> {
   const staticOptions = modelOptionsMap[agent];
 
   if (staticOptions) {
@@ -366,22 +388,27 @@ async function promptForModel(agent: string, role: "reviewer" | "fixer"): Promis
   return { model: model as string };
 }
 
+function formatAgentModel(settings: AgentSettings): string {
+  if (settings.agent === "pi") {
+    return `${settings.provider}/${settings.model}`;
+  }
+
+  return settings.model ? getModelDisplayName(settings.agent, settings.model) : "Default";
+}
+
 function formatConfigDisplay(config: Config): string {
   const reviewerName = getAgentDisplayName(config.reviewer.agent);
   const fixerName = getAgentDisplayName(config.fixer.agent);
+  const simplifierSettings = config["code-simplifier"];
 
-  const reviewerModel =
-    config.reviewer.agent === "pi"
-      ? `${config.reviewer.provider}/${config.reviewer.model}`
-      : config.reviewer.model
-        ? getModelDisplayName(config.reviewer.agent, config.reviewer.model)
-        : "Default";
-  const fixerModel =
-    config.fixer.agent === "pi"
-      ? `${config.fixer.provider}/${config.fixer.model}`
-      : config.fixer.model
-        ? getModelDisplayName(config.fixer.agent, config.fixer.model)
-        : "Default";
+  const reviewerModel = formatAgentModel(config.reviewer);
+  const fixerModel = formatAgentModel(config.fixer);
+  const simplifierName = simplifierSettings
+    ? getAgentDisplayName(simplifierSettings.agent)
+    : "Reviewer config";
+  const simplifierModel = simplifierSettings
+    ? formatAgentModel(simplifierSettings)
+    : "inherits reviewer settings";
 
   const defaultReviewDisplay =
     config.defaultReview.type === "base"
@@ -389,12 +416,18 @@ function formatConfigDisplay(config: Config): string {
       : "uncommitted changes";
   const reviewerReasoning = config.reviewer.reasoning ?? "Default";
   const fixerReasoning = config.fixer.reasoning ?? "Default";
+  const simplifierReasoning = simplifierSettings?.reasoning ?? "Default";
+  const simplifierModelReasoning = simplifierSettings
+    ? `${simplifierModel}, ${simplifierReasoning}`
+    : simplifierModel;
 
   return [
     `  Reviewer:            ${reviewerName}`,
     `  Reviewer model:      ${reviewerModel}, ${reviewerReasoning}`,
     `  Fixer:               ${fixerName}`,
     `  Fixer model:         ${fixerModel}, ${fixerReasoning}`,
+    `  Simplifier:          ${simplifierName}`,
+    `  Simplifier model:    ${simplifierModelReasoning}`,
     `  Max iterations:      ${config.maxIterations}`,
     `  Iteration timeout:   ${config.iterationTimeout / 1000 / 60} minutes`,
     `  Default review:      ${defaultReviewDisplay}`,
@@ -472,6 +505,46 @@ export async function runInit(): Promise<void> {
     "fixer"
   );
 
+  const simplifierMode = await p.select({
+    message: "Code simplifier configuration",
+    options: [
+      {
+        value: "reviewer",
+        label: "Use reviewer config",
+      },
+      {
+        value: "custom",
+        label: "Set up custom config",
+        hint: "choose a separate agent and model",
+      },
+    ],
+    initialValue: "reviewer",
+  });
+  handleCancel(simplifierMode);
+
+  let simplifierAgent: string | undefined;
+  let simplifierModel: string | undefined;
+  let simplifierProvider: string | undefined;
+  let simplifierReasoning: ReasoningLevel | undefined;
+
+  if (simplifierMode === "custom") {
+    const customSimplifierAgent = await p.select({
+      message: "Select code simplifier agent",
+      options: selectOptions,
+    });
+    handleCancel(customSimplifierAgent);
+
+    simplifierAgent = customSimplifierAgent as string;
+    const simplifierSelection = await promptForModel(simplifierAgent, "code-simplifier");
+    simplifierModel = simplifierSelection.model;
+    simplifierProvider = simplifierSelection.provider;
+    simplifierReasoning = await promptForReasoning(
+      simplifierAgent,
+      simplifierSelection.model,
+      "code-simplifier"
+    );
+  }
+
   const maxIterationsStr = await p.text({
     message: `Maximum iterations (default: ${DEFAULT_CONFIG.maxIterations ?? 5})`,
     placeholder: "Press enter for default",
@@ -538,6 +611,11 @@ export async function runInit(): Promise<void> {
     fixerModel: fixerSelection.model,
     fixerProvider: fixerSelection.provider,
     fixerReasoning,
+    simplifierMode: simplifierMode as "reviewer" | "custom",
+    simplifierAgent,
+    simplifierModel,
+    simplifierProvider,
+    simplifierReasoning,
     maxIterations: Number.parseInt(maxIterationsStr as string, 10),
     iterationTimeoutMinutes: Number.parseInt(iterationTimeoutStr as string, 10),
     defaultReviewType: defaultReviewType as string,
