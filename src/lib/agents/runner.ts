@@ -1,6 +1,18 @@
-import type { AgentRole, Config, IterationResult, ReviewOptions } from "@/lib/types";
+import type { AgentRole, AgentSettings, Config, IterationResult, ReviewOptions } from "@/lib/types";
 import { streamAndCapture } from "./core";
 import { AGENTS } from "./registry";
+
+export function resolveAgentSettings(role: AgentRole, config: Config): AgentSettings {
+  if (role === "fixer") {
+    return config.fixer;
+  }
+
+  if (role === "code-simplifier") {
+    return config["code-simplifier"] ?? config.reviewer;
+  }
+
+  return config.reviewer;
+}
 
 export async function runAgent(
   role: AgentRole,
@@ -10,8 +22,7 @@ export async function runAgent(
   reviewOptions?: ReviewOptions
 ): Promise<IterationResult> {
   const startTime = Date.now();
-  // Code simplifier intentionally reuses reviewer's agent+model settings.
-  const agentSettings = role === "fixer" ? config.fixer : config.reviewer;
+  const agentSettings = resolveAgentSettings(role, config);
   const agentModule = AGENTS[agentSettings.agent];
 
   const command = agentModule.config.command;
