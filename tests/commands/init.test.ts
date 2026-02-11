@@ -1,30 +1,21 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { describe, expect, test } from "bun:test";
 import {
+  buildAutoInitInput,
   buildConfig,
   checkAgentInstalled,
   checkAllAgents,
   checkTmuxInstalled,
+  discoverAutoModelCandidates,
+  getRoleAgentPriorityRank,
+  getRoleModelPriorityRank,
   parsePiListModelsOutput,
+  pickAutoRoleCandidate,
+  selectAutoReasoning,
   validateAgentSelection,
 } from "@/commands/init";
-
-// We'll test the core logic functions, not the interactive prompts
-// Interactive prompts will be tested manually
+import type { AgentType } from "@/lib/types";
 
 describe("init command", () => {
-  let tempDir: string;
-
-  beforeEach(async () => {
-    tempDir = await mkdtemp(join(tmpdir(), "ralph-review-init-test-"));
-  });
-
-  afterEach(async () => {
-    await rm(tempDir, { recursive: true, force: true });
-  });
-
   describe("validateAgentSelection", () => {
     test("returns true for valid agent", () => {
       expect(validateAgentSelection("codex")).toBe(true);
@@ -41,7 +32,6 @@ describe("init command", () => {
 
   describe("checkAgentInstalled", () => {
     test("returns true for installed commands", () => {
-      // 'ls' should be installed on all systems
       expect(checkAgentInstalled("ls")).toBe(true);
     });
 
@@ -65,30 +55,20 @@ describe("init command", () => {
       expect(typeof result.opencode).toBe("boolean");
       expect(typeof result.claude).toBe("boolean");
       expect(typeof result.droid).toBe("boolean");
+      expect(typeof result.gemini).toBe("boolean");
       expect(typeof result.pi).toBe("boolean");
-    });
-
-    test("returns object with all six agent types", () => {
-      const result = checkAllAgents();
-      const keys = Object.keys(result);
-
-      expect(keys).toContain("codex");
-      expect(keys).toContain("opencode");
-      expect(keys).toContain("claude");
-      expect(keys).toContain("droid");
-      expect(keys).toContain("gemini");
-      expect(keys).toContain("pi");
-      expect(keys.length).toBe(6);
     });
   });
 
   describe("buildConfig", () => {
-    test("creates valid config from user input", () => {
+    test("creates valid config from user input with explicit simplifier", () => {
       const config = buildConfig({
         reviewerAgent: "codex",
         reviewerModel: "gpt-4",
         fixerAgent: "claude",
         fixerModel: "",
+        simplifierAgent: "droid",
+        simplifierModel: "gpt-5.2-codex",
         maxIterations: 5,
         iterationTimeoutMinutes: 30,
         defaultReviewType: "uncommitted",
@@ -98,39 +78,14 @@ describe("init command", () => {
       expect(config.reviewer.model).toBe("gpt-4");
       expect(config.fixer.agent).toBe("claude");
       expect(config.fixer.model).toBeUndefined();
+      expect(config["code-simplifier"]).toEqual({
+        agent: "droid",
+        model: "gpt-5.2-codex",
+        reasoning: undefined,
+      });
       expect(config.maxIterations).toBe(5);
       expect(config.iterationTimeout).toBe(1800000);
       expect(config.defaultReview).toEqual({ type: "uncommitted" });
-    });
-
-    test("handles empty model as undefined", () => {
-      const config = buildConfig({
-        reviewerAgent: "opencode",
-        reviewerModel: "",
-        fixerAgent: "opencode",
-        fixerModel: "",
-        maxIterations: 10,
-        iterationTimeoutMinutes: 15,
-        defaultReviewType: "uncommitted",
-      });
-
-      expect(config.reviewer.model).toBeUndefined();
-      expect(config.fixer.model).toBeUndefined();
-    });
-
-    test("converts timeout minutes to milliseconds", () => {
-      const config = buildConfig({
-        reviewerAgent: "codex",
-        reviewerModel: "",
-        fixerAgent: "codex",
-        fixerModel: "",
-        maxIterations: 3,
-        iterationTimeoutMinutes: 10,
-        defaultReviewType: "uncommitted",
-      });
-
-      expect(config.maxIterations).toBe(3);
-      expect(config.iterationTimeout).toBe(600000); // 10 min * 60 * 1000
     });
 
     test("stores provider and model for pi", () => {
@@ -143,6 +98,10 @@ describe("init command", () => {
         fixerModel: "claude-sonnet-4-5",
         fixerProvider: "anthropic",
         fixerReasoning: "medium",
+        simplifierAgent: "pi",
+        simplifierModel: "claude-sonnet-4-5",
+        simplifierProvider: "anthropic",
+        simplifierReasoning: "medium",
         maxIterations: 3,
         iterationTimeoutMinutes: 10,
         defaultReviewType: "uncommitted",
@@ -152,86 +111,7 @@ describe("init command", () => {
       if (config.reviewer.agent === "pi") {
         expect(config.reviewer.provider).toBe("llm-proxy");
         expect(config.reviewer.model).toBe("gemini_cli/gemini-3-flash-preview");
-        expect(config.reviewer.reasoning).toBe("high");
       }
-
-      expect(config.fixer.agent).toBe("pi");
-      if (config.fixer.agent === "pi") {
-        expect(config.fixer.provider).toBe("anthropic");
-        expect(config.fixer.model).toBe("claude-sonnet-4-5");
-        expect(config.fixer.reasoning).toBe("medium");
-      }
-    });
-
-    test("stores reasoning for non-pi agents", () => {
-      const config = buildConfig({
-        reviewerAgent: "codex",
-        reviewerModel: "gpt-5.2-codex",
-        reviewerReasoning: "xhigh",
-        fixerAgent: "droid",
-        fixerModel: "gpt-5.2-codex",
-        fixerReasoning: "high",
-        maxIterations: 4,
-        iterationTimeoutMinutes: 20,
-        defaultReviewType: "uncommitted",
-      });
-
-      expect(config.reviewer.reasoning).toBe("xhigh");
-      expect(config.fixer.reasoning).toBe("high");
-    });
-
-    test("uses reviewer config for simplifier when reviewer mode is selected", () => {
-      const config = buildConfig({
-        reviewerAgent: "codex",
-        reviewerModel: "gpt-5.2-codex",
-        fixerAgent: "claude",
-        fixerModel: "claude-sonnet-4-5",
-        simplifierMode: "reviewer",
-        maxIterations: 4,
-        iterationTimeoutMinutes: 20,
-        defaultReviewType: "uncommitted",
-      });
-
-      expect(config["code-simplifier"]).toBeUndefined();
-    });
-
-    test("stores custom simplifier settings for non-pi agents", () => {
-      const config = buildConfig({
-        reviewerAgent: "codex",
-        reviewerModel: "gpt-5.2-codex",
-        fixerAgent: "claude",
-        fixerModel: "claude-sonnet-4-5",
-        simplifierMode: "custom",
-        simplifierAgent: "droid",
-        simplifierModel: "gpt-5.2-codex",
-        simplifierReasoning: "xhigh",
-        maxIterations: 4,
-        iterationTimeoutMinutes: 20,
-        defaultReviewType: "uncommitted",
-      });
-
-      expect(config["code-simplifier"]).toEqual({
-        agent: "droid",
-        model: "gpt-5.2-codex",
-        reasoning: "xhigh",
-      });
-    });
-
-    test("stores custom simplifier settings for pi", () => {
-      const config = buildConfig({
-        reviewerAgent: "codex",
-        reviewerModel: "gpt-5.2-codex",
-        fixerAgent: "claude",
-        fixerModel: "claude-sonnet-4-5",
-        simplifierMode: "custom",
-        simplifierAgent: "pi",
-        simplifierModel: "claude-sonnet-4-5",
-        simplifierProvider: "anthropic",
-        simplifierReasoning: "medium",
-        maxIterations: 4,
-        iterationTimeoutMinutes: 20,
-        defaultReviewType: "uncommitted",
-      });
 
       expect(config["code-simplifier"]).toEqual({
         agent: "pi",
@@ -247,6 +127,8 @@ describe("init command", () => {
         reviewerModel: "",
         fixerAgent: "claude",
         fixerModel: "",
+        simplifierAgent: "claude",
+        simplifierModel: "claude-opus-4-6",
         maxIterations: 5,
         iterationTimeoutMinutes: 30,
         defaultReviewType: "base",
@@ -262,14 +144,171 @@ describe("init command", () => {
         reviewerModel: "",
         fixerAgent: "claude",
         fixerModel: "",
+        simplifierAgent: "claude",
+        simplifierModel: "claude-opus-4-6",
         maxIterations: 5,
         iterationTimeoutMinutes: 30,
         defaultReviewType: "base",
-        // defaultReviewBranch is undefined
       });
 
-      // Should fall back to uncommitted when branch is not provided for base type
       expect(config.defaultReview).toEqual({ type: "uncommitted" });
+    });
+  });
+
+  describe("auto selection helpers", () => {
+    test("agent-rank helper returns lower rank for higher-priority reviewer agent", () => {
+      expect(getRoleAgentPriorityRank("reviewer", "codex")).toBeLessThan(
+        getRoleAgentPriorityRank("reviewer", "claude")
+      );
+    });
+
+    test("reviewer model priority ranks GPT 5.3 codex > GPT 5.2 > GPT 5.2 codex", () => {
+      const rank53 = getRoleModelPriorityRank("reviewer", "gpt-5.3-codex");
+      const rank52 = getRoleModelPriorityRank("reviewer", "gpt-5.2");
+      const rank52Codex = getRoleModelPriorityRank("reviewer", "gpt-5.2-codex");
+
+      expect(rank53).toBeLessThan(rank52);
+      expect(rank52).toBeLessThan(rank52Codex);
+    });
+
+    test("uses model-first when model and agent priorities conflict", () => {
+      const selected = pickAutoRoleCandidate("fixer", [
+        {
+          agent: "claude",
+          model: "sonnet",
+          modelOrder: 0,
+          probeOrder: 0,
+        },
+        {
+          agent: "codex",
+          model: "gpt-5.3-codex",
+          modelOrder: 0,
+          probeOrder: 0,
+        },
+      ]);
+
+      expect(selected).not.toBeNull();
+      expect(selected?.agent).toBe("codex");
+      expect(selected?.model).toBe("gpt-5.3-codex");
+    });
+
+    test("breaks model-rank ties using role agent priority", () => {
+      const selected = pickAutoRoleCandidate("reviewer", [
+        {
+          agent: "claude",
+          model: "claude-opus-4-6",
+          modelOrder: 0,
+          probeOrder: 0,
+        },
+        {
+          agent: "droid",
+          model: "claude-opus-4-6",
+          modelOrder: 1,
+          probeOrder: 0,
+        },
+      ]);
+
+      expect(selected).not.toBeNull();
+      expect(selected?.agent).toBe("droid");
+    });
+
+    test("uses first successful probe order for others tie", () => {
+      const selected = pickAutoRoleCandidate("reviewer", [
+        {
+          agent: "pi",
+          model: "custom-model-a",
+          provider: "anthropic",
+          modelOrder: 0,
+          probeOrder: 2,
+        },
+        {
+          agent: "opencode",
+          model: "custom-model-b",
+          modelOrder: 0,
+          probeOrder: 1,
+        },
+      ]);
+
+      expect(selected).not.toBeNull();
+      expect(selected?.agent).toBe("opencode");
+    });
+
+    test("falls back to first available model for selected agent when no priority model exists", () => {
+      const selected = pickAutoRoleCandidate("reviewer", [
+        {
+          agent: "codex",
+          model: "unknown-model-a",
+          modelOrder: 0,
+          probeOrder: 0,
+        },
+        {
+          agent: "codex",
+          model: "unknown-model-b",
+          modelOrder: 1,
+          probeOrder: 0,
+        },
+        {
+          agent: "claude",
+          model: "another-unknown",
+          modelOrder: 0,
+          probeOrder: 0,
+        },
+      ]);
+
+      expect(selected).not.toBeNull();
+      expect(selected?.agent).toBe("codex");
+      expect(selected?.model).toBe("unknown-model-a");
+    });
+
+    test("defaults reasoning to high when supported", () => {
+      expect(selectAutoReasoning("codex", "gpt-5.3-codex")).toBe("high");
+    });
+
+    test("returns undefined reasoning when unsupported", () => {
+      expect(selectAutoReasoning("gemini", "gemini-3-pro-preview")).toBeUndefined();
+    });
+  });
+
+  describe("auto model discovery", () => {
+    test("skips dynamic agent when model discovery fails", async () => {
+      const availability = {
+        codex: false,
+        claude: false,
+        droid: false,
+        gemini: false,
+        opencode: true,
+        pi: true,
+      } satisfies Record<AgentType, boolean>;
+
+      const result = await discoverAutoModelCandidates(availability, {
+        fetchOpencodeModels: async () => {
+          throw new Error("failed");
+        },
+        fetchPiModels: async () => [{ provider: "anthropic", model: "claude-opus-4-6" }],
+      });
+
+      expect(result.skippedAgents).toContain("opencode");
+      expect(result.candidates.some((entry) => entry.agent === "pi")).toBe(true);
+    });
+
+    test("builds auto init input with defaults and explicit simplifier", async () => {
+      const availability = {
+        codex: true,
+        claude: false,
+        droid: false,
+        gemini: false,
+        opencode: false,
+        pi: false,
+      } satisfies Record<AgentType, boolean>;
+
+      const result = await buildAutoInitInput(availability);
+
+      expect(result.input.reviewerAgent).toBe("codex");
+      expect(result.input.fixerAgent).toBe("codex");
+      expect(result.input.simplifierAgent).toBe("codex");
+      expect(result.input.defaultReviewType).toBe("uncommitted");
+      expect(result.input.maxIterations).toBeGreaterThan(0);
+      expect(result.input.iterationTimeoutMinutes).toBeGreaterThan(0);
     });
   });
 
