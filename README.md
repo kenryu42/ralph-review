@@ -59,17 +59,21 @@ npm uninstall -g ralph-review
 ### Initial Setup
 
 ```bash
-# Configure your reviewer and fixer agents
+# Configure your reviewer, fixer, and simplifier agents
 rr init
 ```
 
-You'll be prompted to select:
-- **Reviewer agent**: Which AI to use for code review
-- **Reviewer reasoning**: Reasoning level for supported reviewer selections
-- **Fixer agent**: Which AI to use for fixing issues
-- **Fixer reasoning**: Reasoning level for supported fixer selections
+`rr init` starts with a setup mode choice:
+- **Auto Setup (recommended)**: Detects installed agents/models and creates a full config automatically.
+- **Customize Setup**: Prompts for reviewer, fixer, and code simplifier settings in detail.
 
-`rr init` only asks for reasoning level when the selected agent/model supports it.
+Auto setup defaults:
+- `maxIterations`: current `DEFAULT_CONFIG.maxIterations` (fallback `5`)
+- `iterationTimeout`: current `DEFAULT_CONFIG.iterationTimeout` (fallback `30` minutes)
+- `defaultReview`: `uncommitted`
+
+Both setup modes show the proposed config and ask for confirmation before saving.
+Reasoning is only prompted for selections that support reasoning.
 
 ### Running Reviews
 
@@ -128,8 +132,13 @@ Configuration is stored at `~/.config/ralph-review/config.json`:
     "model": "gpt-5.2-codex",
     "reasoning": "high"
   },
-  "maxIterations": 10,
-  "iterationTimeout": 600000,
+  "code-simplifier": {
+    "agent": "claude",
+    "model": "claude-opus-4-6",
+    "reasoning": "high"
+  },
+  "maxIterations": 5,
+  "iterationTimeout": 1800000,
   "defaultReview": {
     "type": "uncommitted"
   }
@@ -140,7 +149,7 @@ Configuration is stored at `~/.config/ralph-review/config.json`:
 
 | Command | Description |
 |---------|-------------|
-| `rr init` | Configure agents |
+| `rr init` | Configure reviewer/fixer/simplifier (auto or custom) |
 | `rr run` | Start background review cycle |
 | `rr status` | Show current status |
 | `rr stop` | Graceful stop |
