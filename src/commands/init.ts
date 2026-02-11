@@ -22,6 +22,99 @@ import { isAgentType } from "@/lib/types";
 
 export type AgentAvailability = Record<AgentType, boolean>;
 
+type ConfiguredRole = "reviewer" | "fixer" | "code-simplifier";
+
+interface InitInput {
+  reviewerAgent: AgentType;
+  reviewerModel: string;
+  reviewerProvider?: string;
+  reviewerReasoning?: ReasoningLevel;
+  fixerAgent: AgentType;
+  fixerModel: string;
+  fixerProvider?: string;
+  fixerReasoning?: ReasoningLevel;
+  simplifierAgent: AgentType;
+  simplifierModel: string;
+  simplifierProvider?: string;
+  simplifierReasoning?: ReasoningLevel;
+  maxIterations: number;
+  iterationTimeoutMinutes: number;
+  defaultReviewType: "uncommitted" | "base";
+  defaultReviewBranch?: string;
+}
+
+interface ModelSelection {
+  model: string;
+  provider?: string;
+}
+
+interface RoleAgentSelection {
+  agent: AgentType;
+  model: string;
+  provider?: string;
+  reasoning?: ReasoningLevel;
+}
+
+export interface AutoModelCandidate {
+  agent: AgentType;
+  model: string;
+  provider?: string;
+  modelOrder: number;
+  probeOrder: number;
+}
+
+export interface AutoSelectionDependencies {
+  fetchOpencodeModels?: () => Promise<{ value: string; label: string }[]>;
+  fetchPiModels?: () => Promise<{ provider: string; model: string }[]>;
+}
+
+export interface AutoModelDiscoveryResult {
+  candidates: AutoModelCandidate[];
+  skippedAgents: AgentType[];
+}
+
+export interface AutoInitInputResult {
+  input: InitInput;
+  skippedAgents: AgentType[];
+}
+
+const DEFAULT_MAX_ITERATIONS = 5;
+const DEFAULT_ITERATION_TIMEOUT_MINUTES = 30;
+
+const REVIEWER_AGENT_PRIORITY: readonly AgentType[] = ["codex", "droid", "claude", "gemini"];
+const FIXER_AGENT_PRIORITY: readonly AgentType[] = ["claude", "codex", "droid", "gemini"];
+const SIMPLIFIER_AGENT_PRIORITY: readonly AgentType[] = ["claude", "codex", "droid", "gemini"];
+
+const MODEL_PRIORITY_MATCHERS: Record<ConfiguredRole, readonly ((model: string) => boolean)[]> = {
+  reviewer: [
+    (model) => matchesModelId(model, "gpt-5.3-codex"),
+    (model) => matchesModelId(model, "gpt-5.2"),
+    (model) => matchesModelId(model, "gpt-5.2-codex"),
+    (model) => matchesModelId(model, "claude-opus-4-6"),
+    (model) => matchesModelId(model, "gemini-3-pro-preview"),
+  ],
+  fixer: [
+    (model) => matchesModelId(model, "claude-opus-4-6"),
+    (model) => matchesModelId(model, "gpt-5.3-codex"),
+    (model) => matchesModelId(model, "gemini-3-pro-preview"),
+  ],
+  "code-simplifier": [
+    (model) => matchesModelId(model, "claude-opus-4-6"),
+    (model) => matchesModelId(model, "gpt-5.3-codex"),
+    (model) => isClaudeOpus45Model(model),
+    (model) => matchesModelId(model, "gpt-5.2-codex"),
+  ],
+};
+
+const modelOptionsMap: Record<Exclude<AgentType, "opencode" | "pi">, readonly ModelOption[]> = {
+  claude: claudeModelOptions,
+  codex: codexModelOptions,
+  droid: droidModelOptions,
+  gemini: geminiModelOptions,
+};
+
+type ModelOption = { value: string; label: string };
+
 export function validateAgentSelection(value: string): boolean {
   return isAgentType(value);
 }
@@ -45,28 +138,8 @@ export function checkAllAgents(): AgentAvailability {
   };
 }
 
-interface InitInput {
-  reviewerAgent: string;
-  reviewerModel: string;
-  reviewerProvider?: string;
-  reviewerReasoning?: ReasoningLevel;
-  fixerAgent: string;
-  fixerModel: string;
-  fixerProvider?: string;
-  fixerReasoning?: ReasoningLevel;
-  simplifierMode?: "reviewer" | "custom";
-  simplifierAgent?: string;
-  simplifierModel?: string;
-  simplifierProvider?: string;
-  simplifierReasoning?: ReasoningLevel;
-  maxIterations: number;
-  iterationTimeoutMinutes: number;
-  defaultReviewType: string;
-  defaultReviewBranch?: string;
-}
-
 function createAgentSettings(
-  agent: string,
+  agent: AgentType,
   model: string,
   provider?: string,
   reasoning?: ReasoningLevel
@@ -79,7 +152,7 @@ function createAgentSettings(
   }
 
   return {
-    agent: agent as Exclude<AgentType, "pi">,
+    agent,
     model: model || undefined,
     reasoning,
   };
@@ -91,7 +164,7 @@ export function buildConfig(input: InitInput): Config {
       ? { type: "base", branch: input.defaultReviewBranch }
       : { type: "uncommitted" };
 
-  const config: Config = {
+  return {
     reviewer: createAgentSettings(
       input.reviewerAgent,
       input.reviewerModel,
@@ -104,25 +177,16 @@ export function buildConfig(input: InitInput): Config {
       input.fixerProvider,
       input.fixerReasoning
     ),
-    maxIterations: input.maxIterations,
-    iterationTimeout: input.iterationTimeoutMinutes * 60 * 1000,
-    defaultReview,
-  };
-
-  if (input.simplifierMode === "custom") {
-    if (!input.simplifierAgent || input.simplifierModel === undefined) {
-      throw new Error("Custom code simplifier settings require agent and model");
-    }
-
-    config["code-simplifier"] = createAgentSettings(
+    "code-simplifier": createAgentSettings(
       input.simplifierAgent,
       input.simplifierModel,
       input.simplifierProvider,
       input.simplifierReasoning
-    );
-  }
-
-  return config;
+    ),
+    maxIterations: input.maxIterations,
+    iterationTimeout: input.iterationTimeoutMinutes * 60 * 1000,
+    defaultReview,
+  };
 }
 
 function buildAgentSelectOptions(availability: AgentAvailability) {
@@ -227,40 +291,22 @@ async function fetchPiModels(): Promise<{ provider: string; model: string }[]> {
   return cachedPiModels;
 }
 
-function handleCancel(value: unknown): asserts value is string {
+function handleCancel(value: unknown): void {
   if (p.isCancel(value)) {
     p.cancel("Setup cancelled.");
     process.exit(0);
   }
 }
 
-const modelOptionsMap: Record<string, readonly { value: string; label: string }[]> = {
-  claude: claudeModelOptions,
-  codex: codexModelOptions,
-  droid: droidModelOptions,
-  gemini: geminiModelOptions,
-};
-
-interface ModelSelection {
-  model: string;
-  provider?: string;
-}
-
 function selectReasoningInitialValue(levels: ReasoningLevel[]): ReasoningLevel {
   return levels.includes("high") ? "high" : (levels[0] ?? "high");
 }
 
-type ConfiguredRole = "reviewer" | "fixer" | "code-simplifier";
-
 async function promptForReasoning(
-  agent: string,
+  agent: AgentType,
   model: string,
   role: ConfiguredRole
 ): Promise<ReasoningLevel | undefined> {
-  if (!isAgentType(agent)) {
-    return undefined;
-  }
-
   const levels = getReasoningOptions(agent, model);
   if (levels.length === 0) {
     return undefined;
@@ -299,8 +345,11 @@ function decodePiSelection(value: string): { provider: string; model: string } |
   }
 }
 
-async function promptForModel(agent: string, role: ConfiguredRole): Promise<ModelSelection> {
-  const staticOptions = modelOptionsMap[agent];
+async function promptForModel(agent: AgentType, role: ConfiguredRole): Promise<ModelSelection> {
+  const staticOptions =
+    agent === "opencode" || agent === "pi"
+      ? undefined
+      : modelOptionsMap[agent as keyof typeof modelOptionsMap];
 
   if (staticOptions) {
     const model = await p.select({
@@ -335,57 +384,47 @@ async function promptForModel(agent: string, role: ConfiguredRole): Promise<Mode
     return { model: model as string };
   }
 
-  if (agent === "pi") {
-    let piModels: { provider: string; model: string }[];
+  let piModels: { provider: string; model: string }[];
 
-    if (cachedPiModels) {
-      piModels = cachedPiModels;
-    } else {
-      const spinner = p.spinner();
-      spinner.start("Fetching available models...");
-      try {
-        piModels = await fetchPiModels();
-      } catch (error) {
-        spinner.stop("Failed to load models");
-        p.log.error(`${error}`);
-        process.exit(1);
-      }
-      spinner.stop("Models loaded");
-    }
-
-    if (!piModels || piModels.length === 0) {
-      p.log.error("No models available from Pi");
+  if (cachedPiModels) {
+    piModels = cachedPiModels;
+  } else {
+    const spinner = p.spinner();
+    spinner.start("Fetching available models...");
+    try {
+      piModels = await fetchPiModels();
+    } catch (error) {
+      spinner.stop("Failed to load models");
+      p.log.error(`${error}`);
       process.exit(1);
     }
-
-    const piOptions = piModels.map((entry) => ({
-      value: encodePiSelection(entry),
-      label: entry.model,
-      hint: entry.provider,
-    }));
-
-    const rawSelection = await p.select({
-      message: `Select ${role} model`,
-      options: piOptions,
-    });
-    handleCancel(rawSelection);
-
-    const selection = decodePiSelection(rawSelection as string);
-    if (!selection) {
-      p.log.error("Invalid Pi model selection");
-      process.exit(1);
-    }
-
-    return selection;
+    spinner.stop("Models loaded");
   }
 
-  const model = await p.text({
-    message: `${role.charAt(0).toUpperCase() + role.slice(1)} model (optional)`,
-    placeholder: "Press enter for default",
-    defaultValue: "",
+  if (!piModels || piModels.length === 0) {
+    p.log.error("No models available from Pi");
+    process.exit(1);
+  }
+
+  const piOptions = piModels.map((entry) => ({
+    value: encodePiSelection(entry),
+    label: entry.model,
+    hint: entry.provider,
+  }));
+
+  const rawSelection = await p.select({
+    message: `Select ${role} model`,
+    options: piOptions,
   });
-  handleCancel(model);
-  return { model: model as string };
+  handleCancel(rawSelection);
+
+  const selection = decodePiSelection(rawSelection as string);
+  if (!selection) {
+    p.log.error("Invalid Pi model selection");
+    process.exit(1);
+  }
+
+  return selection;
 }
 
 function formatAgentModel(settings: AgentSettings): string {
@@ -405,10 +444,10 @@ function formatConfigDisplay(config: Config): string {
   const fixerModel = formatAgentModel(config.fixer);
   const simplifierName = simplifierSettings
     ? getAgentDisplayName(simplifierSettings.agent)
-    : "Reviewer config";
+    : "Not configured";
   const simplifierModel = simplifierSettings
     ? formatAgentModel(simplifierSettings)
-    : "inherits reviewer settings";
+    : "Not configured";
 
   const defaultReviewDisplay =
     config.defaultReview.type === "base"
@@ -417,9 +456,6 @@ function formatConfigDisplay(config: Config): string {
   const reviewerReasoning = config.reviewer.reasoning ?? "Default";
   const fixerReasoning = config.fixer.reasoning ?? "Default";
   const simplifierReasoning = simplifierSettings?.reasoning ?? "Default";
-  const simplifierModelReasoning = simplifierSettings
-    ? `${simplifierModel}, ${simplifierReasoning}`
-    : simplifierModel;
 
   return [
     `  Reviewer:            ${reviewerName}`,
@@ -427,11 +463,366 @@ function formatConfigDisplay(config: Config): string {
     `  Fixer:               ${fixerName}`,
     `  Fixer model:         ${fixerModel}, ${fixerReasoning}`,
     `  Simplifier:          ${simplifierName}`,
-    `  Simplifier model:    ${simplifierModelReasoning}`,
+    `  Simplifier model:    ${simplifierModel}, ${simplifierReasoning}`,
     `  Max iterations:      ${config.maxIterations}`,
     `  Iteration timeout:   ${config.iterationTimeout / 1000 / 60} minutes`,
     `  Default review:      ${defaultReviewDisplay}`,
   ].join("\n");
+}
+
+function normalizeModelId(model: string): string {
+  return model.trim().toLowerCase();
+}
+
+function matchesModelId(model: string, target: string): boolean {
+  const normalized = normalizeModelId(model);
+  return normalized === target || normalized.endsWith(`/${target}`);
+}
+
+function isClaudeOpus45Model(model: string): boolean {
+  const normalized = normalizeModelId(model);
+  return normalized.includes("claude-opus-4-5");
+}
+
+function getRoleAgentPriority(role: ConfiguredRole): readonly AgentType[] {
+  switch (role) {
+    case "reviewer":
+      return REVIEWER_AGENT_PRIORITY;
+    case "fixer":
+      return FIXER_AGENT_PRIORITY;
+    case "code-simplifier":
+      return SIMPLIFIER_AGENT_PRIORITY;
+  }
+}
+
+export function getRoleAgentPriorityRank(role: ConfiguredRole, agent: AgentType): number {
+  const priority = getRoleAgentPriority(role);
+  const rank = priority.indexOf(agent);
+  return rank === -1 ? priority.length : rank;
+}
+
+export function getRoleModelPriorityRank(role: ConfiguredRole, model: string): number {
+  const matchers = MODEL_PRIORITY_MATCHERS[role];
+  const rank = matchers.findIndex((matcher) => matcher(model));
+  return rank === -1 ? matchers.length : rank;
+}
+
+function compareCandidates(
+  role: ConfiguredRole,
+  left: AutoModelCandidate,
+  right: AutoModelCandidate
+): number {
+  const leftModelRank = getRoleModelPriorityRank(role, left.model);
+  const rightModelRank = getRoleModelPriorityRank(role, right.model);
+  if (leftModelRank !== rightModelRank) {
+    return leftModelRank - rightModelRank;
+  }
+
+  const leftAgentRank = getRoleAgentPriorityRank(role, left.agent);
+  const rightAgentRank = getRoleAgentPriorityRank(role, right.agent);
+  if (leftAgentRank !== rightAgentRank) {
+    return leftAgentRank - rightAgentRank;
+  }
+
+  const priorityLength = getRoleAgentPriority(role).length;
+  if (leftAgentRank === priorityLength && rightAgentRank === priorityLength) {
+    if (left.probeOrder !== right.probeOrder) {
+      return left.probeOrder - right.probeOrder;
+    }
+  }
+
+  if (left.modelOrder !== right.modelOrder) {
+    return left.modelOrder - right.modelOrder;
+  }
+
+  if (left.agent !== right.agent) {
+    return left.agent.localeCompare(right.agent);
+  }
+
+  return left.model.localeCompare(right.model);
+}
+
+export function pickAutoRoleCandidate(
+  role: ConfiguredRole,
+  candidates: AutoModelCandidate[]
+): AutoModelCandidate | null {
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  const sorted = [...candidates].sort((left, right) => compareCandidates(role, left, right));
+  return sorted[0] ?? null;
+}
+
+export function selectAutoReasoning(agent: AgentType, model: string): ReasoningLevel | undefined {
+  const levels = getReasoningOptions(agent, model);
+  if (levels.length === 0) {
+    return undefined;
+  }
+  return levels.includes("high") ? "high" : levels[0];
+}
+
+function toCandidates(
+  agent: AgentType,
+  models: ModelSelection[],
+  probeOrder: number
+): AutoModelCandidate[] {
+  return models.map((entry, modelOrder) => ({
+    agent,
+    model: entry.model,
+    provider: entry.provider,
+    modelOrder,
+    probeOrder,
+  }));
+}
+
+export async function discoverAutoModelCandidates(
+  availability: AgentAvailability,
+  deps: AutoSelectionDependencies = {}
+): Promise<AutoModelDiscoveryResult> {
+  const candidates: AutoModelCandidate[] = [];
+  const skipped = new Set<AgentType>();
+
+  let nextProbeOrder = 0;
+  const registerCandidates = (agent: AgentType, models: ModelSelection[]) => {
+    if (models.length === 0) {
+      skipped.add(agent);
+      return;
+    }
+
+    const probeOrder = nextProbeOrder++;
+    candidates.push(...toCandidates(agent, models, probeOrder));
+  };
+
+  const staticAgents: readonly Exclude<AgentType, "opencode" | "pi">[] = [
+    "claude",
+    "codex",
+    "droid",
+    "gemini",
+  ];
+
+  for (const agent of staticAgents) {
+    if (!availability[agent]) {
+      continue;
+    }
+    const options = modelOptionsMap[agent];
+    registerCandidates(
+      agent,
+      options.map((entry) => ({ model: entry.value }))
+    );
+  }
+
+  const resolveOpencodeModels = deps.fetchOpencodeModels ?? fetchOpencodeModels;
+  const resolvePiModels = deps.fetchPiModels ?? fetchPiModels;
+
+  const dynamicTasks: Promise<void>[] = [];
+  if (availability.opencode) {
+    dynamicTasks.push(
+      resolveOpencodeModels()
+        .then((models) => {
+          registerCandidates(
+            "opencode",
+            models.map((entry) => ({ model: entry.value }))
+          );
+        })
+        .catch(() => {
+          skipped.add("opencode");
+        })
+    );
+  }
+
+  if (availability.pi) {
+    dynamicTasks.push(
+      resolvePiModels()
+        .then((models) => {
+          registerCandidates(
+            "pi",
+            models.map((entry) => ({ provider: entry.provider, model: entry.model }))
+          );
+        })
+        .catch(() => {
+          skipped.add("pi");
+        })
+    );
+  }
+
+  await Promise.all(dynamicTasks);
+
+  return {
+    candidates,
+    skippedAgents: [...skipped],
+  };
+}
+
+function toRoleSelection(candidate: AutoModelCandidate | null): RoleAgentSelection | null {
+  if (!candidate) {
+    return null;
+  }
+
+  return {
+    agent: candidate.agent,
+    model: candidate.model,
+    provider: candidate.provider,
+    reasoning: selectAutoReasoning(candidate.agent, candidate.model),
+  };
+}
+
+export async function buildAutoInitInput(
+  availability: AgentAvailability,
+  deps: AutoSelectionDependencies = {}
+): Promise<AutoInitInputResult> {
+  const { candidates, skippedAgents } = await discoverAutoModelCandidates(availability, deps);
+
+  const reviewer = toRoleSelection(pickAutoRoleCandidate("reviewer", candidates));
+  const fixer = toRoleSelection(pickAutoRoleCandidate("fixer", candidates));
+  const simplifier = toRoleSelection(pickAutoRoleCandidate("code-simplifier", candidates));
+
+  if (!reviewer || !fixer || !simplifier) {
+    throw new Error(
+      "Automatic setup could not determine reviewer/fixer/simplifier. Use Customize Setup."
+    );
+  }
+
+  const maxIterations = DEFAULT_CONFIG.maxIterations ?? DEFAULT_MAX_ITERATIONS;
+  const timeoutMs =
+    DEFAULT_CONFIG.iterationTimeout ?? DEFAULT_ITERATION_TIMEOUT_MINUTES * 60 * 1000;
+  const iterationTimeoutMinutes = Math.max(1, Math.round(timeoutMs / 1000 / 60));
+
+  return {
+    input: {
+      reviewerAgent: reviewer.agent,
+      reviewerModel: reviewer.model,
+      reviewerProvider: reviewer.provider,
+      reviewerReasoning: reviewer.reasoning,
+      fixerAgent: fixer.agent,
+      fixerModel: fixer.model,
+      fixerProvider: fixer.provider,
+      fixerReasoning: fixer.reasoning,
+      simplifierAgent: simplifier.agent,
+      simplifierModel: simplifier.model,
+      simplifierProvider: simplifier.provider,
+      simplifierReasoning: simplifier.reasoning,
+      maxIterations,
+      iterationTimeoutMinutes,
+      defaultReviewType: "uncommitted",
+    },
+    skippedAgents,
+  };
+}
+
+async function promptForNumericSetting(message: string, defaultValue: number): Promise<number> {
+  const value = await p.text({
+    message,
+    placeholder: "Press enter for default",
+    defaultValue: String(defaultValue),
+    validate: (text) => {
+      if (!text || text === "") {
+        return;
+      }
+      const num = Number.parseInt(text, 10);
+      if (Number.isNaN(num) || num < 1) {
+        return "Must be a positive number";
+      }
+    },
+  });
+  handleCancel(value);
+
+  return Number.parseInt(value as string, 10);
+}
+
+async function promptForCustomInitInput(selectOptions: ReturnType<typeof buildAgentSelectOptions>) {
+  const reviewerAgent = await p.select({
+    message: "Select reviewer agent",
+    options: selectOptions,
+  });
+  handleCancel(reviewerAgent);
+  const reviewerAgentValue = reviewerAgent as AgentType;
+
+  const reviewerSelection = await promptForModel(reviewerAgentValue, "reviewer");
+  const reviewerReasoning = await promptForReasoning(
+    reviewerAgentValue,
+    reviewerSelection.model,
+    "reviewer"
+  );
+
+  const fixerAgent = await p.select({
+    message: "Select fixer agent",
+    options: selectOptions,
+  });
+  handleCancel(fixerAgent);
+  const fixerAgentValue = fixerAgent as AgentType;
+
+  const fixerSelection = await promptForModel(fixerAgentValue, "fixer");
+  const fixerReasoning = await promptForReasoning(fixerAgentValue, fixerSelection.model, "fixer");
+
+  const simplifierAgent = await p.select({
+    message: "Select code simplifier agent",
+    options: selectOptions,
+  });
+  handleCancel(simplifierAgent);
+  const simplifierAgentValue = simplifierAgent as AgentType;
+
+  const simplifierSelection = await promptForModel(simplifierAgentValue, "code-simplifier");
+  const simplifierReasoning = await promptForReasoning(
+    simplifierAgentValue,
+    simplifierSelection.model,
+    "code-simplifier"
+  );
+
+  const maxIterations = await promptForNumericSetting(
+    `Maximum iterations (default: ${DEFAULT_CONFIG.maxIterations ?? DEFAULT_MAX_ITERATIONS})`,
+    DEFAULT_CONFIG.maxIterations ?? DEFAULT_MAX_ITERATIONS
+  );
+
+  const defaultTimeoutMinutes = (DEFAULT_CONFIG.iterationTimeout ?? 1800000) / 1000 / 60;
+  const iterationTimeoutMinutes = await promptForNumericSetting(
+    `Timeout per iteration in minutes (default: ${defaultTimeoutMinutes})`,
+    defaultTimeoutMinutes
+  );
+
+  const defaultReviewType = await p.select({
+    message: "Default review mode for 'rr run'",
+    options: [
+      { value: "uncommitted", label: "Uncommitted changes", hint: "staged, unstaged, untracked" },
+      { value: "base", label: "Compare against base branch" },
+    ],
+    initialValue: "uncommitted",
+  });
+  handleCancel(defaultReviewType);
+
+  let defaultReviewBranch: string | undefined;
+  if (defaultReviewType === "base") {
+    defaultReviewBranch = (await p.text({
+      message: "Base branch name",
+      placeholder: "main",
+      defaultValue: "main",
+      validate: (value) => {
+        if (!value || value.trim() === "") {
+          return "Branch name is required";
+        }
+      },
+    })) as string;
+    handleCancel(defaultReviewBranch);
+  }
+
+  return {
+    reviewerAgent: reviewerAgentValue,
+    reviewerModel: reviewerSelection.model,
+    reviewerProvider: reviewerSelection.provider,
+    reviewerReasoning,
+    fixerAgent: fixerAgentValue,
+    fixerModel: fixerSelection.model,
+    fixerProvider: fixerSelection.provider,
+    fixerReasoning,
+    simplifierAgent: simplifierAgentValue,
+    simplifierModel: simplifierSelection.model,
+    simplifierProvider: simplifierSelection.provider,
+    simplifierReasoning,
+    maxIterations,
+    iterationTimeoutMinutes,
+    defaultReviewType: defaultReviewType as "uncommitted" | "base",
+    defaultReviewBranch: defaultReviewBranch as string | undefined,
+  } satisfies InitInput;
 }
 
 export async function runInit(): Promise<void> {
@@ -477,150 +868,52 @@ export async function runInit(): Promise<void> {
 
   const selectOptions = buildAgentSelectOptions(agentAvailability);
 
-  const reviewerAgent = await p.select({
-    message: "Select reviewer agent",
-    options: selectOptions,
-  });
-
-  handleCancel(reviewerAgent);
-
-  const reviewerSelection = await promptForModel(reviewerAgent as string, "reviewer");
-  const reviewerReasoning = await promptForReasoning(
-    reviewerAgent as string,
-    reviewerSelection.model,
-    "reviewer"
-  );
-
-  const fixerAgent = await p.select({
-    message: "Select fixer agent",
-    options: selectOptions,
-  });
-
-  handleCancel(fixerAgent);
-
-  const fixerSelection = await promptForModel(fixerAgent as string, "fixer");
-  const fixerReasoning = await promptForReasoning(
-    fixerAgent as string,
-    fixerSelection.model,
-    "fixer"
-  );
-
-  const simplifierMode = await p.select({
-    message: "Code simplifier configuration",
+  const setupMode = await p.select({
+    message: "Choose setup mode",
     options: [
-      {
-        value: "reviewer",
-        label: "Use reviewer config",
-      },
-      {
-        value: "custom",
-        label: "Set up custom config",
-        hint: "choose a separate agent and model",
-      },
+      { value: "auto", label: "Auto Setup", hint: "recommended" },
+      { value: "custom", label: "Customize Setup", hint: "configure each detail manually" },
     ],
-    initialValue: "reviewer",
+    initialValue: "auto",
   });
-  handleCancel(simplifierMode);
+  handleCancel(setupMode);
 
-  let simplifierAgent: string | undefined;
-  let simplifierModel: string | undefined;
-  let simplifierProvider: string | undefined;
-  let simplifierReasoning: ReasoningLevel | undefined;
-
-  if (simplifierMode === "custom") {
-    const customSimplifierAgent = await p.select({
-      message: "Select code simplifier agent",
-      options: selectOptions,
-    });
-    handleCancel(customSimplifierAgent);
-
-    simplifierAgent = customSimplifierAgent as string;
-    const simplifierSelection = await promptForModel(simplifierAgent, "code-simplifier");
-    simplifierModel = simplifierSelection.model;
-    simplifierProvider = simplifierSelection.provider;
-    simplifierReasoning = await promptForReasoning(
-      simplifierAgent,
-      simplifierSelection.model,
-      "code-simplifier"
-    );
+  let input: InitInput;
+  if (setupMode === "auto") {
+    const spinner = p.spinner();
+    spinner.start("Detecting installed models and building automatic configuration...");
+    try {
+      const autoResult = await buildAutoInitInput(agentAvailability);
+      input = autoResult.input;
+      if (autoResult.skippedAgents.length > 0) {
+        const skipped = autoResult.skippedAgents
+          .map((agent) => getAgentDisplayName(agent))
+          .join(", ");
+        p.log.warn(`Skipped agents during automatic setup: ${skipped}`);
+      }
+      spinner.stop("Automatic configuration ready");
+    } catch (error) {
+      spinner.stop("Automatic setup failed");
+      p.log.error(`${error}`);
+      process.exit(1);
+    }
+  } else {
+    input = await promptForCustomInitInput(selectOptions);
   }
 
-  const maxIterationsStr = await p.text({
-    message: `Maximum iterations (default: ${DEFAULT_CONFIG.maxIterations ?? 5})`,
-    placeholder: "Press enter for default",
-    defaultValue: String(DEFAULT_CONFIG.maxIterations ?? 5),
-    validate: (value) => {
-      if (!value || value === "") return; // allow empty for default
-      const num = Number.parseInt(value, 10);
-      if (Number.isNaN(num) || num < 1) {
-        return "Must be a positive number";
-      }
-    },
+  const config = buildConfig(input);
+  p.log.info(`Proposed configuration:\n${formatConfigDisplay(config)}`);
+
+  const shouldSave = await p.confirm({
+    message: "Save this configuration?",
+    initialValue: true,
   });
+  handleCancel(shouldSave);
 
-  handleCancel(maxIterationsStr);
-
-  const defaultTimeoutMinutes = (DEFAULT_CONFIG.iterationTimeout ?? 1800000) / 1000 / 60;
-  const iterationTimeoutStr = await p.text({
-    message: `Timeout per iteration in minutes (default: ${defaultTimeoutMinutes})`,
-    placeholder: "Press enter for default",
-    defaultValue: String(defaultTimeoutMinutes),
-    validate: (value) => {
-      if (!value || value === "") return; // allow empty for default
-      const num = Number.parseInt(value, 10);
-      if (Number.isNaN(num) || num < 1) {
-        return "Must be a positive number";
-      }
-    },
-  });
-
-  handleCancel(iterationTimeoutStr);
-
-  const defaultReviewType = await p.select({
-    message: "Default review mode for 'rr run'",
-    options: [
-      { value: "uncommitted", label: "Uncommitted changes", hint: "staged, unstaged, untracked" },
-      { value: "base", label: "Compare against base branch" },
-    ],
-    initialValue: "uncommitted",
-  });
-
-  handleCancel(defaultReviewType);
-
-  let defaultReviewBranch: string | undefined;
-  if (defaultReviewType === "base") {
-    defaultReviewBranch = (await p.text({
-      message: "Base branch name",
-      placeholder: "main",
-      defaultValue: "main",
-      validate: (value) => {
-        if (!value || value.trim() === "") {
-          return "Branch name is required";
-        }
-      },
-    })) as string;
-    handleCancel(defaultReviewBranch);
+  if (!shouldSave) {
+    p.cancel("Setup cancelled.");
+    return;
   }
-
-  const config = buildConfig({
-    reviewerAgent: reviewerAgent as string,
-    reviewerModel: reviewerSelection.model,
-    reviewerProvider: reviewerSelection.provider,
-    reviewerReasoning,
-    fixerAgent: fixerAgent as string,
-    fixerModel: fixerSelection.model,
-    fixerProvider: fixerSelection.provider,
-    fixerReasoning,
-    simplifierMode: simplifierMode as "reviewer" | "custom",
-    simplifierAgent,
-    simplifierModel,
-    simplifierProvider,
-    simplifierReasoning,
-    maxIterations: Number.parseInt(maxIterationsStr as string, 10),
-    iterationTimeoutMinutes: Number.parseInt(iterationTimeoutStr as string, 10),
-    defaultReviewType: defaultReviewType as string,
-    defaultReviewBranch: defaultReviewBranch as string | undefined,
-  });
 
   await ensureConfigDir();
   await saveConfig(config);

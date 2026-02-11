@@ -14,7 +14,7 @@ const SIMPLIFIER_OPTION: OptionDef = {
 export const COMMANDS: CommandDef[] = [
   {
     name: "init",
-    description: "Configure reviewer and fixer agents",
+    description: "Configure reviewer, fixer, and simplifier agents (auto or custom)",
     examples: ["rr init"],
   },
   {
