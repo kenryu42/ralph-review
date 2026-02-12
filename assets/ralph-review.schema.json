@@ -206,6 +206,23 @@
           "additionalProperties": false
         }
       ]
+    },
+    "notifications": {
+      "type": "object",
+      "properties": {
+        "sound": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            }
+          },
+          "required": ["enabled"],
+          "additionalProperties": false
+        }
+      },
+      "required": ["sound"],
+      "additionalProperties": false
     }
   },
   "required": [

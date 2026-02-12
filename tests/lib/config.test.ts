@@ -17,6 +17,7 @@ describe("config", () => {
     maxIterations: 10,
     iterationTimeout: 600000,
     defaultReview: { type: "uncommitted" },
+    notifications: { sound: { enabled: false } },
   };
 
   beforeEach(async () => {
@@ -148,6 +149,29 @@ describe("config", () => {
       expect(parsed).not.toBeNull();
       expect(parsed?.$schema).toBe(CONFIG_SCHEMA_URI);
       expect(parsed?.version).toBe(CONFIG_VERSION);
+      expect(parsed?.notifications.sound.enabled).toBe(false);
+    });
+
+    test("parseConfig defaults notifications when omitted", () => {
+      const withoutNotifications = {
+        ...testConfig,
+      };
+      delete (withoutNotifications as { notifications?: unknown }).notifications;
+
+      const parsed = parseConfig(withoutNotifications);
+      expect(parsed).not.toBeNull();
+      expect(parsed?.notifications.sound.enabled).toBe(false);
+    });
+
+    test("parseConfig reads explicit notifications", () => {
+      const withNotifications = {
+        ...testConfig,
+        notifications: { sound: { enabled: true } },
+      };
+
+      const parsed = parseConfig(withNotifications);
+      expect(parsed).not.toBeNull();
+      expect(parsed?.notifications.sound.enabled).toBe(true);
     });
 
     test("parseConfig normalizes incorrect metadata values", () => {

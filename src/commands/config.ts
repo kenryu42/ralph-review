@@ -39,10 +39,11 @@ const CONFIG_KEYS = [
   "retry.maxRetries",
   "retry.baseDelayMs",
   "retry.maxDelayMs",
+  "notifications.sound.enabled",
 ] as const;
 
 export type ConfigKey = (typeof CONFIG_KEYS)[number];
-export type ConfigValue = string | number | null;
+export type ConfigValue = string | number | boolean | null;
 
 function isRoleWithSettings(role: ConfigRole, config: Config): boolean {
   return role === "code-simplifier" ? config[role] !== undefined : true;
@@ -219,6 +220,12 @@ export function parseConfigValue(key: ConfigKey, rawValue: string): ConfigValue 
       }
       return rawValue;
 
+    case "notifications.sound.enabled":
+      if (rawValue !== "true" && rawValue !== "false") {
+        throw new Error(`Value for "${key}" must be "true" or "false".`);
+      }
+      return rawValue === "true";
+
     default:
       return rawValue;
   }
@@ -266,6 +273,8 @@ export function getConfigValue(config: Config, key: ConfigKey): unknown {
       return config.retry?.baseDelayMs;
     case "retry.maxDelayMs":
       return config.retry?.maxDelayMs;
+    case "notifications.sound.enabled":
+      return config.notifications.sound.enabled;
   }
 }
 
@@ -463,6 +472,18 @@ export function setConfigValue(config: Config, key: ConfigKey, value: ConfigValu
       }
       next.retry.maxDelayMs = value;
       return next;
+    case "notifications.sound.enabled":
+      if (typeof value !== "boolean") {
+        throw new Error(`Value for "${key}" must be "true" or "false".`);
+      }
+      next.notifications = {
+        ...next.notifications,
+        sound: {
+          ...next.notifications.sound,
+          enabled: value,
+        },
+      };
+      return next;
     default:
       return next;
   }
@@ -515,6 +536,10 @@ export function validateConfigInvariants(config: Config): string[] {
     if (!Number.isInteger(config.retry.maxDelayMs) || config.retry.maxDelayMs <= 0) {
       errors.push("retry.maxDelayMs must be an integer greater than 0.");
     }
+  }
+
+  if (typeof config.notifications.sound.enabled !== "boolean") {
+    errors.push("notifications.sound.enabled must be a boolean.");
   }
 
   return errors;

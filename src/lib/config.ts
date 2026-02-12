@@ -6,9 +6,11 @@ import {
   CONFIG_SCHEMA_URI,
   CONFIG_VERSION,
   type Config,
+  DEFAULT_NOTIFICATIONS_CONFIG,
   type DefaultReview,
   isAgentType,
   isReasoningLevel,
+  type NotificationsConfig,
   type RetryConfig,
 } from "./types";
 
@@ -64,6 +66,26 @@ function parseRetryConfig(value: unknown): RetryConfig | undefined {
   }
 
   return { maxRetries, baseDelayMs, maxDelayMs };
+}
+
+function parseNotificationsConfig(value: unknown): NotificationsConfig | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  const sound = value.sound;
+  if (!isRecord(sound) || typeof sound.enabled !== "boolean") {
+    return undefined;
+  }
+
+  return {
+    sound: {
+      enabled: sound.enabled,
+    },
+  };
 }
 
 function parseDefaultReview(value: unknown): DefaultReview | null {
@@ -137,6 +159,7 @@ export function parseConfig(value: unknown): Config | null {
   const codeSimplifier = parseAgentSettings(value["code-simplifier"]);
   const defaultReview = parseDefaultReview(value.defaultReview);
   const retry = parseRetryConfig(value.retry);
+  const notifications = parseNotificationsConfig(value.notifications);
 
   if (!reviewer || !fixer || !defaultReview) {
     return null;
@@ -145,6 +168,9 @@ export function parseConfig(value: unknown): Config | null {
     return null;
   }
   if (value.retry !== undefined && !retry) {
+    return null;
+  }
+  if (value.notifications !== undefined && !notifications) {
     return null;
   }
   if (typeof value.maxIterations !== "number" || typeof value.iterationTimeout !== "number") {
@@ -159,6 +185,9 @@ export function parseConfig(value: unknown): Config | null {
     iterationTimeout: value.iterationTimeout,
     ...(retry ? { retry } : {}),
     defaultReview,
+    notifications: notifications ?? {
+      sound: { enabled: DEFAULT_NOTIFICATIONS_CONFIG.sound.enabled },
+    },
   });
 }
 
@@ -185,4 +214,5 @@ export async function configExists(path: string = CONFIG_PATH): Promise<boolean>
 export const DEFAULT_CONFIG: Partial<Config> = {
   maxIterations: 5,
   iterationTimeout: 1800000,
+  notifications: { sound: { enabled: DEFAULT_NOTIFICATIONS_CONFIG.sound.enabled } },
 };

@@ -34,6 +34,14 @@ export interface RetryConfig {
   maxDelayMs: number;
 }
 
+export interface SoundNotificationConfig {
+  enabled: boolean;
+}
+
+export interface NotificationsConfig {
+  sound: SoundNotificationConfig;
+}
+
 export const CONFIG_SCHEMA_URI =
   "https://raw.githubusercontent.com/kenryu42/ralph-review/main/assets/ralph-review.schema.json";
 export const CONFIG_VERSION = 1;
@@ -42,6 +50,12 @@ export const DEFAULT_RETRY_CONFIG: RetryConfig = {
   maxRetries: 3,
   baseDelayMs: 1000,
   maxDelayMs: 30000,
+};
+
+export const DEFAULT_NOTIFICATIONS_CONFIG: NotificationsConfig = {
+  sound: {
+    enabled: false,
+  },
 };
 
 /**
@@ -57,6 +71,7 @@ export interface Config {
   iterationTimeout: number; // in milliseconds
   retry?: RetryConfig; // Optional retry config, uses DEFAULT_RETRY_CONFIG if not set
   defaultReview: DefaultReview;
+  notifications: NotificationsConfig;
 }
 
 export interface AgentConfig {

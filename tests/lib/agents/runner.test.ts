@@ -10,6 +10,7 @@ const baseConfig: Config = {
   maxIterations: 5,
   iterationTimeout: 1800000,
   defaultReview: { type: "uncommitted" },
+  notifications: { sound: { enabled: false } },
 };
 
 describe("resolveAgentSettings", () => {

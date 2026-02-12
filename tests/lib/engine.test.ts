@@ -20,6 +20,7 @@ const _mockConfig: Config = {
   maxIterations: 3,
   iterationTimeout: 60000,
   defaultReview: { type: "uncommitted" },
+  notifications: { sound: { enabled: false } },
 };
 
 describe("engine", () => {

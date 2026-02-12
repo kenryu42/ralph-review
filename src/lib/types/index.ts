@@ -4,9 +4,11 @@ export {
   CONFIG_SCHEMA_URI,
   CONFIG_VERSION,
   type Config,
+  DEFAULT_NOTIFICATIONS_CONFIG,
   DEFAULT_RETRY_CONFIG,
   type DefaultReview,
   isReasoningLevel,
+  type NotificationsConfig,
   type ReasoningLevel,
   type RetryConfig,
 } from "./config";

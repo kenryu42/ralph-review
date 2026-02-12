@@ -19,6 +19,7 @@ describe("config schema artifact", () => {
     expect(properties.reviewer).toBeDefined();
     expect(properties.fixer).toBeDefined();
     expect(properties.defaultReview).toBeDefined();
+    expect(properties.notifications).toBeDefined();
 
     const schemaProperty = properties.$schema as Record<string, unknown>;
     expect(schemaProperty.const).toBe(CONFIG_SCHEMA_URI);

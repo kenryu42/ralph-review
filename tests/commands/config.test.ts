@@ -19,6 +19,7 @@ const baseConfig: Config = {
   maxIterations: 5,
   iterationTimeout: 1800000,
   defaultReview: { type: "uncommitted" },
+  notifications: { sound: { enabled: false } },
 };
 
 describe("config command helpers", () => {
@@ -61,6 +62,17 @@ describe("config command helpers", () => {
     test("rejects invalid reasoning values", () => {
       expect(() => parseConfigValue("reviewer.reasoning", "ultra")).toThrow("must be one of");
     });
+
+    test("parses boolean notification values", () => {
+      expect(parseConfigValue("notifications.sound.enabled", "true")).toBe(true);
+      expect(parseConfigValue("notifications.sound.enabled", "false")).toBe(false);
+    });
+
+    test("rejects invalid notification boolean values", () => {
+      expect(() => parseConfigValue("notifications.sound.enabled", "yes")).toThrow(
+        'must be "true" or "false"'
+      );
+    });
   });
 
   describe("getConfigValue", () => {
@@ -70,6 +82,10 @@ describe("config command helpers", () => {
 
     test("returns undefined for unset values", () => {
       expect(getConfigValue(baseConfig, "retry.baseDelayMs")).toBeUndefined();
+    });
+
+    test("returns notification sound enabled value", () => {
+      expect(getConfigValue(baseConfig, "notifications.sound.enabled")).toBe(false);
     });
   });
 
@@ -120,6 +136,11 @@ describe("config command helpers", () => {
       expect(updated.retry?.baseDelayMs).toBe(1000);
       expect(updated.retry?.maxRetries).toBeDefined();
       expect(updated.retry?.maxDelayMs).toBeDefined();
+    });
+
+    test("sets notification sound enabled", () => {
+      const updated = setConfigValue(baseConfig, "notifications.sound.enabled", true);
+      expect(updated.notifications.sound.enabled).toBe(true);
     });
   });
 

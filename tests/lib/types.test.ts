@@ -56,6 +56,7 @@ describe("type definitions", () => {
       maxIterations: 10,
       iterationTimeout: 600000,
       defaultReview: { type: "uncommitted" },
+      notifications: { sound: { enabled: false } },
     };
     expect(config.reviewer.agent).toBe("codex");
     expect(config.fixer.agent).toBe("claude");

@@ -46,6 +46,16 @@ const retrySchema = z
   })
   .strict();
 
+const notificationsSchema = z
+  .object({
+    sound: z
+      .object({
+        enabled: z.boolean(),
+      })
+      .strict(),
+  })
+  .strict();
+
 const configSchema = z
   .object({
     $schema: z.literal(CONFIG_SCHEMA_URI),
@@ -57,6 +67,7 @@ const configSchema = z
     iterationTimeout: z.int().positive(),
     retry: retrySchema.optional(),
     defaultReview: defaultReviewSchema,
+    notifications: notificationsSchema.optional(),
   })
   .strict();
 
