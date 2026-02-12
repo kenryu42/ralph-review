@@ -70,6 +70,16 @@ export const COMMANDS: CommandDef[] = [
         placeholder: "PROMPT",
         description: "Custom review instructions",
       },
+      {
+        name: "sound",
+        type: "boolean",
+        description: "Play a sound when session finishes (override config)",
+      },
+      {
+        name: "no-sound",
+        type: "boolean",
+        description: "Disable finish sound for this run (override config)",
+      },
       SIMPLIFIER_OPTION,
     ],
     examples: ["rr run", "rr run --base main"],

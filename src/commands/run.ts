@@ -15,6 +15,7 @@ import {
   updateLockfile,
 } from "@/lib/lockfile";
 import { getGitBranch } from "@/lib/logger";
+import { playCompletionSound, resolveSoundEnabled, type SoundOverride } from "@/lib/notify/sound";
 import { CLI_PATH } from "@/lib/paths";
 import { createSession, generateSessionName, isInsideTmux, isTmuxInstalled } from "@/lib/tmux";
 import { type Config, isAgentType, type ReviewOptions } from "@/lib/types";
@@ -27,6 +28,8 @@ export interface RunOptions {
   commit?: string;
   custom?: string;
   simplifier?: boolean;
+  sound?: boolean;
+  "no-sound"?: boolean;
 }
 
 export function classifyRunCompletion(result: CycleResult): "success" | "warning" | "error" {
@@ -146,6 +149,29 @@ function shellEscape(str: string): string {
   return `'${str.replace(/'/g, "'\\''")}'`;
 }
 
+function parseSoundOverride(value: string | undefined): SoundOverride | undefined {
+  if (value === "on" || value === "off") {
+    return value;
+  }
+  return undefined;
+}
+
+export function resolveRunSoundOverride(options: RunOptions): SoundOverride | undefined {
+  if (options.sound && options["no-sound"]) {
+    throw new Error("Cannot use --sound and --no-sound together");
+  }
+
+  if (options.sound) {
+    return "on";
+  }
+
+  if (options["no-sound"]) {
+    return "off";
+  }
+
+  return undefined;
+}
+
 async function runInBackground(
   config: Config,
   maxIterations?: number,
@@ -153,7 +179,8 @@ async function runInBackground(
   commitSha?: string,
   customInstructions?: string,
   force?: boolean,
-  simplifier?: boolean
+  simplifier?: boolean,
+  soundOverride?: SoundOverride
 ): Promise<void> {
   // Check tmux is installed
   if (!isTmuxInstalled()) {
@@ -180,6 +207,9 @@ async function runInBackground(
   }
   if (customInstructions) {
     envParts.push(`RR_CUSTOM_PROMPT=${shellEscape(customInstructions)}`);
+  }
+  if (soundOverride) {
+    envParts.push(`RR_SOUND_OVERRIDE=${shellEscape(soundOverride)}`);
   }
 
   const commandArgs: string[] = ["_run-foreground"];
@@ -228,8 +258,11 @@ export async function runForeground(args: string[] = []): Promise<void> {
   const baseBranch = process.env.RR_BASE_BRANCH || undefined;
   const commitSha = process.env.RR_COMMIT_SHA || undefined;
   const customInstructions = process.env.RR_CUSTOM_PROMPT || undefined;
+  const soundOverride = parseSoundOverride(process.env.RR_SOUND_OVERRIDE);
   let forceMaxIterations = false;
   let runSimplifier = false;
+  let completionState: "success" | "warning" | "error" = "error";
+  const soundEnabled = resolveSoundEnabled(config, soundOverride);
 
   // Parse --max option using the _run-foreground command def
   const foregroundDef = getCommandDef("_run-foreground");
@@ -265,7 +298,7 @@ export async function runForeground(args: string[] = []): Promise<void> {
       forceMaxIterations,
     });
 
-    const completionState = classifyRunCompletion(result);
+    completionState = classifyRunCompletion(result);
     console.log(`\n${"=".repeat(50)}`);
     if (completionState === "success") {
       p.log.success(`Review cycle complete! (${result.iterations} iterations)`);
@@ -278,6 +311,13 @@ export async function runForeground(args: string[] = []): Promise<void> {
     }
     console.log(`${"=".repeat(50)}\n`);
   } finally {
+    if (soundEnabled) {
+      const soundResult = await playCompletionSound(completionState);
+      if (!soundResult.played && soundResult.reason) {
+        p.log.warn(`Could not play completion sound: ${soundResult.reason}`);
+      }
+    }
+
     // Clean up lockfile for this project
     await removeLockfile(undefined, projectPath);
   }
@@ -303,6 +343,13 @@ export async function startReview(args: string[]): Promise<void> {
   // Validate max iterations if provided
   if (options.max !== undefined && options.max <= 0) {
     p.log.error("--max must be a positive number");
+    process.exit(1);
+  }
+  let soundOverride: SoundOverride | undefined;
+  try {
+    soundOverride = resolveRunSoundOverride(options);
+  } catch (error) {
+    p.log.error(`${error}`);
     process.exit(1);
   }
 
@@ -356,6 +403,7 @@ export async function startReview(args: string[]): Promise<void> {
     options.commit,
     options.custom,
     options.force,
-    options.simplifier
+    options.simplifier,
+    soundOverride
   );
 }

@@ -49,6 +49,7 @@ interface InitInput {
   iterationTimeoutMinutes: number;
   defaultReviewType: "uncommitted" | "base";
   defaultReviewBranch?: string;
+  soundNotificationsEnabled: boolean;
 }
 
 interface ModelSelection {
@@ -196,6 +197,11 @@ export function buildConfig(input: InitInput): Config {
     maxIterations: input.maxIterations,
     iterationTimeout: input.iterationTimeoutMinutes * 60 * 1000,
     defaultReview,
+    notifications: {
+      sound: {
+        enabled: input.soundNotificationsEnabled,
+      },
+    },
   };
 }
 
@@ -477,6 +483,7 @@ function formatConfigDisplay(config: Config): string {
     `  Max iterations:      ${config.maxIterations}`,
     `  Iteration timeout:   ${config.iterationTimeout / 1000 / 60} minutes`,
     `  Default review:      ${defaultReviewDisplay}`,
+    `  Sound notify:        ${config.notifications.sound.enabled ? "enabled" : "disabled"}`,
   ].join("\n");
 }
 
@@ -715,6 +722,7 @@ export async function buildAutoInitInput(
       maxIterations,
       iterationTimeoutMinutes,
       defaultReviewType: "uncommitted",
+      soundNotificationsEnabled: DEFAULT_CONFIG.notifications?.sound.enabled ?? false,
     },
     skippedAgents,
   };
@@ -832,7 +840,17 @@ async function promptForCustomInitInput(selectOptions: ReturnType<typeof buildAg
     iterationTimeoutMinutes,
     defaultReviewType: defaultReviewType as "uncommitted" | "base",
     defaultReviewBranch: defaultReviewBranch as string | undefined,
+    soundNotificationsEnabled: DEFAULT_CONFIG.notifications?.sound.enabled ?? false,
   } satisfies InitInput;
+}
+
+async function promptForSoundNotifications(defaultValue: boolean): Promise<boolean> {
+  const shouldEnable = await p.confirm({
+    message: "Play sound when review session finishes?",
+    initialValue: defaultValue,
+  });
+  handleCancel(shouldEnable);
+  return shouldEnable as boolean;
 }
 
 export async function runInit(): Promise<void> {
@@ -910,6 +928,11 @@ export async function runInit(): Promise<void> {
   } else {
     input = await promptForCustomInitInput(selectOptions);
   }
+
+  input = {
+    ...input,
+    soundNotificationsEnabled: await promptForSoundNotifications(input.soundNotificationsEnabled),
+  };
 
   const config = buildConfig(input);
   p.log.info(`Proposed configuration:\n${formatConfigDisplay(config)}`);

@@ -72,6 +72,7 @@ describe("init command", () => {
         maxIterations: 5,
         iterationTimeoutMinutes: 30,
         defaultReviewType: "uncommitted",
+        soundNotificationsEnabled: false,
       });
 
       expect(config.$schema).toBe(CONFIG_SCHEMA_URI);
@@ -88,6 +89,7 @@ describe("init command", () => {
       expect(config.maxIterations).toBe(5);
       expect(config.iterationTimeout).toBe(1800000);
       expect(config.defaultReview).toEqual({ type: "uncommitted" });
+      expect(config.notifications.sound.enabled).toBe(false);
     });
 
     test("stores provider and model for pi", () => {
@@ -107,6 +109,7 @@ describe("init command", () => {
         maxIterations: 3,
         iterationTimeoutMinutes: 10,
         defaultReviewType: "uncommitted",
+        soundNotificationsEnabled: true,
       });
 
       expect(config.reviewer.agent).toBe("pi");
@@ -121,6 +124,7 @@ describe("init command", () => {
         model: "claude-sonnet-4-5",
         reasoning: "medium",
       });
+      expect(config.notifications.sound.enabled).toBe(true);
     });
 
     test("creates config with base branch default review", () => {
@@ -135,6 +139,7 @@ describe("init command", () => {
         iterationTimeoutMinutes: 30,
         defaultReviewType: "base",
         defaultReviewBranch: "main",
+        soundNotificationsEnabled: false,
       });
 
       expect(config.defaultReview).toEqual({ type: "base", branch: "main" });
@@ -151,6 +156,7 @@ describe("init command", () => {
         maxIterations: 5,
         iterationTimeoutMinutes: 30,
         defaultReviewType: "base",
+        soundNotificationsEnabled: false,
       });
 
       expect(config.defaultReview).toEqual({ type: "uncommitted" });
@@ -309,6 +315,7 @@ describe("init command", () => {
       expect(result.input.fixerAgent).toBe("codex");
       expect(result.input.simplifierAgent).toBe("codex");
       expect(result.input.defaultReviewType).toBe("uncommitted");
+      expect(result.input.soundNotificationsEnabled).toBe(false);
       expect(result.input.maxIterations).toBeGreaterThan(0);
       expect(result.input.iterationTimeoutMinutes).toBeGreaterThan(0);
     });

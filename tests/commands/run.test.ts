@@ -8,6 +8,7 @@ import {
   hasUncommittedChanges,
   isGitRepo,
   type RunOptions,
+  resolveRunSoundOverride,
   validatePrerequisites,
 } from "@/commands/run";
 import { parseCommand } from "@/lib/cli-parser";
@@ -102,6 +103,36 @@ describe("run command", () => {
     test("parses --simplifier option", () => {
       const { values } = parseCommand<RunOptions>(runDef, ["--simplifier"]);
       expect(values.simplifier).toBe(true);
+    });
+
+    test("parses --sound option", () => {
+      const { values } = parseCommand<RunOptions>(runDef, ["--sound"]);
+      expect(values.sound).toBe(true);
+    });
+
+    test("parses --no-sound option", () => {
+      const { values } = parseCommand<RunOptions>(runDef, ["--no-sound"]);
+      expect(values["no-sound"]).toBe(true);
+    });
+  });
+
+  describe("resolveRunSoundOverride", () => {
+    test("returns on for --sound", () => {
+      expect(resolveRunSoundOverride({ sound: true })).toBe("on");
+    });
+
+    test("returns off for --no-sound", () => {
+      expect(resolveRunSoundOverride({ "no-sound": true })).toBe("off");
+    });
+
+    test("returns undefined when no overrides are set", () => {
+      expect(resolveRunSoundOverride({})).toBeUndefined();
+    });
+
+    test("throws when both sound overrides are provided", () => {
+      expect(() => resolveRunSoundOverride({ sound: true, "no-sound": true })).toThrow(
+        "Cannot use --sound and --no-sound together"
+      );
     });
   });
 

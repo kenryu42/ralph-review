@@ -74,12 +74,17 @@ Auto setup defaults:
 
 Both setup modes show the proposed config and ask for confirmation before saving.
 Reasoning is only prompted for selections that support reasoning.
+Setup also prompts whether to play a sound when a background review session finishes.
 
 ### Running Reviews
 
 ```bash
 # Start a full review cycle (background)
 rr run
+
+# One-off override: force sound on/off for this run
+rr run --sound
+rr run --no-sound
 ```
 
 ### Managing Sessions
@@ -141,6 +146,11 @@ Configuration is stored at `~/.config/ralph-review/config.json`:
   },
   "maxIterations": 5,
   "iterationTimeout": 1800000,
+  "notifications": {
+    "sound": {
+      "enabled": false
+    }
+  },
   "defaultReview": {
     "type": "uncommitted"
   }
