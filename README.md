@@ -1,6 +1,6 @@
 # ralph-review
 
-AI-powered code review CLI that automates review cycles using your choice of AI coding agents.
+A CLI that automates review cycles using your choice of AI coding agents.
 
 ## Features
 
@@ -122,6 +122,8 @@ Configuration is stored at `~/.config/ralph-review/config.json`:
 
 ```json
 {
+  "$schema": "https://raw.githubusercontent.com/kenryu42/ralph-review/main/assets/ralph-review.schema.json",
+  "version": 1,
   "reviewer": {
     "agent": "codex",
     "model": "gpt-5.2-codex",
@@ -145,6 +147,12 @@ Configuration is stored at `~/.config/ralph-review/config.json`:
 }
 ```
 
+Edit configuration directly in your preferred editor:
+
+```bash
+rr config edit
+```
+
 ## Commands Reference
 
 | Command | Description |
@@ -164,6 +172,9 @@ Configuration is stored at `~/.config/ralph-review/config.json`:
 ```bash
 # Install dependencies
 bun install
+
+# Regenerate config JSON schema
+bun run build:schema
 
 # Run tests
 bun test
