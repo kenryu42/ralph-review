@@ -3,6 +3,8 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import {
   type AgentSettings,
+  CONFIG_SCHEMA_URI,
+  CONFIG_VERSION,
   type Config,
   type DefaultReview,
   isAgentType,
@@ -14,6 +16,16 @@ const CONFIG_DIR = join(homedir(), ".config", "ralph-review");
 export const CONFIG_PATH = join(CONFIG_DIR, "config.json");
 export const LOGS_DIR = join(CONFIG_DIR, "logs");
 
+function withCanonicalMetadata(
+  config: Omit<Config, "$schema" | "version"> & Partial<Pick<Config, "$schema" | "version">>
+): Config {
+  return {
+    ...config,
+    $schema: CONFIG_SCHEMA_URI,
+    version: CONFIG_VERSION,
+  };
+}
+
 export async function ensureConfigDir(dir: string = CONFIG_DIR): Promise<void> {
   await mkdir(dir, { recursive: true });
 }
@@ -24,7 +36,7 @@ export async function saveConfig(config: Config, path: string = CONFIG_PATH): Pr
     await mkdir(parentDir, { recursive: true });
   }
 
-  await Bun.write(path, JSON.stringify(config, null, 2));
+  await Bun.write(path, JSON.stringify(withCanonicalMetadata(config), null, 2));
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -115,7 +127,7 @@ function parseAgentSettings(value: unknown): AgentSettings | null {
   };
 }
 
-function parseConfig(value: unknown): Config | null {
+export function parseConfig(value: unknown): Config | null {
   if (!isRecord(value)) {
     return null;
   }
@@ -139,7 +151,7 @@ function parseConfig(value: unknown): Config | null {
     return null;
   }
 
-  return {
+  return withCanonicalMetadata({
     reviewer,
     fixer,
     ...(codeSimplifier ? { "code-simplifier": codeSimplifier } : {}),
@@ -147,7 +159,7 @@ function parseConfig(value: unknown): Config | null {
     iterationTimeout: value.iterationTimeout,
     ...(retry ? { retry } : {}),
     defaultReview,
-  };
+  });
 }
 
 export async function loadConfig(path: string = CONFIG_PATH): Promise<Config | null> {

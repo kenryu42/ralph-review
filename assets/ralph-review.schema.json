@@ -1,0 +1,221 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "const": "https://raw.githubusercontent.com/kenryu42/ralph-review/main/assets/ralph-review.schema.json"
+    },
+    "version": {
+      "type": "number",
+      "const": 1
+    },
+    "reviewer": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "agent": {
+              "type": "string",
+              "const": "pi"
+            },
+            "provider": {
+              "type": "string",
+              "minLength": 1
+            },
+            "model": {
+              "type": "string",
+              "minLength": 1
+            },
+            "reasoning": {
+              "type": "string",
+              "enum": ["low", "medium", "high", "xhigh", "max"]
+            }
+          },
+          "required": ["agent", "provider", "model"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "agent": {
+              "type": "string",
+              "enum": ["codex", "claude", "opencode", "droid", "gemini"]
+            },
+            "model": {
+              "type": "string"
+            },
+            "reasoning": {
+              "type": "string",
+              "enum": ["low", "medium", "high", "xhigh", "max"]
+            }
+          },
+          "required": ["agent"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "fixer": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "agent": {
+              "type": "string",
+              "const": "pi"
+            },
+            "provider": {
+              "type": "string",
+              "minLength": 1
+            },
+            "model": {
+              "type": "string",
+              "minLength": 1
+            },
+            "reasoning": {
+              "type": "string",
+              "enum": ["low", "medium", "high", "xhigh", "max"]
+            }
+          },
+          "required": ["agent", "provider", "model"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "agent": {
+              "type": "string",
+              "enum": ["codex", "claude", "opencode", "droid", "gemini"]
+            },
+            "model": {
+              "type": "string"
+            },
+            "reasoning": {
+              "type": "string",
+              "enum": ["low", "medium", "high", "xhigh", "max"]
+            }
+          },
+          "required": ["agent"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "code-simplifier": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "agent": {
+              "type": "string",
+              "const": "pi"
+            },
+            "provider": {
+              "type": "string",
+              "minLength": 1
+            },
+            "model": {
+              "type": "string",
+              "minLength": 1
+            },
+            "reasoning": {
+              "type": "string",
+              "enum": ["low", "medium", "high", "xhigh", "max"]
+            }
+          },
+          "required": ["agent", "provider", "model"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "agent": {
+              "type": "string",
+              "enum": ["codex", "claude", "opencode", "droid", "gemini"]
+            },
+            "model": {
+              "type": "string"
+            },
+            "reasoning": {
+              "type": "string",
+              "enum": ["low", "medium", "high", "xhigh", "max"]
+            }
+          },
+          "required": ["agent"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "maxIterations": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "iterationTimeout": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "retry": {
+      "type": "object",
+      "properties": {
+        "maxRetries": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "baseDelayMs": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "maxDelayMs": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": ["maxRetries", "baseDelayMs", "maxDelayMs"],
+      "additionalProperties": false
+    },
+    "defaultReview": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "uncommitted"
+            }
+          },
+          "required": ["type"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "base"
+            },
+            "branch": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": ["type", "branch"],
+          "additionalProperties": false
+        }
+      ]
+    }
+  },
+  "required": [
+    "$schema",
+    "version",
+    "reviewer",
+    "fixer",
+    "maxIterations",
+    "iterationTimeout",
+    "defaultReview"
+  ],
+  "additionalProperties": false
+}

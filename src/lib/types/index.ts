@@ -1,6 +1,8 @@
 export {
   type AgentConfig,
   type AgentSettings,
+  CONFIG_SCHEMA_URI,
+  CONFIG_VERSION,
   type Config,
   DEFAULT_RETRY_CONFIG,
   type DefaultReview,

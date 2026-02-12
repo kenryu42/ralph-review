@@ -44,6 +44,7 @@
   ],
   "scripts": {
     "dev:tui": "bun run scripts/tui-dev.tsx",
+    "build:schema": "bun run scripts/build-schema.ts",
     "rr": "bun run src/cli.ts",
     "test": "bun test",
     "prepublishOnly": "bun test",
@@ -63,7 +64,8 @@
     "husky": "^9.1.7",
     "knip": "^5.82.1",
     "lint-staged": "^16.2.7",
-    "typescript": "^5"
+    "typescript": "^5",
+    "zod": "^4.3.6"
   },
   "peerDependencies": {},
   "dependencies": {

@@ -34,6 +34,10 @@ export interface RetryConfig {
   maxDelayMs: number;
 }
 
+export const CONFIG_SCHEMA_URI =
+  "https://raw.githubusercontent.com/kenryu42/ralph-review/main/assets/ralph-review.schema.json";
+export const CONFIG_VERSION = 1;
+
 export const DEFAULT_RETRY_CONFIG: RetryConfig = {
   maxRetries: 3,
   baseDelayMs: 1000,
@@ -44,6 +48,8 @@ export const DEFAULT_RETRY_CONFIG: RetryConfig = {
  * Main configuration stored in ~/.config/ralph-review/config.json
  */
 export interface Config {
+  $schema: typeof CONFIG_SCHEMA_URI;
+  version: typeof CONFIG_VERSION;
   reviewer: AgentSettings;
   fixer: AgentSettings;
   "code-simplifier"?: AgentSettings;
