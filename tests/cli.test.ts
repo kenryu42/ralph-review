@@ -50,6 +50,7 @@ describe("cli", () => {
       const usage = printUsage();
       expect(usage).toContain("ralph-review");
       expect(usage).toContain("init");
+      expect(usage).toContain("config");
       expect(usage).toContain("run");
       expect(usage).toContain("list");
       expect(usage).toContain("status");
@@ -74,6 +75,7 @@ describe("cli", () => {
     test("contains all expected commands", () => {
       const names = COMMANDS.map((c) => c.name);
       expect(names).toContain("init");
+      expect(names).toContain("config");
       expect(names).toContain("run");
       expect(names).toContain("list");
       expect(names).toContain("status");
@@ -103,9 +105,14 @@ describe("cli", () => {
       expect(listCmd?.aliases).toContain("ls");
     });
 
-    test("all public commands have no positional args", () => {
+    test("only config command defines positional args", () => {
       const publicCommands = COMMANDS.filter((c) => !c.hidden);
       for (const cmd of publicCommands) {
+        if (cmd.name === "config") {
+          expect(cmd.positional?.length).toBe(3);
+          continue;
+        }
+
         expect(cmd.positional).toBeUndefined();
       }
     });
@@ -135,6 +142,19 @@ describe("cli", () => {
       const help = printCommandHelp("run");
       expect(help).toBeDefined();
       expect(help).toContain("--max");
+    });
+
+    test("returns help for config command", () => {
+      const help = printCommandHelp("config");
+      expect(help).toBeDefined();
+      expect(help).toContain("rr config show");
+      expect(help).toContain("rr config get reviewer.agent");
+      expect(help).toContain("rr config set maxIterations 8");
+      expect(help).toContain("rr config edit");
+      expect(help).toContain("show = print full config");
+      expect(help).toContain("get = read one key");
+      expect(help).toContain("set = update one key");
+      expect(help).toContain("edit = open in $EDITOR");
     });
 
     test("returns help for list command", () => {

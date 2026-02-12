@@ -13,7 +13,7 @@ import {
   selectAutoReasoning,
   validateAgentSelection,
 } from "@/commands/init";
-import type { AgentType } from "@/lib/types";
+import { type AgentType, CONFIG_SCHEMA_URI, CONFIG_VERSION } from "@/lib/types";
 
 describe("init command", () => {
   describe("validateAgentSelection", () => {
@@ -74,6 +74,8 @@ describe("init command", () => {
         defaultReviewType: "uncommitted",
       });
 
+      expect(config.$schema).toBe(CONFIG_SCHEMA_URI);
+      expect(config.version).toBe(CONFIG_VERSION);
       expect(config.reviewer.agent).toBe("codex");
       expect(config.reviewer.model).toBe("gpt-4");
       expect(config.fixer.agent).toBe("claude");

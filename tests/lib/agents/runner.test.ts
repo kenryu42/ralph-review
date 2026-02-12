@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { resolveAgentSettings } from "@/lib/agents/runner";
-import type { AgentSettings, Config } from "@/lib/types";
+import { type AgentSettings, CONFIG_SCHEMA_URI, CONFIG_VERSION, type Config } from "@/lib/types";
 
 const baseConfig: Config = {
+  $schema: CONFIG_SCHEMA_URI,
+  version: CONFIG_VERSION,
   reviewer: { agent: "codex", model: "gpt-5.2-codex", reasoning: "high" },
   fixer: { agent: "claude", model: "claude-sonnet-4-5", reasoning: "medium" },
   maxIterations: 5,

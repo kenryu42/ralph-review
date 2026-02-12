@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
+  CONFIG_SCHEMA_URI,
+  CONFIG_VERSION,
   type Config,
   type IterationResult,
   isAgentRole,
@@ -47,6 +49,8 @@ describe("type guards", () => {
 describe("type definitions", () => {
   test("Config type structure is correct", () => {
     const config: Config = {
+      $schema: CONFIG_SCHEMA_URI,
+      version: CONFIG_VERSION,
       reviewer: { agent: "codex", model: "gpt-4" },
       fixer: { agent: "claude" },
       maxIterations: 10,

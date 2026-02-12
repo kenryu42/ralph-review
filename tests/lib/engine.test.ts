@@ -9,10 +9,12 @@ import {
   parseReviewSummary,
 } from "@/lib/engine";
 import { createFixerPrompt } from "@/lib/prompts";
-import type { Config, RetryConfig } from "@/lib/types";
+import { CONFIG_SCHEMA_URI, CONFIG_VERSION, type Config, type RetryConfig } from "@/lib/types";
 
 // Mock config for testing
 const _mockConfig: Config = {
+  $schema: CONFIG_SCHEMA_URI,
+  version: CONFIG_VERSION,
   reviewer: { agent: "codex" },
   fixer: { agent: "claude" },
   maxIterations: 3,

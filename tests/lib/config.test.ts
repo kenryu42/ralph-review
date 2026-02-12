@@ -2,14 +2,16 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { configExists, ensureConfigDir, loadConfig, saveConfig } from "@/lib/config";
-import type { AgentSettings, Config } from "@/lib/types";
+import { configExists, ensureConfigDir, loadConfig, parseConfig, saveConfig } from "@/lib/config";
+import { type AgentSettings, CONFIG_SCHEMA_URI, CONFIG_VERSION, type Config } from "@/lib/types";
 
 describe("config", () => {
   let tempDir: string;
 
   // Create a valid test config
   const testConfig: Config = {
+    $schema: CONFIG_SCHEMA_URI,
+    version: CONFIG_VERSION,
     reviewer: { agent: "codex", model: "gpt-4", reasoning: "high" },
     fixer: { agent: "claude", reasoning: "medium" },
     maxIterations: 10,
@@ -59,6 +61,20 @@ describe("config", () => {
       await saveConfig(testConfig, configPath);
       const loaded = await loadConfig(configPath);
       expect(loaded).toEqual(testConfig);
+    });
+
+    test("loadConfig normalizes metadata values", async () => {
+      const configPath = join(tempDir, "config.json");
+      const configWithWrongMetadata = {
+        ...testConfig,
+        $schema: "https://example.com/wrong.schema.json",
+        version: 999,
+      };
+
+      await Bun.write(configPath, JSON.stringify(configWithWrongMetadata, null, 2));
+      const loaded = await loadConfig(configPath);
+      expect(loaded?.$schema).toBe(CONFIG_SCHEMA_URI);
+      expect(loaded?.version).toBe(CONFIG_VERSION);
     });
 
     test("loadConfig returns null for missing file", async () => {
@@ -112,6 +128,39 @@ describe("config", () => {
       await Bun.write(configPath, JSON.stringify(configWithInvalidSimplifier, null, 2));
       const loaded = await loadConfig(configPath);
       expect(loaded).toBeNull();
+    });
+
+    test("parseConfig returns config for valid object", () => {
+      const parsed = parseConfig(testConfig);
+      expect(parsed).toEqual(testConfig);
+    });
+
+    test("parseConfig adds metadata for legacy config missing metadata", () => {
+      const legacyConfig = {
+        reviewer: testConfig.reviewer,
+        fixer: testConfig.fixer,
+        maxIterations: testConfig.maxIterations,
+        iterationTimeout: testConfig.iterationTimeout,
+        defaultReview: testConfig.defaultReview,
+      };
+
+      const parsed = parseConfig(legacyConfig);
+      expect(parsed).not.toBeNull();
+      expect(parsed?.$schema).toBe(CONFIG_SCHEMA_URI);
+      expect(parsed?.version).toBe(CONFIG_VERSION);
+    });
+
+    test("parseConfig normalizes incorrect metadata values", () => {
+      const configWithWrongMetadata = {
+        ...testConfig,
+        $schema: "https://example.com/wrong.schema.json",
+        version: 42,
+      };
+
+      const parsed = parseConfig(configWithWrongMetadata);
+      expect(parsed).not.toBeNull();
+      expect(parsed?.$schema).toBe(CONFIG_SCHEMA_URI);
+      expect(parsed?.version).toBe(CONFIG_VERSION);
     });
   });
 

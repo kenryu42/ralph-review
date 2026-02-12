@@ -17,8 +17,16 @@ import {
   loadConfig,
   saveConfig,
 } from "@/lib/config";
-import type { AgentSettings, AgentType, Config, DefaultReview, ReasoningLevel } from "@/lib/types";
-import { isAgentType } from "@/lib/types";
+import {
+  type AgentSettings,
+  type AgentType,
+  CONFIG_SCHEMA_URI,
+  CONFIG_VERSION,
+  type Config,
+  type DefaultReview,
+  isAgentType,
+  type ReasoningLevel,
+} from "@/lib/types";
 
 export type AgentAvailability = Record<AgentType, boolean>;
 
@@ -165,6 +173,8 @@ export function buildConfig(input: InitInput): Config {
       : { type: "uncommitted" };
 
   return {
+    $schema: CONFIG_SCHEMA_URI,
+    version: CONFIG_VERSION,
     reviewer: createAgentSettings(
       input.reviewerAgent,
       input.reviewerModel,
