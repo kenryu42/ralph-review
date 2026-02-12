@@ -317,9 +317,14 @@ export function formatCommandHelp(def: CommandDef): string {
   if (def.positional?.length) {
     lines.push("");
     lines.push(`${theme.heading("ARGUMENTS:")}`);
+    const positionalFlags = def.positional.map((pos) => `<${pos.name}>`);
+    const maxPositionalLen = Math.max(...positionalFlags.map((flag) => flag.length));
+
     for (const pos of def.positional) {
+      const flag = `<${pos.name}>`;
       const req = pos.required ? ` ${theme.error("(required)")}` : "";
-      lines.push(`  <${pos.name}>    ${pos.description}${req}`);
+      const padding = " ".repeat(Math.max(0, maxPositionalLen - flag.length + 2));
+      lines.push(`  ${theme.option(flag)}${padding}${pos.description}${req}`);
     }
   }
 
