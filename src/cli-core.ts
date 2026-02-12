@@ -18,6 +18,25 @@ export const COMMANDS: CommandDef[] = [
     examples: ["rr init"],
   },
   {
+    name: "config",
+    description: "Inspect and update configuration",
+    positional: [
+      {
+        name: "subcommand",
+        description:
+          "show = print full config | get = read one key | set = update one key | edit = open in $EDITOR",
+      },
+      { name: "key", description: "Dot-path config key (required for get/set)" },
+      { name: "value", description: "Value to write (required for set)" },
+    ],
+    examples: [
+      "rr config show",
+      "rr config get reviewer.agent",
+      "rr config set maxIterations 8",
+      "rr config edit",
+    ],
+  },
+  {
     name: "run",
     description: "Start review cycle",
     options: [

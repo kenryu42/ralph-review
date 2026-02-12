@@ -2,6 +2,7 @@
 
 import * as p from "@clack/prompts";
 import { getCommandDef, getVersion, parseArgs, printCommandHelp, printUsage } from "./cli-core";
+import { runConfig } from "./commands/config";
 import { runDashboard } from "./commands/dashboard";
 import { runInit } from "./commands/init";
 import { runList } from "./commands/list";
@@ -49,7 +50,7 @@ async function main(): Promise<void> {
   const resolvedCommand = getCommandDef(command)?.name ?? command;
 
   const commandDef = getCommandDef(resolvedCommand);
-  if (commandDef) {
+  if (commandDef && resolvedCommand !== "config") {
     try {
       parseCommand(commandDef, args);
     } catch (error) {
@@ -70,6 +71,10 @@ async function main(): Promise<void> {
     switch (resolvedCommand) {
       case "init":
         await runInit();
+        break;
+
+      case "config":
+        await runConfig(args);
         break;
 
       case "run":
