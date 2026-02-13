@@ -28,6 +28,7 @@ export interface ModelStats {
 export interface SessionStats {
   sessionPath: string;
   sessionName: string;
+  sessionId?: string;
   timestamp: number;
   gitBranch?: string;
   status: DerivedRunStatus;
