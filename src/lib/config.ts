@@ -109,11 +109,6 @@ function parseAgentSettings(value: unknown): AgentSettings | null {
     return null;
   }
 
-  // Breaking change: legacy key is intentionally rejected.
-  if ("thinking" in value) {
-    return null;
-  }
-
   if (!isAgentType(value.agent)) {
     return null;
   }

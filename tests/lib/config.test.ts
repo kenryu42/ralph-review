@@ -84,21 +84,6 @@ describe("config", () => {
       expect(loaded).toBeNull();
     });
 
-    test("loadConfig returns null for legacy thinking keys", async () => {
-      const configPath = join(tempDir, "config.json");
-      const legacyConfig = {
-        reviewer: { agent: "codex", model: "gpt-4", thinking: "high" },
-        fixer: { agent: "claude", thinking: "medium" },
-        maxIterations: 10,
-        iterationTimeout: 600000,
-        defaultReview: { type: "uncommitted" },
-      };
-
-      await Bun.write(configPath, JSON.stringify(legacyConfig, null, 2));
-      const loaded = await loadConfig(configPath);
-      expect(loaded).toBeNull();
-    });
-
     test("loadConfig accepts optional code-simplifier agent settings", async () => {
       const configPath = join(tempDir, "config.json");
       const codeSimplifier: AgentSettings = {
@@ -136,7 +121,7 @@ describe("config", () => {
       expect(parsed).toEqual(testConfig);
     });
 
-    test("parseConfig adds metadata for legacy config missing metadata", () => {
+    test("parseConfig adds metadata when $schema and version are missing", () => {
       const legacyConfig = {
         reviewer: testConfig.reviewer,
         fixer: testConfig.fixer,
