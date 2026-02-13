@@ -12,7 +12,6 @@ import type {
   ModelStats,
   Priority,
   ProjectStats,
-  ReasoningLevel,
   SessionEndEntry,
   SessionStats,
   SessionSummary,
@@ -505,7 +504,12 @@ async function getSummaryForAppend(logPath: string): Promise<SessionSummary> {
   return empty;
 }
 
-async function appendLogCompatibilityFallback(logPath: string, line: string): Promise<void> {
+/**
+ * Append to an existing log file when no active writer is available (e.g. after
+ * a process restart). Bun.file().writer() starts at byte 0, so we must
+ * read-then-rewrite to preserve prior entries.
+ */
+async function appendByRewrite(logPath: string, line: string): Promise<void> {
   const file = Bun.file(logPath);
   const existing = (await file.exists()) ? await file.text() : "";
   const content = `${existing}${line}`;
@@ -523,9 +527,8 @@ export async function appendLog(logPath: string, entry: LogEntry): Promise<void>
     const hasActiveSink = LOG_SINKS.has(logPath);
     const fileExists = await file.exists();
 
-    // Compatibility path for existing logs when no active writer is available.
     if (!hasActiveSink && fileExists && file.size > 0) {
-      await appendLogCompatibilityFallback(logPath, line);
+      await appendByRewrite(logPath, line);
     } else {
       const baseSummary = await getSummaryForAppend(logPath);
       await appendLogLine(logPath, line);
@@ -633,16 +636,10 @@ export async function computeSessionStats(session: LogSession): Promise<SessionS
 
   const reviewer = systemEntry?.reviewer?.agent ?? "claude";
   const reviewerModel = systemEntry?.reviewer?.model ?? "unknown";
-  // Fall back to legacy 'thinking' field for backward compatibility with old logs
-  const reviewerReasoning =
-    systemEntry?.reviewer?.reasoning ??
-    (systemEntry?.reviewer as { thinking?: ReasoningLevel })?.thinking;
+  const reviewerReasoning = systemEntry?.reviewer?.reasoning;
   const fixer = systemEntry?.fixer?.agent ?? "claude";
   const fixerModel = systemEntry?.fixer?.model ?? "unknown";
-  // Fall back to legacy 'thinking' field for backward compatibility with old logs
-  const fixerReasoning =
-    systemEntry?.fixer?.reasoning ??
-    (systemEntry?.fixer as { thinking?: ReasoningLevel })?.thinking;
+  const fixerReasoning = systemEntry?.fixer?.reasoning;
 
   return {
     sessionPath: session.path,

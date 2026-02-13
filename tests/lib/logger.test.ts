@@ -406,7 +406,7 @@ describe("logger", () => {
       expect(leftovers.length).toBe(0);
     });
 
-    test("preserves existing legacy log content when appending without prior writer state", async () => {
+    test("preserves existing log content when appending without active writer", async () => {
       const logPath = await createLogSession(tempDir, "/path/to/project");
 
       const systemEntry: SystemEntry = {
