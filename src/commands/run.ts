@@ -1,24 +1,18 @@
 import * as p from "@clack/prompts";
-import { $ } from "bun";
 import { getCommandDef } from "@/cli";
-import { AGENTS, isAgentAvailable } from "@/lib/agents";
 import { getAgentDisplayInfo } from "@/lib/agents/display";
 import { parseCommand } from "@/lib/cli-parser";
-import { configExists, loadConfig } from "@/lib/config";
+import { loadConfig } from "@/lib/config";
+import { collectIssueItems, runDiagnostics } from "@/lib/diagnostics";
+import type { DiagnosticsReport } from "@/lib/diagnostics/types";
 import { type CycleResult, runReviewCycle } from "@/lib/engine";
 import { formatReviewType } from "@/lib/format";
-import {
-  cleanupStaleLockfile,
-  createLockfile,
-  lockfileExists,
-  removeLockfile,
-  updateLockfile,
-} from "@/lib/lockfile";
+import { createLockfile, removeLockfile, updateLockfile } from "@/lib/lockfile";
 import { getGitBranch } from "@/lib/logger";
 import { playCompletionSound, resolveSoundEnabled, type SoundOverride } from "@/lib/notify/sound";
 import { CLI_PATH } from "@/lib/paths";
 import { createSession, generateSessionName, isInsideTmux, isTmuxInstalled } from "@/lib/tmux";
-import { type Config, isAgentType, type ReviewOptions } from "@/lib/types";
+import type { AgentType, Config, ReviewOptions } from "@/lib/types";
 
 export interface RunOptions {
   max?: number;
@@ -42,107 +36,6 @@ export function classifyRunCompletion(result: CycleResult): "success" | "warning
   }
 
   return "error";
-}
-
-export async function isGitRepo(): Promise<boolean> {
-  try {
-    const result = await $`git rev-parse --git-dir 2>/dev/null`.quiet();
-    return result.exitCode === 0;
-  } catch {
-    return false;
-  }
-}
-
-export async function hasUncommittedChanges(): Promise<boolean> {
-  try {
-    const result = await $`git status --porcelain`.quiet();
-    return result.text().trim().length > 0;
-  } catch {
-    return false;
-  }
-}
-
-export async function validatePrerequisites(
-  baseBranch?: string,
-  commitSha?: string
-): Promise<string[]> {
-  const errors: string[] = [];
-
-  if (!(await configExists())) {
-    errors.push('Configuration not found. Run "rr init" first.');
-    return errors; // Can't continue without config
-  }
-
-  const config = await loadConfig();
-  if (!config) {
-    errors.push("Failed to load configuration.");
-    return errors;
-  }
-
-  // Check git repo
-  if (!(await isGitRepo())) {
-    errors.push("Not a git repository. Run this command from a git repo.");
-  }
-
-  // Check uncommitted changes (only when reviewing uncommitted, not base branch or commit)
-  if (!baseBranch && !commitSha && !(await hasUncommittedChanges())) {
-    errors.push("No uncommitted changes to review.");
-  }
-
-  // Check reviewer agent is available
-  if (!isAgentType(config.reviewer.agent)) {
-    errors.push(`Unknown reviewer agent: "${config.reviewer.agent}"`);
-  } else {
-    if (
-      config.reviewer.agent === "pi" &&
-      (!config.reviewer.provider?.trim() || !config.reviewer.model?.trim())
-    ) {
-      errors.push(
-        'Reviewer agent "pi" requires provider and model. Run "rr init" to update config.'
-      );
-    }
-
-    const reviewerCommand = AGENTS[config.reviewer.agent].config.command;
-    if (!isAgentAvailable(reviewerCommand)) {
-      errors.push(
-        `Reviewer agent "${config.reviewer.agent}" (command: ${reviewerCommand}) is not installed. Install it and try again.`
-      );
-    }
-  }
-
-  // Check fixer agent is available
-  if (!isAgentType(config.fixer.agent)) {
-    errors.push(`Unknown fixer agent: "${config.fixer.agent}"`);
-  } else {
-    if (
-      config.fixer.agent === "pi" &&
-      (!config.fixer.provider?.trim() || !config.fixer.model?.trim())
-    ) {
-      errors.push('Fixer agent "pi" requires provider and model. Run "rr init" to update config.');
-    }
-
-    const fixerCommand = AGENTS[config.fixer.agent].config.command;
-    if (!isAgentAvailable(fixerCommand)) {
-      errors.push(
-        `Fixer agent "${config.fixer.agent}" (command: ${fixerCommand}) is not installed. Install it and try again.`
-      );
-    }
-  }
-
-  // Get project path for lockfile check
-  const projectPath = process.cwd();
-
-  // Clean up stale lockfile if exists (PID dead)
-  await cleanupStaleLockfile(undefined, projectPath);
-
-  // Check lockfile (review already in progress for this project)
-  if (await lockfileExists(undefined, projectPath)) {
-    errors.push(
-      `Review already in progress for current working directory. Use "rr status" to check or "rr stop" to terminate.`
-    );
-  }
-
-  return errors;
 }
 
 function shellEscape(str: string): string {
@@ -170,6 +63,25 @@ export function resolveRunSoundOverride(options: RunOptions): SoundOverride | un
   }
 
   return undefined;
+}
+
+function getDynamicProbeAgents(config: Config | null): AgentType[] {
+  if (!config) {
+    return [];
+  }
+
+  const probeAgents = new Set<AgentType>();
+  const settings: (Config["reviewer"] | Config["fixer"] | Config["code-simplifier"] | undefined)[] =
+    [config.reviewer, config.fixer, config["code-simplifier"]];
+
+  for (const entry of settings) {
+    const agent = entry?.agent;
+    if (agent === "opencode" || agent === "pi") {
+      probeAgents.add(agent);
+    }
+  }
+
+  return probeAgents.size > 0 ? [...probeAgents] : [];
 }
 
 async function runInBackground(
@@ -353,11 +265,12 @@ export async function startReview(args: string[]): Promise<void> {
     process.exit(1);
   }
 
+  const loadedConfig = await loadConfig();
+
   const hasExplicitMode = options.base || options.uncommitted || options.commit || options.custom;
   if (!hasExplicitMode) {
-    const config = await loadConfig();
-    if (config?.defaultReview?.type === "base") {
-      options.base = config.defaultReview.branch;
+    if (loadedConfig?.defaultReview?.type === "base") {
+      options.base = loadedConfig.defaultReview.branch;
     }
     // else: defaults to uncommitted behavior (no base flag)
   }
@@ -374,18 +287,47 @@ export async function startReview(args: string[]): Promise<void> {
     process.exit(1);
   }
 
-  // Validate prerequisites
-  const errors = await validatePrerequisites(options.base, options.commit);
+  const preflightSpinner = p.spinner();
+  preflightSpinner.start("Running preflight checks...");
+  let diagnostics: DiagnosticsReport;
+  try {
+    diagnostics = await runDiagnostics("run", {
+      projectPath: process.cwd(),
+      baseBranch: options.base,
+      commitSha: options.commit,
+      capabilityDiscoveryOptions: {
+        probeAgents: getDynamicProbeAgents(loadedConfig),
+      },
+    });
+  } finally {
+    preflightSpinner.stop("Preflight checks complete.");
+  }
+  const issues = collectIssueItems(diagnostics);
+  const errors = issues.filter((item) => item.severity === "error");
+  const warnings = issues.filter((item) => item.severity === "warning");
 
   if (errors.length > 0) {
     p.log.error("Cannot run review:");
-    errors.forEach((e) => {
-      p.log.message(`  ${e}`);
-    });
+    for (const item of errors) {
+      p.log.message(`  ${item.summary}`);
+      item.remediation.forEach((remediation) => {
+        p.log.message(`    -> ${remediation}`);
+      });
+    }
     process.exit(1);
   }
 
-  const config = await loadConfig();
+  if (warnings.length > 0) {
+    p.log.warn("Preflight warnings:");
+    for (const item of warnings) {
+      p.log.message(`  ${item.summary}`);
+      item.remediation.forEach((remediation) => {
+        p.log.message(`    -> ${remediation}`);
+      });
+    }
+  }
+
+  const config = diagnostics.config ?? (await loadConfig());
   if (!config) {
     p.log.error("Failed to load configuration");
     process.exit(1);

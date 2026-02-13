@@ -3,16 +3,11 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getCommandDef } from "@/cli";
-import {
-  classifyRunCompletion,
-  hasUncommittedChanges,
-  isGitRepo,
-  type RunOptions,
-  resolveRunSoundOverride,
-  validatePrerequisites,
-} from "@/commands/run";
+import { classifyRunCompletion, type RunOptions, resolveRunSoundOverride } from "@/commands/run";
 import { parseCommand } from "@/lib/cli-parser";
+import { runDiagnostics } from "@/lib/diagnostics";
 import { createLockfile, lockfileExists, removeLockfile } from "@/lib/lockfile";
+import { createCapabilities, createConfig } from "../helpers/diagnostics";
 
 describe("run command", () => {
   describe("classifyRunCompletion", () => {
@@ -136,31 +131,51 @@ describe("run command", () => {
     });
   });
 
-  describe("validatePrerequisites", () => {
-    test("returns errors array", async () => {
-      // This will likely return errors in test environment
-      const result = await validatePrerequisites();
-      expect(Array.isArray(result)).toBe(true);
-    });
-  });
+  describe("run diagnostics integration", () => {
+    test("fails when configured dynamic model is unavailable", async () => {
+      const capabilities = createCapabilities();
+      const config = createConfig();
+      config.reviewer = {
+        agent: "opencode",
+        model: "missing-model",
+      };
 
-  describe("isGitRepo", () => {
-    test("returns boolean", async () => {
-      const result = await isGitRepo();
-      expect(typeof result).toBe("boolean");
+      const report = await runDiagnostics("run", {
+        capabilitiesByAgent: capabilities,
+        dependencies: {
+          configExists: async () => true,
+          loadConfig: async () => config,
+          isGitRepository: async () => true,
+          hasUncommittedChanges: async () => true,
+          cleanupStaleLockfile: async () => false,
+          lockfileExists: async () => false,
+          isTmuxInstalled: () => true,
+        },
+      });
+
+      expect(report.hasErrors).toBe(true);
+      expect(report.items.some((item) => item.id === "config-reviewer-model-missing")).toBe(true);
     });
 
-    test("returns true in git repo", async () => {
-      // We're in a git repo during tests
-      const result = await isGitRepo();
-      expect(result).toBe(true);
-    });
-  });
+    test("keeps warnings non-blocking", async () => {
+      const capabilities = createCapabilities();
+      capabilities.opencode.probeWarnings = ["probe warning"];
 
-  describe("hasUncommittedChanges", () => {
-    test("returns boolean", async () => {
-      const result = await hasUncommittedChanges();
-      expect(typeof result).toBe("boolean");
+      const report = await runDiagnostics("run", {
+        capabilitiesByAgent: capabilities,
+        dependencies: {
+          configExists: async () => true,
+          loadConfig: async () => createConfig(),
+          isGitRepository: async () => true,
+          hasUncommittedChanges: async () => true,
+          cleanupStaleLockfile: async () => false,
+          lockfileExists: async () => false,
+          isTmuxInstalled: () => true,
+        },
+      });
+
+      expect(report.hasErrors).toBe(false);
+      expect(report.hasWarnings).toBe(true);
     });
   });
 
