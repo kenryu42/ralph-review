@@ -54,7 +54,7 @@ export const DEFAULT_RETRY_CONFIG: RetryConfig = {
 
 export const DEFAULT_NOTIFICATIONS_CONFIG: NotificationsConfig = {
   sound: {
-    enabled: false,
+    enabled: true,
   },
 };
 

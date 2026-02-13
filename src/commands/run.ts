@@ -203,10 +203,11 @@ export async function runForeground(args: string[] = []): Promise<void> {
   const foregroundDef = getCommandDef("_run-foreground");
   if (foregroundDef) {
     try {
-      const { values } = parseCommand<{ max?: number; force?: boolean; simplifier?: boolean }>(
-        foregroundDef,
-        args
-      );
+      const { values } = parseCommand<{
+        max?: number;
+        force?: boolean;
+        simplifier?: boolean;
+      }>(foregroundDef, args);
       if (values.max !== undefined) {
         config.maxIterations = values.max;
       }

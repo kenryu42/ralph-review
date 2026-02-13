@@ -380,35 +380,24 @@ function formatAgentModel(settings: AgentSettings): string {
   return settings.model ? getModelDisplayName(settings.agent, settings.model) : "Default";
 }
 
+function formatRoleSummary(settings: AgentSettings): string {
+  const name = getAgentDisplayName(settings.agent);
+  const model = formatAgentModel(settings);
+  const reasoning = settings.reasoning ?? "default";
+  return `${name} (${model}, ${reasoning})`;
+}
+
 function formatConfigDisplay(config: Config): string {
-  const reviewerName = getAgentDisplayName(config.reviewer.agent);
-  const fixerName = getAgentDisplayName(config.fixer.agent);
   const simplifierSettings = config["code-simplifier"];
-
-  const reviewerModel = formatAgentModel(config.reviewer);
-  const fixerModel = formatAgentModel(config.fixer);
-  const simplifierName = simplifierSettings
-    ? getAgentDisplayName(simplifierSettings.agent)
-    : "Not configured";
-  const simplifierModel = simplifierSettings
-    ? formatAgentModel(simplifierSettings)
-    : "Not configured";
-
   const defaultReviewDisplay =
     config.defaultReview.type === "base"
       ? `base branch (${config.defaultReview.branch})`
       : "uncommitted changes";
-  const reviewerReasoning = config.reviewer.reasoning ?? "Default";
-  const fixerReasoning = config.fixer.reasoning ?? "Default";
-  const simplifierReasoning = simplifierSettings?.reasoning ?? "Default";
 
   return [
-    `  Reviewer:            ${reviewerName}`,
-    `  Reviewer model:      ${reviewerModel}, ${reviewerReasoning}`,
-    `  Fixer:               ${fixerName}`,
-    `  Fixer model:         ${fixerModel}, ${fixerReasoning}`,
-    `  Simplifier:          ${simplifierName}`,
-    `  Simplifier model:    ${simplifierModel}, ${simplifierReasoning}`,
+    `  Reviewer:            ${formatRoleSummary(config.reviewer)}`,
+    `  Fixer:               ${formatRoleSummary(config.fixer)}`,
+    `  Simplifier:          ${simplifierSettings ? formatRoleSummary(simplifierSettings) : "Not configured"}`,
     `  Max iterations:      ${config.maxIterations}`,
     `  Iteration timeout:   ${config.iterationTimeout / 1000 / 60} minutes`,
     `  Default review:      ${defaultReviewDisplay}`,
@@ -630,7 +619,7 @@ export async function buildAutoInitInput(
       maxIterations,
       iterationTimeoutMinutes,
       defaultReviewType: "uncommitted",
-      soundNotificationsEnabled: DEFAULT_CONFIG.notifications?.sound.enabled ?? false,
+      soundNotificationsEnabled: DEFAULT_CONFIG.notifications?.sound.enabled ?? true,
     },
     skippedAgents,
   };
@@ -767,7 +756,7 @@ async function promptForCustomInitInput(
     iterationTimeoutMinutes,
     defaultReviewType: defaultReviewType as "uncommitted" | "base",
     defaultReviewBranch: defaultReviewBranch as string | undefined,
-    soundNotificationsEnabled: DEFAULT_CONFIG.notifications?.sound.enabled ?? false,
+    soundNotificationsEnabled: DEFAULT_CONFIG.notifications?.sound.enabled ?? true,
   } satisfies InitInput;
 }
 

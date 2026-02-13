@@ -134,7 +134,7 @@ describe("config", () => {
       expect(parsed).not.toBeNull();
       expect(parsed?.$schema).toBe(CONFIG_SCHEMA_URI);
       expect(parsed?.version).toBe(CONFIG_VERSION);
-      expect(parsed?.notifications.sound.enabled).toBe(false);
+      expect(parsed?.notifications.sound.enabled).toBe(true);
     });
 
     test("parseConfig defaults notifications when omitted", () => {
@@ -145,7 +145,7 @@ describe("config", () => {
 
       const parsed = parseConfig(withoutNotifications);
       expect(parsed).not.toBeNull();
-      expect(parsed?.notifications.sound.enabled).toBe(false);
+      expect(parsed?.notifications.sound.enabled).toBe(true);
     });
 
     test("parseConfig reads explicit notifications", () => {
@@ -157,6 +157,21 @@ describe("config", () => {
       const parsed = parseConfig(withNotifications);
       expect(parsed).not.toBeNull();
       expect(parsed?.notifications.sound.enabled).toBe(true);
+    });
+
+    test("parseConfig ignores legacy verification settings", () => {
+      const withLegacyVerification = {
+        ...testConfig,
+        verification: {
+          commands: ["bun run check"],
+          mode: "each-fixer-pass",
+        },
+      };
+
+      const parsed = parseConfig(withLegacyVerification);
+      expect(parsed).not.toBeNull();
+      const parsedLegacy = parsed as unknown as { verification?: unknown };
+      expect(parsedLegacy.verification).toBeUndefined();
     });
 
     test("parseConfig normalizes incorrect metadata values", () => {

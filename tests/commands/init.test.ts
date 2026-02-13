@@ -314,7 +314,7 @@ describe("init command", () => {
       expect(result.input.fixerAgent).toBe("codex");
       expect(result.input.simplifierAgent).toBe("codex");
       expect(result.input.defaultReviewType).toBe("uncommitted");
-      expect(result.input.soundNotificationsEnabled).toBe(false);
+      expect(result.input.soundNotificationsEnabled).toBe(true);
       expect(result.input.maxIterations).toBeGreaterThan(0);
       expect(result.input.iterationTimeoutMinutes).toBeGreaterThan(0);
     });
