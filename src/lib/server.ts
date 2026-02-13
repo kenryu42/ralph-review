@@ -33,6 +33,7 @@ export interface DashboardServerEvent {
 interface ServerOptions {
   data: DashboardData;
   port?: number;
+  logsDir?: string;
   onEvent?: (event: DashboardServerEvent) => void;
 }
 
@@ -72,7 +73,7 @@ function createEventEmitter(
 }
 
 export function startDashboardServer(options: ServerOptions): ReturnType<typeof Bun.serve> {
-  const { data } = options;
+  const { data, logsDir = LOGS_DIR } = options;
   const emit = createEventEmitter(options.onEvent);
 
   return Bun.serve({
@@ -131,7 +132,7 @@ export function startDashboardServer(options: ServerOptions): ReturnType<typeof 
 
           // Check if session is actually running by querying live lockfile state
           // (the in-memory status may be stale if a review completed after dashboard opened)
-          const activeSessions = await listAllActiveSessions(LOGS_DIR);
+          const activeSessions = await listAllActiveSessions(logsDir);
           for (const project of data.projects) {
             const session = project.sessions.find((s) => s.sessionPath === body.sessionPath);
             if (session) {
@@ -141,6 +142,10 @@ export function startDashboardServer(options: ServerOptions): ReturnType<typeof 
                 // Session might be running - check lockfile for this project
                 const sessionBranch = normalizeBranch(session.gitBranch);
                 const isActive = activeSessions.some((a) => {
+                  if (session.sessionId && a.sessionId) {
+                    return a.sessionId === session.sessionId;
+                  }
+
                   const activeProjectName = getProjectName(a.projectPath);
                   const activeBranch = normalizeBranch(a.branch);
                   return (

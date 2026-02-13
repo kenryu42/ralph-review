@@ -129,16 +129,48 @@ function createDashboardData(projectPath: string, branch?: string): DashboardDat
 
 function createActiveSession(projectPath: string, branch: string): ActiveSession {
   return {
+    schemaVersion: 2,
+    sessionId: "active-session-id",
     sessionName: "rr-project-123",
     startTime: Date.now(),
+    lastHeartbeat: Date.now(),
     pid: 12345,
     projectPath,
     branch,
+    state: "running",
+    mode: "background",
+    status: "running",
     lockPath: "/logs/lockfile.lock",
   };
 }
 
 describe("dashboard markRunningSessions", () => {
+  test("marks by sessionId before branch/project heuristics", () => {
+    const projectPath = "/work/project-a";
+    const data = createDashboardData(projectPath, "feature/x");
+    const active = createActiveSession(projectPath, "main");
+    if (data.projects[0]?.sessions[0]) {
+      data.projects[0].sessions[0].sessionId = "active-session-id";
+    }
+
+    markRunningSessions(data, [active]);
+
+    expect(data.projects[0]?.sessions[0]?.status).toBe("running");
+  });
+
+  test("does not fall back when both IDs exist and differ", () => {
+    const projectPath = "/work/project-a";
+    const data = createDashboardData(projectPath, "main");
+    const active = createActiveSession(projectPath, "main");
+    if (data.projects[0]?.sessions[0]) {
+      data.projects[0].sessions[0].sessionId = "different-session-id";
+    }
+
+    markRunningSessions(data, [active]);
+
+    expect(data.projects[0]?.sessions[0]?.status).toBe("completed");
+  });
+
   test("marks the matching project and branch as running", () => {
     const projectPath = "/work/project-a";
     const data = createDashboardData(projectPath, "main");

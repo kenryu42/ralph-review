@@ -89,6 +89,24 @@ function recomputeDashboardAggregates(data: DashboardData): void {
 
 export function markRunningSessions(data: DashboardData, activeSessions: ActiveSession[]): void {
   for (const active of activeSessions) {
+    if (active.sessionId) {
+      let matchedBySessionId = false;
+      for (const project of data.projects) {
+        const session = project.sessions.find((s) => s.sessionId === active.sessionId);
+        if (!session) {
+          continue;
+        }
+
+        session.status = "running";
+        matchedBySessionId = true;
+        break;
+      }
+
+      if (matchedBySessionId) {
+        continue;
+      }
+    }
+
     const projectName = getProjectName(active.projectPath);
     const project = data.projects.find((p) => p.projectName === projectName);
     if (!project) {
@@ -96,8 +114,8 @@ export function markRunningSessions(data: DashboardData, activeSessions: ActiveS
     }
 
     const activeBranch = normalizeBranch(active.branch);
-    const session = project.sessions.find((s) =>
-      activeBranch ? s.gitBranch === activeBranch : !s.gitBranch
+    const session = project.sessions.find(
+      (s) => !s.sessionId && (activeBranch ? s.gitBranch === activeBranch : !s.gitBranch)
     );
 
     if (session) {

@@ -10,11 +10,17 @@ import type { LogEntry } from "@/lib/types";
 
 describe("getCurrentAgentFromLockData", () => {
   const baseLockData: LockData = {
+    schemaVersion: 2,
+    sessionId: "session-1",
     sessionName: "rr-test-123",
     startTime: Date.now(),
+    lastHeartbeat: Date.now(),
     pid: process.pid,
     projectPath: "/test/project",
     branch: "main",
+    state: "running",
+    mode: "background",
+    status: "running",
   };
 
   test("returns null when lockData is null", () => {
@@ -113,11 +119,16 @@ describe("mergeHeavyDashboardState", () => {
   const baseState: DashboardState = {
     sessions: [],
     currentSession: {
+      schemaVersion: 2,
+      sessionId: "rr-live-session",
       sessionName: "rr-live",
       startTime: 1000,
+      lastHeartbeat: 1000,
       pid: 123,
       projectPath: "/test/project",
       branch: "main",
+      state: "running",
+      mode: "foreground",
       iteration: 2,
       status: "running",
       currentAgent: "fixer",

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createLockfile, removeLockfile } from "@/lib/lockfile";
 import { getHtmlPath, getSummaryPath } from "@/lib/logger";
 import { type DashboardServerEvent, startDashboardServer } from "@/lib/server";
 import type { DashboardData, SessionStats } from "@/lib/types";
@@ -76,14 +77,19 @@ function createEventCollector(): {
 describe("server", () => {
   let tempDir: string;
   let server: ReturnType<typeof Bun.serve>;
+  let createdLocks: Array<{ projectPath: string; sessionId: string }>;
 
   beforeEach(async () => {
     tempDir = await mkdtemp(join(tmpdir(), "ralph-server-test-"));
+    createdLocks = [];
   });
 
   afterEach(async () => {
     if (server) {
       server.stop(true);
+    }
+    for (const lock of createdLocks) {
+      await removeLockfile(tempDir, lock.projectPath, { expectedSessionId: lock.sessionId });
     }
     await rm(tempDir, { recursive: true, force: true });
   });
@@ -158,6 +164,48 @@ describe("server", () => {
     expect(events[1]?.status).toBe(404);
     expect(events[1]?.sessionPath).toBe(missingPath);
     expect(events[1]?.reason).toBe("session_not_found");
+  });
+
+  test("DELETE /api/sessions returns 409 when the target sessionId is actively running", async () => {
+    const data = createTestData(tempDir);
+    const session = data.projects[0]?.sessions[0];
+    const sessionPath = session?.sessionPath ?? "";
+    const runningSessionId = "running-session-id";
+    const activeProjectPath = join(tempDir, "active-project");
+    if (session) {
+      session.status = "running";
+      session.sessionId = runningSessionId;
+    }
+
+    await createLockfile(tempDir, activeProjectPath, "rr-running-session", {
+      branch: "main",
+      sessionId: runningSessionId,
+      state: "running",
+      mode: "background",
+      lastHeartbeat: Date.now(),
+      pid: process.pid,
+    });
+    createdLocks.push({ projectPath: activeProjectPath, sessionId: runningSessionId });
+
+    const { events, onEvent } = createEventCollector();
+    server = startDashboardServer({ data, onEvent, logsDir: tempDir });
+
+    const res = await fetch(`http://localhost:${server.port}/api/sessions`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionPath }),
+    });
+
+    expect(res.status).toBe(409);
+    expect(await res.text()).toContain("Cannot delete a running session");
+
+    expect(events.map((event) => event.event)).toEqual([
+      "session_delete_requested",
+      "session_delete_running_conflict",
+    ]);
+    expect(events[1]?.status).toBe(409);
+    expect(events[1]?.sessionPath).toBe(sessionPath);
+    expect(events[1]?.reason).toBe("running_session");
   });
 
   test("DELETE /api/sessions with missing body returns 400", async () => {
