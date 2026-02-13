@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import {
   appendLog,
   buildAgentStats,
@@ -244,6 +244,211 @@ describe("logger", () => {
       expect(summary?.hasIteration).toBe(true);
       expect(summary?.gitBranch).toBe("main");
       expect(summary?.reason).toContain("code is clean");
+    });
+
+    test("applies incremental summary updates for each appended event", async () => {
+      const logPath = await createLogSession(tempDir, "/path/to/project", "main");
+
+      const systemEntry: SystemEntry = {
+        type: "system",
+        timestamp: 1_700_000_000_000,
+        projectPath: "/path/to/project",
+        gitBranch: "main",
+        reviewer: { agent: "codex" },
+        fixer: { agent: "claude" },
+        maxIterations: 5,
+      };
+      const iterationEntry: IterationEntry = {
+        type: "iteration",
+        timestamp: 1_700_000_001_000,
+        iteration: 1,
+        duration: 1_500,
+        fixes: buildFixSummary({
+          decision: "APPLY_SELECTIVELY",
+          stop_iteration: false,
+          fixes: [
+            buildFixEntry({
+              id: 1,
+              title: "Fix auth guard",
+              priority: "P0",
+              file: "auth.ts",
+            }),
+          ],
+          skipped: [{ id: 2, title: "Skip docs", priority: "P2", reason: "not required" }],
+        }),
+      };
+      const sessionEndEntry: SessionEndEntry = {
+        type: "session_end",
+        timestamp: 1_700_000_002_000,
+        status: "completed",
+        reason: "No issues found - code is clean",
+        iterations: 1,
+      };
+
+      await appendLog(logPath, systemEntry);
+      const summaryAfterSystem = await readSessionSummary(logPath);
+      expect(summaryAfterSystem).not.toBeNull();
+      expect(summaryAfterSystem?.projectPath).toBe("/path/to/project");
+      expect(summaryAfterSystem?.gitBranch).toBe("main");
+      expect(summaryAfterSystem?.status).toBe("unknown");
+      expect(summaryAfterSystem?.iterations).toBe(0);
+      expect(summaryAfterSystem?.totalFixes).toBe(0);
+
+      await appendLog(logPath, iterationEntry);
+      const summaryAfterIteration = await readSessionSummary(logPath);
+      expect(summaryAfterIteration).not.toBeNull();
+      expect(summaryAfterIteration?.status).toBe("completed");
+      expect(summaryAfterIteration?.iterations).toBe(1);
+      expect(summaryAfterIteration?.hasIteration).toBe(true);
+      expect(summaryAfterIteration?.totalFixes).toBe(1);
+      expect(summaryAfterIteration?.totalSkipped).toBe(1);
+      expect(summaryAfterIteration?.priorityCounts.P0).toBe(1);
+      expect(summaryAfterIteration?.priorityCounts.P2).toBe(0);
+      expect(summaryAfterIteration?.stop_iteration).toBe(false);
+      expect(summaryAfterIteration?.totalDuration).toBe(1_500);
+
+      await appendLog(logPath, sessionEndEntry);
+      const summaryAfterEnd = await readSessionSummary(logPath);
+      expect(summaryAfterEnd).not.toBeNull();
+      expect(summaryAfterEnd?.status).toBe("completed");
+      expect(summaryAfterEnd?.endedAt).toBe(1_700_000_002_000);
+      expect(summaryAfterEnd?.reason).toContain("code is clean");
+      expect(summaryAfterEnd?.iterations).toBe(1);
+      expect(summaryAfterEnd?.totalFixes).toBe(1);
+      expect(summaryAfterEnd?.totalSkipped).toBe(1);
+    });
+
+    test("serializes concurrent appends to the same log", async () => {
+      const logPath = await createLogSession(tempDir, "/path/to/project", "main");
+
+      const systemEntry: SystemEntry = {
+        type: "system",
+        timestamp: Date.now(),
+        projectPath: "/path/to/project",
+        gitBranch: "main",
+        reviewer: { agent: "codex" },
+        fixer: { agent: "claude" },
+        maxIterations: 5,
+      };
+      const iter1: IterationEntry = {
+        type: "iteration",
+        timestamp: Date.now() + 1,
+        iteration: 1,
+        fixes: buildFixSummary({
+          decision: "APPLY_SELECTIVELY",
+          fixes: [buildFixEntry({ id: 1, title: "Fix 1", priority: "P1", file: "a.ts" })],
+        }),
+      };
+      const iter2: IterationEntry = {
+        type: "iteration",
+        timestamp: Date.now() + 2,
+        iteration: 2,
+        fixes: buildFixSummary({
+          decision: "APPLY_SELECTIVELY",
+          fixes: [buildFixEntry({ id: 2, title: "Fix 2", priority: "P0", file: "b.ts" })],
+        }),
+      };
+      const sessionEndEntry: SessionEndEntry = {
+        type: "session_end",
+        timestamp: Date.now() + 3,
+        status: "completed",
+        reason: "done",
+        iterations: 2,
+      };
+
+      await Promise.all([
+        appendLog(logPath, systemEntry),
+        appendLog(logPath, iter1),
+        appendLog(logPath, iter2),
+        appendLog(logPath, sessionEndEntry),
+      ]);
+
+      const entries = await readLog(logPath);
+      expect(entries.length).toBe(4);
+      expect(entries[0]?.type).toBe("system");
+      expect(entries[1]?.type).toBe("iteration");
+      expect(entries[2]?.type).toBe("iteration");
+      expect(entries[3]?.type).toBe("session_end");
+
+      const summary = await readSessionSummary(logPath);
+      expect(summary).not.toBeNull();
+      expect(summary?.status).toBe("completed");
+      expect(summary?.iterations).toBe(2);
+      expect(summary?.totalFixes).toBe(2);
+    });
+
+    test("writes summaries atomically without leftover temp files", async () => {
+      const logPath = await createLogSession(tempDir, "/path/to/project");
+      const systemEntry: SystemEntry = {
+        type: "system",
+        timestamp: Date.now(),
+        projectPath: "/path/to/project",
+        reviewer: { agent: "codex" },
+        fixer: { agent: "claude" },
+        maxIterations: 5,
+      };
+
+      await appendLog(logPath, systemEntry);
+
+      const summaryPath = getSummaryPath(logPath);
+      const summary = await readSessionSummary(logPath);
+      expect(summary).not.toBeNull();
+
+      const summaryDir = dirname(summaryPath);
+      const summaryFilename = basename(summaryPath);
+      const tmpPattern = `${summaryFilename}.tmp.*`;
+      const glob = new Bun.Glob(tmpPattern);
+      const leftovers: string[] = [];
+      for await (const file of glob.scan({ cwd: summaryDir })) {
+        leftovers.push(file);
+      }
+
+      expect(leftovers.length).toBe(0);
+    });
+
+    test("preserves existing legacy log content when appending without prior writer state", async () => {
+      const logPath = await createLogSession(tempDir, "/path/to/project");
+
+      const systemEntry: SystemEntry = {
+        type: "system",
+        timestamp: Date.now(),
+        projectPath: "/path/to/project",
+        reviewer: { agent: "codex" },
+        fixer: { agent: "claude" },
+        maxIterations: 5,
+      };
+      const iter1: IterationEntry = {
+        type: "iteration",
+        timestamp: Date.now() + 1,
+        iteration: 1,
+        fixes: buildFixSummary({
+          decision: "APPLY_SELECTIVELY",
+          fixes: [buildFixEntry({ id: 1, title: "Fix 1", priority: "P1", file: "a.ts" })],
+        }),
+      };
+      const iter2: IterationEntry = {
+        type: "iteration",
+        timestamp: Date.now() + 2,
+        iteration: 2,
+      };
+
+      await Bun.write(logPath, `${JSON.stringify(systemEntry)}\n${JSON.stringify(iter1)}\n`, {
+        createPath: true,
+      });
+      expect(await Bun.file(getSummaryPath(logPath)).exists()).toBe(false);
+
+      await appendLog(logPath, iter2);
+
+      const entries = await readLog(logPath);
+      expect(entries.length).toBe(3);
+      expect(entries[0]?.type).toBe("system");
+      expect(entries[1]?.type).toBe("iteration");
+      expect(entries[2]?.type).toBe("iteration");
+
+      const summary = await readSessionSummary(logPath);
+      expect(summary).not.toBeNull();
+      expect(summary?.iterations).toBe(2);
+      expect(summary?.totalFixes).toBe(1);
     });
   });
 
@@ -681,6 +886,51 @@ describe("logger", () => {
       // Should reflect all 3 fixes from both iterations, not just 1 from stale summary
       expect(stats.totalFixes).toBe(3);
       expect(stats.iterations).toBe(2);
+    });
+
+    test("rebuilds summary when summary file is corrupted", async () => {
+      const logPath = await createLogSession(tempDir, "/path/to/project", "main");
+
+      const systemEntry: SystemEntry = {
+        type: "system",
+        timestamp: Date.now(),
+        projectPath: "/path/to/project",
+        gitBranch: "main",
+        reviewer: { agent: "codex" },
+        fixer: { agent: "claude" },
+        maxIterations: 5,
+      };
+
+      const iter1: IterationEntry = {
+        type: "iteration",
+        timestamp: Date.now(),
+        iteration: 1,
+        fixes: buildFixSummary({
+          decision: "APPLY_SELECTIVELY",
+          fixes: [buildFixEntry({ id: 1, title: "Fix 1", priority: "P0", file: "a.ts" })],
+        }),
+      };
+
+      await appendLog(logPath, systemEntry);
+      await appendLog(logPath, iter1);
+
+      const summaryPath = getSummaryPath(logPath);
+      await Bun.write(summaryPath, "{ definitely not json");
+
+      const session = {
+        path: logPath,
+        name: "test.jsonl",
+        projectName: "path-to-project",
+        timestamp: Date.now(),
+      };
+      const stats = await computeSessionStats(session);
+      expect(stats.totalFixes).toBe(1);
+      expect(stats.iterations).toBe(1);
+
+      const repairedSummary = await readSessionSummary(logPath);
+      expect(repairedSummary).not.toBeNull();
+      expect(repairedSummary?.totalFixes).toBe(1);
+      expect(repairedSummary?.iterations).toBe(1);
     });
   });
 

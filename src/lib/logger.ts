@@ -1,3 +1,4 @@
+import { rename } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { getAgentDisplayName, getAgentModelStatsKey, getModelDisplayName } from "./agents/models";
 import { LOGS_DIR } from "./config";
@@ -21,6 +22,41 @@ import type {
 const LOG_FILE_EXTENSION = ".jsonl";
 const SUMMARY_FILE_SUFFIX = ".summary.json";
 const SUMMARY_SCHEMA_VERSION = 1 as const;
+const SUMMARY_TEMP_SUFFIX = ".tmp";
+
+interface LogSink {
+  write(
+    chunk: string | ArrayBufferView | ArrayBuffer | SharedArrayBuffer
+  ): number | Promise<number>;
+  flush(): number | Promise<number>;
+  end(error?: Error): number | Promise<number>;
+}
+
+const LOG_SINKS = new Map<string, LogSink>();
+const LOG_WRITE_QUEUES = new Map<string, Promise<void>>();
+const SUMMARY_CACHE = new Map<string, SessionSummary>();
+
+function queueLogWrite<T>(logPath: string, task: () => Promise<T>): Promise<T> {
+  const previous = LOG_WRITE_QUEUES.get(logPath) ?? Promise.resolve();
+
+  let releaseQueue: (() => void) | undefined;
+  const queued = new Promise<void>((resolve) => {
+    releaseQueue = resolve;
+  });
+  LOG_WRITE_QUEUES.set(logPath, queued);
+
+  return previous
+    .catch(() => {
+      // Keep queue progressing even if previous append failed.
+    })
+    .then(task)
+    .finally(() => {
+      releaseQueue?.();
+      if (LOG_WRITE_QUEUES.get(logPath) === queued) {
+        LOG_WRITE_QUEUES.delete(logPath);
+      }
+    });
+}
 
 export function sanitizeForFilename(input: string): string {
   return input
@@ -87,6 +123,9 @@ export function getSummaryPath(logPath: string): string {
 }
 
 export async function deleteSessionFiles(sessionPath: string): Promise<void> {
+  await closeLogSink(sessionPath);
+  SUMMARY_CACHE.delete(sessionPath);
+
   const paths = [sessionPath, getHtmlPath(sessionPath), getSummaryPath(sessionPath)];
   await Promise.all(
     paths.map(async (p) => {
@@ -235,6 +274,135 @@ function buildSessionSummary(logPath: string, entries: LogEntry[]): SessionSumma
   };
 }
 
+function createEmptySessionSummary(logPath: string): SessionSummary {
+  return {
+    schemaVersion: SUMMARY_SCHEMA_VERSION,
+    logPath,
+    summaryPath: getSummaryPath(logPath),
+    projectName: basename(dirname(logPath)),
+    status: "unknown",
+    iterations: 0,
+    hasIteration: false,
+    totalFixes: 0,
+    totalSkipped: 0,
+    priorityCounts: emptyPriorityCounts(),
+    updatedAt: Date.now(),
+  };
+}
+
+function deriveRunStatusFromIteration(iteration: IterationEntry): DerivedRunStatus {
+  if (!iteration.error) {
+    return "completed";
+  }
+  if (iteration.error.message.toLowerCase().includes("interrupt")) {
+    return "interrupted";
+  }
+  return "failed";
+}
+
+function applyEntryToSummary(
+  summary: SessionSummary,
+  entry: LogEntry,
+  logPath: string
+): SessionSummary {
+  const projectName =
+    entry.type === "system" ? getProjectName(entry.projectPath) : summary.projectName;
+  const updatedAt = entry.timestamp ?? Date.now();
+
+  const next: SessionSummary = {
+    ...summary,
+    schemaVersion: SUMMARY_SCHEMA_VERSION,
+    logPath,
+    summaryPath: getSummaryPath(logPath),
+    projectName,
+    startedAt: summary.startedAt ?? entry.timestamp,
+    updatedAt,
+    priorityCounts: { ...summary.priorityCounts },
+  };
+
+  if (entry.type === "system") {
+    next.projectPath = entry.projectPath;
+    next.gitBranch = entry.gitBranch;
+    next.startedAt = summary.startedAt ?? entry.timestamp;
+    return next;
+  }
+
+  if (entry.type === "iteration") {
+    next.iterations = summary.iterations + 1;
+    next.hasIteration = true;
+    next.status = deriveRunStatusFromIteration(entry);
+    next.endedAt = undefined;
+    next.reason = undefined;
+
+    if (entry.fixes) {
+      next.totalFixes = summary.totalFixes + entry.fixes.fixes.length;
+      next.totalSkipped = summary.totalSkipped + entry.fixes.skipped.length;
+
+      for (const fix of entry.fixes.fixes) {
+        if (Object.hasOwn(next.priorityCounts, fix.priority)) {
+          next.priorityCounts[fix.priority]++;
+        }
+      }
+
+      if (entry.fixes.stop_iteration !== undefined) {
+        next.stop_iteration = entry.fixes.stop_iteration;
+      }
+    }
+
+    if (entry.duration !== undefined) {
+      next.totalDuration = (summary.totalDuration ?? 0) + entry.duration;
+    }
+
+    return next;
+  }
+
+  next.status = entry.status;
+  next.reason = entry.reason;
+  next.endedAt = entry.timestamp;
+  return next;
+}
+
+async function awaitSinkResult(result: number | Promise<number>): Promise<void> {
+  await Promise.resolve(result);
+}
+
+async function getOrCreateLogSink(logPath: string): Promise<LogSink> {
+  const existingSink = LOG_SINKS.get(logPath);
+  if (existingSink) {
+    return existingSink;
+  }
+
+  const file = Bun.file(logPath);
+  if (!(await file.exists())) {
+    await Bun.write(logPath, "", { createPath: true });
+  }
+
+  const sink = Bun.file(logPath).writer();
+  LOG_SINKS.set(logPath, sink);
+  return sink;
+}
+
+async function appendLogLine(logPath: string, line: string): Promise<void> {
+  const sink = await getOrCreateLogSink(logPath);
+  await awaitSinkResult(sink.write(line));
+  await awaitSinkResult(sink.flush());
+}
+
+async function closeLogSink(logPath: string): Promise<void> {
+  const sink = LOG_SINKS.get(logPath);
+  LOG_SINKS.delete(logPath);
+
+  if (!sink) {
+    return;
+  }
+
+  try {
+    await awaitSinkResult(sink.end());
+  } catch {
+    // Ignore sink close failures during cleanup.
+  }
+}
+
 export async function readSessionSummary(logPath: string): Promise<SessionSummary | null> {
   const summaryPath = getSummaryPath(logPath);
   const file = Bun.file(summaryPath);
@@ -277,7 +445,18 @@ async function isSummaryFresh(logPath: string): Promise<boolean> {
 
 async function writeSessionSummary(logPath: string, summary: SessionSummary): Promise<void> {
   const summaryPath = getSummaryPath(logPath);
-  await Bun.write(summaryPath, JSON.stringify(summary, null, 2), { createPath: true });
+  const tempPath = `${summaryPath}${SUMMARY_TEMP_SUFFIX}.${process.pid}.${Date.now()}`;
+  const content = JSON.stringify(summary, null, 2);
+
+  await Bun.write(tempPath, content, { createPath: true });
+  try {
+    await rename(tempPath, summaryPath);
+  } catch (error) {
+    await Bun.file(tempPath)
+      .delete()
+      .catch(() => {});
+    throw error;
+  }
 }
 
 async function rebuildSessionSummary(logPath: string): Promise<SessionSummary | null> {
@@ -292,8 +471,39 @@ async function rebuildSessionSummary(logPath: string): Promise<SessionSummary | 
   return summary;
 }
 
-export async function appendLog(logPath: string, entry: LogEntry): Promise<void> {
-  const line = `${JSON.stringify(entry)}\n`;
+async function getSummaryForAppend(logPath: string): Promise<SessionSummary> {
+  const cached = SUMMARY_CACHE.get(logPath);
+  if (cached) {
+    return cached;
+  }
+
+  const file = Bun.file(logPath);
+  if (!(await file.exists()) || file.size === 0) {
+    const empty = createEmptySessionSummary(logPath);
+    SUMMARY_CACHE.set(logPath, empty);
+    return empty;
+  }
+
+  if (await isSummaryFresh(logPath)) {
+    const summary = await readSessionSummary(logPath);
+    if (summary) {
+      SUMMARY_CACHE.set(logPath, summary);
+      return summary;
+    }
+  }
+
+  const rebuilt = await rebuildSessionSummary(logPath);
+  if (rebuilt) {
+    SUMMARY_CACHE.set(logPath, rebuilt);
+    return rebuilt;
+  }
+
+  const empty = createEmptySessionSummary(logPath);
+  SUMMARY_CACHE.set(logPath, empty);
+  return empty;
+}
+
+async function appendLogCompatibilityFallback(logPath: string, line: string): Promise<void> {
   const file = Bun.file(logPath);
   const existing = (await file.exists()) ? await file.text() : "";
   const content = `${existing}${line}`;
@@ -301,6 +511,32 @@ export async function appendLog(logPath: string, entry: LogEntry): Promise<void>
 
   const summary = buildSessionSummary(logPath, parseLogContent(content));
   await writeSessionSummary(logPath, summary);
+  SUMMARY_CACHE.set(logPath, summary);
+}
+
+export async function appendLog(logPath: string, entry: LogEntry): Promise<void> {
+  return queueLogWrite(logPath, async () => {
+    const line = `${JSON.stringify(entry)}\n`;
+    const file = Bun.file(logPath);
+    const hasActiveSink = LOG_SINKS.has(logPath);
+    const fileExists = await file.exists();
+
+    // Compatibility path for existing logs when no active writer is available.
+    if (!hasActiveSink && fileExists && file.size > 0) {
+      await appendLogCompatibilityFallback(logPath, line);
+    } else {
+      const baseSummary = await getSummaryForAppend(logPath);
+      await appendLogLine(logPath, line);
+      const updatedSummary = applyEntryToSummary(baseSummary, entry, logPath);
+      await writeSessionSummary(logPath, updatedSummary);
+      SUMMARY_CACHE.set(logPath, updatedSummary);
+    }
+
+    if (entry.type === "session_end") {
+      await closeLogSink(logPath);
+      SUMMARY_CACHE.delete(logPath);
+    }
+  });
 }
 
 export async function readLog(logPath: string): Promise<LogEntry[]> {
