@@ -7,7 +7,15 @@ import { collectIssueItems, runDiagnostics } from "@/lib/diagnostics";
 import type { DiagnosticsReport } from "@/lib/diagnostics/types";
 import { type CycleResult, runReviewCycle } from "@/lib/engine";
 import { formatReviewType } from "@/lib/format";
-import { createLockfile, removeLockfile, updateLockfile } from "@/lib/lockfile";
+import {
+  createLockfile,
+  createSessionId,
+  HEARTBEAT_INTERVAL_MS,
+  readLockfile,
+  removeLockfile,
+  touchHeartbeat,
+  updateLockfile,
+} from "@/lib/lockfile";
 import { getGitBranch } from "@/lib/logger";
 import { playCompletionSound, resolveSoundEnabled, type SoundOverride } from "@/lib/notify/sound";
 import { CLI_PATH } from "@/lib/paths";
@@ -103,13 +111,21 @@ async function runInBackground(
   const projectPath = process.cwd();
   const branch = await getGitBranch(projectPath);
   const sessionName = generateSessionName();
+  const sessionId = createSessionId();
 
   // Create lockfile for this project
-  await createLockfile(undefined, projectPath, sessionName, branch);
+  await createLockfile(undefined, projectPath, sessionName, {
+    branch,
+    sessionId,
+    state: "pending",
+    mode: "background",
+    lastHeartbeat: Date.now(),
+  });
 
   const envParts = [
     `RR_PROJECT_PATH=${shellEscape(projectPath)}`,
     `RR_GIT_BRANCH=${shellEscape(branch ?? "")}`,
+    `RR_SESSION_ID=${shellEscape(sessionId)}`,
   ];
   if (baseBranch) {
     envParts.push(`RR_BASE_BRANCH=${shellEscape(baseBranch)}`);
@@ -152,7 +168,7 @@ async function runInBackground(
     );
     p.note("rr status  - Check status\n" + "rr stop    - Stop the review", "Commands");
   } catch (error) {
-    await removeLockfile(undefined, projectPath);
+    await removeLockfile(undefined, projectPath, { expectedSessionId: sessionId });
     p.log.error(`Failed to start background session: ${error}`);
     process.exit(1);
   }
@@ -170,11 +186,18 @@ export async function runForeground(args: string[] = []): Promise<void> {
   const baseBranch = process.env.RR_BASE_BRANCH || undefined;
   const commitSha = process.env.RR_COMMIT_SHA || undefined;
   const customInstructions = process.env.RR_CUSTOM_PROMPT || undefined;
+  const expectedSessionId = process.env.RR_SESSION_ID || undefined;
   const soundOverride = parseSoundOverride(process.env.RR_SOUND_OVERRIDE);
   let forceMaxIterations = false;
   let runSimplifier = false;
   let completionState: "success" | "warning" | "error" = "error";
   const soundEnabled = resolveSoundEnabled(config, soundOverride);
+  let cycleResult: CycleResult | undefined;
+  let sessionId = expectedSessionId;
+  const lockData = await readLockfile(undefined, projectPath);
+  if (!sessionId) {
+    sessionId = lockData?.sessionId ?? createSessionId();
+  }
 
   // Parse --max option using the _run-foreground command def
   const foregroundDef = getCommandDef("_run-foreground");
@@ -195,34 +218,94 @@ export async function runForeground(args: string[] = []): Promise<void> {
   }
 
   // Update from "pending" (launcher) to "running" with actual PID
-  await updateLockfile(undefined, projectPath, {
-    pid: process.pid,
-    status: "running",
-    currentAgent: runSimplifier ? "code-simplifier" : "reviewer",
-  });
+  await updateLockfile(
+    undefined,
+    projectPath,
+    {
+      pid: process.pid,
+      state: "running",
+      status: "running",
+      mode: "foreground",
+      lastHeartbeat: Date.now(),
+      currentAgent: runSimplifier ? "code-simplifier" : "reviewer",
+    },
+    {
+      expectedSessionId: expectedSessionId ?? lockData?.sessionId ?? sessionId,
+    }
+  );
+
+  const heartbeatTimer = setInterval(() => {
+    void touchHeartbeat(undefined, projectPath, sessionId).catch(() => {
+      // Ignore heartbeat failures (lock may have been removed).
+    });
+  }, HEARTBEAT_INTERVAL_MS);
 
   try {
-    const result = await runReviewCycle(config, undefined, {
-      baseBranch,
-      commitSha,
-      customInstructions,
-      simplifier: runSimplifier,
-      forceMaxIterations,
-    });
+    cycleResult = await runReviewCycle(
+      config,
+      undefined,
+      {
+        baseBranch,
+        commitSha,
+        customInstructions,
+        simplifier: runSimplifier,
+        forceMaxIterations,
+      },
+      {
+        projectPath,
+        sessionId,
+      }
+    );
 
-    completionState = classifyRunCompletion(result);
+    completionState = classifyRunCompletion(cycleResult);
     console.log(`\n${"=".repeat(50)}`);
     if (completionState === "success") {
-      p.log.success(`Review cycle complete! (${result.iterations} iterations)`);
+      p.log.success(`Review cycle complete! (${cycleResult.iterations} iterations)`);
     } else if (completionState === "warning") {
       p.log.warn(
-        `Review cycle complete with warnings: ${result.reason} (${result.iterations} iterations)`
+        `Review cycle complete with warnings: ${cycleResult.reason} (${cycleResult.iterations} iterations)`
       );
     } else {
-      p.log.error(`Review stopped: ${result.reason} (${result.iterations} iterations)`);
+      p.log.error(`Review stopped: ${cycleResult.reason} (${cycleResult.iterations} iterations)`);
     }
     console.log(`${"=".repeat(50)}\n`);
   } finally {
+    clearInterval(heartbeatTimer);
+
+    if (cycleResult) {
+      await updateLockfile(
+        undefined,
+        projectPath,
+        {
+          state: cycleResult.finalStatus,
+          status: cycleResult.finalStatus,
+          endTime: Date.now(),
+          reason: cycleResult.reason,
+          currentAgent: null,
+          lastHeartbeat: Date.now(),
+        },
+        {
+          expectedSessionId: sessionId,
+        }
+      );
+    } else {
+      await updateLockfile(
+        undefined,
+        projectPath,
+        {
+          state: "failed",
+          status: "failed",
+          endTime: Date.now(),
+          reason: "Review exited unexpectedly",
+          currentAgent: null,
+          lastHeartbeat: Date.now(),
+        },
+        {
+          expectedSessionId: sessionId,
+        }
+      );
+    }
+
     if (soundEnabled) {
       const soundResult = await playCompletionSound(completionState);
       if (!soundResult.played && soundResult.reason) {
@@ -231,7 +314,9 @@ export async function runForeground(args: string[] = []): Promise<void> {
     }
 
     // Clean up lockfile for this project
-    await removeLockfile(undefined, projectPath);
+    await removeLockfile(undefined, projectPath, {
+      expectedSessionId: sessionId,
+    });
   }
 }
 

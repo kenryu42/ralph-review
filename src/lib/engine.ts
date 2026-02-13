@@ -171,6 +171,11 @@ export type OnIterationCallback = (
   result: IterationResult
 ) => void;
 
+export interface RunReviewRuntimeContext {
+  projectPath?: string;
+  sessionId?: string;
+}
+
 export function extractJsonBlock(output: string): string | null {
   const match = output.match(/```json\s*\n([\s\S]*?)\n```/);
   if (!match?.[1]) {
@@ -393,17 +398,32 @@ function resetInterrupt(): void {
 export async function runReviewCycle(
   config: Config,
   onIteration?: OnIterationCallback,
-  reviewOptions?: ReviewOptions
+  reviewOptions?: ReviewOptions,
+  runtimeContext?: RunReviewRuntimeContext
 ): Promise<CycleResult> {
   resetInterrupt();
   setupSignalHandler();
 
-  const projectPath = process.cwd();
+  const projectPath = runtimeContext?.projectPath ?? process.cwd();
+  const sessionId = runtimeContext?.sessionId;
   const gitBranch = await getGitBranch(projectPath);
   const sessionPath = await createLogSession(undefined, projectPath, gitBranch);
+  if (sessionId) {
+    await updateLockfile(
+      undefined,
+      projectPath,
+      {
+        sessionPath,
+      },
+      {
+        expectedSessionId: sessionId,
+      }
+    ).catch(() => {});
+  }
   const systemEntry: SystemEntry = {
     type: "system",
     timestamp: Date.now(),
+    sessionId,
     projectPath,
     gitBranch,
     reviewer: config.reviewer,
@@ -427,9 +447,14 @@ export async function runReviewCycle(
 
   try {
     if (reviewOptions?.simplifier) {
-      await updateLockfile(undefined, projectPath, { currentAgent: "code-simplifier" }).catch(
-        () => {}
-      );
+      await updateLockfile(
+        undefined,
+        projectPath,
+        { currentAgent: "code-simplifier" },
+        {
+          expectedSessionId: sessionId,
+        }
+      ).catch(() => {});
       printHeader("Running code simplifier agent...", "\x1b[34m");
 
       const { baseBranch, commitSha, customInstructions } = reviewOptions;
@@ -489,12 +514,19 @@ export async function runReviewCycle(
         );
       }
 
-      await updateLockfile(undefined, projectPath, {
-        currentAgent: "reviewer",
-        iteration,
-        reviewSummary: undefined,
-        codexReviewText: undefined,
-      }).catch(() => {});
+      await updateLockfile(
+        undefined,
+        projectPath,
+        {
+          currentAgent: "reviewer",
+          iteration,
+          reviewSummary: undefined,
+          codexReviewText: undefined,
+        },
+        {
+          expectedSessionId: sessionId,
+        }
+      ).catch(() => {});
       printHeader("Running reviewer...", "\x1b[36m");
 
       const reviewerPrompt = createReviewerPrompt({
@@ -540,7 +572,14 @@ export async function runReviewCycle(
         );
       }
 
-      await updateLockfile(undefined, projectPath, { currentAgent: "fixer" }).catch(() => {});
+      await updateLockfile(
+        undefined,
+        projectPath,
+        { currentAgent: "fixer" },
+        {
+          expectedSessionId: sessionId,
+        }
+      ).catch(() => {});
       printHeader("Running fixer to verify and apply fixes...", "\x1b[35m");
 
       let reviewSummary: ReviewSummary | null = null;
@@ -554,9 +593,14 @@ export async function runReviewCycle(
 
       if (config.reviewer.agent === "codex") {
         codexReviewSummary = { text: reviewTextForFixer };
-        await updateLockfile(undefined, projectPath, { codexReviewText: reviewTextForFixer }).catch(
-          () => {}
-        );
+        await updateLockfile(
+          undefined,
+          projectPath,
+          { codexReviewText: reviewTextForFixer },
+          {
+            expectedSessionId: sessionId,
+          }
+        ).catch(() => {});
       } else {
         reviewJson = extractedText ? (extractJsonBlock(extractedText) ?? extractedText) : null;
 
@@ -565,7 +609,14 @@ export async function runReviewCycle(
         }
 
         if (reviewSummary) {
-          await updateLockfile(undefined, projectPath, { reviewSummary }).catch(() => {});
+          await updateLockfile(
+            undefined,
+            projectPath,
+            { reviewSummary },
+            {
+              expectedSessionId: sessionId,
+            }
+          ).catch(() => {});
         }
 
         if (!reviewSummary && reviewResult.success) {

@@ -148,7 +148,7 @@ describe("run command", () => {
           isGitRepository: async () => true,
           hasUncommittedChanges: async () => true,
           cleanupStaleLockfile: async () => false,
-          lockfileExists: async () => false,
+          hasActiveLockfile: async () => false,
           isTmuxInstalled: () => true,
         },
       });
@@ -169,7 +169,7 @@ describe("run command", () => {
           isGitRepository: async () => true,
           hasUncommittedChanges: async () => true,
           cleanupStaleLockfile: async () => false,
-          lockfileExists: async () => false,
+          hasActiveLockfile: async () => false,
           isTmuxInstalled: () => true,
         },
       });
