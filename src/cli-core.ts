@@ -129,6 +129,18 @@ export const COMMANDS: CommandDef[] = [
     examples: ["rr dashboard"],
   },
   {
+    name: "doctor",
+    description: "Run environment and configuration diagnostics",
+    options: [
+      {
+        name: "fix",
+        type: "boolean",
+        description: "Automatically fix issues that can be resolved",
+      },
+    ],
+    examples: ["rr doctor", "rr doctor --fix"],
+  },
+  {
     name: "_run-foreground",
     description: "Internal: run review cycle in tmux foreground",
     hidden: true,

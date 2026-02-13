@@ -4,6 +4,7 @@ import * as p from "@clack/prompts";
 import { getCommandDef, getVersion, parseArgs, printCommandHelp, printUsage } from "./cli-core";
 import { runConfig } from "./commands/config";
 import { runDashboard } from "./commands/dashboard";
+import { runDoctor } from "./commands/doctor";
 import { runInit } from "./commands/init";
 import { runList } from "./commands/list";
 import { runLogs } from "./commands/logs";
@@ -99,6 +100,10 @@ async function main(): Promise<void> {
 
       case "dashboard":
         await runDashboard(args);
+        break;
+
+      case "doctor":
+        await runDoctor(args);
         break;
 
       case "list":

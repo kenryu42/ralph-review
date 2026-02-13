@@ -87,6 +87,13 @@ rr run --sound
 rr run --no-sound
 ```
 
+### Diagnostics
+
+```bash
+# Check environment, config, binaries, and model availability
+rr doctor
+```
+
 ### Managing Sessions
 
 ```bash
@@ -174,6 +181,7 @@ rr config edit
 | `rr stop --force` | Force kill |
 | `rr logs` | Open latest log |
 | `rr logs --list` | List all logs |
+| `rr doctor` | Run setup and runtime diagnostics |
 | `rr --help` | Show help |
 | `rr --version` | Show version |
 
