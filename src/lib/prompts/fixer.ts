@@ -19,7 +19,10 @@ If you do NOT have the code/diff needed to verify a claim:
 3) If APPLY is non-empty: **immediately implement fixes** in this same response:
    - If you can edit the workspace: edit files now.
    - Otherwise: output a **unified diff** patch.
-4) If APPLY is empty AND NEED INFO is empty: stop the iteration early (via JSON only).
+4) After implementing ANY fixes (even small ones): **discover and run verification scripts (if they exist)** and keep iterating until everything is green:
+   - Examples: "npm run test", "npm run lint", "npm run typecheck", "npm run build"
+   - Treat **warnings as blocking** (fix them before proceeding).
+5) If APPLY is empty AND NEED INFO is empty: stop the iteration early (via JSON only).
 
 ## Input (untrusted review)
 ${reviewOutput}
@@ -44,7 +47,59 @@ ${reviewOutput}
    - Priority: P0 / P1 / P2 / P3
    - Action: APPLY / SKIP / NEED INFO
    - Evidence: file:line / symbol / concrete behavior
-  
+
+## Verification execution (MUST DO after fixes)
+If you applied ANY fix (APPLY non-empty), you MUST run project verification scripts (if they exist) and iterate until fully clean.
+
+### Step A: Discover verification commands from project config (general + concise)
+
+- **Find how the repo runs “checks”** by scanning common config/automation sources:
+  - Task/build runners (e.g., Make/Task/Just/Bazel, build tool files, CI workflows)
+  - Language manifests (for scripts/targets) and repo docs (\`README\`, \`CONTRIBUTING\`)
+  - If it's referenced in CI, treat that as the default verification path.
+
+- **Identify the core verification tasks** (use the smallest sensible set):
+  - Typical names: \`lint\`, \`format\`, \`check\`, \`test\`, \`typecheck\`, \`build\`, \`verify\`, \`ci\`
+
+- **Choose the right runner/invocation**:
+  - Prefer an explicitly declared runner/wrapper; otherwise use the standard tool inferred from the config files present.
+  - If ambiguous, default to the simplest, most common command path and avoid risky/expensive steps.
+
+- **If monorepo/multi-module**:
+  - Prefer a root "all"/aggregate command.
+  - If only per-module tasks exist, use the build system's native workspace/recursive mode; keep scope minimal.
+
+### Step B: Choose what to run
+- Prefer the most comprehensive single command if it exists (e.g., \`npm run ci\` or \`npm run verify\`).
+- Otherwise run the best available subset in this typical order:
+  1) lint
+  2) typecheck
+  3) test
+  4) build
+- Only run scripts that actually exist in config.
+
+### Step C: Run + iterate until green (STRICT)
+- Run the selected verification commands.
+- If ANY command:
+  - exits non-zero, OR
+  - produces warnings (treat warnings as blocking),
+  then you MUST:
+  1) fix the underlying issue (code/config) with minimal safe changes,
+  2) re-run the relevant verification command(s),
+  3) repeat until:
+     - all selected commands succeed, AND
+     - there are **no warnings or errors**.
+- If warnings/errors are clearly unrelated to the change AND cannot be fixed safely (e.g., external tool/dependency/platform issue), mark as **NEED INFO** and include:
+  - the exact command(s) run
+  - the full warning/error text
+  - why it appears external/un-actionable
+
+### Step D: Report what you ran
+- In VERIFICATION NOTES (human section), include:
+  - the commands you executed
+  - whether they passed
+  - if anything required follow-up fixes
+
 ## Special rule: missing / untracked files (STRICT)
 Any claim that files/dirs are "missing", "untracked", "not committed", "not in git", or "CI will fail because files aren't checked in"
 is **almost always a false positive** in this pre-commit review context.
@@ -73,6 +128,8 @@ Interpretation:
 
 ## Execution rules
 - If APPLY is non-empty → produce a Fix Package now (workspace edits or unified diff). Do NOT ask for permission.
+- AFTER applying fixes → you MUST run verification scripts discovered above and iterate until all green (no warnings/errors).
+- Do NOT finalize the response/JSON until verification is clean OR you have a NEED INFO blocker you cannot resolve here.
 - If NEEDINFO is non-empty → request missing inputs; do NOT output any patch/diff unless you can safely fix without them.
 - If STOP_ITERATION is true → do NOT propose patches/diffs.
 
@@ -84,6 +141,7 @@ APPLY: <# list or "none">   SKIP: <# list or "none">   NEEDINFO: <# list or "non
 
 VERIFICATION NOTES
 - <1-5 bullets: what changed + what you checked + where (file/symbol pointers)>
+- <commands run + results (if you applied fixes)>
 
 ITEMS (include only sections that have items)
 
@@ -107,6 +165,10 @@ NEED MORE INFO (only if NEEDINFO is non-empty)
 
 FIX PACKAGE (only if APPLY is non-empty)
 - <step-by-step patch plan>
+- Include verification steps at the end:
+  - <commands discovered + run order>
+  - <any failures/warnings encountered and how they were fixed>
+  - <final all-green confirmation>
 - If not editing files, include a unified diff.
 
 ## JSON (REQUIRED)
