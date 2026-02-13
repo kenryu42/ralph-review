@@ -1,5 +1,11 @@
 import { createCodeSimplifierPrompt, createFixerPrompt, createReviewerPrompt } from "@/lib/prompts";
 import { AGENTS, runAgent } from "./agents";
+import {
+  createCheckpoint,
+  discardCheckpoint,
+  type GitCheckpoint,
+  rollbackToCheckpoint,
+} from "./git";
 import { updateLockfile } from "./lockfile";
 import { appendLog, createLogSession, getGitBranch } from "./logger";
 import type {
@@ -12,6 +18,7 @@ import type {
   RetryConfig,
   ReviewOptions,
   ReviewSummary,
+  RollbackActionResult,
   SessionEndEntry,
   SystemEntry,
 } from "./types";
@@ -58,6 +65,7 @@ function createIterationEntry(
     review?: ReviewSummary;
     codexReview?: CodexReviewSummary;
     fixes?: FixSummary;
+    rollback?: RollbackActionResult;
   } = {}
 ): IterationEntry {
   return {
@@ -69,6 +77,7 @@ function createIterationEntry(
     ...(options.review && { review: options.review }),
     ...(options.codexReview && { codexReview: options.codexReview }),
     ...(options.fixes && { fixes: options.fixes }),
+    ...(options.rollback && { rollback: options.rollback }),
   };
 }
 
@@ -78,7 +87,12 @@ async function handleAgentFailure(
   retryConfig: RetryConfig,
   iteration: number,
   startTime: number,
-  sessionPath: string
+  sessionPath: string,
+  options: {
+    review?: ReviewSummary;
+    codexReview?: CodexReviewSummary;
+    rollback?: RollbackActionResult;
+  } = {}
 ): Promise<CycleResult> {
   const warning = formatAgentFailureWarning(role, exitCode, retryConfig.maxRetries);
   console.log(warning);
@@ -89,15 +103,21 @@ async function handleAgentFailure(
       message: `${role.charAt(0).toUpperCase() + role.slice(1)} failed after ${retryConfig.maxRetries} retries`,
       exitCode,
     },
+    review: options.review,
+    codexReview: options.codexReview,
+    rollback: options.rollback,
   });
   await appendLog(sessionPath, entry);
 
   const brokenWarning = role === "fixer" ? " Code may be in a broken state!" : "";
+  const rollbackSuffix = rollbackReasonSuffix(options.rollback);
   return {
     success: false,
     finalStatus: "failed",
     iterations: iteration,
-    reason: `${role.charAt(0).toUpperCase() + role.slice(1)} failed with exit code ${exitCode} after ${retryConfig.maxRetries} retries.${brokenWarning}`,
+    reason:
+      `${role.charAt(0).toUpperCase() + role.slice(1)} failed with exit code ${exitCode} after ${retryConfig.maxRetries} retries.` +
+      `${brokenWarning}${rollbackSuffix}`,
     sessionPath,
   };
 }
@@ -164,6 +184,40 @@ export interface CycleResult {
 }
 
 const FIXER_SUMMARY_RETRY_COUNT = 1;
+
+function createRollbackOutcome(
+  attempted: boolean,
+  success: boolean,
+  reason?: string
+): RollbackActionResult {
+  return {
+    attempted,
+    success,
+    ...(reason ? { reason } : {}),
+  };
+}
+
+export function rollbackReasonSuffix(rollback: RollbackActionResult | undefined): string {
+  if (!rollback) {
+    return "";
+  }
+
+  if (rollback.success) {
+    return " Changes were rolled back to the pre-fixer checkpoint.";
+  }
+
+  const reason = rollback.reason ?? "unknown rollback error";
+  return ` Rollback failed (${reason}). Please restore manually from git history.`;
+}
+
+function applyRollback(projectPath: string, checkpoint: GitCheckpoint): RollbackActionResult {
+  try {
+    rollbackToCheckpoint(projectPath, checkpoint);
+    return createRollbackOutcome(true, true);
+  } catch (error) {
+    return createRollbackOutcome(true, false, `${error}`);
+  }
+}
 
 export type OnIterationCallback = (
   iteration: number,
@@ -626,6 +680,43 @@ export async function runReviewCycle(
 
       const fixerPrompt = createFixerPrompt(reviewJson ?? reviewTextForFixer);
       const fixerAgentModule = AGENTS[config.fixer.agent];
+      let checkpoint: GitCheckpoint | null = null;
+      try {
+        checkpoint = createCheckpoint(
+          projectPath,
+          `${sessionId ?? "session"}-iter-${iteration}-${Date.now()}`
+        );
+      } catch (error) {
+        const entry = createIterationEntry(iteration, iterationStartTime, {
+          error: {
+            phase: "fixer",
+            message: `Failed to create pre-fixer checkpoint: ${error}`,
+          },
+          review: reviewSummary ?? undefined,
+          codexReview: codexReviewSummary ?? undefined,
+        });
+        await appendLog(sessionPath, entry);
+        return finish({
+          success: false,
+          finalStatus: "failed",
+          iterations: iteration,
+          reason: `Failed to create pre-fixer checkpoint: ${error}`,
+          sessionPath,
+        });
+      }
+
+      const discardCheckpointSafe = () => {
+        if (!checkpoint) {
+          return;
+        }
+        try {
+          discardCheckpoint(projectPath, checkpoint);
+        } catch (error) {
+          console.log(`  ⚠️  Failed to discard checkpoint: ${error}`);
+        }
+        checkpoint = null;
+      };
+
       let fixResult = await runAgentWithRetry("fixer", config, fixerPrompt);
       let resultText = fixerAgentModule.extractResult(fixResult.output);
       let fixSummary = extractFixSummaryFromOutput(resultText, fixResult.output);
@@ -652,17 +743,19 @@ Return ONLY one valid \`\`\`json ... \`\`\` block matching the required schema a
 
       if (!fixSummary && fixResult.success) {
         console.log("  ❌ Fixer returned incomplete output (missing fix summary JSON).");
+        const rollback = checkpoint ? applyRollback(projectPath, checkpoint) : undefined;
         const entry = createIterationEntry(iteration, iterationStartTime, {
           error: { phase: "fixer", message: "Fixer output incomplete: missing fix summary JSON" },
           review: reviewSummary ?? undefined,
           codexReview: codexReviewSummary ?? undefined,
+          rollback,
         });
         await appendLog(sessionPath, entry);
         return finish({
           success: false,
           finalStatus: "failed",
           iterations: iteration,
-          reason: "Fixer output incomplete (missing fix summary JSON)",
+          reason: `Fixer output incomplete (missing fix summary JSON).${rollbackReasonSuffix(rollback)}`,
           sessionPath,
         });
       }
@@ -672,6 +765,7 @@ Return ONLY one valid \`\`\`json ... \`\`\` block matching the required schema a
       }
 
       if (!fixResult.success) {
+        const rollback = checkpoint ? applyRollback(projectPath, checkpoint) : undefined;
         return finish(
           await handleAgentFailure(
             "fixer",
@@ -679,7 +773,12 @@ Return ONLY one valid \`\`\`json ... \`\`\` block matching the required schema a
             retryConfig,
             iteration,
             iterationStartTime,
-            sessionPath
+            sessionPath,
+            {
+              review: reviewSummary ?? undefined,
+              codexReview: codexReviewSummary ?? undefined,
+              rollback,
+            }
           )
         );
       }
@@ -695,6 +794,7 @@ Return ONLY one valid \`\`\`json ... \`\`\` block matching the required schema a
         hasRemainingIssues = false;
         console.log("✅ No issues to fix - code is clean!");
         if (!reviewOptions?.forceMaxIterations) {
+          discardCheckpointSafe();
           return finish(
             determineCycleResult(false, iteration, config.maxIterations, false, sessionPath)
           );
@@ -710,6 +810,7 @@ Return ONLY one valid \`\`\`json ... \`\`\` block matching the required schema a
       // Detect NEED_INFO loop: fixer requested more info but made no fixes
       // This prevents token waste from repeating iterations with same result
       if (fixSummary?.decision === "NEED_INFO" && fixSummary.fixes.length === 0) {
+        discardCheckpointSafe();
         console.log("⚠️  Fixer needs more information to proceed but made no changes.");
         console.log("   Review may contain unverifiable claims. Stopping to avoid token waste.");
         return finish({
@@ -717,10 +818,12 @@ Return ONLY one valid \`\`\`json ... \`\`\` block matching the required schema a
           finalStatus: "failed",
           iterations: iteration,
           reason:
-            "Fixer requested more information but could not proceed - review contains unverifiable claims",
+            "Fixer requested more information and made no changes - stopping without rollback",
           sessionPath,
         });
       }
+
+      discardCheckpointSafe();
 
       printHeader("Fixes applied. Re-running reviewer...", "\x1b[36m");
     }

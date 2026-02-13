@@ -124,6 +124,11 @@ rr logs <timestamp>
 2. **Implementation Phase**: If issues found, the fixer agent fixes them
 3. **Repeat**: Continue until no issues or max iterations reached (default: 10)
 
+Fixer safety net:
+- A git checkpoint is captured before each fixer pass.
+- On fixer failure/incomplete output, changes are rolled back automatically.
+- If fixer returns `NEED_INFO` with no changes, run stops as warning without rollback.
+
 The tool runs in a tmux session so you can:
 - Continue working in your terminal
 - View results in HTML format

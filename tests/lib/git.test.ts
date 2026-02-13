@@ -2,7 +2,13 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ensureGitRepository, mergeBaseWithHead } from "@/lib/git";
+import {
+  createCheckpoint,
+  discardCheckpoint,
+  ensureGitRepository,
+  mergeBaseWithHead,
+  rollbackToCheckpoint,
+} from "@/lib/git";
 
 /**
  * Helper to run git commands in a directory
@@ -179,5 +185,237 @@ describe("mergeBaseWithHead", () => {
     const result = mergeBaseWithHead(tempDir, "main");
 
     expect(result).toBeUndefined();
+  });
+});
+
+describe("checkpoint management", () => {
+  let tempDir: string;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "git-checkpoint-test-"));
+    initTestRepo(tempDir);
+    commit(tempDir, "base.txt", "base commit");
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  test("restores staged, unstaged, and untracked changes on rollback", async () => {
+    await Bun.write(join(tempDir, "base.txt"), "base with unstaged changes");
+    await Bun.write(join(tempDir, "staged.txt"), "staged content");
+    runGitIn(tempDir, ["add", "staged.txt"]);
+    await Bun.write(join(tempDir, "untracked.txt"), "untracked content");
+
+    const checkpoint = createCheckpoint(tempDir, "iter-1");
+    expect(checkpoint.kind).toBe("ref");
+
+    await Bun.write(join(tempDir, "base.txt"), "post-fixer changes");
+    await Bun.write(join(tempDir, "another-untracked.txt"), "new file");
+    runGitIn(tempDir, ["add", "base.txt"]);
+
+    rollbackToCheckpoint(tempDir, checkpoint);
+
+    expect(await Bun.file(join(tempDir, "base.txt")).text()).toBe("base with unstaged changes");
+    expect(await Bun.file(join(tempDir, "staged.txt")).exists()).toBe(true);
+    expect(await Bun.file(join(tempDir, "untracked.txt")).exists()).toBe(true);
+
+    const status = runGitStdout(tempDir, ["status", "--porcelain"]);
+    expect(status).toContain("M base.txt");
+    expect(status).toContain("A  staged.txt");
+    expect(status).toContain("?? untracked.txt");
+  });
+
+  test("restores ignored files and removes new ignored files on rollback", async () => {
+    await Bun.write(join(tempDir, ".gitignore"), ".env\n*.local\n");
+    runGitIn(tempDir, ["add", ".gitignore"]);
+    runGitIn(tempDir, ["commit", "-m", "add ignore rules"]);
+
+    await Bun.write(join(tempDir, ".env"), "before");
+
+    const checkpoint = createCheckpoint(tempDir, "ignored-ref");
+    expect(checkpoint.kind).toBe("ref");
+
+    await Bun.write(join(tempDir, ".env"), "after");
+    await Bun.write(join(tempDir, "created.local"), "new ignored file");
+
+    rollbackToCheckpoint(tempDir, checkpoint);
+
+    expect(await Bun.file(join(tempDir, ".env")).text()).toBe("before");
+    expect(await Bun.file(join(tempDir, "created.local")).exists()).toBe(false);
+    const status = runGitStdout(tempDir, ["status", "--porcelain"]);
+    expect(status).toBe("");
+  });
+
+  test("returns clean checkpoint and rolls back to clean tree", async () => {
+    const checkpoint = createCheckpoint(tempDir, "clean");
+    expect(checkpoint.kind).toBe("clean");
+
+    await Bun.write(join(tempDir, "base.txt"), "mutated");
+    await Bun.write(join(tempDir, "new.txt"), "new");
+
+    rollbackToCheckpoint(tempDir, checkpoint);
+    const status = runGitStdout(tempDir, ["status", "--porcelain"]);
+    expect(status).toBe("");
+  });
+
+  test("removes ignored files created after a clean checkpoint", async () => {
+    await Bun.write(join(tempDir, ".gitignore"), "*.local\n");
+    runGitIn(tempDir, ["add", ".gitignore"]);
+    runGitIn(tempDir, ["commit", "-m", "add ignore rule"]);
+
+    const checkpoint = createCheckpoint(tempDir, "clean-ignored");
+    expect(checkpoint.kind).toBe("clean");
+
+    await Bun.write(join(tempDir, "created.local"), "new ignored file");
+
+    rollbackToCheckpoint(tempDir, checkpoint);
+
+    expect(await Bun.file(join(tempDir, "created.local")).exists()).toBe(false);
+    const status = runGitStdout(tempDir, ["status", "--porcelain"]);
+    expect(status).toBe("");
+  });
+
+  test("cleans root untracked files when rollback is invoked from a subdirectory", async () => {
+    const nestedPath = join(tempDir, "nested", "path");
+    const mkdirResult = Bun.spawnSync(["mkdir", "-p", nestedPath], {
+      stdout: "ignore",
+      stderr: "pipe",
+    });
+    if (mkdirResult.exitCode !== 0) {
+      throw new Error(`mkdir failed: ${mkdirResult.stderr.toString()}`);
+    }
+
+    const checkpoint = createCheckpoint(nestedPath, "clean-subdir");
+    expect(checkpoint.kind).toBe("clean");
+
+    await Bun.write(join(tempDir, "root-untracked.txt"), "created after checkpoint");
+
+    rollbackToCheckpoint(nestedPath, checkpoint);
+
+    expect(await Bun.file(join(tempDir, "root-untracked.txt")).exists()).toBe(false);
+    const status = runGitStdout(tempDir, ["status", "--porcelain"]);
+    expect(status).toBe("");
+  });
+
+  test("detects clean checkpoint without relying on stash output text", async () => {
+    await Bun.write(join(tempDir, "base.txt"), "user stash content");
+    runGitIn(tempDir, ["stash", "push", "-m", "user-stash"]);
+    const stashRefBefore = runGitStdout(tempDir, ["rev-parse", "--verify", "refs/stash"]);
+    const stashListBefore = runGitStdout(tempDir, ["stash", "list"]);
+
+    const gitBinary = Bun.which("git");
+    if (!gitBinary) {
+      throw new Error("git binary not found");
+    }
+
+    const wrapperDir = await mkdtemp(join(tmpdir(), "git-wrapper-"));
+    const wrapperPath = join(wrapperDir, "git");
+    await Bun.write(
+      wrapperPath,
+      `#!/bin/sh
+REAL_GIT="${gitBinary}"
+if [ "$1" = "stash" ] && [ "$2" = "push" ]; then
+  output="$("$REAL_GIT" "$@")"
+  code=$?
+  if [ "$code" -eq 0 ] && printf "%s" "$output" | grep -q "No local changes to save"; then
+    printf "Pas de changements locaux a sauvegarder\n"
+  else
+    printf "%s\n" "$output"
+  fi
+  exit "$code"
+fi
+exec "$REAL_GIT" "$@"
+`
+    );
+
+    const chmodResult = Bun.spawnSync(["chmod", "+x", wrapperPath], {
+      stdout: "ignore",
+      stderr: "pipe",
+    });
+    if (chmodResult.exitCode !== 0) {
+      throw new Error(`chmod failed: ${chmodResult.stderr.toString()}`);
+    }
+
+    const originalPath = process.env.PATH ?? "";
+    process.env.PATH = `${wrapperDir}:${originalPath}`;
+
+    try {
+      const checkpoint = createCheckpoint(tempDir, "localized-clean");
+      expect(checkpoint.kind).toBe("clean");
+    } finally {
+      process.env.PATH = originalPath;
+      await rm(wrapperDir, { recursive: true, force: true });
+    }
+
+    const stashRefAfter = runGitStdout(tempDir, ["rev-parse", "--verify", "refs/stash"]);
+    const stashListAfter = runGitStdout(tempDir, ["stash", "list"]);
+    expect(stashRefAfter).toBe(stashRefBefore);
+    expect(stashListAfter).toBe(stashListBefore);
+
+    const status = runGitStdout(tempDir, ["status", "--porcelain"]);
+    expect(status).toBe("");
+  });
+
+  test("discardCheckpoint removes checkpoint refs", async () => {
+    await Bun.write(join(tempDir, "base.txt"), "dirty");
+    const checkpoint = createCheckpoint(tempDir, "discard-me");
+    expect(checkpoint.kind).toBe("ref");
+
+    if (checkpoint.kind === "ref") {
+      discardCheckpoint(tempDir, checkpoint);
+      const checkRef = Bun.spawnSync(["git", "show-ref", "--verify", "--quiet", checkpoint.ref], {
+        cwd: tempDir,
+        stdout: "ignore",
+        stderr: "ignore",
+      });
+      expect(checkRef.exitCode).not.toBe(0);
+    }
+  });
+});
+
+describe("checkpoint management on unborn HEAD", () => {
+  let tempDir: string;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "git-checkpoint-unborn-test-"));
+    initTestRepo(tempDir);
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  test("restores staged, unstaged, and untracked changes on rollback", async () => {
+    await Bun.write(join(tempDir, "staged.txt"), "staged content");
+    runGitIn(tempDir, ["add", "staged.txt"]);
+
+    await Bun.write(join(tempDir, "mixed.txt"), "staged snapshot");
+    runGitIn(tempDir, ["add", "mixed.txt"]);
+    await Bun.write(join(tempDir, "mixed.txt"), "staged snapshot plus unstaged change");
+
+    await Bun.write(join(tempDir, "untracked.txt"), "untracked content");
+
+    const checkpoint = createCheckpoint(tempDir, "unborn");
+    expect(checkpoint.kind).toBe("snapshot");
+
+    await Bun.write(join(tempDir, "staged.txt"), "mutated staged");
+    await Bun.write(join(tempDir, "mixed.txt"), "mutated mixed");
+    await Bun.write(join(tempDir, "extra.txt"), "new file");
+    runGitIn(tempDir, ["add", "extra.txt"]);
+
+    rollbackToCheckpoint(tempDir, checkpoint);
+
+    expect(await Bun.file(join(tempDir, "staged.txt")).text()).toBe("staged content");
+    expect(await Bun.file(join(tempDir, "mixed.txt")).text()).toBe(
+      "staged snapshot plus unstaged change"
+    );
+    expect(await Bun.file(join(tempDir, "untracked.txt")).exists()).toBe(true);
+    expect(await Bun.file(join(tempDir, "extra.txt")).exists()).toBe(false);
+
+    const status = runGitStdout(tempDir, ["status", "--porcelain"]);
+    expect(status).toContain("A  staged.txt");
+    expect(status).toContain("AM mixed.txt");
+    expect(status).toContain("?? untracked.txt");
   });
 });

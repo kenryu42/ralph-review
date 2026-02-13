@@ -38,6 +38,8 @@ export interface SessionStats {
   priorityCounts: Record<Priority, number>;
   iterations: number;
   totalDuration?: number;
+  rollbackCount?: number;
+  rollbackFailures?: number;
   entries: LogEntry[];
   reviewer: AgentType;
   reviewerModel: string;

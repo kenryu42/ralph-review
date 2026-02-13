@@ -7,6 +7,7 @@ import {
   formatAgentFailureWarning,
   parseFixSummary,
   parseReviewSummary,
+  rollbackReasonSuffix,
 } from "@/lib/engine";
 import { createFixerPrompt } from "@/lib/prompts";
 import { CONFIG_SCHEMA_URI, CONFIG_VERSION, type Config, type RetryConfig } from "@/lib/types";
@@ -180,6 +181,18 @@ End of output.`;
       const result = extractJsonBlock(output);
       expect(result).toContain('"decision": "NO_CHANGES_NEEDED"');
       expect(result).not.toBeNull();
+    });
+  });
+
+  describe("rollback helpers", () => {
+    test("formats rollback suffix with rollback failure details", () => {
+      const suffix = rollbackReasonSuffix({
+        attempted: true,
+        success: false,
+        reason: "apply failed",
+      });
+      expect(suffix).toContain("Rollback failed");
+      expect(suffix).toContain("apply failed");
     });
   });
 

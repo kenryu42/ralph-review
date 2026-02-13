@@ -4,6 +4,12 @@ import type { FixSummary } from "./fix";
 import type { CodexReviewSummary, ReviewSummary } from "./review";
 import type { IterationError, ReviewOptions } from "./run";
 
+export interface RollbackActionResult {
+  attempted: boolean;
+  success: boolean;
+  reason?: string;
+}
+
 export interface SystemEntry {
   type: "system";
   timestamp: number;
@@ -25,6 +31,7 @@ export interface IterationEntry {
   review?: ReviewSummary;
   codexReview?: CodexReviewSummary;
   fixes?: FixSummary;
+  rollback?: RollbackActionResult;
   error?: IterationError;
 }
 
@@ -56,6 +63,8 @@ export interface SessionSummary {
   totalSkipped: number;
   priorityCounts: Record<Priority, number>;
   totalDuration?: number;
+  rollbackCount: number;
+  rollbackFailures: number;
 }
 
 export type LogEntry = SystemEntry | IterationEntry | SessionEndEntry;

@@ -318,6 +318,50 @@ describe("logger", () => {
       expect(summaryAfterEnd?.totalSkipped).toBe(1);
     });
 
+    test("tracks rollback aggregates in summary", async () => {
+      const logPath = await createLogSession(tempDir, "/path/to/project", "main");
+
+      const systemEntry: SystemEntry = {
+        type: "system",
+        timestamp: Date.now(),
+        projectPath: "/path/to/project",
+        gitBranch: "main",
+        reviewer: { agent: "codex" },
+        fixer: { agent: "claude" },
+        maxIterations: 5,
+      };
+
+      const passEntry: IterationEntry = {
+        type: "iteration",
+        timestamp: Date.now() + 1,
+        iteration: 1,
+        rollback: {
+          attempted: true,
+          success: true,
+        },
+      };
+
+      const failEntry: IterationEntry = {
+        type: "iteration",
+        timestamp: Date.now() + 2,
+        iteration: 2,
+        rollback: {
+          attempted: true,
+          success: false,
+          reason: "restore failed",
+        },
+      };
+
+      await appendLog(logPath, systemEntry);
+      await appendLog(logPath, passEntry);
+      await appendLog(logPath, failEntry);
+
+      const summary = await readSessionSummary(logPath);
+      expect(summary).not.toBeNull();
+      expect(summary?.rollbackCount).toBe(2);
+      expect(summary?.rollbackFailures).toBe(1);
+    });
+
     test("serializes concurrent appends to the same log", async () => {
       const logPath = await createLogSession(tempDir, "/path/to/project", "main");
 

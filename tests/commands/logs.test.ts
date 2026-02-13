@@ -29,6 +29,8 @@ function createSessionStats(overrides: Partial<SessionStats> = {}): SessionStats
     priorityCounts: { P0: 1, P1: 2, P2: 1, P3: 1 },
     iterations: 3,
     totalDuration: 15000,
+    rollbackCount: 0,
+    rollbackFailures: 0,
     entries: [],
     reviewer: "claude",
     reviewerModel: "claude-sonnet-4-20250514",
@@ -290,6 +292,7 @@ describe("buildSessionJson", () => {
     expect(result.summary.totalFixes).toBe(2);
     expect(result.summary.totalSkipped).toBe(1);
     expect(result.summary.priorityCounts.P0).toBe(1);
+    expect(result.summary.rollbackCount).toBe(0);
     expect(result.fixes).toHaveLength(2);
     expect(result.skipped).toHaveLength(1);
   });
