@@ -11,7 +11,7 @@ describe("diagnostics checks", () => {
         isGitRepository: async () => true,
         hasUncommittedChanges: async () => true,
         cleanupStaleLockfile: async () => false,
-        lockfileExists: async () => false,
+        hasActiveLockfile: async () => false,
         isTmuxInstalled: () => true,
       },
     });
@@ -55,7 +55,7 @@ describe("diagnostics checks", () => {
         isGitRepository: async () => true,
         hasUncommittedChanges: async () => true,
         cleanupStaleLockfile: async () => false,
-        lockfileExists: async () => false,
+        hasActiveLockfile: async () => false,
         isTmuxInstalled: () => true,
       },
     });
@@ -91,7 +91,7 @@ describe("diagnostics checks", () => {
         isGitRepository: async () => true,
         hasUncommittedChanges: async () => true,
         cleanupStaleLockfile: async () => false,
-        lockfileExists: async () => false,
+        hasActiveLockfile: async () => false,
         isTmuxInstalled: () => true,
       },
     });
@@ -131,7 +131,7 @@ describe("diagnostics checks", () => {
         isGitRepository: async () => true,
         hasUncommittedChanges: async () => true,
         cleanupStaleLockfile: async () => false,
-        lockfileExists: async () => false,
+        hasActiveLockfile: async () => false,
         isTmuxInstalled: () => true,
       },
     });
@@ -174,7 +174,7 @@ describe("diagnostics checks", () => {
         isGitRepository: async () => true,
         hasUncommittedChanges: async () => true,
         cleanupStaleLockfile: async () => false,
-        lockfileExists: async () => false,
+        hasActiveLockfile: async () => false,
         isTmuxInstalled: () => true,
       },
     });
@@ -206,7 +206,7 @@ describe("diagnostics checks", () => {
         isGitRepository: async () => true,
         hasUncommittedChanges: async () => true,
         cleanupStaleLockfile: async () => false,
-        lockfileExists: async () => false,
+        hasActiveLockfile: async () => false,
         isTmuxInstalled: () => true,
       },
     });
@@ -250,7 +250,7 @@ describe("diagnostics checks", () => {
         isGitRepository: async () => true,
         hasUncommittedChanges: async () => true,
         cleanupStaleLockfile: async () => false,
-        lockfileExists: async () => false,
+        hasActiveLockfile: async () => false,
         isTmuxInstalled: () => true,
       },
     });

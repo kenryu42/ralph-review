@@ -86,7 +86,7 @@ async function fixLockfile(deps: RemediationDependencies): Promise<FixResult> {
       id: "run-lockfile",
       success: false,
       message:
-        "Lockfile is not stale — a review may still be running. Use rr stop to terminate it.",
+        "Lock is still active (heartbeat/session checks passed). Use rr stop to terminate it.",
     };
   } catch (error) {
     return { id: "run-lockfile", success: false, message: `Failed to clean lockfile: ${error}` };

@@ -118,7 +118,7 @@ describe("applyFix", () => {
     const result = await applyFix(makeItem("run-lockfile"), deps);
 
     expect(result.success).toBe(false);
-    expect(result.message).toContain("not stale");
+    expect(result.message).toContain("still active");
   });
 
   test("returns failure for unknown fix ID", async () => {

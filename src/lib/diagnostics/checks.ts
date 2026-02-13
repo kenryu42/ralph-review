@@ -1,5 +1,5 @@
 import { configExists, loadConfig } from "@/lib/config";
-import { cleanupStaleLockfile, lockfileExists } from "@/lib/lockfile";
+import { cleanupStaleLockfile, hasActiveLockfile } from "@/lib/lockfile";
 import { isTmuxInstalled } from "@/lib/tmux";
 import { type AgentSettings, type Config, isAgentType } from "@/lib/types";
 import { type CapabilityDiscoveryOptions, discoverAgentCapabilities } from "./capabilities";
@@ -19,7 +19,7 @@ interface RunDiagnosticsDependencies {
   isGitRepository?: (path: string) => Promise<boolean>;
   hasUncommittedChanges?: (path: string) => Promise<boolean>;
   cleanupStaleLockfile?: typeof cleanupStaleLockfile;
-  lockfileExists?: typeof lockfileExists;
+  hasActiveLockfile?: typeof hasActiveLockfile;
   isTmuxInstalled?: () => boolean;
 }
 
@@ -151,7 +151,7 @@ export async function runDiagnostics(
   const resolveIsGitRepo = deps.isGitRepository ?? isGitRepository;
   const resolveHasChanges = deps.hasUncommittedChanges ?? hasGitUncommittedChanges;
   const resolveCleanupStaleLockfile = deps.cleanupStaleLockfile ?? cleanupStaleLockfile;
-  const resolveLockfileExists = deps.lockfileExists ?? lockfileExists;
+  const resolveHasActiveLockfile = deps.hasActiveLockfile ?? hasActiveLockfile;
   const resolveIsTmuxInstalled = deps.isTmuxInstalled ?? isTmuxInstalled;
 
   const capabilitiesByAgent =
@@ -423,7 +423,7 @@ export async function runDiagnostics(
       }
 
       await resolveCleanupStaleLockfile(undefined, projectPath);
-      const hasRunningReview = await resolveLockfileExists(undefined, projectPath);
+      const hasRunningReview = await resolveHasActiveLockfile(undefined, projectPath);
       items.push({
         id: "run-lockfile",
         category: "environment",
@@ -438,7 +438,7 @@ export async function runDiagnostics(
               "Use rr stop to terminate the running session.",
             ]
           : [],
-        fixable: hasRunningReview,
+        fixable: false,
       });
     }
   }
