@@ -8,7 +8,6 @@ import {
   discoverAutoModelCandidates,
   getRoleAgentPriorityRank,
   getRoleModelPriorityRank,
-  parsePiListModelsOutput,
   pickAutoRoleCandidate,
   selectAutoReasoning,
   validateAgentSelection,
@@ -318,41 +317,6 @@ describe("init command", () => {
       expect(result.input.soundNotificationsEnabled).toBe(false);
       expect(result.input.maxIterations).toBeGreaterThan(0);
       expect(result.input.iterationTimeoutMinutes).toBeGreaterThan(0);
-    });
-  });
-
-  describe("parsePiListModelsOutput", () => {
-    test("parses provider and model columns", () => {
-      const output = [
-        "provider   model                              context  max-out",
-        "anthropic  claude-sonnet-4-5                 200K     64K",
-        "llm-proxy  gemini_cli/gemini-3-flash-preview 1M       64K",
-      ].join("\n");
-
-      const models = parsePiListModelsOutput(output);
-
-      expect(models).toEqual([
-        { provider: "anthropic", model: "claude-sonnet-4-5" },
-        { provider: "llm-proxy", model: "gemini_cli/gemini-3-flash-preview" },
-      ]);
-    });
-
-    test("deduplicates exact provider/model pairs and ignores malformed lines", () => {
-      const output = [
-        "provider   model                              context  max-out",
-        "anthropic  claude-sonnet-4-5                 200K     64K",
-        "anthropic  claude-sonnet-4-5                 200K     64K",
-        "",
-        "invalid-line",
-        "llm-proxy  gemini_cli/gemini-3-pro-preview   1M       64K",
-      ].join("\n");
-
-      const models = parsePiListModelsOutput(output);
-
-      expect(models).toEqual([
-        { provider: "anthropic", model: "claude-sonnet-4-5" },
-        { provider: "llm-proxy", model: "gemini_cli/gemini-3-pro-preview" },
-      ]);
     });
   });
 });

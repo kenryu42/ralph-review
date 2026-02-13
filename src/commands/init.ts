@@ -1,4 +1,5 @@
 import * as p from "@clack/prompts";
+import { isAgentAvailable } from "@/lib/agents";
 import {
   agentOptions,
   claudeModelOptions,
@@ -17,6 +18,7 @@ import {
   loadConfig,
   saveConfig,
 } from "@/lib/config";
+import { type AgentCapabilitiesMap, discoverAgentCapabilities } from "@/lib/diagnostics";
 import {
   type AgentSettings,
   type AgentType,
@@ -75,6 +77,7 @@ export interface AutoModelCandidate {
 export interface AutoSelectionDependencies {
   fetchOpencodeModels?: () => Promise<{ value: string; label: string }[]>;
   fetchPiModels?: () => Promise<{ provider: string; model: string }[]>;
+  capabilitiesByAgent?: AgentCapabilitiesMap;
 }
 
 export interface AutoModelDiscoveryResult {
@@ -129,21 +132,21 @@ export function validateAgentSelection(value: string): boolean {
 }
 
 export function checkAgentInstalled(command: string): boolean {
-  return Bun.which(command) !== null;
+  return isAgentAvailable(command);
 }
 
 export function checkTmuxInstalled(): boolean {
-  return Bun.which("tmux") !== null;
+  return checkAgentInstalled("tmux");
 }
 
 export function checkAllAgents(): AgentAvailability {
   return {
-    codex: Bun.which("codex") !== null,
-    opencode: Bun.which("opencode") !== null,
-    claude: Bun.which("claude") !== null,
-    droid: Bun.which("droid") !== null,
-    gemini: Bun.which("gemini") !== null,
-    pi: Bun.which("pi") !== null,
+    codex: checkAgentInstalled("codex"),
+    opencode: checkAgentInstalled("opencode"),
+    claude: checkAgentInstalled("claude"),
+    droid: checkAgentInstalled("droid"),
+    gemini: checkAgentInstalled("gemini"),
+    pi: checkAgentInstalled("pi"),
   };
 }
 
@@ -214,99 +217,6 @@ function buildAgentSelectOptions(availability: AgentAvailability) {
   }));
 }
 
-let cachedOpencodeModels: { value: string; label: string }[] | null = null;
-let cachedPiModels: { provider: string; model: string }[] | null = null;
-
-async function fetchOpencodeModels(): Promise<{ value: string; label: string }[]> {
-  if (cachedOpencodeModels) {
-    return cachedOpencodeModels;
-  }
-
-  const proc = Bun.spawn(["opencode", "models"], {
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-
-  const [stdout, stderr] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-  ]);
-  const exitCode = await proc.exited;
-
-  if (exitCode !== 0) {
-    const errMsg = stderr.trim() || `exit code ${exitCode}`;
-    throw new Error(`Failed to fetch OpenCode models: ${errMsg}`);
-  }
-
-  const models = stdout
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line && !line.startsWith("INFO"));
-
-  cachedOpencodeModels = models.map((model) => ({ value: model, label: model }));
-  return cachedOpencodeModels;
-}
-
-export function parsePiListModelsOutput(output: string): { provider: string; model: string }[] {
-  const models: { provider: string; model: string }[] = [];
-  const seen = new Set<string>();
-
-  for (const rawLine of output.split("\n")) {
-    const line = rawLine.trim();
-    if (!line) {
-      continue;
-    }
-    if (line.startsWith("provider") && line.includes("model")) {
-      continue;
-    }
-
-    const columns = line.split(/\s+/);
-    if (columns.length < 2) {
-      continue;
-    }
-
-    const provider = columns[0]?.trim();
-    const model = columns[1]?.trim();
-    if (!provider || !model) {
-      continue;
-    }
-
-    const key = `${provider}\u0000${model}`;
-    if (seen.has(key)) {
-      continue;
-    }
-    seen.add(key);
-    models.push({ provider, model });
-  }
-
-  return models;
-}
-
-async function fetchPiModels(): Promise<{ provider: string; model: string }[]> {
-  if (cachedPiModels) {
-    return cachedPiModels;
-  }
-
-  const proc = Bun.spawn(["pi", "--list-models"], {
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-
-  const [stdout, stderr] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-  ]);
-  const exitCode = await proc.exited;
-
-  if (exitCode !== 0) {
-    const errMsg = stderr.trim() || `exit code ${exitCode}`;
-    throw new Error(`Failed to fetch Pi models: ${errMsg}`);
-  }
-
-  cachedPiModels = parsePiListModelsOutput(stdout);
-  return cachedPiModels;
-}
-
 function handleCancel(value: unknown): void {
   if (p.isCancel(value)) {
     p.cancel("Setup cancelled.");
@@ -361,7 +271,12 @@ function decodePiSelection(value: string): { provider: string; model: string } |
   }
 }
 
-async function promptForModel(agent: AgentType, role: ConfiguredRole): Promise<ModelSelection> {
+async function promptForModel(
+  agent: AgentType,
+  role: ConfiguredRole,
+  capabilitiesByAgent: AgentCapabilitiesMap,
+  availability: AgentAvailability
+): Promise<ModelSelection> {
   const staticOptions =
     agent === "opencode" || agent === "pi"
       ? undefined
@@ -376,54 +291,68 @@ async function promptForModel(agent: AgentType, role: ConfiguredRole): Promise<M
     return { model: model as string };
   }
 
-  if (agent === "opencode") {
-    let opencodeModels: { value: string; label: string }[];
-    if (cachedOpencodeModels) {
-      opencodeModels = cachedOpencodeModels;
-    } else {
+  let capability = capabilitiesByAgent[agent];
+  if (agent === "opencode" || agent === "pi") {
+    const needsProbe = !capability || capability.models.length === 0;
+    if (needsProbe) {
       const spinner = p.spinner();
-      spinner.start("Fetching available models...");
-      opencodeModels = await fetchOpencodeModels();
-      spinner.stop("Models loaded");
+      spinner.start(`Fetching ${getAgentDisplayName(agent)} models...`);
+      try {
+        const discovered = await discoverAgentCapabilities({
+          availabilityOverride: availability,
+          probeAgents: [agent],
+          cacheNamespace: `init-custom-${agent}`,
+        });
+        capability = discovered[agent];
+        capabilitiesByAgent[agent] = capability;
+        spinner.stop("Models loaded");
+      } catch (error) {
+        spinner.stop("Failed to load models");
+        p.log.error(`${error}`);
+        process.exit(1);
+      }
     }
+  }
 
-    if (opencodeModels.length === 0) {
-      p.log.error("No models available from OpenCode");
-      process.exit(1);
-    }
+  if (!capability) {
+    p.log.error(`Unable to inspect ${getAgentDisplayName(agent)} capabilities.`);
+    process.exit(1);
+  }
 
+  if (capability.models.length === 0) {
+    p.log.error(`No models available from ${getAgentDisplayName(agent)}.`);
+    capability.probeWarnings.forEach((warning) => {
+      p.log.message(`  ${warning}`);
+    });
+    process.exit(1);
+  }
+
+  if (agent === "opencode") {
     const model = await p.select({
       message: `Select ${role} model`,
-      options: opencodeModels,
+      options: capability.models.map((entry) => ({
+        value: entry.model,
+        label: entry.model,
+      })),
     });
     handleCancel(model);
     return { model: model as string };
   }
 
-  let piModels: { provider: string; model: string }[];
-
-  if (cachedPiModels) {
-    piModels = cachedPiModels;
-  } else {
-    const spinner = p.spinner();
-    spinner.start("Fetching available models...");
-    try {
-      piModels = await fetchPiModels();
-    } catch (error) {
-      spinner.stop("Failed to load models");
-      p.log.error(`${error}`);
-      process.exit(1);
-    }
-    spinner.stop("Models loaded");
-  }
-
-  if (!piModels || piModels.length === 0) {
-    p.log.error("No models available from Pi");
+  const piModels = capability.models.filter(
+    (entry): entry is { model: string; provider: string } =>
+      typeof entry.provider === "string" && entry.provider.trim().length > 0
+  );
+  if (piModels.length === 0) {
+    p.log.error("No provider/model entries were discovered for Pi.");
     process.exit(1);
   }
 
   const piOptions = piModels.map((entry) => ({
-    value: encodePiSelection(entry),
+    value: encodePiSelection({
+      provider: entry.provider,
+      model: entry.model,
+    }),
     label: entry.model,
     hint: entry.provider,
   }));
@@ -600,6 +529,16 @@ export async function discoverAutoModelCandidates(
   const candidates: AutoModelCandidate[] = [];
   const skipped = new Set<AgentType>();
 
+  const capabilitiesByAgent =
+    deps.capabilitiesByAgent ??
+    (await discoverAgentCapabilities({
+      availabilityOverride: availability,
+      deps: {
+        fetchOpencodeModels: deps.fetchOpencodeModels,
+        fetchPiModels: deps.fetchPiModels,
+      },
+    }));
+
   let nextProbeOrder = 0;
   const registerCandidates = (agent: AgentType, models: ModelSelection[]) => {
     if (models.length === 0) {
@@ -611,59 +550,28 @@ export async function discoverAutoModelCandidates(
     candidates.push(...toCandidates(agent, models, probeOrder));
   };
 
-  const staticAgents: readonly Exclude<AgentType, "opencode" | "pi">[] = [
+  const orderedAgents: readonly AgentType[] = [
     "claude",
     "codex",
     "droid",
     "gemini",
+    "opencode",
+    "pi",
   ];
 
-  for (const agent of staticAgents) {
+  for (const agent of orderedAgents) {
     if (!availability[agent]) {
       continue;
     }
-    const options = modelOptionsMap[agent];
-    registerCandidates(
-      agent,
-      options.map((entry) => ({ model: entry.value }))
-    );
+
+    const capability = capabilitiesByAgent[agent];
+    const options = capability.models.map((entry) => ({
+      model: entry.model,
+      provider: entry.provider,
+    }));
+
+    registerCandidates(agent, options);
   }
-
-  const resolveOpencodeModels = deps.fetchOpencodeModels ?? fetchOpencodeModels;
-  const resolvePiModels = deps.fetchPiModels ?? fetchPiModels;
-
-  const dynamicTasks: Promise<void>[] = [];
-  if (availability.opencode) {
-    dynamicTasks.push(
-      resolveOpencodeModels()
-        .then((models) => {
-          registerCandidates(
-            "opencode",
-            models.map((entry) => ({ model: entry.value }))
-          );
-        })
-        .catch(() => {
-          skipped.add("opencode");
-        })
-    );
-  }
-
-  if (availability.pi) {
-    dynamicTasks.push(
-      resolvePiModels()
-        .then((models) => {
-          registerCandidates(
-            "pi",
-            models.map((entry) => ({ provider: entry.provider, model: entry.model }))
-          );
-        })
-        .catch(() => {
-          skipped.add("pi");
-        })
-    );
-  }
-
-  await Promise.all(dynamicTasks);
 
   return {
     candidates,
@@ -748,7 +656,11 @@ async function promptForNumericSetting(message: string, defaultValue: number): P
   return Number.parseInt(value as string, 10);
 }
 
-async function promptForCustomInitInput(selectOptions: ReturnType<typeof buildAgentSelectOptions>) {
+async function promptForCustomInitInput(
+  selectOptions: ReturnType<typeof buildAgentSelectOptions>,
+  capabilitiesByAgent: AgentCapabilitiesMap,
+  availability: AgentAvailability
+) {
   const reviewerAgent = await p.select({
     message: "Select reviewer agent",
     options: selectOptions,
@@ -756,7 +668,12 @@ async function promptForCustomInitInput(selectOptions: ReturnType<typeof buildAg
   handleCancel(reviewerAgent);
   const reviewerAgentValue = reviewerAgent as AgentType;
 
-  const reviewerSelection = await promptForModel(reviewerAgentValue, "reviewer");
+  const reviewerSelection = await promptForModel(
+    reviewerAgentValue,
+    "reviewer",
+    capabilitiesByAgent,
+    availability
+  );
   const reviewerReasoning = await promptForReasoning(
     reviewerAgentValue,
     reviewerSelection.model,
@@ -770,7 +687,12 @@ async function promptForCustomInitInput(selectOptions: ReturnType<typeof buildAg
   handleCancel(fixerAgent);
   const fixerAgentValue = fixerAgent as AgentType;
 
-  const fixerSelection = await promptForModel(fixerAgentValue, "fixer");
+  const fixerSelection = await promptForModel(
+    fixerAgentValue,
+    "fixer",
+    capabilitiesByAgent,
+    availability
+  );
   const fixerReasoning = await promptForReasoning(fixerAgentValue, fixerSelection.model, "fixer");
 
   const simplifierAgent = await p.select({
@@ -780,7 +702,12 @@ async function promptForCustomInitInput(selectOptions: ReturnType<typeof buildAg
   handleCancel(simplifierAgent);
   const simplifierAgentValue = simplifierAgent as AgentType;
 
-  const simplifierSelection = await promptForModel(simplifierAgentValue, "code-simplifier");
+  const simplifierSelection = await promptForModel(
+    simplifierAgentValue,
+    "code-simplifier",
+    capabilitiesByAgent,
+    availability
+  );
   const simplifierReasoning = await promptForReasoning(
     simplifierAgentValue,
     simplifierSelection.model,
@@ -885,7 +812,6 @@ export async function runInit(): Promise<void> {
 
   const agentAvailability = checkAllAgents();
   const availableCount = Object.values(agentAvailability).filter(Boolean).length;
-
   if (availableCount === 0) {
     p.log.error(
       "No supported agents are installed.\n" +
@@ -911,13 +837,24 @@ export async function runInit(): Promise<void> {
     const spinner = p.spinner();
     spinner.start("Detecting installed models and building automatic configuration...");
     try {
-      const autoResult = await buildAutoInitInput(agentAvailability);
+      const capabilitiesByAgent = await discoverAgentCapabilities({
+        availabilityOverride: agentAvailability,
+        probeAgents: ["opencode", "pi"],
+        cacheNamespace: "init-auto",
+      });
+      const autoResult = await buildAutoInitInput(agentAvailability, { capabilitiesByAgent });
       input = autoResult.input;
       if (autoResult.skippedAgents.length > 0) {
         const skipped = autoResult.skippedAgents
           .map((agent) => getAgentDisplayName(agent))
           .join(", ");
         p.log.warn(`Skipped agents during automatic setup: ${skipped}`);
+        autoResult.skippedAgents.forEach((agent) => {
+          const warningList = capabilitiesByAgent[agent].probeWarnings;
+          warningList.forEach((warning) => {
+            p.log.message(`  ${warning}`);
+          });
+        });
       }
       spinner.stop("Automatic configuration ready");
     } catch (error) {
@@ -926,7 +863,12 @@ export async function runInit(): Promise<void> {
       process.exit(1);
     }
   } else {
-    input = await promptForCustomInitInput(selectOptions);
+    const capabilitiesByAgent = await discoverAgentCapabilities({
+      availabilityOverride: agentAvailability,
+      probeAgents: [],
+      cacheNamespace: "init-custom",
+    });
+    input = await promptForCustomInitInput(selectOptions, capabilitiesByAgent, agentAvailability);
   }
 
   input = {
