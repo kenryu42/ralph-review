@@ -256,6 +256,7 @@ function buildSessionSummary(logPath: string, entries: LogEntry[]): SessionSumma
     schemaVersion: SUMMARY_SCHEMA_VERSION,
     logPath,
     summaryPath: getSummaryPath(logPath),
+    sessionId: systemEntry?.sessionId,
     projectName,
     projectPath: systemEntry?.projectPath,
     gitBranch: systemEntry?.gitBranch,
@@ -321,6 +322,7 @@ function applyEntryToSummary(
   };
 
   if (entry.type === "system") {
+    next.sessionId = entry.sessionId;
     next.projectPath = entry.projectPath;
     next.gitBranch = entry.gitBranch;
     next.startedAt = summary.startedAt ?? entry.timestamp;
@@ -645,6 +647,7 @@ export async function computeSessionStats(session: LogSession): Promise<SessionS
   return {
     sessionPath: session.path,
     sessionName: session.name,
+    sessionId: summary?.sessionId ?? systemEntry?.sessionId,
     timestamp: session.timestamp,
     gitBranch: summary?.gitBranch ?? systemEntry?.gitBranch,
     status: summary?.status ?? deriveRunStatusFromEntries(entries, metrics),

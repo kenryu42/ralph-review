@@ -6,6 +6,7 @@ import {
   readLockfile,
   removeAllLockfiles,
   removeLockfile,
+  updateLockfile,
 } from "@/lib/lockfile";
 import { killSession, listRalphSessions, sendInterrupt } from "@/lib/tmux";
 
@@ -38,31 +39,54 @@ export async function runStop(args: string[]): Promise<void> {
 }
 
 async function stopAllSessions(): Promise<void> {
-  const sessions = await listRalphSessions();
+  const activeSessions = await listAllActiveSessions();
+  const tmuxSessions = await listRalphSessions();
+  const sessionNames = [
+    ...new Set([...tmuxSessions, ...activeSessions.map((session) => session.sessionName)]),
+  ];
 
-  if (sessions.length === 0) {
+  if (sessionNames.length === 0) {
     p.log.info("No active review sessions.");
     await removeAllLockfiles();
     return;
   }
 
-  p.log.step(`Stopping ${sessions.length} session(s)...`);
+  p.log.step(`Stopping ${sessionNames.length} session(s)...`);
 
-  for (const sessionName of sessions) {
+  for (const session of activeSessions) {
+    await updateLockfile(
+      undefined,
+      session.projectPath,
+      {
+        state: "stopping",
+        status: "stopping",
+        lastHeartbeat: Date.now(),
+      },
+      {
+        expectedSessionId: session.sessionId,
+      }
+    );
+  }
+
+  for (const sessionName of sessionNames) {
     await sendInterrupt(sessionName);
   }
 
   await new Promise((resolve) => setTimeout(resolve, 1000));
 
-  for (const sessionName of sessions) {
+  for (const sessionName of sessionNames) {
     await killSession(sessionName);
     p.log.message(`  Stopped: ${sessionName}`);
   }
 
-  // Clean up all lockfiles
+  for (const session of activeSessions) {
+    await removeLockfile(undefined, session.projectPath, { expectedSessionId: session.sessionId });
+  }
+
+  // Fallback cleanup for stale/legacy lockfiles that were not tied to active sessions.
   await removeAllLockfiles();
 
-  p.log.success(`Stopped ${sessions.length} session(s).`);
+  p.log.success(`Stopped ${sessionNames.length} session(s).`);
 }
 
 async function stopCurrentSession(): Promise<void> {
@@ -87,6 +111,19 @@ async function stopCurrentSession(): Promise<void> {
 
   p.log.step(`Stopping session: ${lockData.sessionName}`);
 
+  await updateLockfile(
+    undefined,
+    projectPath,
+    {
+      state: "stopping",
+      status: "stopping",
+      lastHeartbeat: Date.now(),
+    },
+    {
+      expectedSessionId: lockData.sessionId,
+    }
+  );
+
   await sendInterrupt(lockData.sessionName);
 
   await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -95,7 +132,7 @@ async function stopCurrentSession(): Promise<void> {
   await killSession(lockData.sessionName);
 
   // Remove the lockfile
-  await removeLockfile(undefined, projectPath);
+  await removeLockfile(undefined, projectPath, { expectedSessionId: lockData.sessionId });
 
   p.log.success("Review stopped.");
 }

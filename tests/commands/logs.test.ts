@@ -72,11 +72,17 @@ function createIterationEntry(fixes: FixEntry[]): IterationEntry {
 
 function createActiveSession(projectPath: string, branch: string): ActiveSession {
   return {
+    schemaVersion: 2,
+    sessionId: "active-session-id",
     sessionName: "rr-project-123",
     startTime: Date.now(),
+    lastHeartbeat: Date.now(),
     pid: 12345,
     projectPath,
     branch,
+    state: "running",
+    mode: "background",
+    status: "running",
     lockPath: "/logs/lockfile.lock",
   };
 }
@@ -104,6 +110,44 @@ describe("formatStatus", () => {
 });
 
 describe("markSessionStatsRunning", () => {
+  test("marks session as running when sessionId matches", () => {
+    const projectPath = "/work/project-a";
+    const projectName = getProjectName(projectPath);
+    const active = createActiveSession(projectPath, "main");
+    const sessions = [
+      createSessionStats({
+        sessionId: active.sessionId,
+        sessionPath: `/logs/${projectName}/session.jsonl`,
+        gitBranch: "different-branch",
+        status: "unknown",
+        iterations: 0,
+      }),
+    ];
+
+    markSessionStatsRunning(sessions, [active]);
+
+    expect(sessions[0]?.status).toBe("running");
+  });
+
+  test("does not fall back to branch matching when both sessionIds are present and different", () => {
+    const projectPath = "/work/project-a";
+    const projectName = getProjectName(projectPath);
+    const active = createActiveSession(projectPath, "main");
+    const sessions = [
+      createSessionStats({
+        sessionId: "different-session-id",
+        sessionPath: `/logs/${projectName}/session.jsonl`,
+        gitBranch: "main",
+        status: "unknown",
+        iterations: 0,
+      }),
+    ];
+
+    markSessionStatsRunning(sessions, [active]);
+
+    expect(sessions[0]?.status).toBe("unknown");
+  });
+
   test("marks session as running when it matches an active session", () => {
     const projectPath = "/work/project-a";
     const projectName = getProjectName(projectPath);

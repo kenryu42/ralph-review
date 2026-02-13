@@ -149,11 +149,16 @@ const mockCodexReviewText = `- Line 42: Consider using const instead of let for 
 - Line 89-92: Nested property access could use optional chaining`;
 
 const mockSession: LockData = {
+  schemaVersion: 2,
+  sessionId: "mock-session-id",
   sessionName: "ralph-review-mock-12345",
   startTime: Date.now() - 120000,
+  lastHeartbeat: Date.now(),
   pid: 12345,
   projectPath: "/Users/dev/project",
   branch: "feature/new-auth",
+  state: "running",
+  mode: "background",
   iteration: 2,
   status: "running",
   currentAgent: "reviewer",
@@ -161,6 +166,7 @@ const mockSession: LockData = {
 
 const mockCompletedSession: LockData = {
   ...mockSession,
+  state: "completed",
   status: "completed",
   iteration: 3,
 };

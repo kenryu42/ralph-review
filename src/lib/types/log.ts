@@ -7,6 +7,7 @@ import type { IterationError, ReviewOptions } from "./run";
 export interface SystemEntry {
   type: "system";
   timestamp: number;
+  sessionId?: string;
   projectPath: string;
   gitBranch?: string;
   reviewer: AgentSettings;
@@ -39,6 +40,7 @@ export interface SessionSummary {
   schemaVersion: 1;
   logPath: string;
   summaryPath: string;
+  sessionId?: string;
   projectName: string;
   projectPath?: string;
   gitBranch?: string;

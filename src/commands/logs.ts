@@ -49,6 +49,14 @@ export function markSessionStatsRunning(
     const sessionProjectName = pathParts[pathParts.length - 2];
 
     for (const active of activeSessions) {
+      if (session.sessionId && active.sessionId) {
+        if (session.sessionId === active.sessionId) {
+          session.status = "running";
+          break;
+        }
+        continue;
+      }
+
       const activeProjectName = getProjectName(active.projectPath);
       if (sessionProjectName !== activeProjectName) {
         continue;
@@ -106,6 +114,7 @@ function extractSystemEntry(session: SessionStats): SystemEntry | undefined {
 }
 
 export interface SessionJson {
+  sessionId?: string;
   project: string;
   branch?: string;
   status: DerivedRunStatus;
@@ -142,6 +151,7 @@ export function buildSessionJson(
   const systemEntry = extractSystemEntry(session);
 
   return {
+    sessionId: session.sessionId,
     project: projectName,
     branch: session.gitBranch,
     status: session.status,
