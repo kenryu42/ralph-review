@@ -224,7 +224,6 @@ export async function runForeground(args: string[] = []): Promise<void> {
     {
       pid: process.pid,
       state: "running",
-      status: "running",
       mode: "foreground",
       lastHeartbeat: Date.now(),
       currentAgent: runSimplifier ? "code-simplifier" : "reviewer",
@@ -278,7 +277,6 @@ export async function runForeground(args: string[] = []): Promise<void> {
         projectPath,
         {
           state: cycleResult.finalStatus,
-          status: cycleResult.finalStatus,
           endTime: Date.now(),
           reason: cycleResult.reason,
           currentAgent: null,
@@ -294,7 +292,6 @@ export async function runForeground(args: string[] = []): Promise<void> {
         projectPath,
         {
           state: "failed",
-          status: "failed",
           endTime: Date.now(),
           reason: "Review exited unexpectedly",
           currentAgent: null,

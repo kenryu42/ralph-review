@@ -20,7 +20,6 @@ describe("getCurrentAgentFromLockData", () => {
     branch: "main",
     state: "running",
     mode: "background",
-    status: "running",
   };
 
   test("returns null when lockData is null", () => {
@@ -130,7 +129,6 @@ describe("mergeHeavyDashboardState", () => {
       state: "running",
       mode: "foreground",
       iteration: 2,
-      status: "running",
       currentAgent: "fixer",
     },
     logEntries: [],

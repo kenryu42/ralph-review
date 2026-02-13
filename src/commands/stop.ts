@@ -59,7 +59,6 @@ async function stopAllSessions(): Promise<void> {
       session.projectPath,
       {
         state: "stopping",
-        status: "stopping",
         lastHeartbeat: Date.now(),
       },
       {
@@ -83,7 +82,7 @@ async function stopAllSessions(): Promise<void> {
     await removeLockfile(undefined, session.projectPath, { expectedSessionId: session.sessionId });
   }
 
-  // Fallback cleanup for stale/legacy lockfiles that were not tied to active sessions.
+  // Clean up any orphaned lockfiles left by crashed sessions.
   await removeAllLockfiles();
 
   p.log.success(`Stopped ${sessionNames.length} session(s).`);
@@ -116,7 +115,6 @@ async function stopCurrentSession(): Promise<void> {
     projectPath,
     {
       state: "stopping",
-      status: "stopping",
       lastHeartbeat: Date.now(),
     },
     {

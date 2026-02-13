@@ -528,14 +528,14 @@ export function SessionPanel({
   }
 
   const iteration = sessionIteration;
-  const statusDisplay = getStatusDisplay(session.status ?? "unknown", currentAgent);
+  const statusDisplay = getStatusDisplay(session.state ?? "unknown", currentAgent);
   const cachedLiveReviewSummary =
     lastLiveReviewSummaryRef.current?.iteration === iteration
       ? lastLiveReviewSummaryRef.current.summary
       : null;
 
   const { findings: displayFindings, codexText: displayCodexText } = resolveIssuesFoundDisplay({
-    sessionStatus: session.status,
+    sessionStatus: session.state,
     sessionIteration: iteration,
     latestReviewIteration,
     persistedFindings: findings,
@@ -583,7 +583,7 @@ export function SessionPanel({
           </>
         ) : (
           <>
-            {(session.status === "running" || session.status === "pending") && (
+            {(session.state === "running" || session.state === "pending") && (
               <Spinner color={statusDisplay.color} />
             )}
             <text fg={statusDisplay.color}>

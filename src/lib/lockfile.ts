@@ -26,15 +26,6 @@ export type LockState =
 
 export type LockMode = "background" | "foreground";
 
-type LockStatus =
-  | "pending"
-  | "running"
-  | "stopping"
-  | "completed"
-  | "failed"
-  | "interrupted"
-  | "stopped";
-
 const ACTIVE_STATES: readonly LockState[] = ["pending", "running", "stopping"];
 const TERMINAL_STATES: readonly LockState[] = ["completed", "failed", "interrupted", "stopped"];
 
@@ -55,12 +46,6 @@ interface CreateLockfileOptions {
   reason?: string;
 }
 
-type LegacyLockData = Omit<Partial<LockData>, "schemaVersion" | "state" | "status"> & {
-  schemaVersion?: number;
-  state?: string;
-  status?: string;
-};
-
 export interface LockData {
   schemaVersion: 2;
   sessionId: string;
@@ -76,7 +61,6 @@ export interface LockData {
   endTime?: number;
   reason?: string;
   iteration?: number;
-  status?: LockStatus;
   currentAgent?: "reviewer" | "fixer" | "code-simplifier" | null;
   reviewSummary?: ReviewSummary;
   codexReviewText?: string;
@@ -130,28 +114,6 @@ function isLockState(value: unknown): value is LockState {
   );
 }
 
-function mapLegacyStatusToState(status: unknown): LockState {
-  if (status === "pending") return "pending";
-  if (status === "running") return "running";
-  if (status === "completed") return "completed";
-  if (status === "failed") return "failed";
-  if (status === "interrupted") return "interrupted";
-  if (status === "stopped") return "stopped";
-  if (status === "stopping") return "stopping";
-  return "running";
-}
-
-function deriveLegacySessionId(raw: LegacyLockData): string {
-  const projectPath = raw.projectPath ?? "unknown";
-  const sessionName = raw.sessionName ?? "unknown";
-  const startTime = raw.startTime ?? 0;
-  return `legacy:${projectPath}:${sessionName}:${startTime}`;
-}
-
-function lockStateToStatus(state: LockState): LockStatus {
-  return state;
-}
-
 async function readLockfileByPath(lockPath: string): Promise<LockData | null> {
   const file = Bun.file(lockPath);
 
@@ -161,8 +123,19 @@ async function readLockfileByPath(lockPath: string): Promise<LockData | null> {
 
   try {
     const content = await file.text();
-    const raw = JSON.parse(content) as LegacyLockData;
-    return normalizeLegacyLockData(raw);
+    const raw = JSON.parse(content) as LockData;
+
+    if (
+      !raw.sessionName ||
+      typeof raw.startTime !== "number" ||
+      typeof raw.projectPath !== "string" ||
+      !raw.sessionId ||
+      !isLockState(raw.state)
+    ) {
+      return null;
+    }
+
+    return raw;
   } catch {
     return null;
   }
@@ -203,43 +176,6 @@ function isTerminalState(state: LockState): boolean {
   return TERMINAL_STATES.includes(state);
 }
 
-function normalizeLegacyLockData(lockData: LegacyLockData): LockData | null {
-  if (
-    !lockData.sessionName ||
-    typeof lockData.startTime !== "number" ||
-    typeof lockData.projectPath !== "string"
-  ) {
-    return null;
-  }
-
-  const state = isLockState(lockData.state)
-    ? lockData.state
-    : mapLegacyStatusToState(lockData.status);
-  const mode: LockMode = lockData.mode === "foreground" ? "foreground" : "background";
-  const startTime = lockData.startTime;
-
-  return {
-    schemaVersion: LOCK_SCHEMA_VERSION,
-    sessionId: lockData.sessionId ?? deriveLegacySessionId(lockData),
-    sessionName: lockData.sessionName,
-    startTime,
-    lastHeartbeat: lockData.lastHeartbeat ?? startTime,
-    pid: typeof lockData.pid === "number" ? lockData.pid : 0,
-    projectPath: lockData.projectPath,
-    branch: lockData.branch?.trim() || DEFAULT_BRANCH,
-    state,
-    mode,
-    sessionPath: lockData.sessionPath,
-    endTime: lockData.endTime,
-    reason: lockData.reason,
-    iteration: lockData.iteration,
-    status: isLockState(lockData.status) ? lockData.status : lockStateToStatus(state),
-    currentAgent: lockData.currentAgent ?? null,
-    reviewSummary: lockData.reviewSummary,
-    codexReviewText: lockData.codexReviewText,
-  };
-}
-
 export function getLockPath(logsDir: string = LOGS_DIR, projectPath: string): string {
   const projectName = getProjectName(projectPath);
   return join(logsDir, `${projectName}.lock`);
@@ -271,7 +207,6 @@ export async function createLockfile(
     sessionPath: options.sessionPath,
     endTime: options.endTime,
     reason: options.reason,
-    status: lockStateToStatus(state),
     currentAgent: null,
   };
 
@@ -322,14 +257,6 @@ export async function updateLockfile(
       } else {
         merged[key] = value;
       }
-    }
-
-    if (typeof merged.state === "string" && isLockState(merged.state)) {
-      merged.status = lockStateToStatus(merged.state);
-    } else if (typeof merged.status === "string") {
-      const resolvedState = mapLegacyStatusToState(merged.status);
-      merged.state = resolvedState;
-      merged.status = lockStateToStatus(resolvedState);
     }
 
     merged.schemaVersion = LOCK_SCHEMA_VERSION;

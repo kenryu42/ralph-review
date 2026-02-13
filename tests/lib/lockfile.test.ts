@@ -54,7 +54,6 @@ describe("lockfile", () => {
       expect(data?.branch).toBe("main");
       expect(data?.state).toBe("pending");
       expect(data?.mode).toBe("background");
-      expect(data?.status).toBe("pending");
       expect(data?.currentAgent).toBeNull();
       expect(typeof data?.lastHeartbeat).toBe("number");
     });
@@ -87,7 +86,6 @@ describe("lockfile", () => {
       const after = await readLockfile(tempLogsDir, projectPath);
       expect(after?.iteration).toBe(3);
       expect(after?.state).toBe("running");
-      expect(after?.status).toBe("running");
       expect(after?.mode).toBe("foreground");
       expect(after?.currentAgent).toBe("fixer");
     });

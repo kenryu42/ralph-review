@@ -82,7 +82,6 @@ function createActiveSession(projectPath: string, branch: string): ActiveSession
     branch,
     state: "running",
     mode: "background",
-    status: "running",
     lockPath: "/logs/lockfile.lock",
   };
 }

@@ -160,14 +160,12 @@ const mockSession: LockData = {
   state: "running",
   mode: "background",
   iteration: 2,
-  status: "running",
   currentAgent: "reviewer",
 };
 
 const mockCompletedSession: LockData = {
   ...mockSession,
   state: "completed",
-  status: "completed",
   iteration: 3,
 };
 
