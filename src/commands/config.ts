@@ -36,6 +36,7 @@ const CONFIG_KEYS = [
   "iterationTimeout",
   "defaultReview.type",
   "defaultReview.branch",
+  "run.simplifier",
   "retry.maxRetries",
   "retry.baseDelayMs",
   "retry.maxDelayMs",
@@ -220,6 +221,12 @@ export function parseConfigValue(key: ConfigKey, rawValue: string): ConfigValue 
       }
       return rawValue;
 
+    case "run.simplifier":
+      if (rawValue !== "true" && rawValue !== "false") {
+        throw new Error(`Value for "${key}" must be "true" or "false".`);
+      }
+      return rawValue === "true";
+
     case "notifications.sound.enabled":
       if (rawValue !== "true" && rawValue !== "false") {
         throw new Error(`Value for "${key}" must be "true" or "false".`);
@@ -267,6 +274,8 @@ export function getConfigValue(config: Config, key: ConfigKey): unknown {
       return config.defaultReview.type;
     case "defaultReview.branch":
       return config.defaultReview.type === "base" ? config.defaultReview.branch : undefined;
+    case "run.simplifier":
+      return config.run?.simplifier;
     case "retry.maxRetries":
       return config.retry?.maxRetries;
     case "retry.baseDelayMs":
@@ -451,6 +460,12 @@ export function setConfigValue(config: Config, key: ConfigKey, value: ConfigValu
       }
       next.defaultReview = { type: "base", branch: value };
       return next;
+    case "run.simplifier":
+      if (typeof value !== "boolean") {
+        throw new Error(`Value for "${key}" must be "true" or "false".`);
+      }
+      next.run = { simplifier: value };
+      return next;
     case "retry.maxRetries":
       next.retry = next.retry ? { ...next.retry } : { ...DEFAULT_RETRY_CONFIG };
       if (typeof value !== "number") {
@@ -540,6 +555,9 @@ export function validateConfigInvariants(config: Config): string[] {
 
   if (typeof config.notifications.sound.enabled !== "boolean") {
     errors.push("notifications.sound.enabled must be a boolean.");
+  }
+  if (config.run && typeof config.run.simplifier !== "boolean") {
+    errors.push("run.simplifier must be a boolean.");
   }
 
   return errors;

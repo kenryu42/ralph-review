@@ -101,6 +101,18 @@ describe("config", () => {
       expect(loaded?.["code-simplifier"]).toEqual(codeSimplifier);
     });
 
+    test("loadConfig accepts optional run settings", async () => {
+      const configPath = join(tempDir, "config.json");
+      const configWithRun = {
+        ...testConfig,
+        run: { simplifier: true },
+      };
+
+      await Bun.write(configPath, JSON.stringify(configWithRun, null, 2));
+      const loaded = await loadConfig(configPath);
+      expect(loaded?.run).toEqual({ simplifier: true });
+    });
+
     test("loadConfig rejects invalid code-simplifier settings", async () => {
       const configPath = join(tempDir, "config.json");
       const configWithInvalidSimplifier = {
@@ -112,6 +124,18 @@ describe("config", () => {
       };
 
       await Bun.write(configPath, JSON.stringify(configWithInvalidSimplifier, null, 2));
+      const loaded = await loadConfig(configPath);
+      expect(loaded).toBeNull();
+    });
+
+    test("loadConfig rejects invalid run settings", async () => {
+      const configPath = join(tempDir, "config.json");
+      const configWithInvalidRun = {
+        ...testConfig,
+        run: { simplifier: "yes" },
+      };
+
+      await Bun.write(configPath, JSON.stringify(configWithInvalidRun, null, 2));
       const loaded = await loadConfig(configPath);
       expect(loaded).toBeNull();
     });

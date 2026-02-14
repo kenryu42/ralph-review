@@ -16,6 +16,7 @@ const baseConfig: Config = {
   reviewer: { agent: "codex", model: "gpt-5.3-codex", reasoning: "high" },
   fixer: { agent: "claude", model: "claude-opus-4-6", reasoning: "medium" },
   "code-simplifier": { agent: "droid", model: "gpt-5.2-codex", reasoning: "low" },
+  run: { simplifier: false },
   maxIterations: 5,
   iterationTimeout: 1800000,
   defaultReview: { type: "uncommitted" },
@@ -39,6 +40,7 @@ describe("config command helpers", () => {
   describe("parseConfigKey", () => {
     test("accepts a supported key", () => {
       expect(parseConfigKey("reviewer.agent")).toBe("reviewer.agent");
+      expect(parseConfigKey("run.simplifier")).toBe("run.simplifier");
     });
 
     test("rejects unknown key", () => {
@@ -68,10 +70,19 @@ describe("config command helpers", () => {
       expect(parseConfigValue("notifications.sound.enabled", "false")).toBe(false);
     });
 
+    test("parses boolean run simplifier values", () => {
+      expect(parseConfigValue("run.simplifier", "true")).toBe(true);
+      expect(parseConfigValue("run.simplifier", "false")).toBe(false);
+    });
+
     test("rejects invalid notification boolean values", () => {
       expect(() => parseConfigValue("notifications.sound.enabled", "yes")).toThrow(
         'must be "true" or "false"'
       );
+    });
+
+    test("rejects invalid run simplifier values", () => {
+      expect(() => parseConfigValue("run.simplifier", "yes")).toThrow('must be "true" or "false"');
     });
   });
 
@@ -86,6 +97,10 @@ describe("config command helpers", () => {
 
     test("returns notification sound enabled value", () => {
       expect(getConfigValue(baseConfig, "notifications.sound.enabled")).toBe(false);
+    });
+
+    test("returns run simplifier value", () => {
+      expect(getConfigValue(baseConfig, "run.simplifier")).toBe(false);
     });
   });
 
@@ -142,6 +157,11 @@ describe("config command helpers", () => {
       const updated = setConfigValue(baseConfig, "notifications.sound.enabled", true);
       expect(updated.notifications.sound.enabled).toBe(true);
     });
+
+    test("sets run simplifier enabled", () => {
+      const updated = setConfigValue(baseConfig, "run.simplifier", true);
+      expect(updated.run?.simplifier).toBe(true);
+    });
   });
 
   describe("validateConfigInvariants", () => {
@@ -164,6 +184,15 @@ describe("config command helpers", () => {
       const parsed = parseConfig(withType);
       expect(parsed).not.toBeNull();
       expect(parsed?.defaultReview).toEqual({ type: "base", branch: "main" });
+    });
+
+    test("rejects invalid run settings", () => {
+      const candidate = {
+        ...baseConfig,
+        run: { simplifier: "yes" },
+      } as unknown as Config;
+      const errors = validateConfigInvariants(candidate);
+      expect(errors.some((error) => error.includes("run.simplifier"))).toBe(true);
     });
   });
 });
