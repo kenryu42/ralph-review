@@ -1,0 +1,1 @@
+{"type":"message","timestamp":"2026-01-01T00:00:00.000Z","role":"assistant","content":"<<<RR_REVIEW_SUMMARY_JSON_START>>>\n{\"findings\":\"invalid\",\"overall_correctness\":\"patch is incorrect\",\"overall_explanation\":\"Invalid findings shape.\",\"overall_confidence_score\":0.5}\n<<<RR_REVIEW_SUMMARY_JSON_END>>>","delta":true}

@@ -1,0 +1,1 @@
+{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"<<<RR_REVIEW_SUMMARY_JSON_START>>>\n{\"findings\":\"invalid\",\"overall_correctness\":\"patch is incorrect\",\"overall_explanation\":\"Invalid findings shape.\",\"overall_confidence_score\":0.5}\n<<<RR_REVIEW_SUMMARY_JSON_END>>>"}]}}

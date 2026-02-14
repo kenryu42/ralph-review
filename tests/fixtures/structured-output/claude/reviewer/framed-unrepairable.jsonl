@@ -1,0 +1,1 @@
+{"type":"result","subtype":"success","is_error":false,"result":"<<<RR_REVIEW_SUMMARY_JSON_START>>>\n{\"findings\":\"invalid\",\"overall_correctness\":\"patch is incorrect\",\"overall_explanation\":\"Invalid findings shape.\",\"overall_confidence_score\":0.5}\n<<<RR_REVIEW_SUMMARY_JSON_END>>>","session_id":"session-1","duration_ms":1,"num_turns":1}

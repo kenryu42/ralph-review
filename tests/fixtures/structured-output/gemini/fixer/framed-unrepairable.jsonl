@@ -1,0 +1,1 @@
+{"type":"message","timestamp":"2026-01-01T00:00:00.000Z","role":"assistant","content":"<<<RR_FIX_SUMMARY_JSON_START>>>\n{\"decision\":\"APPLY_SELECTIVELY\",\"stop_iteration\":false,\"fixes\":\"invalid\",\"skipped\":[]}\n<<<RR_FIX_SUMMARY_JSON_END>>>","delta":true}

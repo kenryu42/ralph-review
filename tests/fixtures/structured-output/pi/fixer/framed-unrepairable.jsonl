@@ -1,0 +1,1 @@
+{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"<<<RR_FIX_SUMMARY_JSON_START>>>\n{\"decision\":\"APPLY_SELECTIVELY\",\"stop_iteration\":false,\"fixes\":\"invalid\",\"skipped\":[]}\n<<<RR_FIX_SUMMARY_JSON_END>>>"}]}}
