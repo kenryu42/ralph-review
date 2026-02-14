@@ -3,10 +3,17 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getCommandDef } from "@/cli";
-import { classifyRunCompletion, type RunOptions, resolveRunSoundOverride } from "@/commands/run";
+import {
+  classifyRunCompletion,
+  formatRunAgentsNote,
+  type RunOptions,
+  resolveRunSimplifierEnabled,
+  resolveRunSoundOverride,
+} from "@/commands/run";
 import { parseCommand } from "@/lib/cli-parser";
 import { runDiagnostics } from "@/lib/diagnostics";
 import { createLockfile, lockfileExists, removeLockfile } from "@/lib/lockfile";
+import type { Config } from "@/lib/types";
 import { createCapabilities, createConfig } from "../helpers/diagnostics";
 
 describe("run command", () => {
@@ -128,6 +135,70 @@ describe("run command", () => {
       expect(() => resolveRunSoundOverride({ sound: true, "no-sound": true })).toThrow(
         "Cannot use --sound and --no-sound together"
       );
+    });
+  });
+
+  describe("resolveRunSimplifierEnabled", () => {
+    test("returns true when --simplifier is passed even if config is false", () => {
+      const config = {
+        ...createConfig(),
+        run: { simplifier: false },
+      } satisfies Config;
+      expect(resolveRunSimplifierEnabled({ simplifier: true }, config)).toBe(true);
+    });
+
+    test("uses config default when --simplifier is not passed", () => {
+      const config = {
+        ...createConfig(),
+        run: { simplifier: true },
+      } satisfies Config;
+      expect(resolveRunSimplifierEnabled({}, config)).toBe(true);
+    });
+
+    test("defaults to false when config run settings are missing", () => {
+      const config = {
+        ...createConfig(),
+      };
+      delete config.run;
+
+      expect(resolveRunSimplifierEnabled({}, config)).toBe(false);
+      expect(resolveRunSimplifierEnabled({}, null)).toBe(false);
+    });
+  });
+
+  describe("formatRunAgentsNote", () => {
+    test("includes Simplifier line when simplifier is enabled with configured code-simplifier", () => {
+      const config = createConfig();
+
+      const note = formatRunAgentsNote(config, {
+        simplifier: true,
+      });
+
+      expect(note).toContain("Reviewer:");
+      expect(note).toContain("Fixer:");
+      expect(note).toContain("Simplifier: Droid");
+      expect(note).toContain("Review:");
+    });
+
+    test("falls back to reviewer details when code-simplifier is not configured", () => {
+      const config = createConfig();
+      delete config["code-simplifier"];
+
+      const note = formatRunAgentsNote(config, {
+        simplifier: true,
+      });
+
+      expect(note).toContain("Simplifier: Codex");
+    });
+
+    test("omits Simplifier line when simplifier is disabled", () => {
+      const config = createConfig();
+
+      const note = formatRunAgentsNote(config, {
+        simplifier: false,
+      });
+
+      expect(note).not.toContain("Simplifier:");
     });
   });
 

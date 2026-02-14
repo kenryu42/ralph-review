@@ -73,6 +73,30 @@ export function resolveRunSoundOverride(options: RunOptions): SoundOverride | un
   return undefined;
 }
 
+export function resolveRunSimplifierEnabled(options: RunOptions, config: Config | null): boolean {
+  return options.simplifier === true || config?.run?.simplifier === true;
+}
+
+export function formatRunAgentsNote(config: Config, reviewOptions: ReviewOptions): string {
+  const reviewer = getAgentDisplayInfo(config.reviewer);
+  const fixer = getAgentDisplayInfo(config.fixer);
+  const lines = [
+    `Reviewer:   ${reviewer.agentName} (${reviewer.modelName}, reasoning: ${reviewer.reasoning})`,
+    `Fixer:      ${fixer.agentName} (${fixer.modelName}, reasoning: ${fixer.reasoning})`,
+  ];
+
+  if (reviewOptions.simplifier) {
+    const simplifierSettings = config["code-simplifier"] ?? config.reviewer;
+    const simplifier = getAgentDisplayInfo(simplifierSettings);
+    lines.push(
+      `Simplifier: ${simplifier.agentName} (${simplifier.modelName}, reasoning: ${simplifier.reasoning})`
+    );
+  }
+
+  lines.push(`Review:     ${formatReviewType(reviewOptions)}`);
+  return lines.join("\n");
+}
+
 function getDynamicProbeAgents(config: Config | null): AgentType[] {
   if (!config) {
     return [];
@@ -157,15 +181,8 @@ async function runInBackground(
   try {
     await createSession(sessionName, command);
     p.log.success(`Review started in background session: ${sessionName}`);
-    const reviewer = getAgentDisplayInfo(config.reviewer);
-    const fixer = getAgentDisplayInfo(config.fixer);
     const reviewOptions: ReviewOptions = { baseBranch, commitSha, customInstructions, simplifier };
-    p.note(
-      `Reviewer: ${reviewer.agentName} (${reviewer.modelName}, reasoning: ${reviewer.reasoning})\n` +
-        `Fixer:    ${fixer.agentName} (${fixer.modelName}, reasoning: ${fixer.reasoning})\n` +
-        `Review:   ${formatReviewType(reviewOptions)}`,
-      "Agents"
-    );
+    p.note(formatRunAgentsNote(config, reviewOptions), "Agents");
     p.note("rr status  - Check status\n" + "rr stop    - Stop the review", "Commands");
   } catch (error) {
     await removeLockfile(undefined, projectPath, { expectedSessionId: sessionId });
@@ -416,6 +433,8 @@ export async function startReview(args: string[]): Promise<void> {
     process.exit(1);
   }
 
+  const runSimplifier = resolveRunSimplifierEnabled(options, config);
+
   // Check if inside tmux - warn about nesting
   if (isInsideTmux()) {
     p.log.warn("Running inside tmux session. Review will start in a nested session.");
@@ -428,7 +447,7 @@ export async function startReview(args: string[]): Promise<void> {
     options.commit,
     options.custom,
     options.force,
-    options.simplifier,
+    runSimplifier,
     soundOverride
   );
 }
