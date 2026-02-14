@@ -18,7 +18,9 @@ import { VALID_PRIORITIES } from "@/lib/types/domain";
 import {
   extractFixesFromStats,
   extractLatestReviewSummary,
+  extractSkippedFromStats,
   findLatestReviewerPhaseStart,
+  formatLastRunIssueSummary,
   formatPriorityBreakdown,
   formatProjectStatsSummary,
   formatRelativeTime,
@@ -454,6 +456,7 @@ export function SessionPanel({
 
     const statusDisplay = getStatusDisplay(lastSessionStats.status, null);
     const lastSessionFixes = extractFixesFromStats(lastSessionStats);
+    const lastSessionSkipped = extractSkippedFromStats(lastSessionStats);
 
     return (
       <box
@@ -511,9 +514,11 @@ export function SessionPanel({
             <text fg={TUI_COLORS.text.dim}>({formatRelativeTime(lastSessionStats.timestamp)})</text>
           </box>
           <text fg={TUI_COLORS.text.dim} paddingLeft={2}>
-            {lastSessionStats.totalFixes === 0
-              ? `no issues found in ${lastSessionStats.iterations} iteration${lastSessionStats.iterations !== 1 ? "s" : ""}`
-              : `${lastSessionStats.totalFixes} fix${lastSessionStats.totalFixes !== 1 ? "es" : ""} in ${lastSessionStats.iterations} iteration${lastSessionStats.iterations !== 1 ? "s" : ""}`}
+            {formatLastRunIssueSummary(
+              lastSessionFixes.length,
+              lastSessionSkipped.length,
+              lastSessionStats.iterations
+            )}
           </text>
         </box>
 
@@ -521,6 +526,13 @@ export function SessionPanel({
           <box flexDirection="column">
             <text fg={TUI_COLORS.text.muted}>Recent fixes:</text>
             <FixList fixes={lastSessionFixes} showFiles={true} />
+          </box>
+        )}
+
+        {lastSessionSkipped.length > 0 && (
+          <box flexDirection="column">
+            <text fg={TUI_COLORS.text.muted}>Recent skipped:</text>
+            <SkippedList skipped={lastSessionSkipped} />
           </box>
         )}
       </box>

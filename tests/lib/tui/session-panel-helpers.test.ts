@@ -2,14 +2,23 @@ import { describe, expect, test } from "bun:test";
 import {
   extractFixesFromStats,
   extractLatestReviewSummary,
+  extractSkippedFromStats,
   findLatestReviewerPhaseStart,
+  formatLastRunIssueSummary,
   formatPriorityBreakdown,
   formatProjectStatsSummary,
   truncateFilePath,
   truncateText,
 } from "@/lib/tui/session-panel-utils";
-import type { FixEntry, IterationEntry, Priority, SessionStats, SystemEntry } from "@/lib/types";
-import { buildFixEntry, buildFixSummary } from "../../test-utils/fix-summary";
+import type {
+  FixEntry,
+  IterationEntry,
+  Priority,
+  SessionStats,
+  SkippedEntry,
+  SystemEntry,
+} from "@/lib/types";
+import { buildFixEntry, buildFixSummary, buildSkippedEntry } from "../../test-utils/fix-summary";
 
 describe("SessionPanel helpers", () => {
   describe("truncateText", () => {
@@ -156,6 +165,128 @@ describe("SessionPanel helpers", () => {
 
       const result = extractFixesFromStats(stats);
       expect(result).toHaveLength(1);
+    });
+  });
+
+  describe("extractSkippedFromStats", () => {
+    const createSkipped = (id: number, title: string, priority: Priority): SkippedEntry =>
+      buildSkippedEntry({ id, title, priority });
+
+    const createIterationEntry = (iteration: number, skipped: SkippedEntry[]): IterationEntry => ({
+      type: "iteration",
+      timestamp: Date.now(),
+      iteration,
+      fixes: buildFixSummary({ decision: "APPLY_MOST", skipped }),
+    });
+
+    const createSystemEntry = (): SystemEntry => ({
+      type: "system",
+      timestamp: Date.now(),
+      projectPath: "/test/project",
+      reviewer: { agent: "claude", model: "opus" },
+      fixer: { agent: "claude", model: "opus" },
+      maxIterations: 3,
+    });
+
+    const createSessionStats = (entries: (SystemEntry | IterationEntry)[]): SessionStats => ({
+      sessionPath: "/test/path",
+      sessionName: "test-session",
+      timestamp: Date.now(),
+      status: "completed",
+      totalFixes: 0,
+      totalSkipped: 0,
+      priorityCounts: { P0: 0, P1: 0, P2: 0, P3: 0 },
+      iterations: 0,
+      entries,
+      reviewer: "claude",
+      reviewerModel: "opus",
+      reviewerDisplayName: "Claude",
+      reviewerModelDisplayName: "Claude Opus 4.5",
+      fixer: "claude",
+      fixerModel: "opus",
+      fixerDisplayName: "Claude",
+      fixerModelDisplayName: "Claude Opus 4.5",
+    });
+
+    test("extracts skipped from single iteration", () => {
+      const skipped1 = createSkipped(1, "Need context", "P1");
+      const skipped2 = createSkipped(2, "Cannot reproduce", "P2");
+      const stats = createSessionStats([
+        createSystemEntry(),
+        createIterationEntry(1, [skipped1, skipped2]),
+      ]);
+
+      const result = extractSkippedFromStats(stats);
+      expect(result).toHaveLength(2);
+      expect(result[0]?.title).toBe("Need context");
+      expect(result[1]?.title).toBe("Cannot reproduce");
+    });
+
+    test("extracts skipped from multiple iterations", () => {
+      const skipped1 = createSkipped(1, "First skipped", "P0");
+      const skipped2 = createSkipped(2, "Second skipped", "P1");
+      const skipped3 = createSkipped(3, "Third skipped", "P2");
+      const stats = createSessionStats([
+        createSystemEntry(),
+        createIterationEntry(1, [skipped1]),
+        createIterationEntry(2, [skipped2, skipped3]),
+      ]);
+
+      const result = extractSkippedFromStats(stats);
+      expect(result).toHaveLength(3);
+      expect(result.map((entry) => entry.title)).toEqual([
+        "First skipped",
+        "Second skipped",
+        "Third skipped",
+      ]);
+    });
+
+    test("returns empty array when no skipped", () => {
+      const stats = createSessionStats([createSystemEntry()]);
+      const result = extractSkippedFromStats(stats);
+      expect(result).toEqual([]);
+    });
+
+    test("handles iterations without fixes property", () => {
+      const entry: IterationEntry = {
+        type: "iteration",
+        timestamp: Date.now(),
+        iteration: 1,
+      };
+      const stats = createSessionStats([entry]);
+
+      const result = extractSkippedFromStats(stats);
+      expect(result).toEqual([]);
+    });
+
+    test("ignores system entries", () => {
+      const skipped1 = createSkipped(1, "Skipped item", "P1");
+      const stats = createSessionStats([
+        createSystemEntry(),
+        createIterationEntry(1, [skipped1]),
+        createSystemEntry(),
+      ]);
+
+      const result = extractSkippedFromStats(stats);
+      expect(result).toHaveLength(1);
+    });
+  });
+
+  describe("formatLastRunIssueSummary", () => {
+    test("returns no issues found when no fixes and no skipped", () => {
+      expect(formatLastRunIssueSummary(0, 0, 2)).toBe("no issues found in 2 iterations");
+    });
+
+    test("returns fixes-only summary when skipped is zero", () => {
+      expect(formatLastRunIssueSummary(3, 0, 2)).toBe("3 fixes in 2 iterations");
+    });
+
+    test("returns skipped-only summary when fixes is zero", () => {
+      expect(formatLastRunIssueSummary(0, 2, 1)).toBe("2 skipped in 1 iteration");
+    });
+
+    test("returns combined summary when fixes and skipped exist", () => {
+      expect(formatLastRunIssueSummary(2, 1, 3)).toBe("2 fixes, 1 skipped in 3 iterations");
     });
   });
 

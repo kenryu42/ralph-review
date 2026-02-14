@@ -3,7 +3,10 @@ import type { LockData } from "@/lib/lockfile";
 import type { DashboardState } from "@/lib/tui/types";
 import {
   getCurrentAgentFromLockData,
+  getLiveRefreshMeta,
+  hasLiveMetaChanged,
   mergeHeavyDashboardState,
+  mergeIncrementalLogEntries,
   selectLatestReviewFromEntries,
 } from "@/lib/tui/use-dashboard-state";
 import type { LogEntry } from "@/lib/types";
@@ -192,5 +195,105 @@ describe("mergeHeavyDashboardState", () => {
     expect(merged.maxIterations).toBe(7);
     expect(merged.findings).toHaveLength(1);
     expect(merged.isLoading).toBe(false);
+  });
+});
+
+describe("mergeIncrementalLogEntries", () => {
+  const systemEntry: LogEntry = {
+    type: "system",
+    timestamp: 100,
+    projectPath: "/test/project",
+    reviewer: { agent: "codex" },
+    fixer: { agent: "claude" },
+    maxIterations: 5,
+  };
+  const iterationEntry: LogEntry = {
+    type: "iteration",
+    timestamp: 200,
+    iteration: 1,
+  };
+
+  test("replaces entries on reset mode", () => {
+    const merged = mergeIncrementalLogEntries([iterationEntry], {
+      mode: "reset",
+      entries: [systemEntry],
+      state: {
+        logPath: "/tmp/session.jsonl",
+        offsetBytes: 10,
+        lastModified: 1,
+        trailingPartialLine: "",
+      },
+    });
+
+    expect(merged).toEqual([systemEntry]);
+  });
+
+  test("appends entries on incremental mode", () => {
+    const merged = mergeIncrementalLogEntries([systemEntry], {
+      mode: "incremental",
+      entries: [iterationEntry],
+      state: {
+        logPath: "/tmp/session.jsonl",
+        offsetBytes: 20,
+        lastModified: 2,
+        trailingPartialLine: "",
+      },
+    });
+
+    expect(merged).toEqual([systemEntry, iterationEntry]);
+  });
+
+  test("keeps previous entries on unchanged mode", () => {
+    const merged = mergeIncrementalLogEntries([systemEntry], {
+      mode: "unchanged",
+      entries: [],
+      state: {
+        logPath: "/tmp/session.jsonl",
+        offsetBytes: 20,
+        lastModified: 2,
+        trailingPartialLine: "",
+      },
+    });
+
+    expect(merged).toEqual([systemEntry]);
+  });
+});
+
+describe("live metadata helpers", () => {
+  const baseLockData: LockData = {
+    schemaVersion: 2,
+    sessionId: "session-1",
+    sessionName: "rr-test-123",
+    startTime: Date.now(),
+    lastHeartbeat: Date.now(),
+    pid: process.pid,
+    projectPath: "/test/project",
+    branch: "main",
+    state: "running",
+    mode: "background",
+    iteration: 2,
+    currentAgent: "fixer",
+  };
+
+  test("builds metadata shape from lock data", () => {
+    const meta = getLiveRefreshMeta(baseLockData);
+    expect(meta.sessionName).toBe("rr-test-123");
+    expect(meta.state).toBe("running");
+    expect(meta.iteration).toBe(2);
+    expect(meta.currentAgent).toBe("fixer");
+  });
+
+  test("detects changed metadata fields", () => {
+    const previous = getLiveRefreshMeta(baseLockData);
+    const next = getLiveRefreshMeta({
+      ...baseLockData,
+      iteration: 3,
+    });
+    expect(hasLiveMetaChanged(previous, next)).toBe(true);
+  });
+
+  test("returns false for first metadata sample", () => {
+    const next = getLiveRefreshMeta(baseLockData);
+    expect(hasLiveMetaChanged(null, next)).toBe(false);
   });
 });

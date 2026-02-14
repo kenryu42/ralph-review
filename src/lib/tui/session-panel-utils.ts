@@ -7,6 +7,7 @@ import {
   type Priority,
   type ReviewSummary,
   type SessionStats,
+  type SkippedEntry,
 } from "@/lib/types";
 
 export const PRIORITY_COLORS: Record<Priority, string> = {
@@ -71,6 +72,41 @@ export function extractFixesFromStats(stats: SessionStats): FixEntry[] {
     }
   }
   return fixes;
+}
+
+export function extractSkippedFromStats(stats: SessionStats): SkippedEntry[] {
+  const skipped: SkippedEntry[] = [];
+  for (const entry of stats.entries) {
+    if (entry.type === "iteration") {
+      const iterEntry = entry as IterationEntry;
+      if (iterEntry.fixes?.skipped) {
+        skipped.push(...iterEntry.fixes.skipped);
+      }
+    }
+  }
+  return skipped;
+}
+
+export function formatLastRunIssueSummary(
+  totalFixes: number,
+  totalSkipped: number,
+  iterations: number
+): string {
+  const iterationsText = `${iterations} iteration${iterations !== 1 ? "s" : ""}`;
+
+  if (totalFixes === 0 && totalSkipped === 0) {
+    return `no issues found in ${iterationsText}`;
+  }
+
+  if (totalFixes === 0) {
+    return `${totalSkipped} skipped in ${iterationsText}`;
+  }
+
+  if (totalSkipped === 0) {
+    return `${totalFixes} fix${totalFixes !== 1 ? "es" : ""} in ${iterationsText}`;
+  }
+
+  return `${totalFixes} fix${totalFixes !== 1 ? "es" : ""}, ${totalSkipped} skipped in ${iterationsText}`;
 }
 
 export function formatRelativeTime(timestamp: number): string {
