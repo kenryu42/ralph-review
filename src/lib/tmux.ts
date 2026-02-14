@@ -1,6 +1,59 @@
 import { basename } from "node:path";
 import { $ } from "bun";
 
+export const TMUX_CAPTURE_MIN_INTERVAL_MS = 250;
+export const TMUX_CAPTURE_MAX_INTERVAL_MS = 2000;
+
+interface ShouldCaptureTmuxOptions {
+  sessionChanged: boolean;
+  liveMetaChanged: boolean;
+  now: number;
+  lastCaptureAt: number;
+  currentIntervalMs: number;
+}
+
+interface ComputeNextTmuxCaptureIntervalOptions {
+  sessionChanged: boolean;
+  liveMetaChanged: boolean;
+  outputChanged: boolean;
+  previousIntervalMs: number;
+}
+
+function normalizeCaptureInterval(intervalMs: number): number {
+  if (!Number.isFinite(intervalMs) || intervalMs <= 0) {
+    return TMUX_CAPTURE_MIN_INTERVAL_MS;
+  }
+
+  return Math.min(
+    TMUX_CAPTURE_MAX_INTERVAL_MS,
+    Math.max(TMUX_CAPTURE_MIN_INTERVAL_MS, Math.floor(intervalMs))
+  );
+}
+
+export function shouldCaptureTmux(options: ShouldCaptureTmuxOptions): boolean {
+  if (options.sessionChanged || options.liveMetaChanged) {
+    return true;
+  }
+
+  if (options.lastCaptureAt <= 0) {
+    return true;
+  }
+
+  const intervalMs = normalizeCaptureInterval(options.currentIntervalMs);
+  return options.now - options.lastCaptureAt >= intervalMs;
+}
+
+export function computeNextTmuxCaptureInterval(
+  options: ComputeNextTmuxCaptureIntervalOptions
+): number {
+  if (options.sessionChanged || options.liveMetaChanged || options.outputChanged) {
+    return TMUX_CAPTURE_MIN_INTERVAL_MS;
+  }
+
+  const baseInterval = normalizeCaptureInterval(options.previousIntervalMs);
+  return Math.min(TMUX_CAPTURE_MAX_INTERVAL_MS, baseInterval * 2);
+}
+
 export function sanitizeBasename(basename: string): string {
   let sanitized = basename.replace(/[^a-zA-Z0-9_-]+/g, "-");
   sanitized = sanitized.replace(/-+/g, "-");

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
+  computeNextTmuxCaptureInterval,
   createSession,
   generateSessionName,
   isInsideTmux,
@@ -9,6 +10,9 @@ import {
   normalizeSessionOutput,
   sanitizeBasename,
   sessionExists,
+  shouldCaptureTmux,
+  TMUX_CAPTURE_MAX_INTERVAL_MS,
+  TMUX_CAPTURE_MIN_INTERVAL_MS,
 } from "@/lib/tmux";
 
 describe("tmux", () => {
@@ -145,6 +149,75 @@ describe("tmux", () => {
     test("removes only trailing whitespace", () => {
       const output = "line 1\nline 2\n\n   ";
       expect(normalizeSessionOutput(output)).toBe("line 1\nline 2");
+    });
+  });
+
+  describe("capture heuristics", () => {
+    test("forces capture when session changes", () => {
+      const shouldCapture = shouldCaptureTmux({
+        sessionChanged: true,
+        liveMetaChanged: false,
+        now: 1_000,
+        lastCaptureAt: 950,
+        currentIntervalMs: 1_000,
+      });
+
+      expect(shouldCapture).toBe(true);
+    });
+
+    test("forces capture when live metadata changes", () => {
+      const shouldCapture = shouldCaptureTmux({
+        sessionChanged: false,
+        liveMetaChanged: true,
+        now: 1_000,
+        lastCaptureAt: 950,
+        currentIntervalMs: 1_000,
+      });
+
+      expect(shouldCapture).toBe(true);
+    });
+
+    test("captures when enough time elapsed for current interval", () => {
+      const shouldCapture = shouldCaptureTmux({
+        sessionChanged: false,
+        liveMetaChanged: false,
+        now: 1_000,
+        lastCaptureAt: 500,
+        currentIntervalMs: 500,
+      });
+
+      expect(shouldCapture).toBe(true);
+    });
+
+    test("backs off capture interval when output is unchanged", () => {
+      expect(
+        computeNextTmuxCaptureInterval({
+          sessionChanged: false,
+          liveMetaChanged: false,
+          outputChanged: false,
+          previousIntervalMs: TMUX_CAPTURE_MIN_INTERVAL_MS,
+        })
+      ).toBe(TMUX_CAPTURE_MIN_INTERVAL_MS * 2);
+
+      expect(
+        computeNextTmuxCaptureInterval({
+          sessionChanged: false,
+          liveMetaChanged: false,
+          outputChanged: false,
+          previousIntervalMs: TMUX_CAPTURE_MAX_INTERVAL_MS,
+        })
+      ).toBe(TMUX_CAPTURE_MAX_INTERVAL_MS);
+    });
+
+    test("resets capture interval when output changes", () => {
+      expect(
+        computeNextTmuxCaptureInterval({
+          sessionChanged: false,
+          liveMetaChanged: false,
+          outputChanged: true,
+          previousIntervalMs: TMUX_CAPTURE_MAX_INTERVAL_MS,
+        })
+      ).toBe(TMUX_CAPTURE_MIN_INTERVAL_MS);
     });
   });
 
