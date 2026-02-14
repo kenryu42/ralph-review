@@ -566,10 +566,11 @@ export function SessionPanel({
   const appliedCount = fixes.length;
   const skippedCount = skipped.length;
 
-  const listHeightBudget = Math.max(10, terminalHeight - 23);
-  const verifyMaxHeight = Math.max(4, Math.floor(listHeightBudget * 0.5));
-  const appliedMaxHeight = Math.max(3, Math.floor(listHeightBudget * 0.3));
-  const skippedMaxHeight = Math.max(3, listHeightBudget - verifyMaxHeight - appliedMaxHeight);
+  // Reserve extra rows for header/status and panel chrome to avoid clipping app top rows.
+  const listHeightBudget = Math.max(8, terminalHeight - 25);
+  const verifyMaxHeight = Math.max(3, Math.floor(listHeightBudget * 0.5));
+  const appliedMaxHeight = Math.max(2, Math.floor(listHeightBudget * 0.3));
+  const skippedMaxHeight = Math.max(2, listHeightBudget - verifyMaxHeight - appliedMaxHeight);
 
   return (
     <box

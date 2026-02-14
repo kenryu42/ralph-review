@@ -168,7 +168,7 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
         projectPath={projectPath}
         config={state.config}
       />
-      <box flexDirection="row" flexGrow={1} gap={1} padding={1}>
+      <box flexDirection="row" flexGrow={1} minHeight={0} gap={1} paddingLeft={1} paddingRight={1}>
         <SessionPanel
           session={state.currentSession}
           fixes={state.fixes}

@@ -13,6 +13,12 @@ interface HeaderProps {
   config?: Config | null;
 }
 
+export interface HeaderAgentDisplays {
+  reviewerDisplay: string;
+  fixerDisplay: string;
+  simplifierDisplay?: string;
+}
+
 const APP_VERSION = getVersion();
 
 function formatDuration(ms: number): string {
@@ -29,6 +35,30 @@ function formatDuration(ms: number): string {
   }
 }
 
+export function getHeaderAgentDisplays(config?: Config | null): HeaderAgentDisplays {
+  if (!config) {
+    return {
+      reviewerDisplay: "Unknown (Default, Default)",
+      fixerDisplay: "Unknown (Default, Default)",
+    };
+  }
+
+  const reviewer = getAgentDisplayInfo(config.reviewer);
+  const fixer = getAgentDisplayInfo(config.fixer);
+  const reviewerDisplay = `${reviewer.agentName} (${reviewer.modelName} • ${reviewer.reasoning})`;
+  const fixerDisplay = `${fixer.agentName} (${fixer.modelName} • ${fixer.reasoning})`;
+
+  if (config.run?.simplifier !== true) {
+    return { reviewerDisplay, fixerDisplay };
+  }
+
+  const simplifierSettings = config["code-simplifier"] ?? config.reviewer;
+  const simplifier = getAgentDisplayInfo(simplifierSettings);
+  const simplifierDisplay = `${simplifier.agentName} (${simplifier.modelName} • ${simplifier.reasoning})`;
+
+  return { reviewerDisplay, fixerDisplay, simplifierDisplay };
+}
+
 export function Header({ branch, elapsed, session, projectPath, config }: HeaderProps) {
   const statusIcon = session ? "●" : "○";
   const statusColor = session ? TUI_COLORS.status.success : TUI_COLORS.status.inactive;
@@ -39,14 +69,7 @@ export function Header({ branch, elapsed, session, projectPath, config }: Header
       ? projectPath.replace(homeDir, "~")
       : projectPath;
 
-  const reviewer = config ? getAgentDisplayInfo(config.reviewer) : null;
-  const fixer = config ? getAgentDisplayInfo(config.fixer) : null;
-  const reviewerDisplay = reviewer
-    ? `${reviewer.agentName} (${reviewer.modelName} • ${reviewer.reasoning})`
-    : "Unknown (Default, Default)";
-  const fixerDisplay = fixer
-    ? `${fixer.agentName} (${fixer.modelName} • ${fixer.reasoning})`
-    : "Unknown (Default, Default)";
+  const { reviewerDisplay, fixerDisplay, simplifierDisplay } = getHeaderAgentDisplays(config);
 
   return (
     <box
@@ -54,7 +77,7 @@ export function Header({ branch, elapsed, session, projectPath, config }: Header
       justifyContent="space-between"
       paddingLeft={1}
       paddingRight={1}
-      paddingTop={1}
+      flexShrink={0}
     >
       <box flexDirection="row">
         <box flexDirection="column" width={12}>
@@ -87,6 +110,12 @@ export function Header({ branch, elapsed, session, projectPath, config }: Header
             <span fg={TUI_COLORS.text.subtle}>Fixer: </span>
             <span fg={TUI_COLORS.text.subtle}>{fixerDisplay}</span>
           </text>
+          {simplifierDisplay && (
+            <text>
+              <span fg={TUI_COLORS.text.subtle}>Simplifier: </span>
+              <span fg={TUI_COLORS.text.subtle}>{simplifierDisplay}</span>
+            </text>
+          )}
           <text>
             <span fg={TUI_COLORS.text.subtle}>{displayPath}</span>
             {branch && <span fg={TUI_COLORS.accent.branch}> [{branch}]</span>}
