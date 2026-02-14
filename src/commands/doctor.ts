@@ -52,6 +52,7 @@ const CATEGORY_LABELS: Record<DiagnosticCategory, string> = {
 
 // alphabetically ordered list of agents
 const AGENT_ORDER = ["claude", "codex", "droid", "gemini", "opencode", "pi"] as const;
+const MAX_FIX_PASSES = 3;
 
 function getSeverityIcon(item: DiagnosticItem): string {
   switch (item.severity) {
@@ -65,7 +66,7 @@ function getSeverityIcon(item: DiagnosticItem): string {
 }
 
 function formatDoctorItem(item: DiagnosticItem): string {
-  const fixTag = item.fixable && item.severity !== "ok" ? " 🔧" : "";
+  const fixTag = item.severity !== "ok" && isFixable(item.id) ? " 🔧" : "";
   const lines = [`${getSeverityIcon(item)} ${item.summary}${fixTag}`];
 
   if (item.details) {
@@ -77,6 +78,60 @@ function formatDoctorItem(item: DiagnosticItem): string {
   }
 
   return lines.join("\n");
+}
+
+function getFixableItems(report: DiagnosticsReport): DiagnosticItem[] {
+  return report.items.filter((item) => item.severity !== "ok" && isFixable(item.id));
+}
+
+function toIdSet(items: DiagnosticItem[]): Set<string> {
+  return new Set(items.map((item) => item.id));
+}
+
+function setEquals(a: Set<string>, b: Set<string>): boolean {
+  if (a.size !== b.size) {
+    return false;
+  }
+
+  for (const value of a) {
+    if (!b.has(value)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function collectNextActions(report: DiagnosticsReport, results: FixResult[]): string[] {
+  const actions: string[] = [];
+  const seen = new Set<string>();
+
+  function addUnique(steps: string[]): void {
+    for (const step of steps) {
+      if (!seen.has(step)) {
+        seen.add(step);
+        actions.push(step);
+      }
+    }
+  }
+
+  const unresolvedErrorIds = new Set(
+    report.items.filter((item) => item.severity === "error").map((item) => item.id)
+  );
+
+  for (const item of report.items) {
+    if (item.severity === "error") {
+      addUnique(item.remediation);
+    }
+  }
+
+  for (const result of results) {
+    if (!result.success && result.nextActions && unresolvedErrorIds.has(result.id)) {
+      addUnique(result.nextActions);
+    }
+  }
+
+  return actions;
 }
 
 function parseAgentBinaryItem(item: DiagnosticItem): { agent: string; installed: boolean } | null {
@@ -222,27 +277,33 @@ export async function runDoctor(
   renderDoctorReport(report, runtime.note);
 
   if (fix) {
-    const fixableItems = report.items.filter(
-      (item) => item.severity !== "ok" && isFixable(item.id)
-    );
+    const initialFixableItems = getFixableItems(report);
 
-    if (fixableItems.length > 0) {
+    if (initialFixableItems.length > 0) {
       runtime.log.info(
-        `Found ${fixableItems.length} fixable issue${fixableItems.length === 1 ? "" : "s"}. Attempting auto-fix...`
+        `Found ${initialFixableItems.length} fixable issue${initialFixableItems.length === 1 ? "" : "s"}. Attempting guided remediation...`
       );
+      const allFixResults: FixResult[] = [];
 
-      const results = await runtime.applyFixes(fixableItems);
-
-      for (const result of results) {
-        if (result.success) {
-          runtime.log.success(`Fixed: ${result.message}`);
-        } else {
-          runtime.log.warn(`Could not fix: ${result.message}`);
+      for (let pass = 1; pass <= MAX_FIX_PASSES; pass++) {
+        const fixableItems = getFixableItems(report);
+        if (fixableItems.length === 0) {
+          break;
         }
-      }
 
-      const anyFixed = results.some((r) => r.success);
-      if (anyFixed) {
+        runtime.log.step(`Remediation pass ${pass}/${MAX_FIX_PASSES}`);
+        const unresolvedBefore = toIdSet(fixableItems);
+        const results = await runtime.applyFixes(fixableItems);
+        allFixResults.push(...results);
+
+        for (const result of results) {
+          if (result.success) {
+            runtime.log.success(`Fixed this pass: ${result.message}`);
+          } else {
+            runtime.log.warn(`Could not fix: ${result.message}`);
+          }
+        }
+
         const reSpinner = runtime.spinner();
         reSpinner.start("Re-running diagnostics...");
         try {
@@ -251,8 +312,37 @@ export async function runDoctor(
           reSpinner.stop("Diagnostics complete.");
         }
 
-        runtime.note("Post-fix diagnostic results:", "🔧 Re-diagnosis");
+        runtime.note(
+          `Post-fix diagnostic results (pass ${pass}/${MAX_FIX_PASSES}):`,
+          "🔧 Re-diagnosis"
+        );
         renderDoctorReport(report, runtime.note);
+
+        const unresolvedAfter = toIdSet(getFixableItems(report));
+
+        if (unresolvedAfter.size === 0) {
+          break;
+        }
+
+        if (pass === MAX_FIX_PASSES) {
+          runtime.log.info("Reached remediation pass limit.");
+          break;
+        }
+
+        if (setEquals(unresolvedBefore, unresolvedAfter)) {
+          runtime.log.info(
+            "No remediation progress detected for remaining fixable issues. Stopping auto-fix loop."
+          );
+          break;
+        }
+      }
+
+      if (report.hasErrors) {
+        const actions = collectNextActions(report, allFixResults);
+        if (actions.length > 0) {
+          const lines = actions.map((action, index) => `${index + 1}. ${action}`);
+          runtime.note(lines.join("\n"), "🧭 Next actions");
+        }
       }
     } else {
       runtime.log.info("No auto-fixable issues found.");
