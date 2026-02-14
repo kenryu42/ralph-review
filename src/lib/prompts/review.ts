@@ -1,4 +1,5 @@
 import { mergeBaseWithHead } from "@/lib/git";
+import { createReviewerStructuredOutputInstructions } from "@/lib/prompts/protocol";
 import defaultReviewPromptContent from "./defaults/review.md" with { type: "text" };
 
 const defaultReviewPrompt: string = defaultReviewPromptContent;
@@ -44,5 +45,5 @@ export function createReviewerPrompt(options: ReviewerPromptOptions): string {
     instruction = UNCOMMITTED_PROMPT;
   }
 
-  return `${defaultReviewPrompt.trim()}\n\n${instruction}`;
+  return `${defaultReviewPrompt.trim()}\n${createReviewerStructuredOutputInstructions()}\n\n${instruction}`;
 }

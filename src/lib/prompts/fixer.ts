@@ -2,6 +2,11 @@
  * Fixer prompt template for ralph-review
  * Used by the fixer agent to verify review findings and apply fixes
  */
+import {
+  createFixerStructuredOutputInstructions,
+  FIX_SUMMARY_END_TOKEN,
+  FIX_SUMMARY_START_TOKEN,
+} from "@/lib/prompts/protocol";
 
 export function createFixerPrompt(reviewOutput: string): string {
   return `You are a **second-opinion verification reviewer + fixer**.
@@ -172,11 +177,10 @@ FIX PACKAGE (only if APPLY is non-empty)
 - If not editing files, include a unified diff.
 
 ## JSON (REQUIRED)
-- MUST be valid JSON in a single triple-backticked \`json\` block.
-- MUST be the LAST output in the response (no text after it).
+${createFixerStructuredOutputInstructions()}
 - IMPORTANT: There is NO separate needinfo array. NEED INFO items MUST be included in "skipped" with a reason prefix.
 
-\`\`\`json
+${FIX_SUMMARY_START_TOKEN}
 {
   "decision": "<NO_CHANGES_NEEDED | APPLY_SELECTIVELY | APPLY_MOST | NEED_INFO>",
   "stop_iteration": <true|false>,
@@ -201,7 +205,7 @@ FIX PACKAGE (only if APPLY is non-empty)
     }
   ]
 }
-\`\`\`
+${FIX_SUMMARY_END_TOKEN}
 
 JSON rules (MUST FOLLOW)
 - verification_possible = true only if you actually had enough code/diff to check the key claims.
@@ -217,5 +221,5 @@ JSON rules (MUST FOLLOW)
 - Use [] if none.
 - "file" may be null.
 - Priority must be exactly P0, P1, P2, or P3.
-- The JSON block must be the final output (no trailing text).`;
+- The delimited JSON block must be the final output (no trailing text).`;
 }
