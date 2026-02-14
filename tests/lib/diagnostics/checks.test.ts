@@ -258,4 +258,67 @@ describe("diagnostics checks", () => {
     expect(report.hasErrors).toBe(false);
     expect(report.hasWarnings).toBe(true);
   });
+
+  test("marks run-lockfile as fixable when an active review lock is present", async () => {
+    const report = await runDiagnostics("run", {
+      capabilitiesByAgent: createCapabilities(),
+      dependencies: {
+        configExists: async () => true,
+        loadConfig: async () => createConfig(),
+        isGitRepository: async () => true,
+        hasUncommittedChanges: async () => true,
+        cleanupStaleLockfile: async () => false,
+        hasActiveLockfile: async () => true,
+        isTmuxInstalled: () => true,
+      },
+    });
+
+    const lockItem = report.items.find((item) => item.id === "run-lockfile");
+    expect(lockItem?.severity).toBe("error");
+    expect(lockItem?.fixable).toBe(true);
+    expect(lockItem?.remediation).toContain("Then run: rr run");
+  });
+
+  test("uses platform-aware tmux remediation via injected guidance", async () => {
+    const report = await runDiagnostics("doctor", {
+      capabilitiesByAgent: createCapabilities(),
+      dependencies: {
+        configExists: async () => true,
+        loadConfig: async () => createConfig(),
+        isGitRepository: async () => true,
+        isTmuxInstalled: () => false,
+        resolveTmuxInstallGuidance: () => ({
+          commandArgs: ["sudo", "apt-get", "install", "-y", "tmux"],
+          commandDisplay: "sudo apt-get install -y tmux",
+          nextActions: ["Run: sudo apt-get install -y tmux", "Then run: rr doctor --fix"],
+        }),
+      },
+    });
+
+    const tmuxItem = report.items.find((item) => item.id === "tmux-installed");
+    expect(tmuxItem?.remediation).toContain("Run: sudo apt-get install -y tmux");
+    expect(tmuxItem?.remediation).toContain("Then run: rr doctor --fix");
+  });
+
+  test("marks expanded config diagnostics as fixable", async () => {
+    const capabilities = createCapabilities();
+    capabilities.codex.installed = false;
+
+    const report = await runDiagnostics("run", {
+      capabilitiesByAgent: capabilities,
+      dependencies: {
+        configExists: async () => true,
+        loadConfig: async () => createConfig(),
+        isGitRepository: async () => true,
+        hasUncommittedChanges: async () => true,
+        cleanupStaleLockfile: async () => false,
+        hasActiveLockfile: async () => false,
+        isTmuxInstalled: () => true,
+      },
+    });
+
+    const missingAgent = report.items.find((item) => item.id === "config-reviewer-agent-missing");
+    expect(missingAgent?.severity).toBe("error");
+    expect(missingAgent?.fixable).toBe(true);
+  });
 });

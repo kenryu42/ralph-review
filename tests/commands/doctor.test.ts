@@ -196,46 +196,186 @@ describe("doctor command", () => {
 });
 
 describe("doctor --fix", () => {
-  test("applies fixes and re-runs diagnostics when fixable errors exist", async () => {
-    const initialReport = createReport([
+  test("runs multi-pass remediation until diagnostics are clean", async () => {
+    const passOneReport = createReport([
       {
         id: "tmux-installed",
         category: "tmux",
         title: "tmux availability",
         severity: "error",
         summary: "tmux is not installed.",
-        remediation: ["Install tmux with: brew install tmux"],
-        fixable: true,
+        remediation: ["Run: brew install tmux", "Then run: rr doctor --fix"],
       },
     ]);
-
-    let diagnosticsRunCount = 0;
-    const fixedReport = createReport([
+    const passTwoReport = createReport([
       {
-        id: "tmux-installed",
-        category: "tmux",
-        title: "tmux availability",
+        id: "config-missing",
+        category: "config",
+        title: "Configuration file",
+        severity: "error",
+        summary: "Configuration file was not found.",
+        remediation: ["Run: rr init", "Then run: rr doctor --fix"],
+      },
+    ]);
+    const cleanReport = createReport([
+      {
+        id: "config-valid",
+        category: "config",
+        title: "Configuration file",
         severity: "ok",
-        summary: "tmux is installed.",
+        summary: "Configuration loaded successfully.",
         remediation: [],
       },
     ]);
 
-    const runtime = createRuntime(initialReport);
+    const runtime = createRuntime(passOneReport);
+    let diagnosticsRunCount = 0;
     runtime.overrides.runDiagnostics = async () => {
       diagnosticsRunCount++;
-      return diagnosticsRunCount === 1 ? initialReport : fixedReport;
+      if (diagnosticsRunCount === 1) return passOneReport;
+      if (diagnosticsRunCount === 2) return passTwoReport;
+      return cleanReport;
+    };
+
+    let fixPass = 0;
+    runtime.overrides.applyFixes = async (items: DiagnosticItem[]): Promise<FixResult[]> => {
+      runtime.fixedItems.push(items);
+      fixPass++;
+      return items.map((item) => ({
+        id: item.id,
+        success: true,
+        message: `Pass ${fixPass} fixed ${item.id}`,
+      }));
     };
 
     await runDoctor(["--fix"], runtime.overrides);
 
-    expect(diagnosticsRunCount).toBe(2);
-    expect(runtime.infos[0]).toContain("1 fixable issue");
-    expect(runtime.successes).toContain("Fixed: Fixed tmux-installed");
-    // Post-fix should show the re-diagnosis note
-    expect(runtime.notes.some((n) => n.title === "🔧 Re-diagnosis")).toBe(true);
-    // Final report is clean, so should succeed
+    expect(diagnosticsRunCount).toBe(3);
+    expect(runtime.steps).toContain("Remediation pass 1/3");
+    expect(runtime.steps).toContain("Remediation pass 2/3");
     expect(runtime.successes).toContain("Doctor completed. Environment is ready.");
+  });
+
+  test("stops remediation when no progress is detected", async () => {
+    const stuckReport = createReport([
+      {
+        id: "run-lockfile",
+        category: "environment",
+        title: "Review lock",
+        severity: "error",
+        summary: "A review is already running for this project.",
+        remediation: ["Run: rr status", "Run: rr stop", "Then run: rr run"],
+      },
+    ]);
+
+    const runtime = createRuntime(stuckReport);
+    let diagnosticsRunCount = 0;
+    runtime.overrides.runDiagnostics = async () => {
+      diagnosticsRunCount++;
+      return stuckReport;
+    };
+    runtime.overrides.applyFixes = async () => [
+      {
+        id: "run-lockfile",
+        success: false,
+        message: "Lockfile is not stale.",
+        nextActions: ["Run: rr status", "Run: rr stop", "Then run: rr run"],
+      },
+    ];
+
+    await runDoctor(["--fix"], runtime.overrides);
+
+    expect(diagnosticsRunCount).toBe(2);
+    expect(runtime.infos.some((line) => line.includes("No remediation progress detected"))).toBe(
+      true
+    );
+    expect(runtime.notes.some((n) => n.title === "🧭 Next actions")).toBe(true);
+    expect(runtime.exits).toEqual([1]);
+  });
+
+  test("stops remediation when unresolved IDs do not change, even after a reported success", async () => {
+    const persistentReport = createReport([
+      {
+        id: "config-reviewer-model-unverified",
+        category: "config",
+        title: "Reviewer model verification",
+        severity: "error",
+        summary: "Configured model could not be verified because live model discovery failed.",
+        remediation: ["Run: rr init", "Then run: rr doctor --fix"],
+      },
+    ]);
+
+    const runtime = createRuntime(persistentReport);
+    let diagnosticsRunCount = 0;
+    runtime.overrides.runDiagnostics = async () => {
+      diagnosticsRunCount++;
+      return persistentReport;
+    };
+    runtime.overrides.applyFixes = async () => [
+      {
+        id: "config-reviewer-model-unverified",
+        success: true,
+        message: "Configuration updated via rr init.",
+      },
+    ];
+
+    await runDoctor(["--fix"], runtime.overrides);
+
+    expect(diagnosticsRunCount).toBe(2);
+    expect(runtime.steps).toEqual(["Remediation pass 1/3"]);
+    expect(runtime.infos.some((line) => line.includes("No remediation progress detected"))).toBe(
+      true
+    );
+    expect(runtime.exits).toEqual([1]);
+  });
+
+  test("stops after reaching the remediation pass limit", async () => {
+    const firstReport = createReport([
+      {
+        id: "tmux-installed",
+        category: "tmux",
+        title: "tmux availability",
+        severity: "error",
+        summary: "tmux is not installed.",
+        remediation: ["Run: brew install tmux", "Then run: rr doctor --fix"],
+      },
+    ]);
+    const secondReport = createReport([
+      {
+        id: "config-missing",
+        category: "config",
+        title: "Configuration file",
+        severity: "error",
+        summary: "Configuration file was not found.",
+        remediation: ["Run: rr init", "Then run: rr doctor --fix"],
+      },
+    ]);
+
+    const runtime = createRuntime(firstReport);
+    let diagnosticsRunCount = 0;
+    runtime.overrides.runDiagnostics = async () => {
+      diagnosticsRunCount++;
+      return diagnosticsRunCount % 2 === 1 ? firstReport : secondReport;
+    };
+    runtime.overrides.applyFixes = async (items: DiagnosticItem[]) => {
+      runtime.fixedItems.push(items);
+      return items.map((item) => ({
+        id: item.id,
+        success: true,
+        message: `Fixed ${item.id}`,
+      }));
+    };
+
+    await runDoctor(["--fix"], runtime.overrides);
+
+    expect(diagnosticsRunCount).toBe(4);
+    expect(runtime.steps).toEqual([
+      "Remediation pass 1/3",
+      "Remediation pass 2/3",
+      "Remediation pass 3/3",
+    ]);
+    expect(runtime.infos).toContain("Reached remediation pass limit.");
+    expect(runtime.exits).toEqual([1]);
   });
 
   test("logs info when no fixable issues exist", async () => {
@@ -267,7 +407,7 @@ describe("doctor --fix", () => {
         title: "tmux availability",
         severity: "error",
         summary: "tmux is not installed.",
-        remediation: ["Install tmux with: brew install tmux"],
+        remediation: ["Run: brew install tmux", "Then run: rr doctor --fix"],
         fixable: true,
       },
     ]);
@@ -280,37 +420,7 @@ describe("doctor --fix", () => {
     expect(runtime.exits).toEqual([1]);
   });
 
-  test("does not re-diagnose when all fixes fail", async () => {
-    const report = createReport([
-      {
-        id: "run-lockfile",
-        category: "environment",
-        title: "Review lock",
-        severity: "error",
-        summary: "A review is already running for this project.",
-        remediation: ["Use rr stop to terminate the running session."],
-        fixable: true,
-      },
-    ]);
-
-    let diagnosticsRunCount = 0;
-    const runtime = createRuntime(report);
-    runtime.overrides.runDiagnostics = async () => {
-      diagnosticsRunCount++;
-      return report;
-    };
-    runtime.overrides.applyFixes = async () => [
-      { id: "run-lockfile", success: false, message: "Lockfile is not stale." },
-    ];
-
-    await runDoctor(["--fix"], runtime.overrides);
-
-    // Should only run diagnostics once (no re-run since fix failed)
-    expect(diagnosticsRunCount).toBe(1);
-    expect(runtime.warnings).toContain("Could not fix: Lockfile is not stale.");
-  });
-
-  test("shows wrench icon for fixable items in report", async () => {
+  test("shows wrench icon for known fixable IDs even when item.fixable is false", async () => {
     const report = createReport([
       {
         id: "config-missing",
@@ -319,7 +429,7 @@ describe("doctor --fix", () => {
         severity: "error",
         summary: "Configuration file was not found.",
         remediation: ["Run rr init before running rr run."],
-        fixable: true,
+        fixable: false,
       },
     ]);
     const runtime = createRuntime(report);
