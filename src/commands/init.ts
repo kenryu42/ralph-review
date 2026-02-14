@@ -19,6 +19,7 @@ import {
   saveConfig,
 } from "@/lib/config";
 import { type AgentCapabilitiesMap, discoverAgentCapabilities } from "@/lib/diagnostics";
+import { getTmuxInstallHint } from "@/lib/diagnostics/tmux-install";
 import {
   type AgentSettings,
   type AgentType,
@@ -805,9 +806,10 @@ export async function runInit(): Promise<void> {
   }
 
   if (!checkTmuxInstalled()) {
+    const installHint = getTmuxInstallHint();
     p.log.warn(
       "tmux is not installed.\n" +
-        "   Install with: brew install tmux\n" +
+        `   Install with: ${installHint}\n` +
         "   (Required for background review sessions)"
     );
   }
