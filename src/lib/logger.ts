@@ -23,6 +23,25 @@ const SUMMARY_FILE_SUFFIX = ".summary.json";
 const SUMMARY_SCHEMA_VERSION = 1 as const;
 const SUMMARY_TEMP_SUFFIX = ".tmp";
 
+export type LogIncrementalMode = "reset" | "incremental" | "unchanged";
+
+export interface LogIncrementalState {
+  logPath: string;
+  offsetBytes: number;
+  lastModified: number;
+  trailingPartialLine: string;
+  boundaryProbe?: string;
+}
+
+export interface LogIncrementalResult {
+  mode: LogIncrementalMode;
+  entries: LogEntry[];
+  state: LogIncrementalState;
+}
+
+const LOG_FILE_TEXT_ENCODER = new TextEncoder();
+const LOG_INCREMENTAL_BOUNDARY_BYTE_LENGTH = 256;
+
 interface LogSink {
   write(
     chunk: string | ArrayBufferView | ArrayBuffer | SharedArrayBuffer
@@ -137,21 +156,81 @@ export async function deleteSessionFiles(sessionPath: string): Promise<void> {
   );
 }
 
-function parseLogContent(content: string): LogEntry[] {
-  if (!content.trim()) {
-    return [];
+function parseLogLine(line: string): LogEntry | null {
+  if (!line) {
+    return null;
   }
 
-  const lines = content.split("\n").filter(Boolean);
+  try {
+    return JSON.parse(line) as LogEntry;
+  } catch {
+    return null;
+  }
+}
+
+function parseLogChunk(
+  chunk: string,
+  trailingPartialLine: string = ""
+): { entries: LogEntry[]; trailingPartialLine: string } {
+  const combined = `${trailingPartialLine}${chunk}`;
+  if (!combined) {
+    return { entries: [], trailingPartialLine: "" };
+  }
+
+  const lines = combined.split("\n");
+  const endsWithNewline = combined.endsWith("\n");
+  let nextTrailingPartialLine = "";
+
+  if (!endsWithNewline) {
+    nextTrailingPartialLine = lines.pop() ?? "";
+  } else if (lines.at(-1) === "") {
+    lines.pop();
+  }
+
   const entries: LogEntry[] = [];
   for (const line of lines) {
-    try {
-      entries.push(JSON.parse(line) as LogEntry);
-    } catch {
-      // Ignore malformed lines and keep valid entries
+    const parsed = parseLogLine(line);
+    if (parsed) {
+      entries.push(parsed);
     }
   }
-  return entries;
+
+  if (nextTrailingPartialLine) {
+    const parsedTrailing = parseLogLine(nextTrailingPartialLine);
+    if (parsedTrailing) {
+      entries.push(parsedTrailing);
+      nextTrailingPartialLine = "";
+    }
+  }
+
+  return { entries, trailingPartialLine: nextTrailingPartialLine };
+}
+
+function parseLogContent(content: string): LogEntry[] {
+  return parseLogChunk(content).entries;
+}
+
+function encodeBytesAsHex(bytes: Uint8Array): string {
+  return Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
+}
+
+function buildBoundaryProbeFromBytes(bytes: Uint8Array): string {
+  if (bytes.length === 0) {
+    return "";
+  }
+
+  const start = Math.max(0, bytes.length - LOG_INCREMENTAL_BOUNDARY_BYTE_LENGTH);
+  return encodeBytesAsHex(bytes.slice(start));
+}
+
+async function readBoundaryProbe(logPath: string, offsetBytes: number): Promise<string> {
+  if (offsetBytes <= 0) {
+    return "";
+  }
+
+  const start = Math.max(0, offsetBytes - LOG_INCREMENTAL_BOUNDARY_BYTE_LENGTH);
+  const buffer = await Bun.file(logPath).slice(start, offsetBytes).arrayBuffer();
+  return encodeBytesAsHex(new Uint8Array(buffer));
 }
 
 interface IterationMetrics {
@@ -568,6 +647,116 @@ export async function appendLog(logPath: string, entry: LogEntry): Promise<void>
       SUMMARY_CACHE.delete(logPath);
     }
   });
+}
+
+function createIncrementalState(
+  logPath: string,
+  offsetBytes: number,
+  lastModified: number,
+  trailingPartialLine: string,
+  boundaryProbe: string = ""
+): LogIncrementalState {
+  return {
+    logPath,
+    offsetBytes,
+    lastModified,
+    trailingPartialLine,
+    boundaryProbe,
+  };
+}
+
+function createResetResultFromContent(logPath: string, content: string): LogIncrementalResult {
+  const parsed = parseLogChunk(content);
+  const contentBytes = LOG_FILE_TEXT_ENCODER.encode(content);
+  const snapshotOffsetBytes = contentBytes.byteLength;
+  const snapshotLastModified = Bun.file(logPath).lastModified;
+  const boundaryProbe = buildBoundaryProbeFromBytes(contentBytes);
+  return {
+    mode: "reset",
+    entries: parsed.entries,
+    state: createIncrementalState(
+      logPath,
+      snapshotOffsetBytes,
+      snapshotLastModified,
+      parsed.trailingPartialLine,
+      boundaryProbe
+    ),
+  };
+}
+
+export async function readLogIncremental(
+  logPath: string,
+  previous?: LogIncrementalState
+): Promise<LogIncrementalResult> {
+  const file = Bun.file(logPath);
+
+  if (!(await file.exists())) {
+    return {
+      mode: "reset",
+      entries: [],
+      state: createIncrementalState(logPath, 0, 0, ""),
+    };
+  }
+
+  const fileSize = file.size;
+  const fileLastModified = file.lastModified;
+  const canUsePreviousState =
+    previous &&
+    previous.logPath === logPath &&
+    typeof previous.boundaryProbe === "string" &&
+    Number.isFinite(previous.offsetBytes) &&
+    previous.offsetBytes >= 0 &&
+    previous.offsetBytes <= fileSize;
+
+  if (!canUsePreviousState || !previous) {
+    const content = await file.text();
+    return createResetResultFromContent(logPath, content);
+  }
+
+  if (fileSize === previous.offsetBytes) {
+    if (fileLastModified === previous.lastModified) {
+      return {
+        mode: "unchanged",
+        entries: [],
+        state: createIncrementalState(
+          logPath,
+          previous.offsetBytes,
+          fileLastModified,
+          previous.trailingPartialLine,
+          previous.boundaryProbe
+        ),
+      };
+    }
+
+    const content = await file.text();
+    return createResetResultFromContent(logPath, content);
+  }
+
+  if (fileSize < previous.offsetBytes || fileLastModified < previous.lastModified) {
+    const content = await file.text();
+    return createResetResultFromContent(logPath, content);
+  }
+
+  const boundaryProbe = await readBoundaryProbe(logPath, previous.offsetBytes);
+  if (boundaryProbe !== previous.boundaryProbe) {
+    const content = await file.text();
+    return createResetResultFromContent(logPath, content);
+  }
+
+  const appendedChunk = await file.slice(previous.offsetBytes, fileSize).text();
+  const parsed = parseLogChunk(appendedChunk, previous.trailingPartialLine);
+  const nextBoundaryProbe = await readBoundaryProbe(logPath, fileSize);
+  return {
+    mode: "incremental",
+    entries: parsed.entries,
+    state: createIncrementalState(
+      logPath,
+      fileSize,
+      fileLastModified,
+      parsed.trailingPartialLine,
+      nextBoundaryProbe
+    ),
+  };
 }
 
 export async function readLog(logPath: string): Promise<LogEntry[]> {

@@ -19,6 +19,7 @@ import {
   listLogSessions,
   listProjectLogSessions,
   readLog,
+  readLogIncremental,
   readSessionSummary,
   sanitizeForFilename,
 } from "@/lib/logger";
@@ -493,6 +494,184 @@ describe("logger", () => {
       expect(summary).not.toBeNull();
       expect(summary?.iterations).toBe(2);
       expect(summary?.totalFixes).toBe(1);
+    });
+  });
+
+  describe("readLogIncremental", () => {
+    test("returns reset with all entries on first read", async () => {
+      const logPath = await createLogSession(tempDir, "/path/to/project");
+      const systemEntry: SystemEntry = {
+        type: "system",
+        timestamp: 1_700_000_000_000,
+        projectPath: "/path/to/project",
+        reviewer: { agent: "codex" },
+        fixer: { agent: "claude" },
+        maxIterations: 5,
+      };
+      const iterationEntry: IterationEntry = {
+        type: "iteration",
+        timestamp: 1_700_000_000_001,
+        iteration: 1,
+      };
+
+      await Bun.write(
+        logPath,
+        `${JSON.stringify(systemEntry)}\n${JSON.stringify(iterationEntry)}\n`,
+        { createPath: true }
+      );
+
+      const result = await readLogIncremental(logPath);
+      expect(result.mode).toBe("reset");
+      expect(result.entries).toHaveLength(2);
+      expect(result.state.logPath).toBe(logPath);
+      expect(result.state.offsetBytes).toBe(Bun.file(logPath).size);
+      expect(result.state.trailingPartialLine).toBe("");
+    });
+
+    test("returns only appended entries on incremental read", async () => {
+      const logPath = await createLogSession(tempDir, "/path/to/project");
+      const systemEntry: SystemEntry = {
+        type: "system",
+        timestamp: 1_700_000_000_000,
+        projectPath: "/path/to/project",
+        reviewer: { agent: "codex" },
+        fixer: { agent: "claude" },
+        maxIterations: 5,
+      };
+      const iterationEntry: IterationEntry = {
+        type: "iteration",
+        timestamp: 1_700_000_000_001,
+        iteration: 1,
+      };
+
+      await Bun.write(logPath, `${JSON.stringify(systemEntry)}\n`, { createPath: true });
+      const first = await readLogIncremental(logPath);
+      expect(first.entries).toHaveLength(1);
+
+      const existing = await Bun.file(logPath).text();
+      await Bun.write(logPath, `${existing}${JSON.stringify(iterationEntry)}\n`, {
+        createPath: true,
+      });
+
+      const second = await readLogIncremental(logPath, first.state);
+      expect(second.mode).toBe("incremental");
+      expect(second.entries).toHaveLength(1);
+      expect(second.entries[0]?.type).toBe("iteration");
+      expect(second.state.trailingPartialLine).toBe("");
+    });
+
+    test("buffers partial trailing line and parses it when completed", async () => {
+      const logPath = await createLogSession(tempDir, "/path/to/project");
+      const systemEntry: SystemEntry = {
+        type: "system",
+        timestamp: 1_700_000_000_000,
+        projectPath: "/path/to/project",
+        reviewer: { agent: "codex" },
+        fixer: { agent: "claude" },
+        maxIterations: 5,
+      };
+      const partialLine = '{"type":"iteration","timestamp":1700000000001,"iteration":1';
+
+      await Bun.write(logPath, `${JSON.stringify(systemEntry)}\n${partialLine}`, {
+        createPath: true,
+      });
+
+      const first = await readLogIncremental(logPath);
+      expect(first.mode).toBe("reset");
+      expect(first.entries).toHaveLength(1);
+      expect(first.state.trailingPartialLine).toBe(partialLine);
+
+      const existing = await Bun.file(logPath).text();
+      await Bun.write(logPath, `${existing},"duration":10}\n`, { createPath: true });
+
+      const second = await readLogIncremental(logPath, first.state);
+      expect(second.mode).toBe("incremental");
+      expect(second.entries).toHaveLength(1);
+      expect(second.entries[0]?.type).toBe("iteration");
+      const iterationEntry = second.entries[0] as IterationEntry;
+      expect(iterationEntry.duration).toBe(10);
+      expect(second.state.trailingPartialLine).toBe("");
+    });
+
+    test("falls back to reset when file is truncated", async () => {
+      const logPath = await createLogSession(tempDir, "/path/to/project");
+      const systemEntry: SystemEntry = {
+        type: "system",
+        timestamp: 1_700_000_000_000,
+        projectPath: "/path/to/project",
+        reviewer: { agent: "codex" },
+        fixer: { agent: "claude" },
+        maxIterations: 5,
+      };
+      const replacementEntry: SystemEntry = {
+        ...systemEntry,
+        timestamp: 1_700_000_000_100,
+        projectPath: "/path/to/new-project",
+      };
+      const extraEntry: IterationEntry = {
+        type: "iteration",
+        timestamp: 1_700_000_000_001,
+        iteration: 1,
+      };
+
+      await Bun.write(logPath, `${JSON.stringify(systemEntry)}\n${JSON.stringify(extraEntry)}\n`, {
+        createPath: true,
+      });
+      const first = await readLogIncremental(logPath);
+      expect(first.mode).toBe("reset");
+
+      await Bun.write(logPath, `${JSON.stringify(replacementEntry)}\n`, { createPath: true });
+      const second = await readLogIncremental(logPath, first.state);
+      expect(second.mode).toBe("reset");
+      expect(second.entries).toHaveLength(1);
+      const nextSystemEntry = second.entries[0] as SystemEntry;
+      expect(nextSystemEntry.projectPath).toBe("/path/to/new-project");
+    });
+
+    test("falls back to reset when file is rewritten and regrows past previous offset", async () => {
+      const logPath = await createLogSession(tempDir, "/path/to/project");
+      const systemEntry: SystemEntry = {
+        type: "system",
+        timestamp: 1_700_000_000_000,
+        projectPath: "/path/to/project",
+        reviewer: { agent: "codex" },
+        fixer: { agent: "claude" },
+        maxIterations: 5,
+      };
+      const extraEntry: IterationEntry = {
+        type: "iteration",
+        timestamp: 1_700_000_000_001,
+        iteration: 1,
+      };
+
+      await Bun.write(logPath, `${JSON.stringify(systemEntry)}\n${JSON.stringify(extraEntry)}\n`, {
+        createPath: true,
+      });
+      const first = await readLogIncremental(logPath);
+      expect(first.mode).toBe("reset");
+
+      const replacementEntry: SystemEntry = {
+        ...systemEntry,
+        timestamp: 1_700_000_000_100,
+        projectPath: `/path/to/rewritten-${"x".repeat(512)}`,
+      };
+      await Bun.write(logPath, `${JSON.stringify(replacementEntry)}\n`, { createPath: true });
+      expect(Bun.file(logPath).size).toBeGreaterThan(first.state.offsetBytes);
+
+      const second = await readLogIncremental(logPath, first.state);
+      expect(second.mode).toBe("reset");
+      expect(second.entries).toHaveLength(1);
+      const nextSystemEntry = second.entries[0] as SystemEntry;
+      expect(nextSystemEntry.projectPath).toBe(replacementEntry.projectPath);
+    });
+
+    test("returns empty reset result when file is missing", async () => {
+      const missingPath = join(tempDir, "missing", "session.jsonl");
+      const result = await readLogIncremental(missingPath);
+      expect(result.mode).toBe("reset");
+      expect(result.entries).toEqual([]);
+      expect(result.state.offsetBytes).toBe(0);
+      expect(result.state.trailingPartialLine).toBe("");
     });
   });
 
