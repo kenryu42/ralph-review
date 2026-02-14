@@ -1,4 +1,10 @@
-import { createCodeSimplifierPrompt, createFixerPrompt, createReviewerPrompt } from "@/lib/prompts";
+import {
+  createCodeSimplifierPrompt,
+  createFixerPrompt,
+  createFixerSummaryRetryReminder,
+  createReviewerPrompt,
+  createReviewerSummaryRetryReminder,
+} from "@/lib/prompts";
 import { AGENTS, runAgent } from "./agents";
 import {
   createCheckpoint,
@@ -8,6 +14,13 @@ import {
 } from "./git";
 import { updateLockfile } from "./lockfile";
 import { appendLog, createLogSession, getGitBranch } from "./logger";
+import {
+  extractJsonBlock as extractJsonBlockFromOutput,
+  parseFixSummaryCandidate,
+  parseFixSummaryOutput,
+  parseReviewSummaryCandidate,
+  parseReviewSummaryOutput,
+} from "./structured-output";
 import type {
   AgentRole,
   CodexReviewSummary,
@@ -22,7 +35,7 @@ import type {
   SessionEndEntry,
   SystemEntry,
 } from "./types";
-import { DEFAULT_RETRY_CONFIG, isFixSummary, isReviewSummary } from "./types";
+import { DEFAULT_RETRY_CONFIG } from "./types";
 
 export function calculateRetryDelay(attempt: number, config: RetryConfig): number {
   const exponentialDelay = config.baseDelayMs * 2 ** attempt;
@@ -183,6 +196,7 @@ export interface CycleResult {
   sessionPath: string;
 }
 
+const REVIEWER_SUMMARY_RETRY_COUNT = 1;
 const FIXER_SUMMARY_RETRY_COUNT = 1;
 
 function createRollbackOutcome(
@@ -231,136 +245,25 @@ export interface RunReviewRuntimeContext {
 }
 
 export function extractJsonBlock(output: string): string | null {
-  const match = output.match(/```json\s*\n([\s\S]*?)\n```/);
-  if (!match?.[1]) {
-    return null;
-  }
-  return match[1].trim();
-}
-
-function extractBalancedJsonObjects(text: string): string[] {
-  const objects: string[] = [];
-  let depth = 0;
-  let startIndex = -1;
-  let inString = false;
-  let escaped = false;
-
-  for (let i = 0; i < text.length; i++) {
-    const char = text[i];
-
-    if (escaped) {
-      escaped = false;
-      continue;
-    }
-
-    if (char === "\\") {
-      escaped = true;
-      continue;
-    }
-
-    if (inString) {
-      if (char === '"') {
-        inString = false;
-      }
-      continue;
-    }
-
-    if (char === '"') {
-      inString = true;
-      continue;
-    }
-
-    if (char === "{") {
-      if (depth === 0) {
-        startIndex = i;
-      }
-      depth += 1;
-      continue;
-    }
-
-    if (char === "}") {
-      if (depth === 0) {
-        continue;
-      }
-
-      depth -= 1;
-      if (depth === 0 && startIndex >= 0) {
-        objects.push(text.slice(startIndex, i + 1));
-        startIndex = -1;
-      }
-    }
-  }
-
-  return objects;
+  return extractJsonBlockFromOutput(output);
 }
 
 export function extractFixSummaryFromOutput(
   resultText: string | null,
   rawOutput: string
 ): FixSummary | null {
-  const candidates = [resultText, rawOutput]
-    .filter((value): value is string => Boolean(value?.trim()))
-    .map((value) => value.trim());
-  const seen = new Set<string>();
-
-  for (const candidate of candidates) {
-    if (seen.has(candidate)) {
-      continue;
-    }
-    seen.add(candidate);
-
-    const blockJson = extractJsonBlock(candidate);
-    if (blockJson) {
-      const parsedBlock = parseFixSummary(blockJson);
-      if (parsedBlock) {
-        return parsedBlock;
-      }
-    }
-
-    const parsedDirect = parseFixSummary(candidate);
-    if (parsedDirect) {
-      return parsedDirect;
-    }
-
-    const objects = extractBalancedJsonObjects(candidate);
-    for (let index = objects.length - 1; index >= 0; index--) {
-      const objectJson = objects[index];
-      if (!objectJson) {
-        continue;
-      }
-
-      const parsedObject = parseFixSummary(objectJson);
-      if (parsedObject) {
-        return parsedObject;
-      }
-    }
-  }
-
-  return null;
+  const parsed = parseFixSummaryOutput(resultText, rawOutput);
+  return parsed.ok ? parsed.value : null;
 }
 
 export function parseFixSummary(jsonString: string): FixSummary | null {
-  try {
-    const parsed: unknown = JSON.parse(jsonString);
-    if (isFixSummary(parsed)) {
-      return parsed;
-    }
-    return null;
-  } catch {
-    return null;
-  }
+  const parsed = parseFixSummaryCandidate(jsonString);
+  return parsed.ok ? parsed.value : null;
 }
 
 export function parseReviewSummary(jsonString: string): ReviewSummary | null {
-  try {
-    const parsed: unknown = JSON.parse(jsonString);
-    if (isReviewSummary(parsed)) {
-      return parsed;
-    }
-    return null;
-  } catch {
-    return null;
-  }
+  const parsed = parseReviewSummaryCandidate(jsonString);
+  return parsed.ok ? parsed.value : null;
 }
 
 export function determineCycleResult(
@@ -591,17 +494,13 @@ export async function runReviewCycle(
       });
 
       // Run reviewer with retry
-      const reviewResult = await runAgentWithRetry(
+      let reviewResult = await runAgentWithRetry(
         "reviewer",
         config,
         reviewerPrompt,
         config.iterationTimeout,
         reviewOptions
       );
-
-      if (onIteration) {
-        onIteration(iteration, "reviewer", reviewResult);
-      }
 
       if (!reviewResult.success) {
         return finish(
@@ -614,6 +513,74 @@ export async function runReviewCycle(
             sessionPath
           )
         );
+      }
+
+      const reviewerAgentModule = AGENTS[config.reviewer.agent];
+      let extractedReviewerText = reviewerAgentModule.extractResult(reviewResult.output);
+      let reviewParseResult =
+        config.reviewer.agent === "codex"
+          ? null
+          : parseReviewSummaryOutput(extractedReviewerText, reviewResult.output);
+
+      if (
+        config.reviewer.agent !== "codex" &&
+        reviewParseResult &&
+        !reviewParseResult.ok &&
+        !wasInterrupted()
+      ) {
+        const initialReviewResult = reviewResult;
+        const initialExtractedReviewerText = extractedReviewerText;
+        const initialReviewParseResult = reviewParseResult;
+
+        for (
+          let attempt = 1;
+          attempt <= REVIEWER_SUMMARY_RETRY_COUNT &&
+          reviewResult.success &&
+          !reviewParseResult.ok &&
+          !wasInterrupted();
+          attempt++
+        ) {
+          console.log(
+            `  ⚠️  Reviewer output missing structured summary (${reviewParseResult.failureReason}). Retrying reviewer with format reminder...`
+          );
+          const reviewRetryPrompt = `${reviewerPrompt}\n${createReviewerSummaryRetryReminder()}`;
+          const retryResult = await runAgentWithRetry(
+            "reviewer",
+            config,
+            reviewRetryPrompt,
+            config.iterationTimeout,
+            reviewOptions
+          );
+
+          if (!retryResult.success) {
+            console.log(
+              "  ⚠️  Reviewer format retry failed. Continuing with the initial reviewer output."
+            );
+            reviewResult = initialReviewResult;
+            extractedReviewerText = initialExtractedReviewerText;
+            reviewParseResult = initialReviewParseResult;
+            break;
+          }
+
+          reviewResult = retryResult;
+          extractedReviewerText = reviewerAgentModule.extractResult(reviewResult.output);
+          reviewParseResult = parseReviewSummaryOutput(extractedReviewerText, reviewResult.output);
+        }
+
+        if (!reviewParseResult.ok) {
+          if (reviewResult !== initialReviewResult) {
+            console.log(
+              "  ⚠️  Reviewer format retry still produced invalid structured summary. Continuing with the initial reviewer output."
+            );
+          }
+          reviewResult = initialReviewResult;
+          extractedReviewerText = initialExtractedReviewerText;
+          reviewParseResult = initialReviewParseResult;
+        }
+      }
+
+      if (onIteration) {
+        onIteration(iteration, "reviewer", reviewResult);
       }
 
       if (wasInterrupted()) {
@@ -638,10 +605,7 @@ export async function runReviewCycle(
 
       let reviewSummary: ReviewSummary | null = null;
       let codexReviewSummary: CodexReviewSummary | null = null;
-
-      const agentModule = AGENTS[config.reviewer.agent];
-      const extractedText = agentModule.extractResult(reviewResult.output);
-      const reviewTextForFixer = extractedText ?? reviewResult.output;
+      const reviewTextForFixer = extractedReviewerText ?? reviewResult.output;
 
       let reviewJson: string | null = null;
 
@@ -656,10 +620,16 @@ export async function runReviewCycle(
           }
         ).catch(() => {});
       } else {
-        reviewJson = extractedText ? (extractJsonBlock(extractedText) ?? extractedText) : null;
-
-        if (reviewJson) {
-          reviewSummary = parseReviewSummary(reviewJson);
+        if (reviewParseResult?.ok) {
+          reviewSummary = reviewParseResult.value;
+          reviewJson = JSON.stringify(reviewSummary);
+          if (reviewParseResult.usedRepair) {
+            console.log("  ⚠️  Reviewer summary required deterministic local JSON repair.");
+          }
+        } else {
+          console.log(
+            `  ⚠️  Could not parse reviewer summary JSON (${reviewParseResult?.failureReason ?? "unknown error"})`
+          );
         }
 
         if (reviewSummary) {
@@ -671,10 +641,6 @@ export async function runReviewCycle(
               expectedSessionId: sessionId,
             }
           ).catch(() => {});
-        }
-
-        if (!reviewSummary && reviewResult.success) {
-          console.log("  ⚠️  Could not parse review summary JSON from reviewer output");
         }
       }
 
@@ -719,7 +685,8 @@ export async function runReviewCycle(
 
       let fixResult = await runAgentWithRetry("fixer", config, fixerPrompt);
       let resultText = fixerAgentModule.extractResult(fixResult.output);
-      let fixSummary = extractFixSummaryFromOutput(resultText, fixResult.output);
+      let fixParseResult = parseFixSummaryOutput(resultText, fixResult.output);
+      let fixSummary = fixParseResult.ok ? fixParseResult.value : null;
 
       if (fixResult.success && !fixSummary) {
         for (
@@ -728,24 +695,30 @@ export async function runReviewCycle(
           attempt++
         ) {
           console.log(
-            "  ⚠️  Fixer output missing parsable JSON summary. Retrying fixer with strict JSON reminder..."
+            `  ⚠️  Fixer output missing structured summary (${fixParseResult.failureReason}). Retrying fixer with format reminder...`
           );
-          const summaryRetryPrompt = `${fixerPrompt}
-
-IMPORTANT: Your previous response was incomplete or missing the REQUIRED final JSON block.
-Do not make additional file edits in this retry.
-Return ONLY one valid \`\`\`json ... \`\`\` block matching the required schema as your final output.`;
+          const summaryRetryPrompt = `${fixerPrompt}\n${createFixerSummaryRetryReminder()}`;
           fixResult = await runAgentWithRetry("fixer", config, summaryRetryPrompt);
           resultText = fixerAgentModule.extractResult(fixResult.output);
-          fixSummary = extractFixSummaryFromOutput(resultText, fixResult.output);
+          fixParseResult = parseFixSummaryOutput(resultText, fixResult.output);
+          fixSummary = fixParseResult.ok ? fixParseResult.value : null;
         }
       }
 
+      if (fixParseResult.ok && fixParseResult.usedRepair) {
+        console.log("  ⚠️  Fixer summary required deterministic local JSON repair.");
+      }
+
       if (!fixSummary && fixResult.success) {
-        console.log("  ❌ Fixer returned incomplete output (missing fix summary JSON).");
+        console.log(
+          `  ❌ Fixer returned incomplete output (missing fix summary JSON: ${fixParseResult.failureReason}).`
+        );
         const rollback = checkpoint ? applyRollback(projectPath, checkpoint) : undefined;
         const entry = createIterationEntry(iteration, iterationStartTime, {
-          error: { phase: "fixer", message: "Fixer output incomplete: missing fix summary JSON" },
+          error: {
+            phase: "fixer",
+            message: `Fixer output incomplete: missing fix summary JSON (${fixParseResult.failureReason})`,
+          },
           review: reviewSummary ?? undefined,
           codexReview: codexReviewSummary ?? undefined,
           rollback,

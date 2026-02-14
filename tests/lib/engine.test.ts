@@ -9,7 +9,13 @@ import {
   parseReviewSummary,
   rollbackReasonSuffix,
 } from "@/lib/engine";
-import { createFixerPrompt } from "@/lib/prompts";
+import {
+  createFixerPrompt,
+  FIX_SUMMARY_END_TOKEN,
+  FIX_SUMMARY_START_TOKEN,
+  REVIEW_SUMMARY_END_TOKEN,
+  REVIEW_SUMMARY_START_TOKEN,
+} from "@/lib/prompts";
 import { CONFIG_SCHEMA_URI, CONFIG_VERSION, type Config, type RetryConfig } from "@/lib/types";
 
 // Mock config for testing
@@ -197,6 +203,14 @@ End of output.`;
   });
 
   describe("parseFixSummary", () => {
+    test("repairs trailing commas in fix summary JSON", () => {
+      const candidate =
+        '{"decision":"APPLY_SELECTIVELY","stop_iteration":false,"fixes":[],"skipped":[],}';
+      const result = parseFixSummary(candidate);
+      expect(result).not.toBeNull();
+      expect(result?.decision).toBe("APPLY_SELECTIVELY");
+    });
+
     test("parses valid JSON into FixSummary", () => {
       const json = JSON.stringify({
         decision: "APPLY_SELECTIVELY",
@@ -338,6 +352,37 @@ End of output.`;
   });
 
   describe("extractFixSummaryFromOutput", () => {
+    test("parses framed fix summary before legacy candidates", () => {
+      const framedSummary = {
+        decision: "NO_CHANGES_NEEDED",
+        stop_iteration: true,
+        fixes: [],
+        skipped: [],
+      };
+      const raw = `${FIX_SUMMARY_START_TOKEN}
+${JSON.stringify(framedSummary)}
+${FIX_SUMMARY_END_TOKEN}
+
+\`\`\`json
+{"decision":"APPLY_MOST","stop_iteration":false,"fixes":[],"skipped":[]}
+\`\`\``;
+
+      const result = extractFixSummaryFromOutput(raw, raw);
+      expect(result).not.toBeNull();
+      expect(result?.decision).toBe("NO_CHANGES_NEEDED");
+      expect(result?.stop_iteration).toBe(true);
+    });
+
+    test("repairs framed trailing commas in fix summary", () => {
+      const raw = `${FIX_SUMMARY_START_TOKEN}
+{"decision":"APPLY_SELECTIVELY","stop_iteration":false,"fixes":[],"skipped":[],}
+${FIX_SUMMARY_END_TOKEN}`;
+
+      const result = extractFixSummaryFromOutput(raw, raw);
+      expect(result).not.toBeNull();
+      expect(result?.decision).toBe("APPLY_SELECTIVELY");
+    });
+
     test("parses fix summary from raw JSON without fenced block", () => {
       const raw = JSON.stringify({
         decision: "APPLY_SELECTIVELY",
@@ -376,6 +421,29 @@ End of output.`;
   });
 
   describe("parseReviewSummary", () => {
+    test("parses framed review summary", () => {
+      const framed = `${REVIEW_SUMMARY_START_TOKEN}
+${JSON.stringify({
+  findings: [],
+  overall_correctness: "patch is correct",
+  overall_explanation: "Looks good",
+  overall_confidence_score: 0.9,
+})}
+${REVIEW_SUMMARY_END_TOKEN}`;
+
+      const result = parseReviewSummary(framed);
+      expect(result).not.toBeNull();
+      expect(result?.overall_correctness).toBe("patch is correct");
+    });
+
+    test("repairs trailing commas in review summary", () => {
+      const candidate =
+        '{"findings":[],"overall_correctness":"patch is correct","overall_explanation":"ok","overall_confidence_score":0.8,}';
+      const result = parseReviewSummary(candidate);
+      expect(result).not.toBeNull();
+      expect(result?.overall_confidence_score).toBe(0.8);
+    });
+
     test("parses valid JSON into ReviewSummary", () => {
       const json = JSON.stringify({
         findings: [
