@@ -19,35 +19,6 @@ export const PRIORITY_COLORS: Record<Priority, string> = {
 
 export const UNKNOWN_PRIORITY_COLOR = TUI_COLORS.status.inactive;
 
-export function truncateText(text: string, maxLength: number): string {
-  if (text.length <= maxLength) return text;
-  if (maxLength <= 1) return "…";
-  return `${text.slice(0, maxLength - 1)}…`;
-}
-
-export function truncateFilePath(filePath: string, maxLength: number): string {
-  if (!filePath || filePath.length <= maxLength) return filePath;
-
-  const lastSlash = filePath.lastIndexOf("/");
-  if (lastSlash === -1) return truncateText(filePath, maxLength);
-
-  const filename = filePath.slice(lastSlash + 1);
-  const remaining = maxLength - filename.length - 2;
-
-  if (remaining <= 0) {
-    return `…/${filename}`;
-  }
-
-  const directory = filePath.slice(0, lastSlash);
-  const truncatedDir = directory.slice(-remaining);
-  const nextSlash = truncatedDir.indexOf("/");
-
-  if (nextSlash !== -1) {
-    return `…${truncatedDir.slice(nextSlash)}/${filename}`;
-  }
-  return `…/${filename}`;
-}
-
 export function formatPriorityBreakdown(
   counts: Record<Priority, number>
 ): Array<{ priority: Priority; count: number }> {

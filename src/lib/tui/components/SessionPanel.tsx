@@ -26,8 +26,6 @@ import {
   formatRelativeTime,
   PRIORITY_COLORS,
   resolveIssuesFoundDisplay,
-  truncateFilePath,
-  truncateText,
   UNKNOWN_PRIORITY_COLOR,
 } from "../session-panel-utils";
 import { ProgressBar } from "./ProgressBar";
@@ -79,23 +77,23 @@ function getStatusDisplay(
   }
 }
 
+function toSingleLine(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
 function formatReviewType(reviewOptions: ReviewOptions | undefined): string {
   if (!reviewOptions) return "uncommitted changes";
 
   if (reviewOptions.customInstructions) {
-    const instruction = reviewOptions.customInstructions.slice(0, 40);
-    return reviewOptions.customInstructions.length > 40
-      ? `custom (${instruction}...)`
-      : `custom (${instruction})`;
+    return `custom (${toSingleLine(reviewOptions.customInstructions)})`;
   }
 
   if (reviewOptions.commitSha) {
-    const shortSha = reviewOptions.commitSha.slice(0, 7);
-    return `commit (${shortSha})`;
+    return `commit (${toSingleLine(reviewOptions.commitSha)})`;
   }
 
   if (reviewOptions.baseBranch) {
-    return `base (${reviewOptions.baseBranch})`;
+    return `base (${toSingleLine(reviewOptions.baseBranch)})`;
   }
 
   return "uncommitted changes";
@@ -171,10 +169,6 @@ function FindingsList({ findings, maxHeight = 8, focused = false }: FindingsList
     );
   }
 
-  const linesPerFinding = 2;
-  const totalLines = findings.length * linesPerFinding;
-  const needsScroll = totalLines > maxHeight;
-
   const content = findings.map((finding, index) => {
     const priorityStr = priorityToString(finding.priority);
     const priorityColor =
@@ -183,7 +177,6 @@ function FindingsList({ findings, maxHeight = 8, focused = false }: FindingsList
         : UNKNOWN_PRIORITY_COLOR;
     const location = finding.code_location;
     const lineRange = `${location.line_range.start}-${location.line_range.end}`;
-    const filePath = truncateFilePath(location.absolute_file_path, 35);
     const key = `${index}-${location.absolute_file_path}:${lineRange}`;
 
     return (
@@ -191,27 +184,21 @@ function FindingsList({ findings, maxHeight = 8, focused = false }: FindingsList
         <box flexDirection="row">
           <text fg={priorityColor}>{priorityStr}</text>
           <text fg={TUI_COLORS.text.dim}> ▸ </text>
-          <text fg={TUI_COLORS.text.secondary}>{truncateText(finding.title, 40)}</text>
+          <text fg={TUI_COLORS.text.secondary} wrapMode="none">
+            {toSingleLine(finding.title)}
+          </text>
         </box>
-        <text fg={TUI_COLORS.text.dim} paddingLeft={5}>
-          {filePath}:{lineRange}
+        <text fg={TUI_COLORS.text.dim} paddingLeft={5} wrapMode="none">
+          {toSingleLine(location.absolute_file_path)}:{lineRange}
         </text>
       </box>
     );
   });
 
-  if (needsScroll) {
-    return (
-      <scrollbox paddingLeft={2} height={maxHeight} focused={focused}>
-        {content}
-      </scrollbox>
-    );
-  }
-
   return (
-    <box flexDirection="column" paddingLeft={2}>
+    <scrollbox paddingLeft={2} height={maxHeight} focused={focused}>
       {content}
-    </box>
+    </scrollbox>
   );
 }
 
@@ -224,10 +211,6 @@ function SkippedList({ skipped, maxHeight = 6, focused = false }: SkippedListPro
     );
   }
 
-  const linesPerItem = 2;
-  const totalLines = skipped.length * linesPerItem;
-  const needsScroll = totalLines > maxHeight;
-
   const content = skipped.map((entry, index) => (
     <box key={`${index}-${entry.id}`} flexDirection="column">
       <box flexDirection="row">
@@ -235,26 +218,20 @@ function SkippedList({ skipped, maxHeight = 6, focused = false }: SkippedListPro
           {entry.priority ?? "P?"}
         </text>
         <text fg={TUI_COLORS.text.dim}> ▸ </text>
-        <text fg={TUI_COLORS.text.secondary}>{truncateText(entry.title, 42)}</text>
+        <text fg={TUI_COLORS.text.secondary} wrapMode="none">
+          {toSingleLine(entry.title)}
+        </text>
       </box>
-      <text fg={TUI_COLORS.text.dim} paddingLeft={5}>
-        {truncateText(entry.reason, 54)}
+      <text fg={TUI_COLORS.text.dim} paddingLeft={5} wrapMode="none">
+        {toSingleLine(entry.reason)}
       </text>
     </box>
   ));
 
-  if (needsScroll) {
-    return (
-      <scrollbox paddingLeft={2} height={maxHeight} focused={focused}>
-        {content}
-      </scrollbox>
-    );
-  }
-
   return (
-    <box flexDirection="column" paddingLeft={2}>
+    <scrollbox paddingLeft={2} height={maxHeight} focused={focused}>
       {content}
-    </box>
+    </scrollbox>
   );
 }
 
@@ -275,26 +252,16 @@ function CodexReviewDisplay({ text, maxHeight = 6, focused = false }: CodexRevie
     );
   }
 
-  const needsScroll = lines.length > maxHeight;
-
   const content = lines.map((line, index) => (
-    <text key={`${index}-${line.slice(0, 20)}`} fg={TUI_COLORS.text.secondary}>
-      {truncateText(line, 50)}
+    <text key={`${index}-${line.slice(0, 20)}`} fg={TUI_COLORS.text.secondary} wrapMode="none">
+      {line}
     </text>
   ));
 
-  if (needsScroll) {
-    return (
-      <scrollbox paddingLeft={2} height={maxHeight} focused={focused}>
-        {content}
-      </scrollbox>
-    );
-  }
-
   return (
-    <box flexDirection="column" paddingLeft={2}>
+    <scrollbox paddingLeft={2} height={maxHeight} focused={focused}>
       {content}
-    </box>
+    </scrollbox>
   );
 }
 
@@ -307,10 +274,6 @@ function FixList({ fixes, showFiles, maxHeight = 8, focused = false }: FixListPr
     );
   }
 
-  const linesPerFix = showFiles ? 2 : 1;
-  const totalLines = fixes.length * linesPerFix;
-  const needsScroll = totalLines > maxHeight;
-
   const content = fixes.map((fix, index) => (
     <box key={`${index}-${fix.id}`} flexDirection="column">
       <box flexDirection="row">
@@ -318,28 +281,22 @@ function FixList({ fixes, showFiles, maxHeight = 8, focused = false }: FixListPr
           {fix.priority}
         </text>
         <text fg={TUI_COLORS.text.dim}> ▸ </text>
-        <text fg={TUI_COLORS.text.secondary}>{truncateText(fix.title, 44)}</text>
+        <text fg={TUI_COLORS.text.secondary} wrapMode="none">
+          {toSingleLine(fix.title)}
+        </text>
       </box>
       {showFiles && fix.file && (
-        <text fg={TUI_COLORS.text.dim} paddingLeft={5}>
-          {truncateFilePath(fix.file, 50)}
+        <text fg={TUI_COLORS.text.dim} paddingLeft={5} wrapMode="none">
+          {toSingleLine(fix.file)}
         </text>
       )}
     </box>
   ));
 
-  if (needsScroll) {
-    return (
-      <scrollbox paddingLeft={2} height={maxHeight} focused={focused}>
-        {content}
-      </scrollbox>
-    );
-  }
-
   return (
-    <box flexDirection="column" paddingLeft={2}>
+    <scrollbox paddingLeft={2} height={maxHeight} focused={focused}>
       {content}
-    </box>
+    </scrollbox>
   );
 }
 
@@ -608,7 +565,9 @@ export function SessionPanel({
 
       <box flexDirection="row" gap={1}>
         <text fg={TUI_COLORS.text.muted}>Review Type:</text>
-        <text fg={TUI_COLORS.text.primary}>{formatReviewType(reviewOptions)}</text>
+        <text fg={TUI_COLORS.text.primary} wrapMode="none">
+          {formatReviewType(reviewOptions)}
+        </text>
       </box>
 
       <ProgressBar current={iteration} max={maxIterations} />

@@ -7,8 +7,6 @@ import {
   formatLastRunIssueSummary,
   formatPriorityBreakdown,
   formatProjectStatsSummary,
-  truncateFilePath,
-  truncateText,
 } from "@/lib/tui/session-panel-utils";
 import type {
   FixEntry,
@@ -21,53 +19,6 @@ import type {
 import { buildFixEntry, buildFixSummary, buildSkippedEntry } from "../../test-utils/fix-summary";
 
 describe("SessionPanel helpers", () => {
-  describe("truncateText", () => {
-    test("returns text unchanged if shorter than maxLength", () => {
-      expect(truncateText("hello", 10)).toBe("hello");
-    });
-
-    test("returns text unchanged if equal to maxLength", () => {
-      expect(truncateText("hello", 5)).toBe("hello");
-    });
-
-    test("truncates with ellipsis when longer than maxLength", () => {
-      expect(truncateText("hello world", 8)).toBe("hello w…");
-    });
-
-    test("handles empty string", () => {
-      expect(truncateText("", 5)).toBe("");
-    });
-
-    test("handles maxLength of 1", () => {
-      expect(truncateText("hello", 1)).toBe("…");
-    });
-  });
-
-  describe("truncateFilePath", () => {
-    test("returns path unchanged if shorter than maxLength", () => {
-      expect(truncateFilePath("src/foo.ts", 20)).toBe("src/foo.ts");
-    });
-
-    test("preserves filename and truncates directory with ellipsis", () => {
-      // "…/components/Auth.tsx" = 21 chars, so maxLength 21 forces truncation at that level
-      expect(truncateFilePath("src/lib/components/Auth.tsx", 21)).toBe("…/components/Auth.tsx");
-    });
-
-    test("returns just filename with ellipsis if path is too long", () => {
-      expect(truncateFilePath("src/lib/components/VeryLongFileName.tsx", 15)).toBe(
-        "…/VeryLongFileName.tsx"
-      );
-    });
-
-    test("handles path with no directory", () => {
-      expect(truncateFilePath("file.ts", 10)).toBe("file.ts");
-    });
-
-    test("handles empty string", () => {
-      expect(truncateFilePath("", 10)).toBe("");
-    });
-  });
-
   describe("extractFixesFromStats", () => {
     const createFix = (id: number, title: string, priority: Priority): FixEntry =>
       buildFixEntry({ id, title, priority });
