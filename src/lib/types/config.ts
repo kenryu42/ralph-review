@@ -42,6 +42,10 @@ export interface NotificationsConfig {
   sound: SoundNotificationConfig;
 }
 
+export interface RunConfig {
+  simplifier: boolean;
+}
+
 export const CONFIG_SCHEMA_URI =
   "https://raw.githubusercontent.com/kenryu42/ralph-review/main/assets/ralph-review.schema.json";
 export const CONFIG_VERSION = 1;
@@ -67,6 +71,7 @@ export interface Config {
   reviewer: AgentSettings;
   fixer: AgentSettings;
   "code-simplifier"?: AgentSettings;
+  run?: RunConfig;
   maxIterations: number;
   iterationTimeout: number; // in milliseconds
   retry?: RetryConfig; // Optional retry config, uses DEFAULT_RETRY_CONFIG if not set

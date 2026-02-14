@@ -11,6 +11,7 @@ export {
   type NotificationsConfig,
   type ReasoningLevel,
   type RetryConfig,
+  type RunConfig,
 } from "./config";
 export {
   type AgentRole,

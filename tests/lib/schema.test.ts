@@ -19,6 +19,7 @@ describe("config schema artifact", () => {
     expect(properties.reviewer).toBeDefined();
     expect(properties.fixer).toBeDefined();
     expect(properties.defaultReview).toBeDefined();
+    expect(properties.run).toBeDefined();
     expect(properties.notifications).toBeDefined();
 
     const schemaProperty = properties.$schema as Record<string, unknown>;
@@ -34,5 +35,20 @@ describe("config schema artifact", () => {
     expect(required).toContain("maxIterations");
     expect(required).toContain("iterationTimeout");
     expect(required).toContain("defaultReview");
+  });
+
+  test("defines optional run.simplifier boolean shape", async () => {
+    const schemaText = await Bun.file("assets/ralph-review.schema.json").text();
+    const schema = JSON.parse(schemaText) as JsonSchema;
+    const properties = schema.properties ?? {};
+    const runProperty = properties.run as
+      | { properties?: Record<string, unknown>; required?: unknown }
+      | undefined;
+    const runProperties = runProperty?.properties ?? {};
+    const simplifierProperty = runProperties.simplifier as Record<string, unknown> | undefined;
+    const required = Array.isArray(runProperty?.required) ? runProperty.required : [];
+
+    expect(simplifierProperty?.type).toBe("boolean");
+    expect(required).toContain("simplifier");
   });
 });

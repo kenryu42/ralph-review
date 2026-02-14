@@ -207,6 +207,16 @@
         }
       ]
     },
+    "run": {
+      "type": "object",
+      "properties": {
+        "simplifier": {
+          "type": "boolean"
+        }
+      },
+      "required": ["simplifier"],
+      "additionalProperties": false
+    },
     "notifications": {
       "type": "object",
       "properties": {
