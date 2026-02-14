@@ -4,6 +4,7 @@ import { getAgentDisplayInfo } from "@/lib/agents/display";
 import { parseCommand } from "@/lib/cli-parser";
 import { loadConfig } from "@/lib/config";
 import { collectIssueItems, runDiagnostics } from "@/lib/diagnostics";
+import { getTmuxInstallHint } from "@/lib/diagnostics/tmux-install";
 import type { DiagnosticsReport } from "@/lib/diagnostics/types";
 import { type CycleResult, runReviewCycle } from "@/lib/engine";
 import { formatReviewType } from "@/lib/format";
@@ -128,7 +129,7 @@ async function runInBackground(
 ): Promise<void> {
   // Check tmux is installed
   if (!isTmuxInstalled()) {
-    p.log.error("tmux is not installed. Install with: brew install tmux");
+    p.log.error(`tmux is not installed. Install with: ${getTmuxInstallHint()}`);
     process.exit(1);
   }
 
