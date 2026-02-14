@@ -3,6 +3,8 @@ import { cleanupStaleLockfile, hasActiveLockfile } from "@/lib/lockfile";
 import { isTmuxInstalled } from "@/lib/tmux";
 import { type AgentSettings, type Config, isAgentType } from "@/lib/types";
 import { type CapabilityDiscoveryOptions, discoverAgentCapabilities } from "./capabilities";
+import { isFixable } from "./remediation";
+import { resolveTmuxInstallGuidance } from "./tmux-install";
 import type {
   AgentCapabilitiesMap,
   DiagnosticContext,
@@ -21,6 +23,11 @@ interface RunDiagnosticsDependencies {
   cleanupStaleLockfile?: typeof cleanupStaleLockfile;
   hasActiveLockfile?: typeof hasActiveLockfile;
   isTmuxInstalled?: () => boolean;
+  resolveTmuxInstallGuidance?: (
+    options?: Parameters<typeof resolveTmuxInstallGuidance>[0]
+  ) => ReturnType<typeof resolveTmuxInstallGuidance>;
+  platform?: NodeJS.Platform;
+  which?: (command: string) => string | null;
 }
 
 export interface RunDiagnosticsOptions {
@@ -35,6 +42,14 @@ export interface RunDiagnosticsOptions {
 const ROLE_ORDER = ["reviewer", "fixer", "code-simplifier"] as const;
 
 type ConfiguredRole = (typeof ROLE_ORDER)[number];
+
+function runStep(command: string): string {
+  return `Run: ${command}`;
+}
+
+function thenStep(command: string): string {
+  return `Then run: ${command}`;
+}
 
 function getRoleSeverity(context: DiagnosticContext, role: ConfiguredRole): "warning" | "error" {
   if (context === "init") {
@@ -153,6 +168,12 @@ export async function runDiagnostics(
   const resolveCleanupStaleLockfile = deps.cleanupStaleLockfile ?? cleanupStaleLockfile;
   const resolveHasActiveLockfile = deps.hasActiveLockfile ?? hasActiveLockfile;
   const resolveIsTmuxInstalled = deps.isTmuxInstalled ?? isTmuxInstalled;
+  const resolveTmuxGuidance = deps.resolveTmuxInstallGuidance ?? resolveTmuxInstallGuidance;
+  const tmuxGuidance = resolveTmuxGuidance({
+    platform: deps.platform ?? process.platform,
+    which: deps.which ?? Bun.which,
+    recheckCommand: "rr doctor --fix",
+  });
 
   const capabilitiesByAgent =
     options.capabilitiesByAgent ??
@@ -185,8 +206,9 @@ export async function runDiagnostics(
         summary: "Model discovery probe returned warnings.",
         details: capability.probeWarnings.join("\n"),
         remediation: [
-          `Verify '${capability.command}' is configured and can list models, then rerun rr doctor.`,
-          `If this persists, run rr init and choose a different configured model.`,
+          runStep(`${capability.command} --help`),
+          thenStep("rr doctor"),
+          runStep("rr init (if model discovery warnings persist)"),
         ],
       });
     }
@@ -207,7 +229,10 @@ export async function runDiagnostics(
     remediation:
       installedAgentCount > 0
         ? []
-        : ["Install at least one of: codex, claude, opencode, droid, gemini, pi."],
+        : [
+            runStep("install at least one CLI: codex, claude, opencode, droid, gemini, or pi"),
+            thenStep("rr doctor"),
+          ],
   });
 
   const hasConfigFile = await resolveConfigExists();
@@ -222,9 +247,9 @@ export async function runDiagnostics(
       summary: "Configuration file was not found.",
       remediation:
         context === "init"
-          ? ["Run rr init to create a configuration file."]
-          : ["Run rr init before running rr run."],
-      fixable: true,
+          ? [runStep("rr init"), thenStep("rr doctor")]
+          : [runStep("rr init"), thenStep("rr doctor --fix")],
+      fixable: isFixable("config-missing"),
     });
   } else {
     config = await resolveLoadConfig();
@@ -235,8 +260,8 @@ export async function runDiagnostics(
         title: "Configuration file",
         severity: context === "init" ? "warning" : "error",
         summary: "Configuration exists but could not be parsed.",
-        remediation: ["Run rr init to regenerate a valid configuration file."],
-        fixable: true,
+        remediation: [runStep("rr init"), thenStep("rr doctor --fix")],
+        fixable: isFixable("config-invalid"),
       });
     } else {
       items.push({
@@ -260,40 +285,47 @@ export async function runDiagnostics(
 
       const roleLabel = getRoleLabel(role);
       if (!isAgentType(settings.agent)) {
+        const id = `config-${role}-agent-invalid`;
         items.push({
-          id: `config-${role}-agent-invalid`,
+          id,
           category: "config",
           title: `${roleLabel} agent`,
           severity: roleSeverity,
           summary: `Configured ${roleLabel.toLowerCase()} agent is invalid.`,
-          remediation: ["Run rr init to select a valid agent."],
+          remediation: [runStep("rr init"), thenStep("rr doctor --fix")],
+          fixable: isFixable(id),
         });
         continue;
       }
 
       const capability = capabilitiesByAgent[settings.agent];
       if (!capability.installed) {
+        const id = `config-${role}-agent-missing`;
         items.push({
-          id: `config-${role}-agent-missing`,
+          id,
           category: "config",
           title: `${roleLabel} agent binary`,
           severity: roleSeverity,
           summary: `${roleLabel} agent '${settings.agent}' is configured but not installed.`,
           remediation: [
-            `Install '${capability.command}' and rerun rr doctor.`,
-            "Or run rr init to choose a different agent.",
+            runStep(`install '${capability.command}'`),
+            runStep("rr init (to choose a different agent)"),
+            thenStep("rr doctor --fix"),
           ],
+          fixable: isFixable(id),
         });
       }
 
       if (settings.agent === "pi" && (!settings.provider?.trim() || !settings.model?.trim())) {
+        const id = `config-${role}-pi-invalid`;
         items.push({
-          id: `config-${role}-pi-invalid`,
+          id,
           category: "config",
           title: `${roleLabel} Pi settings`,
           severity: roleSeverity,
           summary: "Pi agent requires both provider and model.",
-          remediation: ["Run rr init to update Pi provider/model settings."],
+          remediation: [runStep("rr init"), thenStep("rr doctor --fix")],
+          fixable: isFixable(id),
         });
       }
 
@@ -302,17 +334,20 @@ export async function runDiagnostics(
         if (!found) {
           const configuredModel =
             settings.agent === "pi" ? `${settings.provider}/${settings.model}` : settings.model;
+          const id = `config-${role}-model-missing`;
           items.push({
-            id: `config-${role}-model-missing`,
+            id,
             category: "config",
             title: `${roleLabel} model availability`,
             severity: roleSeverity,
             summary: `Configured model '${configuredModel}' was not found in live discovery.`,
             details: `Discovered models: ${summarizeAvailableModels(settings, capabilitiesByAgent)}`,
             remediation: [
-              "Run rr init to pick an available model.",
-              `Or set a model manually with 'rr config set ${role}.model <model>'.`,
+              runStep("rr init"),
+              runStep(`rr config set ${role}.model <model>`),
+              thenStep("rr doctor --fix"),
             ],
+            fixable: isFixable(id),
           });
         } else {
           items.push({
@@ -334,17 +369,20 @@ export async function runDiagnostics(
         const configuredModel =
           settings.agent === "pi" ? `${settings.provider}/${settings.model}` : settings.model;
         const probeCommand = settings.agent === "opencode" ? "opencode models" : "pi --list-models";
+        const id = `config-${role}-model-unverified`;
         items.push({
-          id: `config-${role}-model-unverified`,
+          id,
           category: "config",
           title: `${roleLabel} model verification`,
           severity: roleSeverity,
           summary: `Configured model '${configuredModel}' could not be verified because live model discovery failed.`,
           details: capability.probeWarnings.join("\n"),
           remediation: [
-            `Resolve '${probeCommand}' failures and rerun rr doctor.`,
-            "Run rr init to pick an available model once discovery succeeds.",
+            runStep(probeCommand),
+            thenStep("rr doctor"),
+            runStep("rr init (if model discovery keeps failing)"),
           ],
+          fixable: isFixable(id),
         });
       }
     }
@@ -367,10 +405,7 @@ export async function runDiagnostics(
         severity: "error",
         summary: "Unable to run git checks.",
         details: gitRepoError,
-        remediation: [
-          "Install git and ensure it is available on PATH.",
-          "Retry from inside a git repository.",
-        ],
+        remediation: [runStep("install git and ensure it is on PATH"), thenStep("rr doctor")],
       });
     } else {
       items.push({
@@ -381,7 +416,9 @@ export async function runDiagnostics(
         summary: insideGitRepo
           ? "Current directory is a git repository."
           : "Current directory is not a git repository.",
-        remediation: insideGitRepo ? [] : ["Run rr from inside a git repository."],
+        remediation: insideGitRepo
+          ? []
+          : [runStep("cd <your-git-repository>"), thenStep("rr doctor")],
       });
     }
 
@@ -404,8 +441,9 @@ export async function runDiagnostics(
             summary: "Unable to check uncommitted changes.",
             details: hasChangesError,
             remediation: [
-              "Install git and ensure it is available on PATH.",
-              "Retry rr run once git status works.",
+              runStep("git status"),
+              runStep("install git and ensure it is on PATH if git status fails"),
+              thenStep("rr run"),
             ],
           });
         } else {
@@ -417,7 +455,9 @@ export async function runDiagnostics(
             summary: hasChanges
               ? "Uncommitted changes detected."
               : "No uncommitted changes to review.",
-            remediation: hasChanges ? [] : ["Commit or modify files, then rerun rr run."],
+            remediation: hasChanges
+              ? []
+              : [runStep("modify files or create a commit"), thenStep("rr run")],
           });
         }
       }
@@ -433,12 +473,9 @@ export async function runDiagnostics(
           ? "A review is already running for this project."
           : "No running review lock detected.",
         remediation: hasRunningReview
-          ? [
-              "Use rr status to inspect the session.",
-              "Use rr stop to terminate the running session.",
-            ]
+          ? [runStep("rr status"), runStep("rr stop"), thenStep("rr run")]
           : [],
-        fixable: false,
+        fixable: hasRunningReview && isFixable("run-lockfile"),
       });
     }
   }
@@ -451,8 +488,8 @@ export async function runDiagnostics(
     title: "tmux availability",
     severity: tmuxSeverity,
     summary: tmuxInstalled ? "tmux is installed." : "tmux is not installed.",
-    remediation: tmuxInstalled ? [] : ["Install tmux with: brew install tmux"],
-    fixable: !tmuxInstalled,
+    remediation: tmuxInstalled ? [] : tmuxGuidance.nextActions,
+    fixable: !tmuxInstalled && isFixable("tmux-installed"),
   });
 
   return buildReport(context, items, capabilitiesByAgent, config);
