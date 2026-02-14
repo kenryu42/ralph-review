@@ -51,6 +51,7 @@ interface InitInput {
   iterationTimeoutMinutes: number;
   defaultReviewType: "uncommitted" | "base";
   defaultReviewBranch?: string;
+  runSimplifierByDefault: boolean;
   soundNotificationsEnabled: boolean;
 }
 
@@ -197,6 +198,9 @@ export function buildConfig(input: InitInput): Config {
       input.simplifierProvider,
       input.simplifierReasoning
     ),
+    run: {
+      simplifier: input.runSimplifierByDefault,
+    },
     maxIterations: input.maxIterations,
     iterationTimeout: input.iterationTimeoutMinutes * 60 * 1000,
     defaultReview,
@@ -401,6 +405,7 @@ function formatConfigDisplay(config: Config): string {
     `  Max iterations:      ${config.maxIterations}`,
     `  Iteration timeout:   ${config.iterationTimeout / 1000 / 60} minutes`,
     `  Default review:      ${defaultReviewDisplay}`,
+    `  Run simplifier:      ${config.run?.simplifier ? "enabled" : "disabled"}`,
     `  Sound notify:        ${config.notifications.sound.enabled ? "enabled" : "disabled"}`,
   ].join("\n");
 }
@@ -619,6 +624,7 @@ export async function buildAutoInitInput(
       maxIterations,
       iterationTimeoutMinutes,
       defaultReviewType: "uncommitted",
+      runSimplifierByDefault: false,
       soundNotificationsEnabled: DEFAULT_CONFIG.notifications?.sound.enabled ?? true,
     },
     skippedAgents,
@@ -739,6 +745,12 @@ async function promptForCustomInitInput(
     handleCancel(defaultReviewBranch);
   }
 
+  const runSimplifierByDefault = await p.confirm({
+    message: "Enable code simplifier by default for 'rr run'?",
+    initialValue: false,
+  });
+  handleCancel(runSimplifierByDefault);
+
   return {
     reviewerAgent: reviewerAgentValue,
     reviewerModel: reviewerSelection.model,
@@ -756,6 +768,7 @@ async function promptForCustomInitInput(
     iterationTimeoutMinutes,
     defaultReviewType: defaultReviewType as "uncommitted" | "base",
     defaultReviewBranch: defaultReviewBranch as string | undefined,
+    runSimplifierByDefault: runSimplifierByDefault as boolean,
     soundNotificationsEnabled: DEFAULT_CONFIG.notifications?.sound.enabled ?? true,
   } satisfies InitInput;
 }

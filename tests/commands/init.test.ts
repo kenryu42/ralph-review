@@ -71,6 +71,7 @@ describe("init command", () => {
         maxIterations: 5,
         iterationTimeoutMinutes: 30,
         defaultReviewType: "uncommitted",
+        runSimplifierByDefault: false,
         soundNotificationsEnabled: false,
       });
 
@@ -88,6 +89,7 @@ describe("init command", () => {
       expect(config.maxIterations).toBe(5);
       expect(config.iterationTimeout).toBe(1800000);
       expect(config.defaultReview).toEqual({ type: "uncommitted" });
+      expect(config.run).toEqual({ simplifier: false });
       expect(config.notifications.sound.enabled).toBe(false);
     });
 
@@ -108,6 +110,7 @@ describe("init command", () => {
         maxIterations: 3,
         iterationTimeoutMinutes: 10,
         defaultReviewType: "uncommitted",
+        runSimplifierByDefault: true,
         soundNotificationsEnabled: true,
       });
 
@@ -138,6 +141,7 @@ describe("init command", () => {
         iterationTimeoutMinutes: 30,
         defaultReviewType: "base",
         defaultReviewBranch: "main",
+        runSimplifierByDefault: false,
         soundNotificationsEnabled: false,
       });
 
@@ -155,6 +159,7 @@ describe("init command", () => {
         maxIterations: 5,
         iterationTimeoutMinutes: 30,
         defaultReviewType: "base",
+        runSimplifierByDefault: false,
         soundNotificationsEnabled: false,
       });
 
@@ -314,6 +319,7 @@ describe("init command", () => {
       expect(result.input.fixerAgent).toBe("codex");
       expect(result.input.simplifierAgent).toBe("codex");
       expect(result.input.defaultReviewType).toBe("uncommitted");
+      expect(result.input.runSimplifierByDefault).toBe(false);
       expect(result.input.soundNotificationsEnabled).toBe(true);
       expect(result.input.maxIterations).toBeGreaterThan(0);
       expect(result.input.iterationTimeoutMinutes).toBeGreaterThan(0);

@@ -12,6 +12,7 @@ import {
   isReasoningLevel,
   type NotificationsConfig,
   type RetryConfig,
+  type RunConfig,
 } from "./types";
 
 const CONFIG_DIR = join(homedir(), ".config", "ralph-review");
@@ -88,6 +89,23 @@ function parseNotificationsConfig(value: unknown): NotificationsConfig | undefin
   };
 }
 
+function parseRunConfig(value: unknown): RunConfig | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  if (typeof value.simplifier !== "boolean") {
+    return undefined;
+  }
+
+  return {
+    simplifier: value.simplifier,
+  };
+}
+
 function parseDefaultReview(value: unknown): DefaultReview | null {
   if (!isRecord(value) || typeof value.type !== "string") {
     return null;
@@ -155,6 +173,7 @@ export function parseConfig(value: unknown): Config | null {
   const defaultReview = parseDefaultReview(value.defaultReview);
   const retry = parseRetryConfig(value.retry);
   const notifications = parseNotificationsConfig(value.notifications);
+  const run = parseRunConfig(value.run);
 
   if (!reviewer || !fixer || !defaultReview) {
     return null;
@@ -168,6 +187,9 @@ export function parseConfig(value: unknown): Config | null {
   if (value.notifications !== undefined && !notifications) {
     return null;
   }
+  if (value.run !== undefined && !run) {
+    return null;
+  }
   if (typeof value.maxIterations !== "number" || typeof value.iterationTimeout !== "number") {
     return null;
   }
@@ -176,6 +198,7 @@ export function parseConfig(value: unknown): Config | null {
     reviewer,
     fixer,
     ...(codeSimplifier ? { "code-simplifier": codeSimplifier } : {}),
+    ...(run ? { run } : {}),
     maxIterations: value.maxIterations,
     iterationTimeout: value.iterationTimeout,
     ...(retry ? { retry } : {}),
@@ -209,5 +232,6 @@ export async function configExists(path: string = CONFIG_PATH): Promise<boolean>
 export const DEFAULT_CONFIG: Partial<Config> = {
   maxIterations: 5,
   iterationTimeout: 1800000,
+  run: { simplifier: false },
   notifications: { sound: { enabled: DEFAULT_NOTIFICATIONS_CONFIG.sound.enabled } },
 };
