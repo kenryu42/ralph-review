@@ -3,6 +3,8 @@ import {
   markRunningSessions,
   pruneUnknownEmptySessions,
   removeSession,
+  runDashboard,
+  runOpenCommand,
 } from "@/commands/dashboard";
 import type { ActiveSession } from "@/lib/lockfile";
 import { getProjectName } from "@/lib/logger";
@@ -143,6 +145,101 @@ function createActiveSession(projectPath: string, branch: string): ActiveSession
   };
 }
 
+function createEmptyDashboardData(): DashboardData {
+  return {
+    generatedAt: Date.now(),
+    globalStats: {
+      totalFixes: 0,
+      totalSkipped: 0,
+      priorityCounts: { P0: 0, P1: 0, P2: 0, P3: 0 },
+      totalSessions: 0,
+      averageIterations: 0,
+      fixRate: 0,
+    },
+    projects: [],
+    reviewerAgentStats: [],
+    fixerAgentStats: [],
+    reviewerModelStats: [],
+    fixerModelStats: [],
+  };
+}
+
+interface DashboardRuntimeHarness {
+  spinnerStarts: string[];
+  spinnerStops: string[];
+  infos: string[];
+  messages: string[];
+  successes: string[];
+  openCalls: Array<{ command: string; target: string }>;
+  deletedSessionPaths: string[];
+  serverStartCount: number;
+  overrides: Parameters<typeof runDashboard>[1];
+}
+
+function createDashboardRuntimeHarness(
+  options: {
+    data?: DashboardData;
+    activeSessions?: ActiveSession[];
+    platform?: NodeJS.Platform;
+    runOpenError?: Error;
+  } = {}
+): DashboardRuntimeHarness {
+  const spinnerStarts: string[] = [];
+  const spinnerStops: string[] = [];
+  const infos: string[] = [];
+  const messages: string[] = [];
+  const successes: string[] = [];
+  const openCalls: Array<{ command: string; target: string }> = [];
+  const deletedSessionPaths: string[] = [];
+  let serverStartCount = 0;
+  const data = options.data ?? createDashboardData("/work/project-a", "main");
+  const activeSessions = options.activeSessions ?? [];
+
+  const overrides: Parameters<typeof runDashboard>[1] = {
+    cwd: "/work/project-a",
+    buildDashboardData: async () => data,
+    listAllActiveSessions: async () => activeSessions,
+    deleteSessionFiles: async (sessionPath: string) => {
+      deletedSessionPaths.push(sessionPath);
+    },
+    startDashboardServer: () => {
+      serverStartCount += 1;
+      return { port: 4321 };
+    },
+    platform: options.platform ?? "darwin",
+    runOpen: async (command: "open" | "xdg-open" | "start", target: string) => {
+      openCalls.push({ command, target });
+      if (options.runOpenError) {
+        throw options.runOpenError;
+      }
+    },
+    spinner: {
+      start: (message: string) => spinnerStarts.push(message),
+      stop: (message: string) => spinnerStops.push(message),
+    },
+    log: {
+      info: (message: string) => infos.push(message),
+      message: (message: string) => messages.push(message),
+      success: (message: string) => successes.push(message),
+    },
+    waitForever: Promise.resolve(),
+  };
+
+  return {
+    spinnerStarts,
+    spinnerStops,
+    infos,
+    messages,
+    successes,
+    openCalls,
+    deletedSessionPaths,
+    get serverStartCount() {
+      return serverStartCount;
+    },
+    overrides,
+  };
+}
+
 describe("dashboard markRunningSessions", () => {
   test("marks by sessionId before branch/project heuristics", () => {
     const projectPath = "/work/project-a";
@@ -188,6 +285,53 @@ describe("dashboard markRunningSessions", () => {
     markRunningSessions(data, [active]);
 
     expect(data.projects[0]?.sessions[0]?.status).toBe("running");
+  });
+
+  test("ignores active sessions for projects that are not in dashboard data", () => {
+    const data = createDashboardData("/work/project-a", "main");
+    const active = createActiveSession("/work/project-b", "main");
+
+    markRunningSessions(data, [active]);
+
+    expect(data.projects[0]?.sessions[0]?.status).toBe("completed");
+  });
+});
+
+describe("runOpenCommand", () => {
+  test("calls open handler for darwin command", async () => {
+    const calls: string[] = [];
+
+    await runOpenCommand("open", "http://127.0.0.1:4321", {
+      open: async (filePath: string) => {
+        calls.push(`open:${filePath}`);
+      },
+    });
+
+    expect(calls).toEqual(["open:http://127.0.0.1:4321"]);
+  });
+
+  test("calls xdg-open handler for linux command", async () => {
+    const calls: string[] = [];
+
+    await runOpenCommand("xdg-open", "http://127.0.0.1:4321", {
+      xdgOpen: async (filePath: string) => {
+        calls.push(`xdg-open:${filePath}`);
+      },
+    });
+
+    expect(calls).toEqual(["xdg-open:http://127.0.0.1:4321"]);
+  });
+
+  test("calls start handler for win32 command", async () => {
+    const calls: string[] = [];
+
+    await runOpenCommand("start", "http://127.0.0.1:4321", {
+      start: async (filePath: string) => {
+        calls.push(`start:${filePath}`);
+      },
+    });
+
+    expect(calls).toEqual(["start:http://127.0.0.1:4321"]);
   });
 });
 
@@ -450,5 +594,101 @@ describe("removeSession", () => {
     const result = removeSession(data, "/logs/nonexistent.jsonl");
 
     expect(result).toBe(false);
+  });
+});
+
+describe("runDashboard", () => {
+  test("logs empty-state message and returns when no projects exist", async () => {
+    const harness = createDashboardRuntimeHarness({
+      data: createEmptyDashboardData(),
+    });
+
+    await runDashboard([], harness.overrides);
+
+    expect(harness.spinnerStarts).toEqual(["Building dashboard..."]);
+    expect(harness.spinnerStops).toEqual(["Done"]);
+    expect(harness.infos).toContain("No review data found.");
+    expect(harness.messages).toContain('Start a review with "rr run" first.');
+    expect(harness.serverStartCount).toBe(0);
+    expect(harness.openCalls).toHaveLength(0);
+  });
+
+  test("starts server and opens dashboard on darwin", async () => {
+    const harness = createDashboardRuntimeHarness();
+
+    await runDashboard([], harness.overrides);
+
+    expect(harness.serverStartCount).toBe(1);
+    expect(harness.spinnerStops).toEqual(["Dashboard ready"]);
+    expect(harness.successes).toContain("Opening dashboard (0 issues resolved)");
+    expect(harness.infos).toContain("http://127.0.0.1:4321");
+    expect(harness.infos).toContain("Press Ctrl+C to stop the dashboard.");
+    expect(harness.openCalls).toEqual([{ command: "open", target: "http://127.0.0.1:4321" }]);
+  });
+
+  test("deletes pruned unknown empty session files", async () => {
+    const data = createDashboardData("/work/project-a", "main");
+    const unknownEmpty = createSessionStats({
+      sessionPath: "/logs/project-a/unknown-empty.jsonl",
+      sessionName: "unknown-empty.jsonl",
+      status: "unknown",
+      iterations: 0,
+      totalFixes: 0,
+      totalSkipped: 0,
+      priorityCounts: { P0: 0, P1: 0, P2: 0, P3: 0 },
+      entries: [],
+    });
+    const existingSession = data.projects[0]?.sessions[0];
+    if (data.projects[0] && existingSession) {
+      data.projects[0].sessions = [unknownEmpty, existingSession];
+    }
+    const harness = createDashboardRuntimeHarness({ data });
+
+    await runDashboard([], harness.overrides);
+
+    expect(harness.deletedSessionPaths).toEqual(["/logs/project-a/unknown-empty.jsonl"]);
+  });
+
+  test("uses xdg-open on linux", async () => {
+    const harness = createDashboardRuntimeHarness({
+      platform: "linux",
+    });
+
+    await runDashboard([], harness.overrides);
+
+    expect(harness.openCalls).toEqual([{ command: "xdg-open", target: "http://127.0.0.1:4321" }]);
+  });
+
+  test("uses start on win32", async () => {
+    const harness = createDashboardRuntimeHarness({
+      platform: "win32",
+    });
+
+    await runDashboard([], harness.overrides);
+
+    expect(harness.openCalls).toEqual([{ command: "start", target: "http://127.0.0.1:4321" }]);
+  });
+
+  test("logs manual browser instruction on unsupported platform", async () => {
+    const harness = createDashboardRuntimeHarness({
+      platform: "sunos",
+    });
+
+    await runDashboard([], harness.overrides);
+
+    expect(harness.openCalls).toHaveLength(0);
+    expect(harness.infos).toContain("Open this file in your browser: http://127.0.0.1:4321");
+  });
+
+  test("logs manual browser instruction when browser open command fails", async () => {
+    const harness = createDashboardRuntimeHarness({
+      platform: "darwin",
+      runOpenError: new Error("failed to open browser"),
+    });
+
+    await runDashboard([], harness.overrides);
+
+    expect(harness.openCalls).toEqual([{ command: "open", target: "http://127.0.0.1:4321" }]);
+    expect(harness.infos).toContain("Open this file in your browser: http://127.0.0.1:4321");
   });
 });
