@@ -35,6 +35,12 @@ describe("cli", () => {
       expect(result.command).toBe("run");
       expect(result.showHelp).toBe(true);
     });
+
+    test("collects command arguments that are not help/version flags", () => {
+      const result = parseArgs(["run", "--max", "5"]);
+      expect(result.command).toBe("run");
+      expect(result.args).toEqual(["--max", "5"]);
+    });
   });
 
   describe("getVersion", () => {
