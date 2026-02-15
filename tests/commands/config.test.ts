@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import * as p from "@clack/prompts";
 import {
   type ConfigCommandDeps,
   createRunConfig,
@@ -147,6 +148,14 @@ describe("config command helpers", () => {
       expect(parseConfigValue("reviewer.model", "gpt-5.2-codex")).toBe("gpt-5.2-codex");
     });
 
+    test("parses valid agent, reasoning, and retry values", () => {
+      expect(parseConfigValue("reviewer.agent", "codex")).toBe("codex");
+      expect(parseConfigValue("reviewer.reasoning", "high")).toBe("high");
+      expect(parseConfigValue("retry.maxRetries", "3")).toBe(3);
+      expect(parseConfigValue("retry.baseDelayMs", "1000")).toBe(1000);
+      expect(parseConfigValue("retry.maxDelayMs", "2000")).toBe(2000);
+    });
+
     test("rejects null for non-nullable keys", () => {
       expect(() => parseConfigValue("maxIterations", "null")).toThrow(
         'Value "null" is not allowed'
@@ -184,6 +193,17 @@ describe("config command helpers", () => {
       expect(() => parseConfigValue("reviewer.reasoning", "ultra")).toThrow("must be one of");
     });
 
+    test("rejects invalid role-specific constraints", () => {
+      expect(() => parseConfigValue("fixer.agent", "wizard")).toThrow("must be a valid agent");
+      expect(() => parseConfigValue("fixer.reasoning", "ultra")).toThrow("must be one of");
+      expect(() => parseConfigValue("maxIterations", "0")).toThrow("greater than 0");
+      expect(() => parseConfigValue("retry.maxRetries", "-1")).toThrow(
+        "greater than or equal to 0"
+      );
+      expect(() => parseConfigValue("retry.baseDelayMs", "0")).toThrow("greater than 0");
+      expect(() => parseConfigValue("retry.maxDelayMs", "0")).toThrow("greater than 0");
+    });
+
     test("parses and validates default review type", () => {
       expect(parseConfigValue("defaultReview.type", "base")).toBe("base");
       expect(parseConfigValue("defaultReview.type", "uncommitted")).toBe("uncommitted");
@@ -215,7 +235,13 @@ describe("config command helpers", () => {
   describe("getConfigValue", () => {
     test("returns scalar values", () => {
       expect(getConfigValue(createBaseConfig(), "reviewer.agent")).toBe("codex");
+      expect(getConfigValue(createBaseConfig(), "fixer.agent")).toBe("claude");
       expect(getConfigValue(createBaseConfig(), "fixer.model")).toBe("claude-opus-4-6");
+      expect(getConfigValue(createBaseConfig(), "reviewer.reasoning")).toBe("high");
+      expect(getConfigValue(createBaseConfig(), "fixer.reasoning")).toBe("medium");
+      expect(getConfigValue(createBaseConfig(), "code-simplifier.agent")).toBe("droid");
+      expect(getConfigValue(createBaseConfig(), "code-simplifier.model")).toBe("gpt-5.2-codex");
+      expect(getConfigValue(createBaseConfig(), "code-simplifier.reasoning")).toBe("low");
       expect(getConfigValue(createBaseConfig(), "maxIterations")).toBe(5);
       expect(getConfigValue(createBaseConfig(), "iterationTimeout")).toBe(1800000);
       expect(getConfigValue(createBaseConfig(), "defaultReview.type")).toBe("uncommitted");
@@ -227,6 +253,18 @@ describe("config command helpers", () => {
       expect(getConfigValue(createBaseConfig(), "retry.baseDelayMs")).toBeUndefined();
       expect(getConfigValue(createBaseConfig(), "defaultReview.branch")).toBeUndefined();
       expect(getConfigValue(createBaseConfig(), "reviewer.provider")).toBeUndefined();
+      expect(getConfigValue(createBaseConfig(), "fixer.provider")).toBeUndefined();
+      expect(getConfigValue(createBaseConfig(), "code-simplifier.provider")).toBeUndefined();
+    });
+
+    test("returns undefined for optional simplifier when unset", () => {
+      const config = createBaseConfig();
+      delete config["code-simplifier"];
+
+      expect(getConfigValue(config, "code-simplifier.agent")).toBeUndefined();
+      expect(getConfigValue(config, "code-simplifier.model")).toBeUndefined();
+      expect(getConfigValue(config, "code-simplifier.reasoning")).toBeUndefined();
+      expect(getConfigValue(config, "code-simplifier.provider")).toBeUndefined();
     });
 
     test("returns pi-only provider values for pi roles", () => {
@@ -311,6 +349,15 @@ describe("config command helpers", () => {
       expect("provider" in updated.reviewer).toBe(false);
     });
 
+    test("updates non-pi agent while preserving existing non-provider fields", () => {
+      const updated = setConfigValue(createBaseConfig(), "reviewer.agent", "gemini");
+      expect(updated.reviewer).toEqual({
+        agent: "gemini",
+        model: "gpt-5.3-codex",
+        reasoning: "high",
+      });
+    });
+
     test("creates code-simplifier when setting simplifier agent", () => {
       const config = createBaseConfig();
       delete config["code-simplifier"];
@@ -334,6 +381,39 @@ describe("config command helpers", () => {
 
       expect(() => setConfigValue(config, "code-simplifier.agent", "pi")).toThrow(
         "single-key update"
+      );
+    });
+
+    test("defensively handles malformed key matcher results", () => {
+      const missingGroupsKey = {
+        match: () => ["reviewer.agent"],
+      } as unknown as Parameters<typeof setConfigValue>[1];
+      const invalidRoleKey = {
+        match: () => ["reviewer.agent", "invalid-role", "agent"],
+      } as unknown as Parameters<typeof setConfigValue>[1];
+      const invalidFieldKey = {
+        match: () => ["reviewer.agent", "reviewer", "invalid-field"],
+      } as unknown as Parameters<typeof setConfigValue>[1];
+
+      expect(setConfigValue(createBaseConfig(), missingGroupsKey, "value")).toEqual(
+        createBaseConfig()
+      );
+      expect(setConfigValue(createBaseConfig(), invalidRoleKey, "value")).toEqual(
+        createBaseConfig()
+      );
+      expect(setConfigValue(createBaseConfig(), invalidFieldKey, "value")).toEqual(
+        createBaseConfig()
+      );
+    });
+
+    test("rejects reviewer non-agent updates when reviewer settings are missing", () => {
+      const invalid = {
+        ...createBaseConfig(),
+        reviewer: undefined,
+      } as unknown as Config;
+
+      expect(() => setConfigValue(invalid, "reviewer.model", "gpt-5.3-codex")).toThrow(
+        'Role "reviewer" is not configured'
       );
     });
 
@@ -442,6 +522,15 @@ describe("config command helpers", () => {
       expect(() => setConfigValue(createBaseConfig(), "reviewer.reasoning", true)).toThrow(
         "must be one of"
       );
+
+      const piConfig = createBaseConfig();
+      piConfig.reviewer = {
+        agent: "pi",
+        provider: "anthropic",
+        model: "claude-sonnet-4-5",
+        reasoning: "high",
+      };
+      expect(() => setConfigValue(piConfig, "reviewer.reasoning", true)).toThrow("must be one of");
     });
 
     test("handles default review type and branch transitions", () => {
@@ -497,6 +586,23 @@ describe("config command helpers", () => {
       expect(() => setConfigValue(createBaseConfig(), "retry.maxDelayMs", "2000")).toThrow(
         "greater than 0"
       );
+    });
+
+    test("updates scalar and retry boolean fields", () => {
+      const withTimeout = setConfigValue(createBaseConfig(), "iterationTimeout", 1200000);
+      expect(withTimeout.iterationTimeout).toBe(1200000);
+
+      const withRun = setConfigValue(createBaseConfig(), "run.simplifier", true);
+      expect(withRun.run?.simplifier).toBe(true);
+
+      const withRetries = setConfigValue(createBaseConfig(), "retry.maxRetries", 7);
+      expect(withRetries.retry?.maxRetries).toBe(7);
+
+      const withMaxDelay = setConfigValue(createBaseConfig(), "retry.maxDelayMs", 45000);
+      expect(withMaxDelay.retry?.maxDelayMs).toBe(45000);
+
+      const withSound = setConfigValue(createBaseConfig(), "notifications.sound.enabled", true);
+      expect(withSound.notifications.sound.enabled).toBe(true);
     });
   });
 
@@ -666,6 +772,16 @@ describe("config command execution", () => {
     expect(harness.exits).toEqual([]);
   });
 
+  test("get prints scalar values as strings", async () => {
+    const harness = createCommandHarness();
+    const runConfig = createRunConfig(harness.deps);
+
+    await runConfig(["get", "reviewer.agent"]);
+
+    expect(harness.printed).toEqual(["codex"]);
+    expect(harness.exits).toEqual([]);
+  });
+
   test("set enforces usage", async () => {
     const harness = createCommandHarness();
     const runConfig = createRunConfig(harness.deps);
@@ -710,6 +826,105 @@ describe("config command execution", () => {
     expect(harness.saved[0]?.fixer.model).toBeUndefined();
     expect(harness.successes[0]).toContain('Updated "fixer.model" to null.');
     expect(harness.exits).toEqual([]);
+  });
+
+  test("set logs non-null values with string formatting", async () => {
+    const harness = createCommandHarness();
+    const runConfig = createRunConfig(harness.deps);
+
+    await runConfig(["set", "maxIterations", "8"]);
+
+    expect(harness.saved).toHaveLength(1);
+    expect(harness.saved[0]?.maxIterations).toBe(8);
+    expect(harness.successes[0]).toContain('Updated "maxIterations" to 8.');
+    expect(harness.exits).toEqual([]);
+  });
+
+  test("createRunConfig default deps call process exit on failure", async () => {
+    const runConfigWithDefaults = createRunConfig();
+    const originalExit = process.exit;
+    process.exit = ((code?: number) => {
+      throw new Error(`forced-exit:${code}`);
+    }) as typeof process.exit;
+
+    try {
+      await expect(runConfigWithDefaults(["wizard"])).rejects.toThrow("forced-exit:1");
+    } finally {
+      process.exit = originalExit;
+    }
+  });
+
+  test("createRunConfig can use default logger methods for success, warn, and error", async () => {
+    const messages = {
+      success: [] as string[],
+      warn: [] as string[],
+      error: [] as string[],
+    };
+    const originalSuccess = p.log.success;
+    const originalWarn = p.log.warn;
+    const originalError = p.log.error;
+    p.log.success = (message) => {
+      messages.success.push(message);
+    };
+    p.log.warn = (message) => {
+      messages.warn.push(message);
+    };
+    p.log.error = (message) => {
+      messages.error.push(message);
+    };
+
+    try {
+      const runWithDefaultLog = createRunConfig({
+        configPath: "/tmp/ralph-default-log-config.json",
+        configExists: async () => true,
+        ensureConfigDir: async () => {},
+        loadConfig: async () => createBaseConfig(),
+        parseConfig: (value) => parseConfig(value),
+        saveConfig: async () => {},
+        spawn: (() => ({ exited: Promise.resolve(0) })) as ConfigCommandDeps["spawn"],
+        env: {
+          EDITOR: "vim",
+          SHELL: "/bin/zsh",
+        },
+        print: () => {},
+        exit: () => {},
+      });
+
+      await runWithDefaultLog(["set", "maxIterations", "8"]);
+      await runWithDefaultLog(["wizard"]);
+
+      const runWithWarnDefaultLog = createRunConfig({
+        configPath: "/tmp/ralph-default-log-config.json",
+        configExists: async () => false,
+        ensureConfigDir: async () => {},
+        loadConfig: async () => createBaseConfig(),
+        parseConfig: (value) => parseConfig(value),
+        saveConfig: async () => {},
+        spawn: (() => ({ exited: Promise.resolve(0) })) as ConfigCommandDeps["spawn"],
+        env: {
+          EDITOR: "vim",
+          SHELL: "/bin/zsh",
+        },
+        print: () => {},
+        exit: () => {},
+      });
+
+      await runWithWarnDefaultLog(["edit"]);
+    } finally {
+      p.log.success = originalSuccess;
+      p.log.warn = originalWarn;
+      p.log.error = originalError;
+    }
+
+    expect(
+      messages.success.some((message) => message.includes('Updated "maxIterations" to 8.'))
+    ).toBe(true);
+    expect(messages.warn.some((message) => message.includes("No config file was saved"))).toBe(
+      true
+    );
+    expect(messages.error.some((message) => message.includes("Unknown config subcommand"))).toBe(
+      true
+    );
   });
 
   test("edit enforces usage and requires EDITOR", async () => {
