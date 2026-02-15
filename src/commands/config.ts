@@ -19,6 +19,37 @@ import {
 type ConfigRole = "reviewer" | "fixer" | "code-simplifier";
 type ConfigSubcommand = "show" | "get" | "set" | "edit";
 
+type ConfigCommandLogger = {
+  success(message: string): void;
+  warn(message: string): void;
+  error(message: string): void;
+};
+
+type ConfigCommandSpawner = (
+  command: string[],
+  options: {
+    stdin: "inherit";
+    stdout: "inherit";
+    stderr: "inherit";
+  }
+) => {
+  exited: Promise<number>;
+};
+
+export type ConfigCommandDeps = {
+  configPath: string;
+  configExists: typeof configExists;
+  ensureConfigDir: typeof ensureConfigDir;
+  loadConfig: typeof loadConfig;
+  parseConfig: typeof parseConfig;
+  saveConfig: typeof saveConfig;
+  spawn: ConfigCommandSpawner;
+  env: Record<string, string | undefined>;
+  print(value: string): void;
+  log: ConfigCommandLogger;
+  exit(code: number): void;
+};
+
 const CONFIG_KEYS = [
   "reviewer.agent",
   "reviewer.model",
@@ -113,13 +144,13 @@ function formatValue(value: unknown): string {
   return String(value);
 }
 
-function printValue(value: unknown): void {
+function printValue(value: unknown, print: (value: string) => void): void {
   if (typeof value === "object" && value !== null) {
-    console.log(JSON.stringify(value, null, 2));
+    print(JSON.stringify(value, null, 2));
     return;
   }
 
-  console.log(String(value));
+  print(String(value));
 }
 
 export function parseConfigSubcommand(value: string): ConfigSubcommand {
@@ -563,47 +594,47 @@ export function validateConfigInvariants(config: Config): string[] {
   return errors;
 }
 
-async function loadExistingConfig(): Promise<Config> {
-  if (!(await configExists())) {
+async function loadExistingConfig(deps: ConfigCommandDeps): Promise<Config> {
+  if (!(await deps.configExists())) {
     throw new Error('Configuration not found. Run "rr init" first.');
   }
 
-  const config = await loadConfig();
+  const config = await deps.loadConfig();
   if (!config) {
     throw new Error(
-      `Configuration exists but is invalid: ${CONFIG_PATH}. Run "rr init" or fix the file manually.`
+      `Configuration exists but is invalid: ${deps.configPath}. Run "rr init" or fix the file manually.`
     );
   }
 
   return config;
 }
 
-async function runShow(args: string[]): Promise<void> {
+async function runShow(args: string[], deps: ConfigCommandDeps): Promise<void> {
   if (args.length !== 0) {
     throw new Error("Usage: rr config show");
   }
 
-  const config = await loadExistingConfig();
-  console.log(JSON.stringify(config, null, 2));
+  const config = await loadExistingConfig(deps);
+  deps.print(JSON.stringify(config, null, 2));
 }
 
-async function runGet(args: string[]): Promise<void> {
+async function runGet(args: string[], deps: ConfigCommandDeps): Promise<void> {
   if (args.length !== 1) {
     throw new Error("Usage: rr config get <key>");
   }
 
   const key = parseConfigKey(args[0] as string);
-  const config = await loadExistingConfig();
+  const config = await loadExistingConfig(deps);
   const value = getConfigValue(config, key);
 
   if (value === undefined) {
     throw new Error(`Key "${key}" is not set in the current configuration.`);
   }
 
-  printValue(value);
+  printValue(value, deps.print);
 }
 
-async function runSet(args: string[]): Promise<void> {
+async function runSet(args: string[], deps: ConfigCommandDeps): Promise<void> {
   if (args.length !== 2) {
     throw new Error("Usage: rr config set <key> <value>");
   }
@@ -612,7 +643,7 @@ async function runSet(args: string[]): Promise<void> {
   const rawValue = args[1] as string;
   const parsedValue = parseConfigValue(key, rawValue);
 
-  const current = await loadExistingConfig();
+  const current = await loadExistingConfig(deps);
   const updated = setConfigValue(current, key, parsedValue);
 
   const invariantErrors = validateConfigInvariants(updated);
@@ -620,31 +651,31 @@ async function runSet(args: string[]): Promise<void> {
     throw new Error(invariantErrors.join("\n"));
   }
 
-  const normalized = parseConfig(updated as unknown);
+  const normalized = deps.parseConfig(updated as unknown);
   if (!normalized) {
     throw new Error("Updated configuration is invalid.");
   }
 
-  await saveConfig(normalized);
-  p.log.success(`Updated "${key}" to ${formatValue(parsedValue)}.`);
+  await deps.saveConfig(normalized);
+  deps.log.success(`Updated "${key}" to ${formatValue(parsedValue)}.`);
 }
 
-async function runEdit(args: string[]): Promise<void> {
+async function runEdit(args: string[], deps: ConfigCommandDeps): Promise<void> {
   if (args.length !== 0) {
     throw new Error("Usage: rr config edit");
   }
 
-  const editor = process.env.EDITOR?.trim();
+  const editor = deps.env.EDITOR?.trim();
   if (!editor) {
     throw new Error('EDITOR is not set. Set $EDITOR (for example: export EDITOR="vim").');
   }
 
-  await ensureConfigDir();
+  await deps.ensureConfigDir();
 
-  const shell = process.env.SHELL?.trim() || "sh";
-  const command = `exec $EDITOR ${shellQuote(CONFIG_PATH)}`;
+  const shell = deps.env.SHELL?.trim() || "sh";
+  const command = `exec $EDITOR ${shellQuote(deps.configPath)}`;
 
-  const proc = Bun.spawn([shell, "-lc", command], {
+  const proc = deps.spawn([shell, "-lc", command], {
     stdin: "inherit",
     stdout: "inherit",
     stderr: "inherit",
@@ -655,43 +686,88 @@ async function runEdit(args: string[]): Promise<void> {
     throw new Error(`Editor exited with code ${exitCode}.`);
   }
 
-  if (!(await configExists())) {
-    p.log.warn(`No config file was saved at ${CONFIG_PATH}.`);
+  if (!(await deps.configExists())) {
+    deps.log.warn(`No config file was saved at ${deps.configPath}.`);
     return;
   }
 
-  const config = await loadConfig();
+  const config = await deps.loadConfig();
   if (!config) {
-    p.log.warn(
-      `Configuration exists but is invalid: ${CONFIG_PATH}. Run "rr init" or fix it manually.`
+    deps.log.warn(
+      `Configuration exists but is invalid: ${deps.configPath}. Run "rr init" or fix it manually.`
     );
     return;
   }
 
-  await saveConfig(config);
+  await deps.saveConfig(config);
 }
 
-export async function runConfig(args: string[]): Promise<void> {
-  try {
-    const subcommand = parseConfigSubcommand(args[0] ?? "");
-    const rest = args.slice(1);
+const DEFAULT_CONFIG_COMMAND_DEPS: ConfigCommandDeps = {
+  configPath: CONFIG_PATH,
+  configExists,
+  ensureConfigDir,
+  loadConfig,
+  parseConfig,
+  saveConfig,
+  spawn: Bun.spawn as unknown as ConfigCommandSpawner,
+  env: process.env as Record<string, string | undefined>,
+  print: (value) => console.log(value),
+  log: {
+    success: (message) => p.log.success(message),
+    warn: (message) => p.log.warn(message),
+    error: (message) => p.log.error(message),
+  },
+  exit: (code) => {
+    process.exit(code);
+  },
+};
 
-    switch (subcommand) {
-      case "show":
-        await runShow(rest);
-        return;
-      case "get":
-        await runGet(rest);
-        return;
-      case "set":
-        await runSet(rest);
-        return;
-      case "edit":
-        await runEdit(rest);
-        return;
-    }
-  } catch (error) {
-    p.log.error(`${error}`);
-    process.exit(1);
+function resolveConfigCommandDeps(overrides?: Partial<ConfigCommandDeps>): ConfigCommandDeps {
+  if (!overrides) {
+    return DEFAULT_CONFIG_COMMAND_DEPS;
   }
+
+  return {
+    ...DEFAULT_CONFIG_COMMAND_DEPS,
+    ...overrides,
+    log: {
+      ...DEFAULT_CONFIG_COMMAND_DEPS.log,
+      ...overrides.log,
+    },
+  };
+}
+
+export function createRunConfig(overrides?: Partial<ConfigCommandDeps>) {
+  const deps = resolveConfigCommandDeps(overrides);
+
+  return async function runConfigWithDeps(args: string[]): Promise<void> {
+    try {
+      const subcommand = parseConfigSubcommand(args[0] ?? "");
+      const rest = args.slice(1);
+
+      switch (subcommand) {
+        case "show":
+          await runShow(rest, deps);
+          return;
+        case "get":
+          await runGet(rest, deps);
+          return;
+        case "set":
+          await runSet(rest, deps);
+          return;
+        case "edit":
+          await runEdit(rest, deps);
+          return;
+      }
+    } catch (error) {
+      deps.log.error(`${error}`);
+      deps.exit(1);
+    }
+  };
+}
+
+const runConfigImpl = createRunConfig();
+
+export async function runConfig(args: string[]): Promise<void> {
+  await runConfigImpl(args);
 }
