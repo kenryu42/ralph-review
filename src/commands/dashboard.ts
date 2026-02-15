@@ -14,6 +14,89 @@ import {
 import { startDashboardServer } from "@/lib/server";
 import type { DashboardData, Priority, SessionStats } from "@/lib/types";
 
+type BrowserOpenCommand = "open" | "xdg-open" | "start";
+
+interface RunOpenCommandDeps {
+  open?: (filePath: string) => Promise<void>;
+  xdgOpen?: (filePath: string) => Promise<void>;
+  start?: (filePath: string) => Promise<void>;
+}
+
+export async function runOpenCommand(
+  command: BrowserOpenCommand,
+  filePath: string,
+  deps: RunOpenCommandDeps = {}
+): Promise<void> {
+  if (command === "open") {
+    if (deps.open) {
+      await deps.open(filePath);
+    } else {
+      await $`open ${filePath}`.quiet();
+    }
+    return;
+  }
+
+  if (command === "xdg-open") {
+    if (deps.xdgOpen) {
+      await deps.xdgOpen(filePath);
+    } else {
+      await $`xdg-open ${filePath}`.quiet();
+    }
+    return;
+  }
+
+  if (deps.start) {
+    await deps.start(filePath);
+  } else {
+    await $`start ${filePath}`.quiet();
+  }
+}
+
+interface DashboardRuntime {
+  cwd: string;
+  buildDashboardData: (logsDir: string, currentProjectPath: string) => Promise<DashboardData>;
+  listAllActiveSessions: (logsDir: string) => Promise<ActiveSession[]>;
+  deleteSessionFiles: (sessionPath: string) => Promise<void>;
+  startDashboardServer: (options: {
+    data: DashboardData;
+  }) => Pick<ReturnType<typeof startDashboardServer>, "port">;
+  platform: NodeJS.Platform;
+  runOpen: (command: BrowserOpenCommand, filePath: string) => Promise<void>;
+  spinner: {
+    start: (message: string) => void;
+    stop: (message: string) => void;
+  };
+  log: {
+    info: (message: string) => void;
+    message: (message: string) => void;
+    success: (message: string) => void;
+  };
+  waitForever: Promise<unknown>;
+}
+
+export interface DashboardRuntimeOverrides extends Partial<Omit<DashboardRuntime, "log">> {
+  log?: Partial<DashboardRuntime["log"]>;
+}
+
+function createDashboardRuntime(overrides: DashboardRuntimeOverrides = {}): DashboardRuntime {
+  return {
+    cwd: overrides.cwd ?? process.cwd(),
+    buildDashboardData: overrides.buildDashboardData ?? buildDashboardData,
+    listAllActiveSessions: overrides.listAllActiveSessions ?? listAllActiveSessions,
+    deleteSessionFiles: overrides.deleteSessionFiles ?? deleteSessionFiles,
+    startDashboardServer: overrides.startDashboardServer ?? startDashboardServer,
+    platform: overrides.platform ?? platform(),
+    runOpen: overrides.runOpen ?? runOpenCommand,
+    spinner: overrides.spinner ?? p.spinner(),
+    log: {
+      info: overrides.log?.info ?? p.log.info,
+      message: overrides.log?.message ?? p.log.message,
+      success: overrides.log?.success ?? p.log.success,
+    },
+    waitForever: overrides.waitForever ?? new Promise<never>(() => {}),
+  };
+}
+
 function emptyPriorityCounts(): Record<Priority, number> {
   return { P0: 0, P1: 0, P2: 0, P3: 0 };
 }
@@ -159,52 +242,56 @@ export function pruneUnknownEmptySessions(data: DashboardData): SessionStats[] {
   return removed;
 }
 
-async function openInBrowser(filePath: string): Promise<void> {
-  const os = platform();
+async function openInBrowser(filePath: string, runtime: DashboardRuntime): Promise<void> {
+  const os = runtime.platform;
 
   try {
     if (os === "darwin") {
-      await $`open ${filePath}`.quiet();
+      await runtime.runOpen("open", filePath);
     } else if (os === "linux") {
-      await $`xdg-open ${filePath}`.quiet();
+      await runtime.runOpen("xdg-open", filePath);
     } else if (os === "win32") {
-      await $`start ${filePath}`.quiet();
+      await runtime.runOpen("start", filePath);
     } else {
-      p.log.info(`Open this file in your browser: ${filePath}`);
+      runtime.log.info(`Open this file in your browser: ${filePath}`);
     }
   } catch {
-    p.log.info(`Open this file in your browser: ${filePath}`);
+    runtime.log.info(`Open this file in your browser: ${filePath}`);
   }
 }
 
-export async function runDashboard(_args: string[]): Promise<void> {
-  const s = p.spinner();
+export async function runDashboard(
+  _args: string[],
+  overrides: DashboardRuntimeOverrides = {}
+): Promise<void> {
+  const runtime = createDashboardRuntime(overrides);
+  const s = runtime.spinner;
   s.start("Building dashboard...");
 
-  const currentProjectPath = process.cwd();
-  const data = await buildDashboardData(LOGS_DIR, currentProjectPath);
+  const currentProjectPath = runtime.cwd;
+  const data = await runtime.buildDashboardData(LOGS_DIR, currentProjectPath);
 
-  const activeSessions = await listAllActiveSessions(LOGS_DIR);
+  const activeSessions = await runtime.listAllActiveSessions(LOGS_DIR);
   markRunningSessions(data, activeSessions);
   const removed = pruneUnknownEmptySessions(data);
 
-  await Promise.all(removed.map((s) => deleteSessionFiles(s.sessionPath)));
+  await Promise.all(removed.map((session) => runtime.deleteSessionFiles(session.sessionPath)));
 
   if (data.projects.length === 0) {
     s.stop("Done");
-    p.log.info("No review data found.");
-    p.log.message('Start a review with "rr run" first.');
+    runtime.log.info("No review data found.");
+    runtime.log.message('Start a review with "rr run" first.');
     return;
   }
 
-  const server = startDashboardServer({ data });
+  const server = runtime.startDashboardServer({ data });
   const url = `http://127.0.0.1:${server.port}`;
 
   s.stop("Dashboard ready");
 
-  p.log.success(`Opening dashboard (${data.globalStats.totalFixes} issues resolved)`);
-  p.log.info(url);
-  p.log.info("Press Ctrl+C to stop the dashboard.");
-  await openInBrowser(url);
-  await new Promise<never>(() => {});
+  runtime.log.success(`Opening dashboard (${data.globalStats.totalFixes} issues resolved)`);
+  runtime.log.info(url);
+  runtime.log.info("Press Ctrl+C to stop the dashboard.");
+  await openInBrowser(url, runtime);
+  await runtime.waitForever;
 }
