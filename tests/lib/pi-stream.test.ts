@@ -82,6 +82,11 @@ describe("pi-stream", () => {
   });
 
   describe("formatPiLine", () => {
+    test("returns null for non-JSON log lines", () => {
+      const formatPiLine = createPiLineFormatter();
+      expect(formatPiLine("PI mode enabled")).toBeNull();
+    });
+
     test("buffers text deltas and flushes combined content at text end", () => {
       const formatPiLine = createPiLineFormatter();
 
@@ -217,6 +222,35 @@ describe("pi-stream", () => {
       expect(chunk).toBe("--- Assistant ---\nParagraph one.");
     });
 
+    test("falls back to thinking_end content when no reasoning delta arrived", () => {
+      const formatPiLine = createPiLineFormatter();
+
+      formatPiLine(
+        JSON.stringify({
+          type: "message_update",
+          assistantMessageEvent: {
+            type: "thinking_start",
+            contentIndex: 0,
+            partial: { role: "assistant", content: [] },
+          },
+        })
+      );
+
+      const thinkingEnd = formatPiLine(
+        JSON.stringify({
+          type: "message_update",
+          assistantMessageEvent: {
+            type: "thinking_end",
+            contentIndex: 0,
+            content: "Reasoning from fallback content",
+            partial: { role: "assistant", content: [] },
+          },
+        })
+      );
+
+      expect(thinkingEnd).toBe("--- Reasoning ---\nReasoning from fallback content");
+    });
+
     test("shows buffered thinking stream and flushes at thinking end", () => {
       const formatPiLine = createPiLineFormatter();
 
@@ -256,6 +290,250 @@ describe("pi-stream", () => {
       expect(thinkingStart).toBe("");
       expect(thinkingDelta).toBe("");
       expect(thinkingEnd).toBe("--- Reasoning ---\nAnalyzing the repository");
+    });
+
+    test("falls back to text_end content when no text delta arrived", () => {
+      const formatPiLine = createPiLineFormatter();
+
+      formatPiLine(
+        JSON.stringify({
+          type: "message_update",
+          assistantMessageEvent: {
+            type: "text_start",
+            contentIndex: 0,
+            partial: { role: "assistant", content: [] },
+          },
+        })
+      );
+
+      const textEnd = formatPiLine(
+        JSON.stringify({
+          type: "message_update",
+          assistantMessageEvent: {
+            type: "text_end",
+            contentIndex: 0,
+            content: "Assistant from fallback content",
+            partial: { role: "assistant", content: [] },
+          },
+        })
+      );
+
+      expect(textEnd).toBe("--- Assistant ---\nAssistant from fallback content");
+    });
+
+    test("does not emit whitespace-only chunks at text end", () => {
+      const formatPiLine = createPiLineFormatter();
+
+      formatPiLine(
+        JSON.stringify({
+          type: "message_update",
+          assistantMessageEvent: {
+            type: "text_start",
+            contentIndex: 0,
+            partial: { role: "assistant", content: [] },
+          },
+        })
+      );
+
+      const textEnd = formatPiLine(
+        JSON.stringify({
+          type: "message_update",
+          assistantMessageEvent: {
+            type: "text_end",
+            contentIndex: 0,
+            content: "\n\n\n",
+            partial: { role: "assistant", content: [] },
+          },
+        })
+      );
+
+      expect(textEnd).toBe("");
+    });
+
+    test("splits long chunks at max length when no boundaries exist", () => {
+      const formatPiLine = createPiLineFormatter();
+      const longToken = "a".repeat(161);
+
+      formatPiLine(
+        JSON.stringify({
+          type: "message_update",
+          assistantMessageEvent: {
+            type: "text_start",
+            contentIndex: 0,
+            partial: { role: "assistant", content: [] },
+          },
+        })
+      );
+
+      const chunk = formatPiLine(
+        JSON.stringify({
+          type: "message_update",
+          assistantMessageEvent: {
+            type: "text_delta",
+            contentIndex: 0,
+            delta: longToken,
+            partial: { role: "assistant", content: [] },
+          },
+        })
+      );
+      const textEnd = formatPiLine(
+        JSON.stringify({
+          type: "message_update",
+          assistantMessageEvent: {
+            type: "text_end",
+            contentIndex: 0,
+            content: longToken,
+            partial: { role: "assistant", content: [] },
+          },
+        })
+      );
+
+      expect(chunk).toBe(`--- Assistant ---\n${"a".repeat(160)}`);
+      expect(textEnd).toBe("a");
+    });
+
+    test("handles message_update events with missing assistant payload", () => {
+      const formatPiLine = createPiLineFormatter();
+      const output = formatPiLine(
+        JSON.stringify({
+          type: "message_update",
+        })
+      );
+      expect(output).toBe("");
+    });
+
+    test("ignores unknown assistant update event types", () => {
+      const formatPiLine = createPiLineFormatter();
+      const output = formatPiLine(
+        JSON.stringify({
+          type: "message_update",
+          assistantMessageEvent: {
+            type: "unknown",
+          },
+        })
+      );
+      expect(output).toBe("");
+    });
+
+    test("flushes both reasoning and assistant buffers on turn_end", () => {
+      const formatPiLine = createPiLineFormatter();
+
+      formatPiLine(
+        JSON.stringify({
+          type: "message_update",
+          assistantMessageEvent: {
+            type: "thinking_start",
+            contentIndex: 0,
+            partial: { role: "assistant", content: [] },
+          },
+        })
+      );
+      formatPiLine(
+        JSON.stringify({
+          type: "message_update",
+          assistantMessageEvent: {
+            type: "thinking_delta",
+            contentIndex: 0,
+            delta: "Analyzing options",
+            partial: { role: "assistant", content: [] },
+          },
+        })
+      );
+      formatPiLine(
+        JSON.stringify({
+          type: "message_update",
+          assistantMessageEvent: {
+            type: "text_start",
+            contentIndex: 0,
+            partial: { role: "assistant", content: [] },
+          },
+        })
+      );
+      formatPiLine(
+        JSON.stringify({
+          type: "message_update",
+          assistantMessageEvent: {
+            type: "text_delta",
+            contentIndex: 0,
+            delta: "Final answer pending",
+            partial: { role: "assistant", content: [] },
+          },
+        })
+      );
+
+      const turnEnd = formatPiLine(
+        JSON.stringify({
+          type: "turn_end",
+          message: {
+            role: "assistant",
+            content: [],
+          },
+        })
+      );
+
+      expect(turnEnd).toBe(
+        "--- Reasoning ---\nAnalyzing options\n--- Assistant ---\nFinal answer pending"
+      );
+    });
+
+    test("uses turn_end assistant message as fallback when no buffered output exists", () => {
+      const formatPiLine = createPiLineFormatter();
+
+      const turnEnd = formatPiLine(
+        JSON.stringify({
+          type: "turn_end",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "Fallback assistant text" }],
+          },
+        })
+      );
+
+      expect(turnEnd).toBe("--- Assistant ---\nFallback assistant text");
+    });
+
+    test("does not duplicate assistant fallback after streaming already emitted content", () => {
+      const formatPiLine = createPiLineFormatter();
+
+      const firstChunk = formatPiLine(
+        JSON.stringify({
+          type: "message_update",
+          assistantMessageEvent: {
+            type: "text_delta",
+            contentIndex: 0,
+            delta: "Already emitted. ",
+            partial: { role: "assistant", content: [] },
+          },
+        })
+      );
+      const turnEnd = formatPiLine(
+        JSON.stringify({
+          type: "turn_end",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "Already emitted." }],
+          },
+        })
+      );
+
+      expect(firstChunk).toBe("--- Assistant ---\nAlready emitted.");
+      expect(turnEnd).toBe("");
+    });
+
+    test("returns empty output for turn_end events without assistant text", () => {
+      const formatPiLine = createPiLineFormatter();
+
+      const turnEnd = formatPiLine(
+        JSON.stringify({
+          type: "turn_end",
+          message: {
+            role: "assistant",
+            content: [],
+          },
+        })
+      );
+
+      expect(turnEnd).toBe("");
     });
 
     test("suppresses boilerplate events", () => {
@@ -346,6 +624,48 @@ describe("pi-stream", () => {
       const result = extractPiResult(jsonl);
 
       expect(result).toBe("Recovered answer");
+    });
+
+    test("returns null when terminal events contain no assistant text", () => {
+      const jsonl = [
+        JSON.stringify({
+          type: "message_end",
+          message: {
+            role: "user",
+            content: [{ type: "text", text: "question" }],
+          },
+        }),
+        JSON.stringify({
+          type: "turn_end",
+          message: {
+            role: "assistant",
+          },
+        }),
+        JSON.stringify({
+          type: "agent_end",
+          messages: [],
+        }),
+      ].join("\n");
+
+      const result = extractPiResult(jsonl);
+
+      expect(result).toBeNull();
+    });
+
+    test("returns null when agent_end has no assistant text blocks", () => {
+      const jsonl = JSON.stringify({
+        type: "agent_end",
+        messages: [
+          {
+            role: "assistant",
+            content: [{ type: "thinking", thinking: "silent reasoning" }],
+          },
+        ],
+      });
+
+      const result = extractPiResult(jsonl);
+
+      expect(result).toBeNull();
     });
   });
 });
