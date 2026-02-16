@@ -843,14 +843,17 @@ describe("config command execution", () => {
   test("createRunConfig default deps call process exit on failure", async () => {
     const runConfigWithDefaults = createRunConfig();
     const originalExit = process.exit;
+    const originalError = p.log.error;
     process.exit = ((code?: number) => {
       throw new Error(`forced-exit:${code}`);
     }) as typeof process.exit;
+    p.log.error = () => {};
 
     try {
       await expect(runConfigWithDefaults(["wizard"])).rejects.toThrow("forced-exit:1");
     } finally {
       process.exit = originalExit;
+      p.log.error = originalError;
     }
   });
 
