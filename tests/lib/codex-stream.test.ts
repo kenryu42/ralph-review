@@ -209,6 +209,25 @@ describe("codex-stream", () => {
       expect(output).toContain("git status");
     });
 
+    test("formats item.started command when command is not shell wrapped", () => {
+      const event = {
+        type: "item.started" as const,
+        item: {
+          type: "command_execution" as const,
+          id: "item_3",
+          command: "git status --porcelain=v1",
+          aggregated_output: "",
+          exit_code: null as number | null,
+          status: "in_progress" as const,
+        },
+      };
+
+      const output = formatCodexEventForDisplay(event);
+
+      expect(output).toContain("Command:");
+      expect(output).toContain("git status --porcelain=v1");
+    });
+
     test("formats command_execution item.completed event with output", () => {
       const event = {
         type: "item.completed" as const,
@@ -226,6 +245,25 @@ describe("codex-stream", () => {
 
       expect(output).toContain("Output");
       expect(output).toContain("src/cli.ts");
+    });
+
+    test("formats command_execution item.completed event without aggregated output", () => {
+      const event = {
+        type: "item.completed" as const,
+        item: {
+          type: "command_execution" as const,
+          id: "item_4",
+          command: "git diff",
+          aggregated_output: "",
+          exit_code: 1,
+          status: "completed" as const,
+        },
+      };
+
+      const output = formatCodexEventForDisplay(event);
+
+      expect(output).toContain("Command: git diff");
+      expect(output).toContain("exit: 1");
     });
 
     test("formats agent_message item.completed event as result", () => {
