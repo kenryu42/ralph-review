@@ -7,7 +7,7 @@ import {
   formatPriorityCounts,
   formatStatus,
   markSessionStatsRunning,
-} from "@/commands/logs";
+} from "@/commands/log";
 import type { ActiveSession } from "@/lib/lockfile";
 import { getProjectName } from "@/lib/logger";
 import type { FixEntry, IterationEntry, SessionStats, SystemEntry } from "@/lib/types";

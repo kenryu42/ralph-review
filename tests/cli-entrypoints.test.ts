@@ -57,8 +57,8 @@ function createCliHarness(overrides: Partial<CliDeps> = {}): CliHarness {
     runStop: async (argv) => {
       calls.push(`stop:${argv.join(",")}`);
     },
-    runLogs: async (argv) => {
-      calls.push(`logs:${argv.join(",")}`);
+    runLog: async (argv) => {
+      calls.push(`log:${argv.join(",")}`);
     },
     runDashboard: async (argv) => {
       calls.push(`dashboard:${argv.join(",")}`);
@@ -169,7 +169,7 @@ describe("cli entrypoints", () => {
       { command: "_run-foreground", args: ["--max", "1"], expectedCall: "_run-foreground:--max,1" },
       { command: "status", args: [], expectedCall: "status" },
       { command: "stop", args: ["--all"], expectedCall: "stop:--all" },
-      { command: "logs", args: ["--json"], expectedCall: "logs:--json" },
+      { command: "log", args: ["--json"], expectedCall: "log:--json" },
       {
         command: "dashboard",
         args: ["--host", "127.0.0.1"],
@@ -268,6 +268,20 @@ describe("cli entrypoints", () => {
     await runCli([], harness.deps);
 
     expect(harness.errors).toEqual(["Unknown command: mystery"]);
+    expect(harness.logs).toEqual(["\nUSAGE"]);
+    expect(harness.exits).toEqual([1]);
+  });
+
+  test("treats renamed logs command as unknown", async () => {
+    const harness = createCliHarness({
+      parseArgs: () => ({ command: "logs", args: [], showHelp: false, showVersion: false }),
+      printUsage: () => "USAGE",
+      getCommandDef: () => undefined,
+    });
+
+    await runCli([], harness.deps);
+
+    expect(harness.errors).toEqual(["Unknown command: logs"]);
     expect(harness.logs).toEqual(["\nUSAGE"]);
     expect(harness.exits).toEqual([1]);
   });
