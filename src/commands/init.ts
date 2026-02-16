@@ -92,6 +92,117 @@ export interface AutoInitInputResult {
   skippedAgents: AgentType[];
 }
 
+interface InitPromptLogger {
+  info(message: string): void;
+  warn(message: string): void;
+  error(message: string): void;
+  message(message: string): void;
+  success(message: string): void;
+}
+
+interface InitPromptSpinner {
+  start(message: string): void;
+  stop(message: string): void;
+}
+
+interface InitSelectOption {
+  value: string;
+  label: string;
+  hint?: string;
+  disabled?: boolean;
+}
+
+interface InitSelectInput {
+  message: string;
+  options: InitSelectOption[];
+  initialValue?: string;
+}
+
+interface InitConfirmInput {
+  message: string;
+  initialValue?: boolean;
+}
+
+interface InitTextInput {
+  message: string;
+  placeholder?: string;
+  defaultValue?: string;
+  validate?: (value: string | undefined) => string | Error | undefined;
+}
+
+interface InitPromptRuntime {
+  intro(message: string): void;
+  outro(message: string): void;
+  cancel(message: string): void;
+  isCancel(value: unknown): boolean;
+  select(options: InitSelectInput): Promise<unknown>;
+  confirm(options: InitConfirmInput): Promise<unknown>;
+  text(options: InitTextInput): Promise<unknown>;
+  spinner(): InitPromptSpinner;
+  log: InitPromptLogger;
+}
+
+export interface InitRuntime {
+  prompt: InitPromptRuntime;
+  configExists: typeof configExists;
+  loadConfig: typeof loadConfig;
+  ensureConfigDir: typeof ensureConfigDir;
+  saveConfig: typeof saveConfig;
+  discoverAgentCapabilities: typeof discoverAgentCapabilities;
+  checkTmuxInstalled: typeof checkTmuxInstalled;
+  checkAllAgents: typeof checkAllAgents;
+  getTmuxInstallHint: typeof getTmuxInstallHint;
+  exit(code: number): never;
+}
+
+export interface InitRuntimeOverrides extends Partial<Omit<InitRuntime, "prompt">> {
+  prompt?: Partial<Omit<InitPromptRuntime, "log">> & {
+    log?: Partial<InitPromptLogger>;
+  };
+}
+
+const PROCESS_EXIT = process.exit.bind(process) as (code: number) => never;
+
+export function createInitRuntime(overrides: InitRuntimeOverrides = {}): InitRuntime {
+  const defaultPrompt: InitPromptRuntime = {
+    intro: p.intro,
+    outro: p.outro,
+    cancel: p.cancel,
+    isCancel: p.isCancel,
+    select: async (options) => p.select(options as Parameters<typeof p.select>[0]),
+    confirm: async (options) => p.confirm(options),
+    text: async (options) => p.text(options as Parameters<typeof p.text>[0]),
+    spinner: p.spinner,
+    log: {
+      info: p.log.info,
+      warn: p.log.warn,
+      error: p.log.error,
+      message: p.log.message,
+      success: p.log.success,
+    },
+  };
+
+  return {
+    prompt: {
+      ...defaultPrompt,
+      ...overrides.prompt,
+      log: {
+        ...defaultPrompt.log,
+        ...overrides.prompt?.log,
+      },
+    },
+    configExists: overrides.configExists ?? configExists,
+    loadConfig: overrides.loadConfig ?? loadConfig,
+    ensureConfigDir: overrides.ensureConfigDir ?? ensureConfigDir,
+    saveConfig: overrides.saveConfig ?? saveConfig,
+    discoverAgentCapabilities: overrides.discoverAgentCapabilities ?? discoverAgentCapabilities,
+    checkTmuxInstalled: overrides.checkTmuxInstalled ?? checkTmuxInstalled,
+    checkAllAgents: overrides.checkAllAgents ?? checkAllAgents,
+    getTmuxInstallHint: overrides.getTmuxInstallHint ?? getTmuxInstallHint,
+    exit: overrides.exit ?? PROCESS_EXIT,
+  };
+}
+
 const DEFAULT_MAX_ITERATIONS = 5;
 const DEFAULT_ITERATION_TIMEOUT_MINUTES = 30;
 
@@ -222,11 +333,20 @@ function buildAgentSelectOptions(availability: AgentAvailability) {
   }));
 }
 
-function handleCancel(value: unknown): void {
-  if (p.isCancel(value)) {
-    p.cancel("Setup cancelled.");
-    process.exit(0);
+function handleCancel(runtime: InitRuntime, value: unknown): void {
+  if (runtime.prompt.isCancel(value)) {
+    runtime.prompt.cancel("Setup cancelled.");
+    runtime.exit(0);
   }
+}
+
+function requireInitInput(runtime: InitRuntime, input: InitInput | undefined): InitInput {
+  if (!input) {
+    runtime.prompt.log.error("Setup input could not be created");
+    runtime.exit(1);
+  }
+
+  return input;
 }
 
 function selectReasoningInitialValue(levels: ReasoningLevel[]): ReasoningLevel {
@@ -234,6 +354,7 @@ function selectReasoningInitialValue(levels: ReasoningLevel[]): ReasoningLevel {
 }
 
 async function promptForReasoning(
+  runtime: InitRuntime,
   agent: AgentType,
   model: string,
   role: ConfiguredRole
@@ -243,7 +364,7 @@ async function promptForReasoning(
     return undefined;
   }
 
-  const reasoning = await p.select({
+  const reasoning = await runtime.prompt.select({
     message: `Select ${role} reasoning level`,
     options: levels.map((level) => ({
       value: level,
@@ -252,7 +373,7 @@ async function promptForReasoning(
     })),
     initialValue: selectReasoningInitialValue(levels),
   });
-  handleCancel(reasoning);
+  handleCancel(runtime, reasoning);
 
   return reasoning as ReasoningLevel;
 }
@@ -277,6 +398,7 @@ function decodePiSelection(value: string): { provider: string; model: string } |
 }
 
 async function promptForModel(
+  runtime: InitRuntime,
   agent: AgentType,
   role: ConfiguredRole,
   capabilitiesByAgent: AgentCapabilitiesMap,
@@ -288,11 +410,11 @@ async function promptForModel(
       : modelOptionsMap[agent as keyof typeof modelOptionsMap];
 
   if (staticOptions) {
-    const model = await p.select({
+    const model = await runtime.prompt.select({
       message: `Select ${role} model`,
       options: [...staticOptions],
     });
-    handleCancel(model);
+    handleCancel(runtime, model);
     return { model: model as string };
   }
 
@@ -300,10 +422,10 @@ async function promptForModel(
   if (agent === "opencode" || agent === "pi") {
     const needsProbe = !capability || capability.models.length === 0;
     if (needsProbe) {
-      const spinner = p.spinner();
+      const spinner = runtime.prompt.spinner();
       spinner.start(`Fetching ${getAgentDisplayName(agent)} models...`);
       try {
-        const discovered = await discoverAgentCapabilities({
+        const discovered = await runtime.discoverAgentCapabilities({
           availabilityOverride: availability,
           probeAgents: [agent],
           cacheNamespace: `init-custom-${agent}`,
@@ -313,34 +435,34 @@ async function promptForModel(
         spinner.stop("Models loaded");
       } catch (error) {
         spinner.stop("Failed to load models");
-        p.log.error(`${error}`);
-        process.exit(1);
+        runtime.prompt.log.error(`${error}`);
+        runtime.exit(1);
       }
     }
   }
 
   if (!capability) {
-    p.log.error(`Unable to inspect ${getAgentDisplayName(agent)} capabilities.`);
-    process.exit(1);
+    runtime.prompt.log.error(`Unable to inspect ${getAgentDisplayName(agent)} capabilities.`);
+    runtime.exit(1);
   }
 
   if (capability.models.length === 0) {
-    p.log.error(`No models available from ${getAgentDisplayName(agent)}.`);
+    runtime.prompt.log.error(`No models available from ${getAgentDisplayName(agent)}.`);
     capability.probeWarnings.forEach((warning) => {
-      p.log.message(`  ${warning}`);
+      runtime.prompt.log.message(`  ${warning}`);
     });
-    process.exit(1);
+    runtime.exit(1);
   }
 
   if (agent === "opencode") {
-    const model = await p.select({
+    const model = await runtime.prompt.select({
       message: `Select ${role} model`,
       options: capability.models.map((entry) => ({
         value: entry.model,
         label: entry.model,
       })),
     });
-    handleCancel(model);
+    handleCancel(runtime, model);
     return { model: model as string };
   }
 
@@ -349,8 +471,8 @@ async function promptForModel(
       typeof entry.provider === "string" && entry.provider.trim().length > 0
   );
   if (piModels.length === 0) {
-    p.log.error("No provider/model entries were discovered for Pi.");
-    process.exit(1);
+    runtime.prompt.log.error("No provider/model entries were discovered for Pi.");
+    runtime.exit(1);
   }
 
   const piOptions = piModels.map((entry) => ({
@@ -362,16 +484,16 @@ async function promptForModel(
     hint: entry.provider,
   }));
 
-  const rawSelection = await p.select({
+  const rawSelection = await runtime.prompt.select({
     message: `Select ${role} model`,
     options: piOptions,
   });
-  handleCancel(rawSelection);
+  handleCancel(runtime, rawSelection);
 
   const selection = decodePiSelection(rawSelection as string);
   if (!selection) {
-    p.log.error("Invalid Pi model selection");
-    process.exit(1);
+    runtime.prompt.log.error("Invalid Pi model selection");
+    runtime.exit(1);
   }
 
   return selection;
@@ -632,8 +754,12 @@ export async function buildAutoInitInput(
   };
 }
 
-async function promptForNumericSetting(message: string, defaultValue: number): Promise<number> {
-  const value = await p.text({
+async function promptForNumericSetting(
+  runtime: InitRuntime,
+  message: string,
+  defaultValue: number
+): Promise<number> {
+  const value = await runtime.prompt.text({
     message,
     placeholder: "Press enter for default",
     defaultValue: String(defaultValue),
@@ -647,81 +773,94 @@ async function promptForNumericSetting(message: string, defaultValue: number): P
       }
     },
   });
-  handleCancel(value);
+  handleCancel(runtime, value);
 
   return Number.parseInt(value as string, 10);
 }
 
 async function promptForCustomInitInput(
+  runtime: InitRuntime,
   selectOptions: ReturnType<typeof buildAgentSelectOptions>,
   capabilitiesByAgent: AgentCapabilitiesMap,
   availability: AgentAvailability
 ) {
-  const reviewerAgent = await p.select({
+  const reviewerAgent = await runtime.prompt.select({
     message: "Select reviewer agent",
     options: selectOptions,
   });
-  handleCancel(reviewerAgent);
+  handleCancel(runtime, reviewerAgent);
   const reviewerAgentValue = reviewerAgent as AgentType;
 
   const reviewerSelection = await promptForModel(
+    runtime,
     reviewerAgentValue,
     "reviewer",
     capabilitiesByAgent,
     availability
   );
   const reviewerReasoning = await promptForReasoning(
+    runtime,
     reviewerAgentValue,
     reviewerSelection.model,
     "reviewer"
   );
 
-  const fixerAgent = await p.select({
+  const fixerAgent = await runtime.prompt.select({
     message: "Select fixer agent",
     options: selectOptions,
   });
-  handleCancel(fixerAgent);
+  handleCancel(runtime, fixerAgent);
   const fixerAgentValue = fixerAgent as AgentType;
 
   const fixerSelection = await promptForModel(
+    runtime,
     fixerAgentValue,
     "fixer",
     capabilitiesByAgent,
     availability
   );
-  const fixerReasoning = await promptForReasoning(fixerAgentValue, fixerSelection.model, "fixer");
+  const fixerReasoning = await promptForReasoning(
+    runtime,
+    fixerAgentValue,
+    fixerSelection.model,
+    "fixer"
+  );
 
-  const simplifierAgent = await p.select({
+  const simplifierAgent = await runtime.prompt.select({
     message: "Select code simplifier agent",
     options: selectOptions,
   });
-  handleCancel(simplifierAgent);
+  handleCancel(runtime, simplifierAgent);
   const simplifierAgentValue = simplifierAgent as AgentType;
 
   const simplifierSelection = await promptForModel(
+    runtime,
     simplifierAgentValue,
     "code-simplifier",
     capabilitiesByAgent,
     availability
   );
   const simplifierReasoning = await promptForReasoning(
+    runtime,
     simplifierAgentValue,
     simplifierSelection.model,
     "code-simplifier"
   );
 
   const maxIterations = await promptForNumericSetting(
+    runtime,
     `Maximum iterations (default: ${DEFAULT_CONFIG.maxIterations ?? DEFAULT_MAX_ITERATIONS})`,
     DEFAULT_CONFIG.maxIterations ?? DEFAULT_MAX_ITERATIONS
   );
 
   const defaultTimeoutMinutes = (DEFAULT_CONFIG.iterationTimeout ?? 1800000) / 1000 / 60;
   const iterationTimeoutMinutes = await promptForNumericSetting(
+    runtime,
     `Timeout per iteration in minutes (default: ${defaultTimeoutMinutes})`,
     defaultTimeoutMinutes
   );
 
-  const defaultReviewType = await p.select({
+  const defaultReviewType = await runtime.prompt.select({
     message: "Default review mode for 'rr run'",
     options: [
       { value: "uncommitted", label: "Uncommitted changes", hint: "staged, unstaged, untracked" },
@@ -729,11 +868,11 @@ async function promptForCustomInitInput(
     ],
     initialValue: "uncommitted",
   });
-  handleCancel(defaultReviewType);
+  handleCancel(runtime, defaultReviewType);
 
   let defaultReviewBranch: string | undefined;
   if (defaultReviewType === "base") {
-    defaultReviewBranch = (await p.text({
+    defaultReviewBranch = (await runtime.prompt.text({
       message: "Base branch name",
       placeholder: "main",
       defaultValue: "main",
@@ -743,14 +882,14 @@ async function promptForCustomInitInput(
         }
       },
     })) as string;
-    handleCancel(defaultReviewBranch);
+    handleCancel(runtime, defaultReviewBranch);
   }
 
-  const runSimplifierByDefault = await p.confirm({
+  const runSimplifierByDefault = await runtime.prompt.confirm({
     message: "Enable code simplifier by default for 'rr run'?",
     initialValue: false,
   });
-  handleCancel(runSimplifierByDefault);
+  handleCancel(runtime, runSimplifierByDefault);
 
   return {
     reviewerAgent: reviewerAgentValue,
@@ -774,59 +913,65 @@ async function promptForCustomInitInput(
   } satisfies InitInput;
 }
 
-async function promptForSoundNotifications(defaultValue: boolean): Promise<boolean> {
-  const shouldEnable = await p.confirm({
+async function promptForSoundNotifications(
+  runtime: InitRuntime,
+  defaultValue: boolean
+): Promise<boolean> {
+  const shouldEnable = await runtime.prompt.confirm({
     message: "Play sound when review session finishes?",
     initialValue: defaultValue,
   });
-  handleCancel(shouldEnable);
+  handleCancel(runtime, shouldEnable);
   return shouldEnable as boolean;
 }
 
-export async function runInit(): Promise<void> {
-  p.intro("Ralph Review Setup");
+export async function runInitWithRuntime(
+  runtimeOverrides: InitRuntimeOverrides = {}
+): Promise<void> {
+  const runtime = createInitRuntime(runtimeOverrides);
+  runtime.prompt.intro("Ralph Review Setup");
 
-  if (await configExists()) {
-    const existingConfig = await loadConfig();
+  if (await runtime.configExists()) {
+    const existingConfig = await runtime.loadConfig();
     if (existingConfig) {
-      p.log.info(`Current configuration:\n${formatConfigDisplay(existingConfig)}`);
+      runtime.prompt.log.info(`Current configuration:\n${formatConfigDisplay(existingConfig)}`);
     }
 
-    const shouldOverwrite = await p.confirm({
+    const shouldOverwrite = await runtime.prompt.confirm({
       message: "Configuration already exists. Overwrite?",
       initialValue: false,
     });
 
-    handleCancel(shouldOverwrite);
+    handleCancel(runtime, shouldOverwrite);
 
     if (!shouldOverwrite) {
-      p.cancel("Setup cancelled.");
+      runtime.prompt.cancel("Setup cancelled.");
       return;
     }
   }
 
-  if (!checkTmuxInstalled()) {
-    const installHint = getTmuxInstallHint();
-    p.log.warn(
+  if (!runtime.checkTmuxInstalled()) {
+    const installHint = runtime.getTmuxInstallHint();
+    runtime.prompt.log.warn(
       "tmux is not installed.\n" +
         `   Install with: ${installHint}\n` +
         "   (Required for background review sessions)"
     );
   }
 
-  const agentAvailability = checkAllAgents();
+  const agentAvailability = runtime.checkAllAgents();
   const availableCount = Object.values(agentAvailability).filter(Boolean).length;
   if (availableCount === 0) {
-    p.log.error(
+    runtime.prompt.log.error(
       "No supported agents are installed.\n" +
         "   Install at least one of: codex, claude, opencode, droid, gemini, pi"
     );
-    process.exit(1);
+    runtime.exit(1);
   }
 
   const selectOptions = buildAgentSelectOptions(agentAvailability);
 
-  const setupMode = await p.select({
+  const setupMode = await runtime.prompt.select({
     message: "Choose setup mode",
     options: [
       { value: "auto", label: "Auto Setup", hint: "recommended" },
@@ -834,14 +979,14 @@ export async function runInit(): Promise<void> {
     ],
     initialValue: "auto",
   });
-  handleCancel(setupMode);
+  handleCancel(runtime, setupMode);
 
-  let input: InitInput;
+  let input: InitInput | undefined;
   if (setupMode === "auto") {
-    const spinner = p.spinner();
+    const spinner = runtime.prompt.spinner();
     spinner.start("Detecting installed models and building automatic configuration...");
     try {
-      const capabilitiesByAgent = await discoverAgentCapabilities({
+      const capabilitiesByAgent = await runtime.discoverAgentCapabilities({
         availabilityOverride: agentAvailability,
         probeAgents: ["opencode", "pi"],
         cacheNamespace: "init-auto",
@@ -852,51 +997,67 @@ export async function runInit(): Promise<void> {
         const skipped = autoResult.skippedAgents
           .map((agent) => getAgentDisplayName(agent))
           .join(", ");
-        p.log.warn(`Skipped agents during automatic setup: ${skipped}`);
+        runtime.prompt.log.warn(`Skipped agents during automatic setup: ${skipped}`);
         autoResult.skippedAgents.forEach((agent) => {
           const warningList = capabilitiesByAgent[agent].probeWarnings;
           warningList.forEach((warning) => {
-            p.log.message(`  ${warning}`);
+            runtime.prompt.log.message(`  ${warning}`);
           });
         });
       }
       spinner.stop("Automatic configuration ready");
     } catch (error) {
       spinner.stop("Automatic setup failed");
-      p.log.error(`${error}`);
-      process.exit(1);
+      runtime.prompt.log.error(`${error}`);
+      runtime.exit(1);
     }
-  } else {
-    const capabilitiesByAgent = await discoverAgentCapabilities({
+  } else if (setupMode === "custom") {
+    const capabilitiesByAgent = await runtime.discoverAgentCapabilities({
       availabilityOverride: agentAvailability,
       probeAgents: [],
       cacheNamespace: "init-custom",
     });
-    input = await promptForCustomInitInput(selectOptions, capabilitiesByAgent, agentAvailability);
+    input = await promptForCustomInitInput(
+      runtime,
+      selectOptions,
+      capabilitiesByAgent,
+      agentAvailability
+    );
+  } else {
+    runtime.prompt.log.error("Invalid setup mode selection");
+    runtime.exit(1);
   }
 
-  input = {
-    ...input,
-    soundNotificationsEnabled: await promptForSoundNotifications(input.soundNotificationsEnabled),
+  const resolvedInput = requireInitInput(runtime, input);
+  const inputWithSound: InitInput = {
+    ...resolvedInput,
+    soundNotificationsEnabled: await promptForSoundNotifications(
+      runtime,
+      resolvedInput.soundNotificationsEnabled
+    ),
   };
 
-  const config = buildConfig(input);
-  p.log.info(`Proposed configuration:\n${formatConfigDisplay(config)}`);
+  const config = buildConfig(inputWithSound);
+  runtime.prompt.log.info(`Proposed configuration:\n${formatConfigDisplay(config)}`);
 
-  const shouldSave = await p.confirm({
+  const shouldSave = await runtime.prompt.confirm({
     message: "Save this configuration?",
     initialValue: true,
   });
-  handleCancel(shouldSave);
+  handleCancel(runtime, shouldSave);
 
   if (!shouldSave) {
-    p.cancel("Setup cancelled.");
+    runtime.prompt.cancel("Setup cancelled.");
     return;
   }
 
-  await ensureConfigDir();
-  await saveConfig(config);
+  await runtime.ensureConfigDir();
+  await runtime.saveConfig(config);
 
-  p.log.success(`Configuration saved to ${CONFIG_PATH}`);
-  p.outro("You can now run: rr run");
+  runtime.prompt.log.success(`Configuration saved to ${CONFIG_PATH}`);
+  runtime.prompt.outro("You can now run: rr run");
+}
+
+export async function runInit(): Promise<void> {
+  await runInitWithRuntime();
 }
