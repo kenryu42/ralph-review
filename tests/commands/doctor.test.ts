@@ -135,6 +135,26 @@ describe("doctor command", () => {
     expect(runtime.successes).toEqual(["Doctor completed. Environment is ready."]);
   });
 
+  test("renders diagnostic details when present", async () => {
+    const report = createReport([
+      {
+        id: "config-missing",
+        category: "config",
+        title: "Configuration file",
+        severity: "error",
+        summary: "Configuration file was not found.",
+        details: "Expected .ralph.json in the project root.",
+        remediation: ["Run rr init before running rr run."],
+      },
+    ]);
+    const runtime = createRuntime(report);
+
+    await runDoctor([], runtime.overrides);
+
+    const configNote = runtime.notes.find((entry) => entry.title === "⚙️ Config");
+    expect(configNote?.body).toContain("Expected .ralph.json in the project root.");
+  });
+
   test("uses structured context metadata to render agent installation status", async () => {
     const report = createReport([
       {
@@ -179,6 +199,69 @@ describe("doctor command", () => {
     expect(agentsNote?.body).toContain("🔳 claude");
   });
 
+  test("renders remediation steps when installed agent count is an error", async () => {
+    const report = createReport([
+      {
+        id: "agent-codex-binary",
+        category: "agents",
+        title: "codex binary",
+        severity: "ok",
+        summary: "Command 'codex' is installed.",
+        remediation: [],
+        context: {
+          agent: "codex",
+          installed: true,
+        },
+      },
+      {
+        id: "agents-installed-count",
+        category: "agents",
+        title: "Installed coding agents",
+        severity: "error",
+        summary: "No supported coding agents are installed.",
+        remediation: ["Run: brew install codex", "Then run: rr doctor --fix"],
+      },
+    ]);
+    const runtime = createRuntime(report);
+
+    await runDoctor([], runtime.overrides);
+
+    const agentsNote = runtime.notes.find((entry) => entry.title === "🤖 Agents");
+    expect(agentsNote?.body).toContain("→ Run: brew install codex");
+    expect(agentsNote?.body).toContain("→ Then run: rr doctor --fix");
+  });
+
+  test("separates supplemental agent items after binary status entries", async () => {
+    const report = createReport([
+      {
+        id: "agent-codex-binary",
+        category: "agents",
+        title: "codex binary",
+        severity: "ok",
+        summary: "Command 'codex' is installed.",
+        remediation: [],
+        context: {
+          agent: "codex",
+          installed: true,
+        },
+      },
+      {
+        id: "agent-opencode-probe",
+        category: "agents",
+        title: "opencode capability probe",
+        severity: "warning",
+        summary: "Model discovery probe returned warnings.",
+        remediation: ["Run: codex --version"],
+      },
+    ]);
+    const runtime = createRuntime(report);
+
+    await runDoctor([], runtime.overrides);
+
+    const agentsNote = runtime.notes.find((entry) => entry.title === "🤖 Agents");
+    expect(agentsNote?.body).toContain("✅ codex\n\n⚠️ Model discovery probe returned warnings.");
+  });
+
   test("stops spinner even when runDiagnostics throws", async () => {
     const report = createReport([]);
     const runtime = createRuntime(report);
@@ -192,6 +275,34 @@ describe("doctor command", () => {
 
     expect(runtime.spinnerStarts).toEqual(["Running diagnostics..."]);
     expect(runtime.spinnerStops).toEqual(["Diagnostics complete."]);
+  });
+
+  test("uses default diagnostics and spinner when those overrides are not provided", async () => {
+    const originalCwd = process.cwd();
+    const exits: number[] = [];
+
+    try {
+      process.chdir("/tmp");
+
+      await runDoctor([], {
+        intro: () => {},
+        note: () => {},
+        log: {
+          error: () => {},
+          warn: () => {},
+          success: () => {},
+          info: () => {},
+          step: () => {},
+        },
+        exit: (code: number) => {
+          exits.push(code);
+        },
+      });
+    } finally {
+      process.chdir(originalCwd);
+    }
+
+    expect(exits).toEqual([1]);
   });
 });
 
@@ -291,6 +402,72 @@ describe("doctor --fix", () => {
     );
     expect(runtime.notes.some((n) => n.title === "🧭 Next actions")).toBe(true);
     expect(runtime.exits).toEqual([1]);
+  });
+
+  test("continues remediation when unresolved fixable set size changes", async () => {
+    const passOneReport = createReport([
+      {
+        id: "tmux-installed",
+        category: "tmux",
+        title: "tmux availability",
+        severity: "error",
+        summary: "tmux is not installed.",
+        remediation: ["Run: brew install tmux", "Then run: rr doctor --fix"],
+      },
+    ]);
+    const passTwoReport = createReport([
+      {
+        id: "tmux-installed",
+        category: "tmux",
+        title: "tmux availability",
+        severity: "error",
+        summary: "tmux is not installed.",
+        remediation: ["Run: brew install tmux", "Then run: rr doctor --fix"],
+      },
+      {
+        id: "config-missing",
+        category: "config",
+        title: "Configuration file",
+        severity: "error",
+        summary: "Configuration file was not found.",
+        remediation: ["Run: rr init", "Then run: rr doctor --fix"],
+      },
+    ]);
+    const cleanReport = createReport([
+      {
+        id: "config-valid",
+        category: "config",
+        title: "Configuration file",
+        severity: "ok",
+        summary: "Configuration loaded successfully.",
+        remediation: [],
+      },
+    ]);
+
+    const runtime = createRuntime(passOneReport);
+    let diagnosticsRunCount = 0;
+    runtime.overrides.runDiagnostics = async () => {
+      diagnosticsRunCount++;
+      if (diagnosticsRunCount === 1) return passOneReport;
+      if (diagnosticsRunCount === 2) return passTwoReport;
+      return cleanReport;
+    };
+
+    runtime.overrides.applyFixes = async (items: DiagnosticItem[]): Promise<FixResult[]> =>
+      items.map((item) => ({
+        id: item.id,
+        success: true,
+        message: `Fixed ${item.id}`,
+      }));
+
+    await runDoctor(["--fix"], runtime.overrides);
+
+    expect(diagnosticsRunCount).toBe(3);
+    expect(runtime.steps).toEqual(["Remediation pass 1/3", "Remediation pass 2/3"]);
+    expect(runtime.infos.some((line) => line.includes("No remediation progress detected"))).toBe(
+      false
+    );
+    expect(runtime.successes).toContain("Doctor completed. Environment is ready.");
   });
 
   test("stops remediation when unresolved IDs do not change, even after a reported success", async () => {
