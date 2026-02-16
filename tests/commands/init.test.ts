@@ -399,6 +399,24 @@ describe("init command", () => {
       expect(config.notifications.sound.enabled).toBe(true);
     });
 
+    test("throws when pi settings are missing provider", () => {
+      expect(() =>
+        buildConfig({
+          reviewerAgent: "pi",
+          reviewerModel: "claude-opus-4-6",
+          fixerAgent: "codex",
+          fixerModel: "gpt-5.3-codex",
+          simplifierAgent: "codex",
+          simplifierModel: "gpt-5.3-codex",
+          maxIterations: 3,
+          iterationTimeoutMinutes: 10,
+          defaultReviewType: "uncommitted",
+          runSimplifierByDefault: false,
+          soundNotificationsEnabled: true,
+        })
+      ).toThrow("Pi agent requires provider and model");
+    });
+
     test("creates config with base branch default review", () => {
       const config = buildConfig({
         reviewerAgent: "codex",
@@ -451,6 +469,21 @@ describe("init command", () => {
 
       expect(rank53).toBeLessThan(rank52);
       expect(rank52).toBeLessThan(rank52Codex);
+    });
+
+    test("fixer model priority matches claude, codex, and gemini in order", () => {
+      expect(getRoleModelPriorityRank("fixer", "claude-opus-4-6")).toBe(0);
+      expect(getRoleModelPriorityRank("fixer", "provider/gpt-5.3-codex")).toBe(1);
+      expect(getRoleModelPriorityRank("fixer", "gemini-3-pro-preview")).toBe(2);
+      expect(getRoleModelPriorityRank("fixer", "unknown-model")).toBe(3);
+    });
+
+    test("simplifier model priority matches opus 4.6, codex, opus 4.5 family, then gpt-5.2 codex", () => {
+      expect(getRoleModelPriorityRank("code-simplifier", "claude-opus-4-6")).toBe(0);
+      expect(getRoleModelPriorityRank("code-simplifier", "gpt-5.3-codex")).toBe(1);
+      expect(getRoleModelPriorityRank("code-simplifier", "claude-opus-4-5-20251101")).toBe(2);
+      expect(getRoleModelPriorityRank("code-simplifier", "gpt-5.2-codex")).toBe(3);
+      expect(getRoleModelPriorityRank("code-simplifier", "unknown-model")).toBe(4);
     });
 
     test("uses model-first when model and agent priorities conflict", () => {
@@ -692,6 +725,21 @@ describe("init command", () => {
       expect(harness.infos[0]).toContain("Current configuration:");
       expect(harness.infos[0]).toContain("llm-proxy/gemini_cli/gemini-3-flash-preview");
       expect(harness.cancels).toEqual(["Setup cancelled."]);
+      expect(harness.savedConfigs).toHaveLength(0);
+      expect(harness.ensureConfigDirCalls).toBe(0);
+    });
+
+    test("cancels when overwrite is declined and existing config cannot be loaded", async () => {
+      const harness = createInitHarness({
+        configExists: true,
+        existingConfig: null,
+        confirmResponses: [false],
+      });
+
+      await runInitWithRuntime(harness.overrides);
+
+      expect(harness.cancels).toEqual(["Setup cancelled."]);
+      expect(harness.infos).toHaveLength(0);
       expect(harness.savedConfigs).toHaveLength(0);
       expect(harness.ensureConfigDirCalls).toBe(0);
     });
@@ -975,6 +1023,84 @@ describe("init command", () => {
       expect(harness.exits).toContain(1);
     });
 
+    test("exits when pi selection has blank provider", async () => {
+      const harness = createInitHarness({
+        availability: createAvailability({ pi: true }),
+        capabilities: createCapabilities(),
+        selectResponses: [
+          "custom",
+          "pi",
+          JSON.stringify({ provider: " ", model: "claude-opus-4-6" }),
+        ],
+      });
+
+      await expect(runInitWithRuntime(harness.overrides)).rejects.toThrow("forced-exit:1");
+      expect(harness.errors).toContain("Invalid Pi model selection");
+      expect(harness.exits).toContain(1);
+    });
+
+    test("exits when pi selection has non-string provider/model", async () => {
+      const harness = createInitHarness({
+        availability: createAvailability({ pi: true }),
+        capabilities: createCapabilities(),
+        selectResponses: [
+          "custom",
+          "pi",
+          JSON.stringify({ provider: 123, model: "claude-opus-4-6" }),
+        ],
+      });
+
+      await expect(runInitWithRuntime(harness.overrides)).rejects.toThrow("forced-exit:1");
+      expect(harness.errors).toContain("Invalid Pi model selection");
+      expect(harness.exits).toContain(1);
+    });
+
+    test("runs custom setup with pi models and saves provider/model selections", async () => {
+      const harness = createInitHarness({
+        availability: createAvailability({ pi: true }),
+        capabilities: createCapabilities(),
+        selectResponses: [
+          "custom",
+          "pi",
+          JSON.stringify({ provider: "anthropic", model: "claude-opus-4-6" }),
+          "high",
+          "pi",
+          JSON.stringify({ provider: "anthropic", model: "claude-opus-4-6" }),
+          "medium",
+          "pi",
+          JSON.stringify({ provider: "anthropic", model: "claude-opus-4-6" }),
+          "low",
+          "uncommitted",
+        ],
+        textResponses: ["3", "10"],
+        confirmResponses: [false, true, true],
+      });
+
+      await runInitWithRuntime(harness.overrides);
+
+      const saved = harness.savedConfigs[0];
+      expect(saved).toBeDefined();
+      expect(saved?.reviewer).toEqual({
+        agent: "pi",
+        provider: "anthropic",
+        model: "claude-opus-4-6",
+        reasoning: "high",
+      });
+      expect(saved?.fixer).toEqual({
+        agent: "pi",
+        provider: "anthropic",
+        model: "claude-opus-4-6",
+        reasoning: "medium",
+      });
+      expect(saved?.["code-simplifier"]).toEqual({
+        agent: "pi",
+        provider: "anthropic",
+        model: "claude-opus-4-6",
+        reasoning: "low",
+      });
+      expect(saved?.notifications.sound.enabled).toBe(true);
+    });
+
     test("cancels after proposed config when save is declined", async () => {
       const harness = createInitHarness({
         availability: createAvailability({ codex: true }),
@@ -999,6 +1125,56 @@ describe("init command", () => {
       await expect(runInitWithRuntime(harness.overrides)).rejects.toThrow("forced-exit:0");
       expect(harness.cancels).toContain("Setup cancelled.");
       expect(harness.exits).toContain(0);
+    });
+
+    test("logs invalid setup mode and missing setup input", async () => {
+      const errors: string[] = [];
+      const exits: number[] = [];
+      let exitCount = 0;
+
+      await expect(
+        runInitWithRuntime({
+          prompt: {
+            intro: () => {},
+            outro: () => {},
+            cancel: () => {},
+            isCancel: () => false,
+            select: async () => "invalid-mode",
+            confirm: async () => true,
+            text: async () => "main",
+            spinner: () => ({
+              start: () => {},
+              stop: () => {},
+            }),
+            log: {
+              info: () => {},
+              warn: () => {},
+              error: (message) => {
+                errors.push(message);
+              },
+              message: () => {},
+              success: () => {},
+            },
+          },
+          configExists: async () => false,
+          checkTmuxInstalled: () => true,
+          checkAllAgents: () => createAvailability({ codex: true }),
+          discoverAgentCapabilities: async () => createCapabilities(),
+          ensureConfigDir: async () => {},
+          saveConfig: async () => {},
+          exit: ((code: number) => {
+            exits.push(code);
+            exitCount += 1;
+            if (exitCount >= 2) {
+              throw new Error(`forced-exit:${code}`);
+            }
+          }) as InitRuntimeOverrides["exit"],
+        })
+      ).rejects.toThrow("forced-exit:1");
+
+      expect(errors).toContain("Invalid setup mode selection");
+      expect(errors).toContain("Setup input could not be created");
+      expect(exits).toEqual([1, 1]);
     });
   });
 });
