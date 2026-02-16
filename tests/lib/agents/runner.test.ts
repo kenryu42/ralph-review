@@ -59,6 +59,21 @@ function createMockProcess(
   } as unknown as SpawnProcess;
 }
 
+async function withMutedTerminalStreams<T>(run: () => Promise<T>): Promise<T> {
+  const originalStdoutWrite = process.stdout.write;
+  const originalStderrWrite = process.stderr.write;
+
+  process.stdout.write = (() => true) as typeof process.stdout.write;
+  process.stderr.write = (() => true) as typeof process.stderr.write;
+
+  try {
+    return await run();
+  } finally {
+    process.stdout.write = originalStdoutWrite;
+    process.stderr.write = originalStderrWrite;
+  }
+}
+
 beforeEach(() => {
   originalCodexModule = AGENTS.codex;
   originalPiModule = AGENTS.pi;
@@ -143,7 +158,9 @@ describe("runAgent", () => {
       );
     }) as typeof Bun.spawn;
 
-    const result = await runAgent("reviewer", baseConfig, "review prompt", 5000, reviewOptions);
+    const result = await withMutedTerminalStreams(() =>
+      runAgent("reviewer", baseConfig, "review prompt", 5000, reviewOptions)
+    );
 
     expect(buildEnvReasoning).toBe("high");
     expect(spawnCommand).toEqual(["mock-codex-command", "--model", "gpt-5.2-codex"]);
@@ -176,7 +193,7 @@ describe("runAgent", () => {
       return createMockProcess(createTextStream("ok\n"), null, Promise.resolve(0));
     }) as typeof Bun.spawn;
 
-    const result = await runAgent("reviewer", baseConfig);
+    const result = await withMutedTerminalStreams(() => runAgent("reviewer", baseConfig));
 
     expect(capturedPrompt).toBe("");
     expect(result.success).toBe(true);
@@ -213,7 +230,9 @@ describe("runAgent", () => {
       return createMockProcess(createTextStream("pi output\n"), null, Promise.resolve(0));
     }) as typeof Bun.spawn;
 
-    const result = await runAgent("reviewer", piConfig, "pi prompt", 5000);
+    const result = await withMutedTerminalStreams(() =>
+      runAgent("reviewer", piConfig, "pi prompt", 5000)
+    );
 
     expect(capturedProvider).toBe("openai");
     expect(result.success).toBe(true);
@@ -234,7 +253,9 @@ describe("runAgent", () => {
       return createMockProcess(createErroringStream(20), null, Promise.resolve(0));
     }) as typeof Bun.spawn;
 
-    const result = await runAgent("reviewer", baseConfig, "slow prompt", 1);
+    const result = await withMutedTerminalStreams(() =>
+      runAgent("reviewer", baseConfig, "slow prompt", 1)
+    );
 
     expect(result.success).toBe(false);
     expect(result.exitCode).toBe(124);
@@ -256,7 +277,9 @@ describe("runAgent", () => {
       throw new Error("spawn exploded");
     }) as typeof Bun.spawn;
 
-    const result = await runAgent("reviewer", baseConfig, "prompt", 5000);
+    const result = await withMutedTerminalStreams(() =>
+      runAgent("reviewer", baseConfig, "prompt", 5000)
+    );
 
     expect(result.success).toBe(false);
     expect(result.exitCode).toBe(1);
