@@ -127,7 +127,7 @@ src/
 ├── cli.ts              # Entry point, argument parsing
 ├── cli-core.ts         # CLI utilities (version, help, commands)
 ├── cli-rrr.ts          # Quick run alias entry point
-├── commands/           # CLI subcommands (init, run, stop, status, logs, list, dashboard)
+├── commands/           # CLI subcommands (init, run, stop, status, log, list, dashboard)
 └── lib/                # Core logic
     ├── types/          # Type definitions (Config, AgentType, etc.)
     ├── agents/         # Agent implementations (claude, codex, etc.)

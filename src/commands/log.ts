@@ -303,16 +303,16 @@ function renderTerminalSession(
   p.outro("");
 }
 
-export async function runLogs(args: string[]): Promise<void> {
-  const logsDef = getCommandDef("logs");
-  if (!logsDef) {
-    p.log.error("Internal error: logs command definition not found");
+export async function runLog(args: string[]): Promise<void> {
+  const logDef = getCommandDef("log");
+  if (!logDef) {
+    p.log.error("Internal error: log command definition not found");
     process.exit(1);
   }
 
   let options: LogsOptions;
   try {
-    const result = parseCommand<LogsOptions>(logsDef, args);
+    const result = parseCommand<LogsOptions>(logDef, args);
     options = result.values;
   } catch (error) {
     p.log.error(`${error}`);

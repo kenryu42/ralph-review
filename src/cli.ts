@@ -7,7 +7,7 @@ import { runDashboard } from "./commands/dashboard";
 import { runDoctor } from "./commands/doctor";
 import { runInit } from "./commands/init";
 import { runList } from "./commands/list";
-import { runLogs } from "./commands/logs";
+import { runLog } from "./commands/log";
 import { runForeground, startReview } from "./commands/run";
 import { runStatus } from "./commands/status";
 import { runStop } from "./commands/stop";
@@ -37,7 +37,7 @@ export interface CliDeps {
   runForeground: typeof runForeground;
   runStatus: typeof runStatus;
   runStop: typeof runStop;
-  runLogs: typeof runLogs;
+  runLog: typeof runLog;
   runDashboard: typeof runDashboard;
   runDoctor: typeof runDoctor;
   runList: typeof runList;
@@ -65,7 +65,7 @@ const DEFAULT_CLI_DEPS: CliDeps = {
   runForeground,
   runStatus,
   runStop,
-  runLogs,
+  runLog,
   runDashboard,
   runDoctor,
   runList,
@@ -153,8 +153,8 @@ export async function runCli(
         await cliDeps.runStop(commandArgs);
         break;
 
-      case "logs":
-        await cliDeps.runLogs(commandArgs);
+      case "log":
+        await cliDeps.runLog(commandArgs);
         break;
 
       case "dashboard":

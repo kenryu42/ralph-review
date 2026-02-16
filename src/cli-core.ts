@@ -104,7 +104,7 @@ export const COMMANDS: CommandDef[] = [
     examples: ["rr stop", "rr stop --all"],
   },
   {
-    name: "logs",
+    name: "log",
     description: "View review logs",
     options: [
       { name: "json", type: "boolean", description: "Output as JSON" },
@@ -121,7 +121,7 @@ export const COMMANDS: CommandDef[] = [
         description: "Show all sessions across all projects (requires --json)",
       },
     ],
-    examples: ["rr logs", "rr logs -n 5", "rr logs --json", "rr logs --json --global"],
+    examples: ["rr log", "rr log -n 5", "rr log --json", "rr log --json --global"],
   },
   {
     name: "dashboard",

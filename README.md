@@ -109,13 +109,13 @@ rr stop --force  # Force kill immediately
 
 ```bash
 # Open latest log in browser
-rr logs
+rr log
 
 # List all log sessions
-rr logs --list
+rr log --list
 
 # Open specific log session
-rr logs <timestamp>
+rr log <timestamp>
 ```
 
 ## How It Works
@@ -184,8 +184,8 @@ rr config edit
 | `rr status` | Show current status |
 | `rr stop` | Graceful stop |
 | `rr stop --force` | Force kill |
-| `rr logs` | Open latest log |
-| `rr logs --list` | List all logs |
+| `rr log` | Open latest log |
+| `rr log --list` | List all logs |
 | `rr doctor` | Run setup and runtime diagnostics |
 | `rr --help` | Show help |
 | `rr --version` | Show version |
