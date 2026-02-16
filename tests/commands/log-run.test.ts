@@ -79,6 +79,21 @@ async function captureJsonOutput(run: () => Promise<void>): Promise<unknown[]> {
   return outputs;
 }
 
+async function withMutedTerminalLogs<T>(run: () => Promise<T>): Promise<T> {
+  const originalStdoutWrite = process.stdout.write;
+  const originalStderrWrite = process.stderr.write;
+
+  process.stdout.write = (() => true) as typeof process.stdout.write;
+  process.stderr.write = (() => true) as typeof process.stderr.write;
+
+  try {
+    return await run();
+  } finally {
+    process.stdout.write = originalStdoutWrite;
+    process.stderr.write = originalStderrWrite;
+  }
+}
+
 async function captureExitCode(run: () => Promise<void>): Promise<number | undefined> {
   const originalExit = process.exit;
   process.exit = ((code?: number) => {
@@ -156,25 +171,31 @@ afterEach(async () => {
 
 describe("runLog integration", () => {
   test("exits with code 1 on parse failure", async () => {
-    const exitCode = await captureExitCode(async () => {
-      await runLog(["--last", "not-a-number"]);
-    });
+    const exitCode = await withMutedTerminalLogs(() =>
+      captureExitCode(async () => {
+        await runLog(["--last", "not-a-number"]);
+      })
+    );
 
     expect(exitCode).toBe(1);
   });
 
   test("exits with code 1 when --global is used without --json", async () => {
-    const exitCode = await captureExitCode(async () => {
-      await runLog(["--global"]);
-    });
+    const exitCode = await withMutedTerminalLogs(() =>
+      captureExitCode(async () => {
+        await runLog(["--global"]);
+      })
+    );
 
     expect(exitCode).toBe(1);
   });
 
   test("exits with code 1 when --last is zero", async () => {
-    const exitCode = await captureExitCode(async () => {
-      await runLog(["--json", "--last", "0"]);
-    });
+    const exitCode = await withMutedTerminalLogs(() =>
+      captureExitCode(async () => {
+        await runLog(["--json", "--last", "0"]);
+      })
+    );
 
     expect(exitCode).toBe(1);
   });
@@ -220,9 +241,11 @@ describe("runLog integration", () => {
       createSessionEndEntry("completed"),
     ]);
 
-    await withProjectCwd(fixture.projectPath, async () => {
-      await runLog(["--last", "2"]);
-    });
+    await withProjectCwd(fixture.projectPath, async () =>
+      withMutedTerminalLogs(async () => {
+        await runLog(["--last", "2"]);
+      })
+    );
 
     const outputs = await withProjectCwd(fixture.projectPath, async () =>
       captureJsonOutput(async () => {
