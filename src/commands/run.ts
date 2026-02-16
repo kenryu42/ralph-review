@@ -23,6 +23,8 @@ import { CLI_PATH } from "@/lib/paths";
 import { createSession, generateSessionName, isInsideTmux, isTmuxInstalled } from "@/lib/tmux";
 import type { AgentType, Config, ReviewOptions } from "@/lib/types";
 
+type IntervalHandle = ReturnType<typeof setInterval>;
+
 export interface RunOptions {
   max?: number;
   force?: boolean;
@@ -51,7 +53,7 @@ function shellEscape(str: string): string {
   return `'${str.replace(/'/g, "'\\''")}'`;
 }
 
-function parseSoundOverride(value: string | undefined): SoundOverride | undefined {
+export function parseSoundOverride(value: string | undefined): SoundOverride | undefined {
   if (value === "on" || value === "off") {
     return value;
   }
@@ -98,7 +100,7 @@ export function formatRunAgentsNote(config: Config, reviewOptions: ReviewOptions
   return lines.join("\n");
 }
 
-function getDynamicProbeAgents(config: Config | null): AgentType[] {
+export function getDynamicProbeAgents(config: Config | null): AgentType[] {
   if (!config) {
     return [];
   }
@@ -117,7 +119,170 @@ function getDynamicProbeAgents(config: Config | null): AgentType[] {
   return probeAgents.size > 0 ? [...probeAgents] : [];
 }
 
+export interface RunRuntime {
+  prompt: {
+    log: {
+      error: (message: string) => void;
+      warn: (message: string) => void;
+      success: (message: string) => void;
+      message: (message: string) => void;
+    };
+    note: (message: string, title: string) => void;
+    spinner: () => {
+      start: (message: string) => void;
+      stop: (message: string) => void;
+    };
+  };
+  getCommandDef: typeof getCommandDef;
+  parseCommand: typeof parseCommand;
+  loadConfig: typeof loadConfig;
+  runDiagnostics: typeof runDiagnostics;
+  collectIssueItems: typeof collectIssueItems;
+  getTmuxInstallHint: typeof getTmuxInstallHint;
+  runReviewCycle: typeof runReviewCycle;
+  lockfile: {
+    createLockfile: typeof createLockfile;
+    createSessionId: typeof createSessionId;
+    readLockfile: typeof readLockfile;
+    removeLockfile: typeof removeLockfile;
+    touchHeartbeat: typeof touchHeartbeat;
+    updateLockfile: typeof updateLockfile;
+  };
+  getGitBranch: typeof getGitBranch;
+  sound: {
+    playCompletionSound: typeof playCompletionSound;
+    resolveSoundEnabled: typeof resolveSoundEnabled;
+  };
+  tmux: {
+    createSession: typeof createSession;
+    generateSessionName: typeof generateSessionName;
+    isInsideTmux: typeof isInsideTmux;
+    isTmuxInstalled: typeof isTmuxInstalled;
+  };
+  process: {
+    cwd: () => string;
+    env: Record<string, string | undefined>;
+    pid: number;
+    execPath: string;
+    exit: (code: number) => void;
+  };
+  timer: {
+    now: () => number;
+    setInterval: (handler: () => void, ms: number) => IntervalHandle;
+    clearInterval: (handle: IntervalHandle) => void;
+  };
+  consoleLog: (...args: unknown[]) => void;
+}
+
+interface RunPromptOverrides {
+  log?: Partial<RunRuntime["prompt"]["log"]>;
+  note?: RunRuntime["prompt"]["note"];
+  spinner?: RunRuntime["prompt"]["spinner"];
+}
+
+export interface RunRuntimeOverrides
+  extends Partial<
+    Omit<RunRuntime, "prompt" | "lockfile" | "sound" | "tmux" | "process" | "timer">
+  > {
+  prompt?: RunPromptOverrides;
+  lockfile?: Partial<RunRuntime["lockfile"]>;
+  sound?: Partial<RunRuntime["sound"]>;
+  tmux?: Partial<RunRuntime["tmux"]>;
+  process?: Partial<RunRuntime["process"]>;
+  timer?: Partial<RunRuntime["timer"]>;
+}
+
+export function createRunRuntime(overrides: RunRuntimeOverrides = {}): RunRuntime {
+  const defaults: RunRuntime = {
+    prompt: {
+      log: {
+        error: p.log.error,
+        warn: p.log.warn,
+        success: p.log.success,
+        message: p.log.message,
+      },
+      note: p.note,
+      spinner: p.spinner,
+    },
+    getCommandDef,
+    parseCommand,
+    loadConfig,
+    runDiagnostics,
+    collectIssueItems,
+    getTmuxInstallHint,
+    runReviewCycle,
+    lockfile: {
+      createLockfile,
+      createSessionId,
+      readLockfile,
+      removeLockfile,
+      touchHeartbeat,
+      updateLockfile,
+    },
+    getGitBranch,
+    sound: {
+      playCompletionSound,
+      resolveSoundEnabled,
+    },
+    tmux: {
+      createSession,
+      generateSessionName,
+      isInsideTmux,
+      isTmuxInstalled,
+    },
+    process: {
+      cwd: () => process.cwd(),
+      env: process.env,
+      pid: process.pid,
+      execPath: process.execPath,
+      exit: (code: number) => {
+        process.exit(code);
+      },
+    },
+    timer: {
+      now: () => Date.now(),
+      setInterval: (handler, ms) => setInterval(handler, ms),
+      clearInterval: (handle) => clearInterval(handle),
+    },
+    consoleLog: (...args: unknown[]) => console.log(...args),
+  };
+
+  return {
+    ...defaults,
+    ...overrides,
+    prompt: {
+      log: {
+        ...defaults.prompt.log,
+        ...(overrides.prompt?.log ?? {}),
+      },
+      note: overrides.prompt?.note ?? defaults.prompt.note,
+      spinner: overrides.prompt?.spinner ?? defaults.prompt.spinner,
+    },
+    lockfile: {
+      ...defaults.lockfile,
+      ...(overrides.lockfile ?? {}),
+    },
+    sound: {
+      ...defaults.sound,
+      ...(overrides.sound ?? {}),
+    },
+    tmux: {
+      ...defaults.tmux,
+      ...(overrides.tmux ?? {}),
+    },
+    process: {
+      ...defaults.process,
+      ...(overrides.process ?? {}),
+    },
+    timer: {
+      ...defaults.timer,
+      ...(overrides.timer ?? {}),
+    },
+  };
+}
+
 async function runInBackground(
+  runtime: RunRuntime,
   config: Config,
   maxIterations?: number,
   baseBranch?: string,
@@ -128,23 +293,26 @@ async function runInBackground(
   soundOverride?: SoundOverride
 ): Promise<void> {
   // Check tmux is installed
-  if (!isTmuxInstalled()) {
-    p.log.error(`tmux is not installed. Install with: ${getTmuxInstallHint()}`);
-    process.exit(1);
+  if (!runtime.tmux.isTmuxInstalled()) {
+    runtime.prompt.log.error(
+      `tmux is not installed. Install with: ${runtime.getTmuxInstallHint()}`
+    );
+    runtime.process.exit(1);
+    return;
   }
 
-  const projectPath = process.cwd();
-  const branch = await getGitBranch(projectPath);
-  const sessionName = generateSessionName();
-  const sessionId = createSessionId();
+  const projectPath = runtime.process.cwd();
+  const branch = await runtime.getGitBranch(projectPath);
+  const sessionName = runtime.tmux.generateSessionName();
+  const sessionId = runtime.lockfile.createSessionId();
 
   // Create lockfile for this project
-  await createLockfile(undefined, projectPath, sessionName, {
+  await runtime.lockfile.createLockfile(undefined, projectPath, sessionName, {
     branch,
     sessionId,
     state: "pending",
     mode: "background",
-    lastHeartbeat: Date.now(),
+    lastHeartbeat: runtime.timer.now(),
   });
 
   const envParts = [
@@ -177,51 +345,56 @@ async function runInBackground(
   }
 
   const envVars = envParts.join(" ");
-  const command = `${envVars} ${process.execPath} ${CLI_PATH} ${commandArgs.join(" ")}`;
+  const command = `${envVars} ${runtime.process.execPath} ${CLI_PATH} ${commandArgs.join(" ")}`;
 
   try {
-    await createSession(sessionName, command);
-    p.log.success(`Review started in background session: ${sessionName}`);
+    await runtime.tmux.createSession(sessionName, command);
+    runtime.prompt.log.success(`Review started in background session: ${sessionName}`);
     const reviewOptions: ReviewOptions = { baseBranch, commitSha, customInstructions, simplifier };
-    p.note(formatRunAgentsNote(config, reviewOptions), "Agents");
-    p.note("rr status  - Check status\n" + "rr stop    - Stop the review", "Commands");
+    runtime.prompt.note(formatRunAgentsNote(config, reviewOptions), "Agents");
+    runtime.prompt.note("rr status  - Check status\n" + "rr stop    - Stop the review", "Commands");
   } catch (error) {
-    await removeLockfile(undefined, projectPath, { expectedSessionId: sessionId });
-    p.log.error(`Failed to start background session: ${error}`);
-    process.exit(1);
+    await runtime.lockfile.removeLockfile(undefined, projectPath, { expectedSessionId: sessionId });
+    runtime.prompt.log.error(`Failed to start background session: ${error}`);
+    runtime.process.exit(1);
   }
 }
 
-export async function runForeground(args: string[] = []): Promise<void> {
-  const config = await loadConfig();
+export async function runForeground(
+  args: string[] = [],
+  overrides: RunRuntimeOverrides = {}
+): Promise<void> {
+  const runtime = createRunRuntime(overrides);
+  const config = await runtime.loadConfig();
   if (!config) {
-    p.log.error("Failed to load config");
-    process.exit(1);
+    runtime.prompt.log.error("Failed to load config");
+    runtime.process.exit(1);
+    return;
   }
 
-  const projectPath = process.env.RR_PROJECT_PATH || process.cwd();
+  const projectPath = runtime.process.env.RR_PROJECT_PATH || runtime.process.cwd();
 
-  const baseBranch = process.env.RR_BASE_BRANCH || undefined;
-  const commitSha = process.env.RR_COMMIT_SHA || undefined;
-  const customInstructions = process.env.RR_CUSTOM_PROMPT || undefined;
-  const expectedSessionId = process.env.RR_SESSION_ID || undefined;
-  const soundOverride = parseSoundOverride(process.env.RR_SOUND_OVERRIDE);
+  const baseBranch = runtime.process.env.RR_BASE_BRANCH || undefined;
+  const commitSha = runtime.process.env.RR_COMMIT_SHA || undefined;
+  const customInstructions = runtime.process.env.RR_CUSTOM_PROMPT || undefined;
+  const expectedSessionId = runtime.process.env.RR_SESSION_ID || undefined;
+  const soundOverride = parseSoundOverride(runtime.process.env.RR_SOUND_OVERRIDE);
   let forceMaxIterations = false;
   let runSimplifier = false;
   let completionState: "success" | "warning" | "error" = "error";
-  const soundEnabled = resolveSoundEnabled(config, soundOverride);
+  const soundEnabled = runtime.sound.resolveSoundEnabled(config, soundOverride);
   let cycleResult: CycleResult | undefined;
   let sessionId = expectedSessionId;
-  const lockData = await readLockfile(undefined, projectPath);
+  const lockData = await runtime.lockfile.readLockfile(undefined, projectPath);
   if (!sessionId) {
-    sessionId = lockData?.sessionId ?? createSessionId();
+    sessionId = lockData?.sessionId ?? runtime.lockfile.createSessionId();
   }
 
   // Parse --max option using the _run-foreground command def
-  const foregroundDef = getCommandDef("_run-foreground");
+  const foregroundDef = runtime.getCommandDef("_run-foreground");
   if (foregroundDef) {
     try {
-      const { values } = parseCommand<{
+      const { values } = runtime.parseCommand<{
         max?: number;
         force?: boolean;
         simplifier?: boolean;
@@ -237,14 +410,14 @@ export async function runForeground(args: string[] = []): Promise<void> {
   }
 
   // Update from "pending" (launcher) to "running" with actual PID
-  await updateLockfile(
+  await runtime.lockfile.updateLockfile(
     undefined,
     projectPath,
     {
-      pid: process.pid,
+      pid: runtime.process.pid,
       state: "running",
       mode: "foreground",
-      lastHeartbeat: Date.now(),
+      lastHeartbeat: runtime.timer.now(),
       currentAgent: runSimplifier ? "code-simplifier" : "reviewer",
     },
     {
@@ -252,14 +425,14 @@ export async function runForeground(args: string[] = []): Promise<void> {
     }
   );
 
-  const heartbeatTimer = setInterval(() => {
-    void touchHeartbeat(undefined, projectPath, sessionId).catch(() => {
+  const heartbeatTimer = runtime.timer.setInterval(() => {
+    void runtime.lockfile.touchHeartbeat(undefined, projectPath, sessionId).catch(() => {
       // Ignore heartbeat failures (lock may have been removed).
     });
   }, HEARTBEAT_INTERVAL_MS);
 
   try {
-    cycleResult = await runReviewCycle(
+    cycleResult = await runtime.runReviewCycle(
       config,
       undefined,
       {
@@ -276,45 +449,47 @@ export async function runForeground(args: string[] = []): Promise<void> {
     );
 
     completionState = classifyRunCompletion(cycleResult);
-    console.log(`\n${"=".repeat(50)}`);
+    runtime.consoleLog(`\n${"=".repeat(50)}`);
     if (completionState === "success") {
-      p.log.success(`Review cycle complete! (${cycleResult.iterations} iterations)`);
+      runtime.prompt.log.success(`Review cycle complete! (${cycleResult.iterations} iterations)`);
     } else if (completionState === "warning") {
-      p.log.warn(
+      runtime.prompt.log.warn(
         `Review cycle complete with warnings: ${cycleResult.reason} (${cycleResult.iterations} iterations)`
       );
     } else {
-      p.log.error(`Review stopped: ${cycleResult.reason} (${cycleResult.iterations} iterations)`);
+      runtime.prompt.log.error(
+        `Review stopped: ${cycleResult.reason} (${cycleResult.iterations} iterations)`
+      );
     }
-    console.log(`${"=".repeat(50)}\n`);
+    runtime.consoleLog(`${"=".repeat(50)}\n`);
   } finally {
-    clearInterval(heartbeatTimer);
+    runtime.timer.clearInterval(heartbeatTimer);
 
     if (cycleResult) {
-      await updateLockfile(
+      await runtime.lockfile.updateLockfile(
         undefined,
         projectPath,
         {
           state: cycleResult.finalStatus,
-          endTime: Date.now(),
+          endTime: runtime.timer.now(),
           reason: cycleResult.reason,
           currentAgent: null,
-          lastHeartbeat: Date.now(),
+          lastHeartbeat: runtime.timer.now(),
         },
         {
           expectedSessionId: sessionId,
         }
       );
     } else {
-      await updateLockfile(
+      await runtime.lockfile.updateLockfile(
         undefined,
         projectPath,
         {
           state: "failed",
-          endTime: Date.now(),
+          endTime: runtime.timer.now(),
           reason: "Review exited unexpectedly",
           currentAgent: null,
-          lastHeartbeat: Date.now(),
+          lastHeartbeat: runtime.timer.now(),
         },
         {
           expectedSessionId: sessionId,
@@ -323,50 +498,58 @@ export async function runForeground(args: string[] = []): Promise<void> {
     }
 
     if (soundEnabled) {
-      const soundResult = await playCompletionSound(completionState);
+      const soundResult = await runtime.sound.playCompletionSound(completionState);
       if (!soundResult.played && soundResult.reason) {
-        p.log.warn(`Could not play completion sound: ${soundResult.reason}`);
+        runtime.prompt.log.warn(`Could not play completion sound: ${soundResult.reason}`);
       }
     }
 
     // Clean up lockfile for this project
-    await removeLockfile(undefined, projectPath, {
+    await runtime.lockfile.removeLockfile(undefined, projectPath, {
       expectedSessionId: sessionId,
     });
   }
 }
 
-export async function startReview(args: string[]): Promise<void> {
+export async function startReview(
+  args: string[],
+  overrides: RunRuntimeOverrides = {}
+): Promise<void> {
+  const runtime = createRunRuntime(overrides);
   // Parse options using command definition
-  const runDef = getCommandDef("run");
+  const runDef = runtime.getCommandDef("run");
   if (!runDef) {
-    p.log.error("Internal error: run command definition not found");
-    process.exit(1);
+    runtime.prompt.log.error("Internal error: run command definition not found");
+    runtime.process.exit(1);
+    return;
   }
 
   let options: RunOptions;
   try {
-    const { values } = parseCommand<RunOptions>(runDef, args);
+    const { values } = runtime.parseCommand<RunOptions>(runDef, args);
     options = values;
   } catch (error) {
-    p.log.error(`${error}`);
-    process.exit(1);
+    runtime.prompt.log.error(`${error}`);
+    runtime.process.exit(1);
+    return;
   }
 
   // Validate max iterations if provided
   if (options.max !== undefined && options.max <= 0) {
-    p.log.error("--max must be a positive number");
-    process.exit(1);
+    runtime.prompt.log.error("--max must be a positive number");
+    runtime.process.exit(1);
+    return;
   }
   let soundOverride: SoundOverride | undefined;
   try {
     soundOverride = resolveRunSoundOverride(options);
   } catch (error) {
-    p.log.error(`${error}`);
-    process.exit(1);
+    runtime.prompt.log.error(`${error}`);
+    runtime.process.exit(1);
+    return;
   }
 
-  const loadedConfig = await loadConfig();
+  const loadedConfig = await runtime.loadConfig();
 
   const hasExplicitMode = options.base || options.uncommitted || options.commit || options.custom;
   if (!hasExplicitMode) {
@@ -384,16 +567,17 @@ export async function startReview(args: string[]): Promise<void> {
   ].filter(Boolean);
 
   if (modeOptions.length > 1) {
-    p.log.error(`Cannot use ${modeOptions.join(" and ")} together`);
-    process.exit(1);
+    runtime.prompt.log.error(`Cannot use ${modeOptions.join(" and ")} together`);
+    runtime.process.exit(1);
+    return;
   }
 
-  const preflightSpinner = p.spinner();
+  const preflightSpinner = runtime.prompt.spinner();
   preflightSpinner.start("Running preflight checks...");
   let diagnostics: DiagnosticsReport;
   try {
-    diagnostics = await runDiagnostics("run", {
-      projectPath: process.cwd(),
+    diagnostics = await runtime.runDiagnostics("run", {
+      projectPath: runtime.process.cwd(),
       baseBranch: options.base,
       commitSha: options.commit,
       capabilityDiscoveryOptions: {
@@ -403,45 +587,48 @@ export async function startReview(args: string[]): Promise<void> {
   } finally {
     preflightSpinner.stop("Preflight checks complete.");
   }
-  const issues = collectIssueItems(diagnostics);
+  const issues = runtime.collectIssueItems(diagnostics);
   const errors = issues.filter((item) => item.severity === "error");
   const warnings = issues.filter((item) => item.severity === "warning");
 
   if (errors.length > 0) {
-    p.log.error("Cannot run review:");
+    runtime.prompt.log.error("Cannot run review:");
     for (const item of errors) {
-      p.log.message(`  ${item.summary}`);
+      runtime.prompt.log.message(`  ${item.summary}`);
       item.remediation.forEach((remediation) => {
-        p.log.message(`    -> ${remediation}`);
+        runtime.prompt.log.message(`    -> ${remediation}`);
       });
     }
-    process.exit(1);
+    runtime.process.exit(1);
+    return;
   }
 
   if (warnings.length > 0) {
-    p.log.warn("Preflight warnings:");
+    runtime.prompt.log.warn("Preflight warnings:");
     for (const item of warnings) {
-      p.log.message(`  ${item.summary}`);
+      runtime.prompt.log.message(`  ${item.summary}`);
       item.remediation.forEach((remediation) => {
-        p.log.message(`    -> ${remediation}`);
+        runtime.prompt.log.message(`    -> ${remediation}`);
       });
     }
   }
 
-  const config = diagnostics.config ?? (await loadConfig());
+  const config = diagnostics.config ?? (await runtime.loadConfig());
   if (!config) {
-    p.log.error("Failed to load configuration");
-    process.exit(1);
+    runtime.prompt.log.error("Failed to load configuration");
+    runtime.process.exit(1);
+    return;
   }
 
   const runSimplifier = resolveRunSimplifierEnabled(options, config);
 
   // Check if inside tmux - warn about nesting
-  if (isInsideTmux()) {
-    p.log.warn("Running inside tmux session. Review will start in a nested session.");
+  if (runtime.tmux.isInsideTmux()) {
+    runtime.prompt.log.warn("Running inside tmux session. Review will start in a nested session.");
   }
 
   await runInBackground(
+    runtime,
     config,
     options.max,
     options.base,
