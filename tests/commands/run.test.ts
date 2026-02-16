@@ -17,6 +17,7 @@ import {
   startReview,
 } from "@/commands/run";
 import { type CommandDef, parseCommand } from "@/lib/cli-parser";
+import { collectIssueItems as collectIssueItemsFromDiagnostics } from "@/lib/diagnostics";
 import type { DiagnosticItem, DiagnosticsReport } from "@/lib/diagnostics/types";
 import type { CycleResult } from "@/lib/engine";
 import { createLockfile, type LockData, lockfileExists, removeLockfile } from "@/lib/lockfile";
@@ -82,6 +83,7 @@ interface RunHarnessOptions {
   loadConfigResults?: Array<Config | null>;
   diagnostics?: DiagnosticsReport;
   issues?: DiagnosticItem[];
+  useRealCollectIssueItems?: boolean;
   runDiagnosticsError?: Error;
   tmuxInstalled?: boolean;
   insideTmux?: boolean;
@@ -116,6 +118,10 @@ interface RunHarness {
     context: string;
     options: Record<string, unknown>;
   }>;
+  collectIssueItemsCalls: Array<{
+    inputIds: string[];
+    outputIds: string[];
+  }>;
   createSessionCalls: Array<{ sessionName: string; command: string }>;
   createLockfileCalls: Array<{ projectPath: string; sessionName: string; options: unknown }>;
   removeLockfileCalls: Array<{ projectPath: string; expectedSessionId?: string }>;
@@ -148,6 +154,10 @@ function createRunHarness(options: RunHarnessOptions = {}): RunHarness {
   const spinnerStops: string[] = [];
   const exits: number[] = [];
   const diagnosticsCalls: Array<{ context: string; options: Record<string, unknown> }> = [];
+  const collectIssueItemsCalls: Array<{
+    inputIds: string[];
+    outputIds: string[];
+  }> = [];
   const createSessionCalls: Array<{ sessionName: string; command: string }> = [];
   const createLockfileCalls: Array<{ projectPath: string; sessionName: string; options: unknown }> =
     [];
@@ -264,7 +274,16 @@ function createRunHarness(options: RunHarnessOptions = {}): RunHarness {
       }
       return diagnostics;
     },
-    collectIssueItems: (report) => options.issues ?? report.items,
+    collectIssueItems: (report) => {
+      const collected = options.useRealCollectIssueItems
+        ? collectIssueItemsFromDiagnostics(report)
+        : (options.issues ?? report.items);
+      collectIssueItemsCalls.push({
+        inputIds: report.items.map((item) => item.id),
+        outputIds: collected.map((item) => item.id),
+      });
+      return collected;
+    },
     getTmuxInstallHint: () => "brew install tmux",
     runReviewCycle: async (config, _deps, runOptions, runtimeInfo) => {
       runReviewCycleCalls.push({
@@ -372,6 +391,7 @@ function createRunHarness(options: RunHarnessOptions = {}): RunHarness {
     spinnerStops,
     exits,
     diagnosticsCalls,
+    collectIssueItemsCalls,
     createSessionCalls,
     createLockfileCalls,
     removeLockfileCalls,
@@ -807,6 +827,41 @@ describe("run command", () => {
       expect(harness.warnings).toContain("Preflight warnings:");
       expect(harness.messages).toContain("  Model discovery probe returned warnings.");
       expect(harness.messages).toContain("    -> Run opencode --help");
+      expect(harness.createSessionCalls).toHaveLength(1);
+    });
+
+    test("uses real issue collection to filter ok diagnostics before warning output", async () => {
+      const okItem: DiagnosticItem = {
+        id: "git-uncommitted",
+        category: "git",
+        title: "Uncommitted changes",
+        severity: "ok",
+        summary: "Uncommitted changes detected.",
+        remediation: [],
+      };
+      const warningItem: DiagnosticItem = {
+        id: "agent-opencode-probe",
+        category: "agents",
+        title: "opencode capability probe",
+        severity: "warning",
+        summary: "Model discovery probe returned warnings.",
+        remediation: ["Run opencode --help"],
+      };
+      const harness = createRunHarness({
+        useRealCollectIssueItems: true,
+        diagnostics: createDiagnosticsReport([okItem, warningItem], createConfig()),
+      });
+
+      await startReview([], harness.overrides);
+
+      expect(harness.collectIssueItemsCalls).toEqual([
+        {
+          inputIds: ["git-uncommitted", "agent-opencode-probe"],
+          outputIds: ["agent-opencode-probe"],
+        },
+      ]);
+      expect(harness.warnings).toContain("Preflight warnings:");
+      expect(harness.messages).not.toContain("  Uncommitted changes detected.");
       expect(harness.createSessionCalls).toHaveLength(1);
     });
 
