@@ -20,6 +20,10 @@ describe("config", () => {
     notifications: { sound: { enabled: false } },
   };
 
+  function createValidConfigInput(): Record<string, unknown> {
+    return structuredClone(testConfig) as unknown as Record<string, unknown>;
+  }
+
   beforeEach(async () => {
     // Create temp directory for test isolation
     tempDir = await mkdtemp(join(tmpdir(), "ralph-review-test-"));
@@ -209,6 +213,149 @@ describe("config", () => {
       expect(parsed).not.toBeNull();
       expect(parsed?.$schema).toBe(CONFIG_SCHEMA_URI);
       expect(parsed?.version).toBe(CONFIG_VERSION);
+    });
+
+    test("parseConfig returns null for non-object input", () => {
+      expect(parseConfig(null)).toBeNull();
+    });
+
+    test("parseConfig reads explicit retry settings", () => {
+      const withRetry = {
+        ...createValidConfigInput(),
+        retry: { maxRetries: 2, baseDelayMs: 500, maxDelayMs: 5000 },
+      };
+
+      const parsed = parseConfig(withRetry);
+      expect(parsed).not.toBeNull();
+      expect(parsed?.retry).toEqual({ maxRetries: 2, baseDelayMs: 500, maxDelayMs: 5000 });
+    });
+
+    test("parseConfig rejects retry when not an object", () => {
+      const withInvalidRetry = {
+        ...createValidConfigInput(),
+        retry: true,
+      };
+
+      expect(parseConfig(withInvalidRetry)).toBeNull();
+    });
+
+    test("parseConfig rejects retry when numeric fields are invalid", () => {
+      const withInvalidRetry = {
+        ...createValidConfigInput(),
+        retry: { maxRetries: 1, baseDelayMs: "1000", maxDelayMs: 5000 },
+      };
+
+      expect(parseConfig(withInvalidRetry)).toBeNull();
+    });
+
+    test("parseConfig rejects notifications when not an object", () => {
+      const withInvalidNotifications = {
+        ...createValidConfigInput(),
+        notifications: "enabled",
+      };
+
+      expect(parseConfig(withInvalidNotifications)).toBeNull();
+    });
+
+    test("parseConfig rejects notifications when sound.enabled is not boolean", () => {
+      const withInvalidNotifications = {
+        ...createValidConfigInput(),
+        notifications: { sound: { enabled: "true" } },
+      };
+
+      expect(parseConfig(withInvalidNotifications)).toBeNull();
+    });
+
+    test("parseConfig rejects run when not an object", () => {
+      const withInvalidRun = {
+        ...createValidConfigInput(),
+        run: 1,
+      };
+
+      expect(parseConfig(withInvalidRun)).toBeNull();
+    });
+
+    test("parseConfig accepts defaultReview type base with a non-empty branch", () => {
+      const withBaseReview = {
+        ...createValidConfigInput(),
+        defaultReview: { type: "base", branch: "main" },
+      };
+
+      const parsed = parseConfig(withBaseReview);
+      expect(parsed).not.toBeNull();
+      expect(parsed?.defaultReview).toEqual({ type: "base", branch: "main" });
+    });
+
+    test("parseConfig rejects defaultReview without a valid type", () => {
+      const withInvalidDefaultReview = {
+        ...createValidConfigInput(),
+        defaultReview: { branch: "main" },
+      };
+
+      expect(parseConfig(withInvalidDefaultReview)).toBeNull();
+    });
+
+    test("parseConfig rejects defaultReview with unsupported type", () => {
+      const withInvalidDefaultReview = {
+        ...createValidConfigInput(),
+        defaultReview: { type: "head" },
+      };
+
+      expect(parseConfig(withInvalidDefaultReview)).toBeNull();
+    });
+
+    test("parseConfig rejects reviewer with invalid agent type", () => {
+      const withInvalidReviewer = {
+        ...createValidConfigInput(),
+        reviewer: { agent: "wizard" },
+      };
+
+      expect(parseConfig(withInvalidReviewer)).toBeNull();
+    });
+
+    test("parseConfig rejects fixer with invalid reasoning level", () => {
+      const withInvalidFixer = {
+        ...createValidConfigInput(),
+        fixer: { agent: "claude", reasoning: "ultra" },
+      };
+
+      expect(parseConfig(withInvalidFixer)).toBeNull();
+    });
+
+    test("parseConfig rejects non-pi reviewer with provider", () => {
+      const withInvalidReviewer = {
+        ...createValidConfigInput(),
+        reviewer: { agent: "codex", provider: "openai" },
+      };
+
+      expect(parseConfig(withInvalidReviewer)).toBeNull();
+    });
+
+    test("parseConfig rejects non-pi reviewer with non-string model", () => {
+      const withInvalidReviewer = {
+        ...createValidConfigInput(),
+        reviewer: { agent: "codex", model: 123 },
+      };
+
+      expect(parseConfig(withInvalidReviewer)).toBeNull();
+    });
+
+    test("parseConfig rejects pi reviewer missing provider", () => {
+      const withInvalidReviewer = {
+        ...createValidConfigInput(),
+        reviewer: { agent: "pi", model: "gemini-2.5-pro" },
+      };
+
+      expect(parseConfig(withInvalidReviewer)).toBeNull();
+    });
+
+    test("parseConfig rejects when required numeric fields are not numbers", () => {
+      const withInvalidNumbers = {
+        ...createValidConfigInput(),
+        maxIterations: "10",
+      };
+
+      expect(parseConfig(withInvalidNumbers)).toBeNull();
     });
   });
 
