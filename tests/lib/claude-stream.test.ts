@@ -335,6 +335,73 @@ describe("claude-stream", () => {
       const output = formatClaudeEventForDisplay(event);
       expect(output).toBeNull();
     });
+
+    test("drops unsupported assistant content blocks", () => {
+      const line = JSON.stringify({
+        type: "assistant",
+        session_id: "abc",
+        message: {
+          id: "msg",
+          role: "assistant",
+          content: [
+            { type: "text", text: "Visible text" },
+            { type: "unsupported", value: "hidden" },
+          ],
+          model: "claude-3",
+          stop_reason: null,
+        },
+      });
+
+      const event = parseClaudeStreamEvent(line);
+
+      expect(event?.type).toBe("assistant");
+      if (!event) {
+        throw new Error("Expected event to be parsed");
+      }
+
+      const output = formatClaudeEventForDisplay(event);
+      expect(output).toContain("Visible text");
+      expect(output).not.toContain("unsupported");
+      expect(output).not.toContain("hidden");
+    });
+
+    test("formats user events with tool result and text while ignoring unsupported blocks", () => {
+      const line = JSON.stringify({
+        type: "user",
+        session_id: "abc",
+        message: {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "call_123",
+              content: "tool output",
+            },
+            {
+              type: "text",
+              text: "user follow-up",
+            },
+            {
+              type: "unsupported",
+              value: "ignore me",
+            },
+          ],
+        },
+      });
+
+      const event = parseClaudeStreamEvent(line);
+
+      expect(event?.type).toBe("user");
+      if (!event) {
+        throw new Error("Expected event to be parsed");
+      }
+
+      const output = formatClaudeEventForDisplay(event);
+      expect(output).toContain("Tool Result");
+      expect(output).toContain("tool output");
+      expect(output).toContain("user follow-up");
+      expect(output).not.toContain("ignore me");
+    });
   });
 
   describe("extractClaudeResult", () => {
