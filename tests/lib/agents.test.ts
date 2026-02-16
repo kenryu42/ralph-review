@@ -157,6 +157,12 @@ describe("agents", () => {
       expect(args).toContain("-p");
       expect(args.some((a: string) => a.includes("fix the fix"))).toBe(true);
     });
+
+    test("includes model flags when a model is provided", () => {
+      const args = AGENTS.claude.config.buildArgs("reviewer", "review the code", "claude-opus-4-6");
+      expect(args).toContain("--model");
+      expect(args).toContain("claude-opus-4-6");
+    });
   });
 
   describe("opencode buildArgs", () => {
