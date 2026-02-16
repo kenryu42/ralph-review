@@ -1,5 +1,5 @@
 import { removeSession } from "@/commands/dashboard";
-import { normalizeBranch } from "@/commands/logs";
+import { normalizeBranch } from "@/commands/log";
 import { LOGS_DIR } from "@/lib/config";
 import { generateDashboardHtml } from "@/lib/html";
 import { listAllActiveSessions } from "@/lib/lockfile";

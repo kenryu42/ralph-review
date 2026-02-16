@@ -1,7 +1,7 @@
 import { platform } from "node:os";
 import * as p from "@clack/prompts";
 import { $ } from "bun";
-import { isUnknownEmptySession, normalizeBranch } from "@/commands/logs";
+import { isUnknownEmptySession, normalizeBranch } from "@/commands/log";
 import { LOGS_DIR } from "@/lib/config";
 import { type ActiveSession, listAllActiveSessions } from "@/lib/lockfile";
 import {
