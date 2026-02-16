@@ -2,9 +2,34 @@ import { describe, expect, test } from "bun:test";
 import {
   createLineFormatter,
   defaultBuildEnv,
+  isAgentAvailable,
   parseJsonlEvent,
+  streamAndCapture,
   stripSystemReminders,
 } from "@/lib/agents/core";
+
+function createReadableStreamFromChunks(chunks: Uint8Array[]): ReadableStream<Uint8Array> {
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (const chunk of chunks) {
+        controller.enqueue(chunk);
+      }
+      controller.close();
+    },
+  });
+}
+
+function createCaptureWriteStream(): NodeJS.WriteStream & { output: string } {
+  const stream = {
+    output: "",
+    write(chunk: string | Uint8Array) {
+      stream.output += typeof chunk === "string" ? chunk : new TextDecoder().decode(chunk);
+      return true;
+    },
+  };
+
+  return stream as unknown as NodeJS.WriteStream & { output: string };
+}
 
 describe("core", () => {
   describe("parseJsonlEvent", () => {
@@ -177,6 +202,111 @@ describe("core", () => {
       expect(stripSystemReminders(123 as unknown)).toBe("123");
       expect(stripSystemReminders(null as unknown)).toBe("");
       expect(stripSystemReminders(undefined as unknown)).toBe("");
+    });
+  });
+
+  describe("isAgentAvailable", () => {
+    test("returns true for the bun command", () => {
+      expect(isAgentAvailable("bun")).toBe(true);
+    });
+
+    test("returns false for a missing command", () => {
+      const missingCommand = `definitely-not-a-real-command-ralph-${Date.now()}`;
+      expect(isAgentAvailable(missingCommand)).toBe(false);
+    });
+  });
+
+  describe("streamAndCapture", () => {
+    test("returns empty output when stream is null", async () => {
+      const writeStream = createCaptureWriteStream();
+      const output = await streamAndCapture(null, writeStream);
+
+      expect(output).toBe("");
+      expect(writeStream.output).toBe("");
+    });
+
+    test("writes raw chunks when jsonl mode is disabled", async () => {
+      const encoder = new TextEncoder();
+      const stream = createReadableStreamFromChunks([
+        encoder.encode("hello "),
+        encoder.encode("world"),
+      ]);
+      const writeStream = createCaptureWriteStream();
+
+      const output = await streamAndCapture(stream, writeStream, false);
+
+      expect(output).toBe("hello world");
+      expect(writeStream.output).toBe("hello world");
+    });
+
+    test("formats jsonl lines and writes raw lines when formatter returns null", async () => {
+      const encoder = new TextEncoder();
+      const stream = createReadableStreamFromChunks([encoder.encode("line1\nline2\n")]);
+      const writeStream = createCaptureWriteStream();
+      const formatter = (line: string): string | null => {
+        if (line === "line1") {
+          return "formatted line1";
+        }
+        return null;
+      };
+
+      const output = await streamAndCapture(stream, writeStream, true, formatter);
+
+      expect(output).toBe("line1\nline2\n");
+      expect(writeStream.output).toBe("formatted line1\n\nline2\n");
+    });
+
+    test("skips blank lines and formatter empty-string outputs in jsonl mode", async () => {
+      const encoder = new TextEncoder();
+      const stream = createReadableStreamFromChunks([encoder.encode("line1\n\nline-empty\n")]);
+      const writeStream = createCaptureWriteStream();
+      const formatter = (line: string): string | null => (line === "line1" ? "formatted" : "");
+
+      await streamAndCapture(stream, writeStream, true, formatter);
+
+      expect(writeStream.output).toBe("formatted\n\n");
+    });
+
+    test("formats trailing buffered line when no final newline exists", async () => {
+      const encoder = new TextEncoder();
+      const stream = createReadableStreamFromChunks([encoder.encode("tail-line")]);
+      const writeStream = createCaptureWriteStream();
+      const formatter = (line: string): string | null => `formatted:${line}`;
+
+      const output = await streamAndCapture(stream, writeStream, true, formatter);
+
+      expect(output).toBe("tail-line");
+      expect(writeStream.output).toBe("formatted:tail-line\n\n");
+    });
+
+    test("writes decoder remaining output when jsonl mode is disabled", async () => {
+      const encoder = new TextEncoder();
+      const partialUtf8 = new Uint8Array([...encoder.encode("prefix "), 0xe2, 0x82]);
+      const stream = createReadableStreamFromChunks([partialUtf8]);
+      const writeStream = createCaptureWriteStream();
+
+      const output = await streamAndCapture(stream, writeStream, false);
+
+      expect(output).toBe("prefix �");
+      expect(writeStream.output).toBe("prefix �");
+    });
+
+    test("appends decoder remaining to buffered jsonl content before formatting", async () => {
+      const encoder = new TextEncoder();
+      const partialUtf8 = new Uint8Array([...encoder.encode("tail"), 0xe2, 0x82]);
+      const stream = createReadableStreamFromChunks([partialUtf8]);
+      const writeStream = createCaptureWriteStream();
+      const seenLines: string[] = [];
+      const formatter = (line: string): string | null => {
+        seenLines.push(line);
+        return null;
+      };
+
+      const output = await streamAndCapture(stream, writeStream, true, formatter);
+
+      expect(output).toBe("tail�");
+      expect(seenLines).toEqual(["tail�"]);
+      expect(writeStream.output).toBe("tail�\n");
     });
   });
 });
