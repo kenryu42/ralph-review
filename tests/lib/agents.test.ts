@@ -267,6 +267,16 @@ describe("agents", () => {
       expect(args).toContain("stream-json");
       expect(args.some((a: string) => a.includes("fix the issue"))).toBe(true);
     });
+
+    test("includes model when provided", () => {
+      const args = AGENTS.gemini.config.buildArgs(
+        "reviewer",
+        "review the uncommitted changes",
+        "gemini-3-flash"
+      );
+      expect(args).toContain("--model");
+      expect(args).toContain("gemini-3-flash");
+    });
   });
 
   describe("pi buildArgs", () => {
@@ -316,6 +326,19 @@ describe("agents", () => {
       );
 
       expect(args).not.toContain("--thinking");
+    });
+
+    test("throws when provider or model is missing", () => {
+      expect(() => AGENTS.pi.config.buildArgs("reviewer", "review current changes")).toThrow(
+        "Pi agent requires both provider and model"
+      );
+      expect(() =>
+        AGENTS.pi.config.buildArgs(
+          "reviewer",
+          "review current changes",
+          "gemini_cli/gemini-3-flash-preview"
+        )
+      ).toThrow("Pi agent requires both provider and model");
     });
   });
 
