@@ -838,10 +838,8 @@ export async function runReviewCycle(
           );
         }
         console.log("ℹ️  stop_iteration true; continuing due to --force");
-      } else if (fixSummary?.stop_iteration === false) {
-        hasRemainingIssues = true;
-      } else if (!fixSummary) {
-        // Could not parse fix summary - be conservative and assume issues may remain
+      } else {
+        // Treat any non-clean signal conservatively and continue iterating.
         hasRemainingIssues = true;
       }
 
