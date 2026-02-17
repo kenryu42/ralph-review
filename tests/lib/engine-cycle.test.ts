@@ -719,6 +719,50 @@ describe("runReviewCycle", () => {
     });
   });
 
+  test("continues when codex reviewer lockfile updates fail", async () => {
+    await withHarness(async (state, deps) => {
+      state.updateLockfileFailuresRemaining = 100;
+      queueRunAgentSteps(
+        state,
+        resultStep(successResult("codex raw output")),
+        resultStep(successResult("fix output"))
+      );
+      queueFixParses(
+        state,
+        parseFixSuccess(
+          buildFixSummary({
+            decision: "NO_CHANGES_NEEDED",
+            stop_iteration: true,
+            fixes: [],
+            skipped: [],
+          })
+        )
+      );
+
+      const result = await runReviewCycle(
+        createConfig({
+          reviewer: { agent: "codex" },
+        }),
+        undefined,
+        undefined,
+        {
+          projectPath: TEST_PROJECT_PATH,
+          sessionId: TEST_SESSION_ID,
+        },
+        deps
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.finalStatus).toBe("completed");
+      expect(state.runAgentCalls.map((call) => call.role)).toEqual(["reviewer", "fixer"]);
+      expect(
+        state.updateLockfileCalls.some(
+          (call) => call.updates.codexReviewText === "codex raw output"
+        )
+      ).toBe(true);
+    });
+  });
+
   test("returns failure when creating pre-fixer checkpoint throws", async () => {
     await withHarness(async (state, deps) => {
       state.createCheckpointError = new Error("checkpoint failed");
@@ -875,6 +919,97 @@ describe("runReviewCycle", () => {
       expect(result.iterations).toBe(0);
       expect(result.reason).toContain("Code simplifier failed with exit code 5");
       expect(state.runAgentCalls.map((call) => call.role)).toEqual(["code-simplifier"]);
+    });
+  });
+
+  test("runs simplifier before reviewer and fixer when simplifier succeeds", async () => {
+    await withHarness(async (state, deps) => {
+      queueRunAgentSteps(
+        state,
+        resultStep(successResult("simplifier output")),
+        resultStep(successResult("review output")),
+        resultStep(successResult("fix output"))
+      );
+      queueReviewParses(state, parseReviewSuccess(buildReviewSummary()));
+      queueFixParses(
+        state,
+        parseFixSuccess(
+          buildFixSummary({
+            decision: "NO_CHANGES_NEEDED",
+            stop_iteration: true,
+            fixes: [],
+            skipped: [],
+          })
+        )
+      );
+
+      const result = await runReviewCycle(
+        createConfig(),
+        undefined,
+        {
+          simplifier: true,
+        },
+        {
+          projectPath: TEST_PROJECT_PATH,
+          sessionId: TEST_SESSION_ID,
+        },
+        deps
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.finalStatus).toBe("completed");
+      expect(result.iterations).toBe(1);
+      expect(state.runAgentCalls.map((call) => call.role)).toEqual([
+        "code-simplifier",
+        "reviewer",
+        "fixer",
+      ]);
+    });
+  });
+
+  test("swallows simplifier lockfile update failures and still completes", async () => {
+    await withHarness(async (state, deps) => {
+      state.updateLockfileFailuresRemaining = 100;
+      queueRunAgentSteps(
+        state,
+        resultStep(successResult("simplifier output")),
+        resultStep(successResult("review output")),
+        resultStep(successResult("fix output"))
+      );
+      queueReviewParses(state, parseReviewSuccess(buildReviewSummary()));
+      queueFixParses(
+        state,
+        parseFixSuccess(
+          buildFixSummary({
+            decision: "NO_CHANGES_NEEDED",
+            stop_iteration: true,
+            fixes: [],
+            skipped: [],
+          })
+        )
+      );
+
+      const result = await runReviewCycle(
+        createConfig(),
+        undefined,
+        {
+          simplifier: true,
+        },
+        {
+          projectPath: TEST_PROJECT_PATH,
+          sessionId: TEST_SESSION_ID,
+        },
+        deps
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.finalStatus).toBe("completed");
+      expect(state.runAgentCalls.map((call) => call.role)).toEqual([
+        "code-simplifier",
+        "reviewer",
+        "fixer",
+      ]);
+      expect(state.updateLockfileCalls.length).toBeGreaterThan(0);
     });
   });
 
