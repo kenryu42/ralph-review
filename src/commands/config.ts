@@ -138,9 +138,6 @@ function formatValue(value: unknown): string {
   if (value === null) {
     return "null";
   }
-  if (typeof value === "object") {
-    return JSON.stringify(value, null, 2);
-  }
   return String(value);
 }
 
@@ -321,22 +318,16 @@ export function getConfigValue(config: Config, key: ConfigKey): unknown {
 function ensureRoleForMutation(
   config: Config,
   role: ConfigRole,
-  field: "agent" | "model" | "provider" | "reasoning"
+  _field: "agent" | "model" | "provider" | "reasoning"
 ): AgentSettings {
   const existing = readRoleSettings(role, config);
   if (existing) {
     return existing;
   }
 
-  if (field !== "agent") {
-    throw new Error(
-      `Role "${role}" is not configured. Set "${role}.agent" first or run "rr init" to reconfigure.`
-    );
-  }
-
-  const created: AgentSettings = { agent: "codex" };
-  writeRoleSettings(role, config, created);
-  return created;
+  throw new Error(
+    `Role "${role}" is not configured. Set "${role}.agent" first or run "rr init" to reconfigure.`
+  );
 }
 
 function applyRoleAgentUpdate(config: Config, role: ConfigRole, nextAgent: AgentType): Config {

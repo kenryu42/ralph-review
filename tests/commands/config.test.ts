@@ -7,6 +7,7 @@ import {
   parseConfigKey,
   parseConfigSubcommand,
   parseConfigValue,
+  runConfig,
   setConfigValue,
   validateConfigInvariants,
 } from "@/commands/config";
@@ -857,6 +858,27 @@ describe("config command execution", () => {
     }
   });
 
+  test("runConfig export uses default implementation", async () => {
+    const errors: string[] = [];
+    const originalExit = process.exit;
+    const originalError = p.log.error;
+    process.exit = ((code?: number) => {
+      throw new Error(`forced-exit:${code}`);
+    }) as typeof process.exit;
+    p.log.error = (message) => {
+      errors.push(message);
+    };
+
+    try {
+      await expect(runConfig(["wizard"])).rejects.toThrow("forced-exit:1");
+    } finally {
+      process.exit = originalExit;
+      p.log.error = originalError;
+    }
+
+    expect(errors.some((message) => message.includes("Unknown config subcommand"))).toBe(true);
+  });
+
   test("createRunConfig can use default logger methods for success, warn, and error", async () => {
     const messages = {
       success: [] as string[],
@@ -928,6 +950,37 @@ describe("config command execution", () => {
     expect(messages.error.some((message) => message.includes("Unknown config subcommand"))).toBe(
       true
     );
+  });
+
+  test("createRunConfig can use default print method", async () => {
+    const output: string[] = [];
+    const originalLog = console.log;
+    console.log = ((message?: unknown) => {
+      output.push(String(message));
+    }) as typeof console.log;
+
+    try {
+      const runWithDefaultPrint = createRunConfig({
+        configPath: "/tmp/ralph-default-print-config.json",
+        configExists: async () => true,
+        ensureConfigDir: async () => {},
+        loadConfig: async () => createBaseConfig(),
+        parseConfig: (value) => parseConfig(value),
+        saveConfig: async () => {},
+        spawn: (() => ({ exited: Promise.resolve(0) })) as ConfigCommandDeps["spawn"],
+        env: {
+          EDITOR: "vim",
+          SHELL: "/bin/zsh",
+        },
+        exit: () => {},
+      });
+
+      await runWithDefaultPrint(["get", "reviewer.agent"]);
+    } finally {
+      console.log = originalLog;
+    }
+
+    expect(output).toEqual(["codex"]);
   });
 
   test("edit enforces usage and requires EDITOR", async () => {
