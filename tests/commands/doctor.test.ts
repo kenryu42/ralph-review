@@ -1,4 +1,5 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
+import * as p from "@clack/prompts";
 import { runDoctor } from "@/commands/doctor";
 import type { FixResult } from "@/lib/diagnostics/remediation";
 import type { DiagnosticItem, DiagnosticsReport } from "@/lib/diagnostics/types";
@@ -277,13 +278,38 @@ describe("doctor command", () => {
     expect(runtime.spinnerStops).toEqual(["Diagnostics complete."]);
   });
 
-  test("uses default diagnostics and spinner when those overrides are not provided", async () => {
-    const originalCwd = process.cwd();
+  test("uses default spinner when spinner override is not provided", async () => {
+    const report = createReport([
+      {
+        id: "config-missing",
+        category: "config",
+        title: "Configuration file",
+        severity: "error",
+        summary: "Configuration file was not found.",
+        remediation: ["Run rr init before running rr run."],
+      },
+    ]);
     const exits: number[] = [];
+    const spinnerStarts: string[] = [];
+    const spinnerStops: string[] = [];
+    const spinnerSpy = spyOn(p, "spinner").mockImplementation(
+      () =>
+        ({
+          start: (message: string) => {
+            spinnerStarts.push(message);
+          },
+          stop: (message: string) => {
+            spinnerStops.push(message);
+          },
+          cancel: () => {},
+          error: () => {},
+          message: () => {},
+          clear: () => {},
+          isCancelled: false,
+        }) as unknown as ReturnType<typeof p.spinner>
+    );
 
     try {
-      process.chdir("/tmp");
-
       await runDoctor([], {
         intro: () => {},
         note: () => {},
@@ -294,14 +320,17 @@ describe("doctor command", () => {
           info: () => {},
           step: () => {},
         },
+        runDiagnostics: async () => report,
         exit: (code: number) => {
           exits.push(code);
         },
       });
     } finally {
-      process.chdir(originalCwd);
+      spinnerSpy.mockRestore();
     }
 
+    expect(spinnerStarts).toEqual(["Running diagnostics..."]);
+    expect(spinnerStops).toEqual(["Diagnostics complete."]);
     expect(exits).toEqual([1]);
   });
 });
