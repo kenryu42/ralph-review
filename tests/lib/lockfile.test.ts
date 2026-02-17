@@ -91,6 +91,30 @@ describe("lockfile", () => {
       const data = await readLockfile(tempLogsDir, projectPath);
       expect(data).toBeNull();
     });
+
+    test("continues lockfile writes when queue seed promise rejects", async () => {
+      const projectPath = "/Users/test/project-queue-recovery";
+      const originalPromiseResolve = Promise.resolve;
+
+      Promise.resolve = ((...args: unknown[]) => {
+        if (args.length === 0) {
+          return Promise.reject(new Error("forced queue seed failure"));
+        }
+
+        return Reflect.apply(originalPromiseResolve, Promise, args) as Promise<unknown>;
+      }) as typeof Promise.resolve;
+
+      try {
+        await expect(
+          createLockfile(tempLogsDir, projectPath, "rr-test-queue-recovery", "main")
+        ).resolves.toBeUndefined();
+      } finally {
+        Promise.resolve = originalPromiseResolve;
+      }
+
+      const lock = await readLockfile(tempLogsDir, projectPath);
+      expect(lock?.sessionName).toBe("rr-test-queue-recovery");
+    });
   });
 
   describe("updateLockfile", () => {
@@ -228,6 +252,54 @@ describe("lockfile", () => {
     test("returns false when lockfile does not exist", async () => {
       const removed = await removeLockfile(tempLogsDir, "/Users/test/project-missing");
       expect(removed).toBe(false);
+    });
+
+    test("returns false when deleting lockfile throws", async () => {
+      const projectPath = "/Users/test/project-delete-failure";
+      await createLockfile(tempLogsDir, projectPath, "rr-test-delete-failure", "main");
+
+      const lock = await readLockfile(tempLogsDir, projectPath);
+      const sessionId = lock?.sessionId ?? "";
+      expect(sessionId).not.toBe("");
+
+      const lockPath = getLockPath(tempLogsDir, projectPath);
+      const originalBunFile = Bun.file;
+
+      Bun.file = ((...args: unknown[]) => {
+        const [path] = args;
+        const file = Reflect.apply(originalBunFile, Bun, args) as ReturnType<typeof Bun.file>;
+        if (path !== lockPath) {
+          return file;
+        }
+
+        return new Proxy(file, {
+          get(target, property) {
+            if (property === "delete") {
+              return async () => {
+                throw new Error("forced delete failure");
+              };
+            }
+
+            const value = Reflect.get(target, property, target);
+            if (typeof value === "function") {
+              return value.bind(target);
+            }
+
+            return value;
+          },
+        });
+      }) as typeof Bun.file;
+
+      try {
+        const removed = await removeLockfile(tempLogsDir, projectPath, {
+          expectedSessionId: sessionId,
+        });
+        expect(removed).toBe(false);
+      } finally {
+        Bun.file = originalBunFile;
+      }
+
+      expect(await readLockfile(tempLogsDir, projectPath)).not.toBeNull();
     });
   });
 
