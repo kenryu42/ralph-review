@@ -349,6 +349,43 @@ describe("config", () => {
       expect(parseConfig(withInvalidReviewer)).toBeNull();
     });
 
+    test("parseConfig accepts pi reviewer with provider and model", () => {
+      const withPiReviewer = {
+        ...createValidConfigInput(),
+        reviewer: { agent: "pi", provider: "google", model: "gemini-2.5-pro" },
+      };
+
+      const parsed = parseConfig(withPiReviewer);
+      expect(parsed).not.toBeNull();
+      expect(parsed?.reviewer).toEqual({
+        agent: "pi",
+        provider: "google",
+        model: "gemini-2.5-pro",
+        reasoning: undefined,
+      });
+    });
+
+    test("parseConfig accepts pi fixer with provider, model, and reasoning", () => {
+      const withPiFixer = {
+        ...createValidConfigInput(),
+        fixer: {
+          agent: "pi",
+          provider: "google",
+          model: "gemini-2.5-flash",
+          reasoning: "medium",
+        },
+      };
+
+      const parsed = parseConfig(withPiFixer);
+      expect(parsed).not.toBeNull();
+      expect(parsed?.fixer).toEqual({
+        agent: "pi",
+        provider: "google",
+        model: "gemini-2.5-flash",
+        reasoning: "medium",
+      });
+    });
+
     test("parseConfig rejects when required numeric fields are not numbers", () => {
       const withInvalidNumbers = {
         ...createValidConfigInput(),
