@@ -152,6 +152,24 @@ describe("applyFix", () => {
     expect(result.nextActions).toContain("Run: brew install tmux");
   });
 
+  test("reports failure when tmux install command throws", async () => {
+    const deps = mockDeps({
+      spawn: (() => {
+        throw new Error("spawn failed");
+      }) as unknown as typeof Bun.spawn,
+      platform: "darwin",
+      which: (command: string) => (command === "brew" ? "/opt/homebrew/bin/brew" : null),
+    });
+
+    const result = await applyFix(makeItem("tmux-installed"), deps);
+
+    expect(result.success).toBe(false);
+    expect(result.category).toBe("manual-needed");
+    expect(result.message).toContain("Failed to install tmux");
+    expect(result.attemptedCommand).toBe("brew install tmux");
+    expect(result.nextActions).toContain("Run: brew install tmux");
+  });
+
   test("fixes config-missing by spawning rr init", async () => {
     let spawnedArgs: string[] = [];
     const deps = mockDeps({
@@ -174,6 +192,36 @@ describe("applyFix", () => {
 
     expect(result.success).toBe(true);
     expect(result.id).toBe("config-invalid");
+  });
+
+  test("reports failure when rr init exits non-zero", async () => {
+    const deps = mockDeps({
+      spawn: (() => ({ exited: Promise.resolve(2) })) as unknown as typeof Bun.spawn,
+    });
+
+    const result = await applyFix(makeItem("config-missing"), deps);
+
+    expect(result.success).toBe(false);
+    expect(result.category).toBe("manual-needed");
+    expect(result.message).toContain("rr init exited with code 2");
+    expect(result.attemptedCommand).toBe("rr init");
+    expect(result.nextActions).toContain("Run: rr init");
+  });
+
+  test("reports failure when rr init throws", async () => {
+    const deps = mockDeps({
+      spawn: (() => {
+        throw new Error("init crash");
+      }) as unknown as typeof Bun.spawn,
+    });
+
+    const result = await applyFix(makeItem("config-invalid"), deps);
+
+    expect(result.success).toBe(false);
+    expect(result.category).toBe("manual-needed");
+    expect(result.message).toContain("Failed to run rr init");
+    expect(result.attemptedCommand).toBe("rr init");
+    expect(result.nextActions).toContain("Then run: rr doctor --fix");
   });
 
   test("routes config pattern IDs to rr init remediation", async () => {
@@ -216,6 +264,22 @@ describe("applyFix", () => {
 
     expect(result.success).toBe(false);
     expect(result.message).toContain("still active");
+    expect(result.nextActions).toContain("Run: rr status");
+    expect(result.nextActions).toContain("Then run: rr run");
+  });
+
+  test("reports failure when lockfile cleanup throws", async () => {
+    const deps = mockDeps({
+      cleanupStaleLockfile: async () => {
+        throw new Error("cleanup failed");
+      },
+    });
+
+    const result = await applyFix(makeItem("run-lockfile"), deps);
+
+    expect(result.success).toBe(false);
+    expect(result.category).toBe("manual-needed");
+    expect(result.message).toContain("Failed to clean lockfile");
     expect(result.nextActions).toContain("Run: rr status");
     expect(result.nextActions).toContain("Then run: rr run");
   });
