@@ -11,6 +11,7 @@ import {
   getRoleModelPriorityRank,
   type InitRuntimeOverrides,
   pickAutoRoleCandidate,
+  runInit,
   runInitWithRuntime,
   selectAutoReasoning,
   validateAgentSelection,
@@ -727,6 +728,9 @@ describe("init command", () => {
       expect(harness.cancels).toEqual(["Setup cancelled."]);
       expect(harness.savedConfigs).toHaveLength(0);
       expect(harness.ensureConfigDirCalls).toBe(0);
+      expect(harness.spinnerStarts).toHaveLength(0);
+      expect(harness.outros).toHaveLength(0);
+      expect(harness.successes).toHaveLength(0);
     });
 
     test("cancels when overwrite is declined and existing config cannot be loaded", async () => {
@@ -742,6 +746,9 @@ describe("init command", () => {
       expect(harness.infos).toHaveLength(0);
       expect(harness.savedConfigs).toHaveLength(0);
       expect(harness.ensureConfigDirCalls).toBe(0);
+      expect(harness.spinnerStarts).toHaveLength(0);
+      expect(harness.outros).toHaveLength(0);
+      expect(harness.successes).toHaveLength(0);
     });
 
     test("exits with error when no supported agents are installed", async () => {
@@ -1175,6 +1182,24 @@ describe("init command", () => {
       expect(errors).toContain("Invalid setup mode selection");
       expect(errors).toContain("Setup input could not be created");
       expect(exits).toEqual([1, 1]);
+    });
+  });
+
+  describe("runInit", () => {
+    test("uses injected runtime overrides and completes setup", async () => {
+      const harness = createInitHarness({
+        availability: createAvailability({ codex: true }),
+        capabilities: createCapabilities(),
+        selectResponses: ["auto"],
+        confirmResponses: [true, true],
+      });
+
+      await runInit(harness.overrides);
+
+      expect(harness.intros).toEqual(["Ralph Review Setup"]);
+      expect(harness.savedConfigs).toHaveLength(1);
+      expect(harness.successes[0]).toContain("Configuration saved to");
+      expect(harness.outros).toContain("You can now run: rr run");
     });
   });
 });
