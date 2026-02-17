@@ -134,4 +134,65 @@ describe("SessionPanel behavior", () => {
     expect(result.findings).toHaveLength(1);
     expect(result.findings[0]?.title).toBe("Persisted finding");
   });
+
+  test("shows persisted findings when session is not running", () => {
+    const persistedFinding = { ...finding, title: "Persisted finding for completed run" };
+    const result = resolveIssuesFoundDisplay({
+      sessionStatus: "completed",
+      sessionIteration: 3,
+      latestReviewIteration: 2,
+      persistedFindings: [persistedFinding],
+      persistedCodexText: null,
+      parsedCodexSummary: null,
+      liveReviewSummary: null,
+      cachedLiveReviewSummary: null,
+      lockfileReviewSummary: null,
+    });
+
+    expect(result.codexText).toBeNull();
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0]?.title).toBe("Persisted finding for completed run");
+  });
+
+  test("shows parsed codex summary findings when persisted findings are empty", () => {
+    const parsedSummary: ReviewSummary = {
+      findings: [{ ...finding, title: "Parsed codex finding" }],
+      overall_correctness: "patch is incorrect",
+      overall_explanation: "Parsed from codex text.",
+      overall_confidence_score: 0.77,
+    };
+
+    const result = resolveIssuesFoundDisplay({
+      sessionStatus: "completed",
+      sessionIteration: 3,
+      latestReviewIteration: 2,
+      persistedFindings: [],
+      persistedCodexText: null,
+      parsedCodexSummary: parsedSummary,
+      liveReviewSummary: null,
+      cachedLiveReviewSummary: null,
+      lockfileReviewSummary: null,
+    });
+
+    expect(result.codexText).toBeNull();
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0]?.title).toBe("Parsed codex finding");
+  });
+
+  test("falls back to persisted codex text when no findings are available", () => {
+    const result = resolveIssuesFoundDisplay({
+      sessionStatus: "completed",
+      sessionIteration: 3,
+      latestReviewIteration: 2,
+      persistedFindings: [],
+      persistedCodexText: "raw codex output",
+      parsedCodexSummary: null,
+      liveReviewSummary: null,
+      cachedLiveReviewSummary: null,
+      lockfileReviewSummary: null,
+    });
+
+    expect(result.findings).toEqual([]);
+    expect(result.codexText).toBe("raw codex output");
+  });
 });
