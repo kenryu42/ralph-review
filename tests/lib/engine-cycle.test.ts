@@ -472,6 +472,55 @@ describe("runReviewCycle", () => {
     });
   });
 
+  test("retries reviewer twice and succeeds on the second retry", async () => {
+    await withHarness(async (state, deps) => {
+      queueRunAgentSteps(
+        state,
+        resultStep(failureResult("reviewer failed on initial run", 30)),
+        resultStep(failureResult("reviewer failed on first retry", 31)),
+        resultStep(successResult("review output after second retry")),
+        resultStep(successResult("fix output"))
+      );
+      queueReviewParses(state, parseReviewSuccess(buildReviewSummary()));
+      queueFixParses(
+        state,
+        parseFixSuccess(
+          buildFixSummary({
+            decision: "NO_CHANGES_NEEDED",
+            stop_iteration: true,
+            fixes: [],
+            skipped: [],
+          })
+        )
+      );
+
+      const result = await runReviewCycle(
+        createConfig({
+          retry: {
+            maxRetries: 2,
+            baseDelayMs: 0,
+            maxDelayMs: 0,
+          },
+        }),
+        undefined,
+        undefined,
+        {
+          projectPath: TEST_PROJECT_PATH,
+          sessionId: TEST_SESSION_ID,
+        },
+        deps
+      );
+
+      expect(result.success).toBe(true);
+      expect(state.runAgentCalls.map((call) => call.role)).toEqual([
+        "reviewer",
+        "reviewer",
+        "reviewer",
+        "fixer",
+      ]);
+    });
+  });
+
   test("returns failed result when reviewer fails and retries are exhausted", async () => {
     await withHarness(async (state, deps) => {
       queueRunAgentSteps(state, resultStep(failureResult("reviewer failed", 9)));
@@ -1018,6 +1067,60 @@ describe("runReviewCycle", () => {
     });
   });
 
+  test("continues to another iteration when fixer explicitly sets stop_iteration false", async () => {
+    await withHarness(async (state, deps) => {
+      queueRunAgentSteps(
+        state,
+        resultStep(successResult("review output 1")),
+        resultStep(successResult("fix output 1")),
+        resultStep(successResult("review output 2")),
+        resultStep(successResult("fix output 2"))
+      );
+      queueReviewParses(
+        state,
+        parseReviewSuccess(buildReviewSummary()),
+        parseReviewSuccess(buildReviewSummary())
+      );
+      queueFixParses(
+        state,
+        parseFixSuccess(
+          buildFixSummary({
+            decision: "APPLY_SELECTIVELY",
+            stop_iteration: false,
+            fixes: [],
+            skipped: [],
+          })
+        ),
+        parseFixSuccess(
+          buildFixSummary({
+            decision: "NO_CHANGES_NEEDED",
+            stop_iteration: true,
+            fixes: [],
+            skipped: [],
+          })
+        )
+      );
+
+      const result = await runReviewCycle(
+        createConfig({
+          maxIterations: 2,
+        }),
+        undefined,
+        undefined,
+        {
+          projectPath: TEST_PROJECT_PATH,
+          sessionId: TEST_SESSION_ID,
+        },
+        deps
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.finalStatus).toBe("completed");
+      expect(result.iterations).toBe(2);
+      expect(state.runAgentCalls).toHaveLength(4);
+    });
+  });
+
   test("swallows lockfile update errors and still completes", async () => {
     await withHarness(async (state, deps) => {
       state.updateLockfileFailuresRemaining = 100;
@@ -1093,6 +1196,88 @@ describe("runReviewCycle", () => {
     });
   });
 
+  test("skips checkpoint discard when dependency returns a null checkpoint", async () => {
+    await withHarness(async (state, deps) => {
+      deps.createCheckpoint = () => null as unknown as GitCheckpoint;
+      queueRunAgentSteps(
+        state,
+        resultStep(successResult("review output")),
+        resultStep(successResult("fix output"))
+      );
+      queueReviewParses(state, parseReviewSuccess(buildReviewSummary()));
+      queueFixParses(
+        state,
+        parseFixSuccess(
+          buildFixSummary({
+            decision: "NO_CHANGES_NEEDED",
+            stop_iteration: true,
+            fixes: [],
+            skipped: [],
+          })
+        )
+      );
+
+      const result = await runReviewCycle(
+        createConfig(),
+        undefined,
+        undefined,
+        {
+          projectPath: TEST_PROJECT_PATH,
+          sessionId: TEST_SESSION_ID,
+        },
+        deps
+      );
+
+      expect(result.success).toBe(true);
+      expect(state.discardCalls).toHaveLength(0);
+    });
+  });
+
+  test("swallows session_end append failures in finally and still returns result", async () => {
+    await withHarness(async (state, deps) => {
+      const appendLogBase = deps.appendLog;
+      deps.appendLog = async (sessionPath, entry) => {
+        if (entry.type === "session_end") {
+          throw new Error("session_end append failed");
+        }
+        await appendLogBase(sessionPath, entry);
+      };
+
+      queueRunAgentSteps(
+        state,
+        resultStep(successResult("review output")),
+        resultStep(successResult("fix output"))
+      );
+      queueReviewParses(state, parseReviewSuccess(buildReviewSummary()));
+      queueFixParses(
+        state,
+        parseFixSuccess(
+          buildFixSummary({
+            decision: "NO_CHANGES_NEEDED",
+            stop_iteration: true,
+            fixes: [],
+            skipped: [],
+          })
+        )
+      );
+
+      const result = await runReviewCycle(
+        createConfig(),
+        undefined,
+        undefined,
+        {
+          projectPath: TEST_PROJECT_PATH,
+          sessionId: TEST_SESSION_ID,
+        },
+        deps
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.finalStatus).toBe("completed");
+      expect(state.appendedEntries.some((entry) => entry.type === "session_end")).toBe(false);
+    });
+  });
+
   test("rethrows unexpected errors and still appends session_end entry", async () => {
     await withHarness(async (state, deps) => {
       queueRunAgentSteps(state, throwStep(new Error("runner crashed")));
@@ -1115,6 +1300,33 @@ describe("runReviewCycle", () => {
       if (sessionEnd?.type === "session_end") {
         expect(sessionEnd.status).toBe("failed");
         expect(sessionEnd.reason).toBe("Unexpected error: runner crashed");
+      }
+    });
+  });
+
+  test("uses fallback session_end reason when non-Error is thrown", async () => {
+    await withHarness(async (state, deps) => {
+      queueRunAgentSteps(state, throwStep("runner crashed as string"));
+
+      await expect(
+        runReviewCycle(
+          createConfig(),
+          undefined,
+          undefined,
+          {
+            projectPath: TEST_PROJECT_PATH,
+            sessionId: TEST_SESSION_ID,
+          },
+          deps
+        )
+      ).rejects.toBe("runner crashed as string");
+
+      const sessionEnd = state.appendedEntries.at(-1);
+      expect(sessionEnd?.type).toBe("session_end");
+      if (sessionEnd?.type === "session_end") {
+        expect(sessionEnd.status).toBe("failed");
+        expect(sessionEnd.reason).toBe("Review cycle ended unexpectedly");
+        expect(sessionEnd.iterations).toBe(1);
       }
     });
   });
