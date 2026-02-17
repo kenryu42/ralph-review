@@ -37,6 +37,44 @@ import type {
 } from "./types";
 import { DEFAULT_RETRY_CONFIG } from "./types";
 
+interface RunReviewCycleDependencies {
+  createCodeSimplifierPrompt: typeof createCodeSimplifierPrompt;
+  createFixerPrompt: typeof createFixerPrompt;
+  createFixerSummaryRetryReminder: typeof createFixerSummaryRetryReminder;
+  createReviewerPrompt: typeof createReviewerPrompt;
+  createReviewerSummaryRetryReminder: typeof createReviewerSummaryRetryReminder;
+  AGENTS: typeof AGENTS;
+  runAgent: typeof runAgent;
+  createCheckpoint: typeof createCheckpoint;
+  discardCheckpoint: typeof discardCheckpoint;
+  rollbackToCheckpoint: typeof rollbackToCheckpoint;
+  updateLockfile: typeof updateLockfile;
+  appendLog: typeof appendLog;
+  createLogSession: typeof createLogSession;
+  getGitBranch: typeof getGitBranch;
+  parseFixSummaryOutput: typeof parseFixSummaryOutput;
+  parseReviewSummaryOutput: typeof parseReviewSummaryOutput;
+}
+
+const DEFAULT_RUN_REVIEW_CYCLE_DEPENDENCIES: RunReviewCycleDependencies = {
+  createCodeSimplifierPrompt,
+  createFixerPrompt,
+  createFixerSummaryRetryReminder,
+  createReviewerPrompt,
+  createReviewerSummaryRetryReminder,
+  AGENTS,
+  runAgent,
+  createCheckpoint,
+  discardCheckpoint,
+  rollbackToCheckpoint,
+  updateLockfile,
+  appendLog,
+  createLogSession,
+  getGitBranch,
+  parseFixSummaryOutput,
+  parseReviewSummaryOutput,
+};
+
 export function calculateRetryDelay(attempt: number, config: RetryConfig): number {
   const exponentialDelay = config.baseDelayMs * 2 ** attempt;
   const jitter = Math.random() * (exponentialDelay / 2);
@@ -101,6 +139,7 @@ async function handleAgentFailure(
   iteration: number,
   startTime: number,
   sessionPath: string,
+  deps: RunReviewCycleDependencies,
   options: {
     review?: ReviewSummary;
     codexReview?: CodexReviewSummary;
@@ -120,7 +159,7 @@ async function handleAgentFailure(
     codexReview: options.codexReview,
     rollback: options.rollback,
   });
-  await appendLog(sessionPath, entry);
+  await deps.appendLog(sessionPath, entry);
 
   const brokenWarning = role === "fixer" ? " Code may be in a broken state!" : "";
   const rollbackSuffix = rollbackReasonSuffix(options.rollback);
@@ -155,13 +194,14 @@ function printHeader(text: string, colorCode: string = "\x1b[36m") {
 async function runAgentWithRetry(
   role: AgentRole,
   config: Config,
+  deps: RunReviewCycleDependencies,
   prompt: string = "",
   timeout: number = config.iterationTimeout,
   reviewOptions?: ReviewOptions
 ): Promise<IterationResult> {
   const retryConfig = config.retry ?? DEFAULT_RETRY_CONFIG;
 
-  let result = await runAgent(role, config, prompt, timeout, reviewOptions);
+  let result = await deps.runAgent(role, config, prompt, timeout, reviewOptions);
 
   if (result.success) {
     return result;
@@ -176,7 +216,7 @@ async function runAgentWithRetry(
     );
     await sleep(delay);
 
-    result = await runAgent(role, config, prompt, timeout, reviewOptions);
+    result = await deps.runAgent(role, config, prompt, timeout, reviewOptions);
 
     if (result.success) {
       return result;
@@ -224,9 +264,13 @@ export function rollbackReasonSuffix(rollback: RollbackActionResult | undefined)
   return ` Rollback failed (${reason}). Please restore manually from git history.`;
 }
 
-function applyRollback(projectPath: string, checkpoint: GitCheckpoint): RollbackActionResult {
+function applyRollback(
+  projectPath: string,
+  checkpoint: GitCheckpoint,
+  deps: RunReviewCycleDependencies
+): RollbackActionResult {
   try {
-    rollbackToCheckpoint(projectPath, checkpoint);
+    deps.rollbackToCheckpoint(projectPath, checkpoint);
     return createRollbackOutcome(true, true);
   } catch (error) {
     return createRollbackOutcome(true, false, `${error}`);
@@ -356,26 +400,29 @@ export async function runReviewCycle(
   config: Config,
   onIteration?: OnIterationCallback,
   reviewOptions?: ReviewOptions,
-  runtimeContext?: RunReviewRuntimeContext
+  runtimeContext?: RunReviewRuntimeContext,
+  deps: RunReviewCycleDependencies = DEFAULT_RUN_REVIEW_CYCLE_DEPENDENCIES
 ): Promise<CycleResult> {
   resetInterrupt();
   setupSignalHandler();
 
   const projectPath = runtimeContext?.projectPath ?? process.cwd();
   const sessionId = runtimeContext?.sessionId;
-  const gitBranch = await getGitBranch(projectPath);
-  const sessionPath = await createLogSession(undefined, projectPath, gitBranch);
+  const gitBranch = await deps.getGitBranch(projectPath);
+  const sessionPath = await deps.createLogSession(undefined, projectPath, gitBranch);
   if (sessionId) {
-    await updateLockfile(
-      undefined,
-      projectPath,
-      {
-        sessionPath,
-      },
-      {
-        expectedSessionId: sessionId,
-      }
-    ).catch(() => {});
+    await deps
+      .updateLockfile(
+        undefined,
+        projectPath,
+        {
+          sessionPath,
+        },
+        {
+          expectedSessionId: sessionId,
+        }
+      )
+      .catch(() => {});
   }
   const systemEntry: SystemEntry = {
     type: "system",
@@ -389,7 +436,7 @@ export async function runReviewCycle(
     maxIterations: config.maxIterations,
     reviewOptions,
   };
-  await appendLog(sessionPath, systemEntry);
+  await deps.appendLog(sessionPath, systemEntry);
 
   let finalResult: CycleResult | undefined;
   let unhandledError: unknown;
@@ -404,19 +451,21 @@ export async function runReviewCycle(
 
   try {
     if (reviewOptions?.simplifier) {
-      await updateLockfile(
-        undefined,
-        projectPath,
-        { currentAgent: "code-simplifier" },
-        {
-          expectedSessionId: sessionId,
-        }
-      ).catch(() => {});
+      await deps
+        .updateLockfile(
+          undefined,
+          projectPath,
+          { currentAgent: "code-simplifier" },
+          {
+            expectedSessionId: sessionId,
+          }
+        )
+        .catch(() => {});
       printHeader("Running code simplifier agent...", "\x1b[34m");
 
       const { baseBranch, commitSha, customInstructions } = reviewOptions;
 
-      const simplifierPrompt = createCodeSimplifierPrompt({
+      const simplifierPrompt = deps.createCodeSimplifierPrompt({
         repoPath: projectPath,
         baseBranch,
         commitSha,
@@ -425,6 +474,7 @@ export async function runReviewCycle(
       const simplifierResult = await runAgentWithRetry(
         "code-simplifier",
         config,
+        deps,
         simplifierPrompt,
         config.iterationTimeout,
         reviewOptions
@@ -459,7 +509,7 @@ export async function runReviewCycle(
         const entry = createIterationEntry(iteration, iterationStartTime, {
           error: { phase: "reviewer", message: "Review cycle interrupted before iteration start" },
         });
-        await appendLog(sessionPath, entry);
+        await deps.appendLog(sessionPath, entry);
         return finish(
           determineCycleResult(
             hasRemainingIssues,
@@ -471,22 +521,24 @@ export async function runReviewCycle(
         );
       }
 
-      await updateLockfile(
-        undefined,
-        projectPath,
-        {
-          currentAgent: "reviewer",
-          iteration,
-          reviewSummary: undefined,
-          codexReviewText: undefined,
-        },
-        {
-          expectedSessionId: sessionId,
-        }
-      ).catch(() => {});
+      await deps
+        .updateLockfile(
+          undefined,
+          projectPath,
+          {
+            currentAgent: "reviewer",
+            iteration,
+            reviewSummary: undefined,
+            codexReviewText: undefined,
+          },
+          {
+            expectedSessionId: sessionId,
+          }
+        )
+        .catch(() => {});
       printHeader("Running reviewer...", "\x1b[36m");
 
-      const reviewerPrompt = createReviewerPrompt({
+      const reviewerPrompt = deps.createReviewerPrompt({
         repoPath: projectPath,
         baseBranch: reviewOptions?.baseBranch,
         commitSha: reviewOptions?.commitSha,
@@ -497,6 +549,7 @@ export async function runReviewCycle(
       let reviewResult = await runAgentWithRetry(
         "reviewer",
         config,
+        deps,
         reviewerPrompt,
         config.iterationTimeout,
         reviewOptions
@@ -510,17 +563,18 @@ export async function runReviewCycle(
             retryConfig,
             iteration,
             iterationStartTime,
-            sessionPath
+            sessionPath,
+            deps
           )
         );
       }
 
-      const reviewerAgentModule = AGENTS[config.reviewer.agent];
+      const reviewerAgentModule = deps.AGENTS[config.reviewer.agent];
       let extractedReviewerText = reviewerAgentModule.extractResult(reviewResult.output);
       let reviewParseResult =
         config.reviewer.agent === "codex"
           ? null
-          : parseReviewSummaryOutput(extractedReviewerText, reviewResult.output);
+          : deps.parseReviewSummaryOutput(extractedReviewerText, reviewResult.output);
 
       if (
         config.reviewer.agent !== "codex" &&
@@ -543,10 +597,11 @@ export async function runReviewCycle(
           console.log(
             `  ⚠️  Reviewer output missing structured summary (${reviewParseResult.failureReason}). Retrying reviewer with format reminder...`
           );
-          const reviewRetryPrompt = `${reviewerPrompt}\n${createReviewerSummaryRetryReminder()}`;
+          const reviewRetryPrompt = `${reviewerPrompt}\n${deps.createReviewerSummaryRetryReminder()}`;
           const retryResult = await runAgentWithRetry(
             "reviewer",
             config,
+            deps,
             reviewRetryPrompt,
             config.iterationTimeout,
             reviewOptions
@@ -564,7 +619,10 @@ export async function runReviewCycle(
 
           reviewResult = retryResult;
           extractedReviewerText = reviewerAgentModule.extractResult(reviewResult.output);
-          reviewParseResult = parseReviewSummaryOutput(extractedReviewerText, reviewResult.output);
+          reviewParseResult = deps.parseReviewSummaryOutput(
+            extractedReviewerText,
+            reviewResult.output
+          );
         }
 
         if (!reviewParseResult.ok) {
@@ -587,20 +645,22 @@ export async function runReviewCycle(
         const entry = createIterationEntry(iteration, iterationStartTime, {
           error: { phase: "reviewer", message: "Review cycle interrupted before fixer" },
         });
-        await appendLog(sessionPath, entry);
+        await deps.appendLog(sessionPath, entry);
         return finish(
           determineCycleResult(true, iteration, config.maxIterations, true, sessionPath)
         );
       }
 
-      await updateLockfile(
-        undefined,
-        projectPath,
-        { currentAgent: "fixer" },
-        {
-          expectedSessionId: sessionId,
-        }
-      ).catch(() => {});
+      await deps
+        .updateLockfile(
+          undefined,
+          projectPath,
+          { currentAgent: "fixer" },
+          {
+            expectedSessionId: sessionId,
+          }
+        )
+        .catch(() => {});
       printHeader("Running fixer to verify and apply fixes...", "\x1b[35m");
 
       let reviewSummary: ReviewSummary | null = null;
@@ -611,14 +671,16 @@ export async function runReviewCycle(
 
       if (config.reviewer.agent === "codex") {
         codexReviewSummary = { text: reviewTextForFixer };
-        await updateLockfile(
-          undefined,
-          projectPath,
-          { codexReviewText: reviewTextForFixer },
-          {
-            expectedSessionId: sessionId,
-          }
-        ).catch(() => {});
+        await deps
+          .updateLockfile(
+            undefined,
+            projectPath,
+            { codexReviewText: reviewTextForFixer },
+            {
+              expectedSessionId: sessionId,
+            }
+          )
+          .catch(() => {});
       } else {
         if (reviewParseResult?.ok) {
           reviewSummary = reviewParseResult.value;
@@ -633,22 +695,24 @@ export async function runReviewCycle(
         }
 
         if (reviewSummary) {
-          await updateLockfile(
-            undefined,
-            projectPath,
-            { reviewSummary },
-            {
-              expectedSessionId: sessionId,
-            }
-          ).catch(() => {});
+          await deps
+            .updateLockfile(
+              undefined,
+              projectPath,
+              { reviewSummary },
+              {
+                expectedSessionId: sessionId,
+              }
+            )
+            .catch(() => {});
         }
       }
 
-      const fixerPrompt = createFixerPrompt(reviewJson ?? reviewTextForFixer);
-      const fixerAgentModule = AGENTS[config.fixer.agent];
+      const fixerPrompt = deps.createFixerPrompt(reviewJson ?? reviewTextForFixer);
+      const fixerAgentModule = deps.AGENTS[config.fixer.agent];
       let checkpoint: GitCheckpoint | null = null;
       try {
-        checkpoint = createCheckpoint(
+        checkpoint = deps.createCheckpoint(
           projectPath,
           `${sessionId ?? "session"}-iter-${iteration}-${Date.now()}`
         );
@@ -661,7 +725,7 @@ export async function runReviewCycle(
           review: reviewSummary ?? undefined,
           codexReview: codexReviewSummary ?? undefined,
         });
-        await appendLog(sessionPath, entry);
+        await deps.appendLog(sessionPath, entry);
         return finish({
           success: false,
           finalStatus: "failed",
@@ -676,16 +740,16 @@ export async function runReviewCycle(
           return;
         }
         try {
-          discardCheckpoint(projectPath, checkpoint);
+          deps.discardCheckpoint(projectPath, checkpoint);
         } catch (error) {
           console.log(`  ⚠️  Failed to discard checkpoint: ${error}`);
         }
         checkpoint = null;
       };
 
-      let fixResult = await runAgentWithRetry("fixer", config, fixerPrompt);
+      let fixResult = await runAgentWithRetry("fixer", config, deps, fixerPrompt);
       let resultText = fixerAgentModule.extractResult(fixResult.output);
-      let fixParseResult = parseFixSummaryOutput(resultText, fixResult.output);
+      let fixParseResult = deps.parseFixSummaryOutput(resultText, fixResult.output);
       let fixSummary = fixParseResult.ok ? fixParseResult.value : null;
 
       if (fixResult.success && !fixSummary) {
@@ -697,10 +761,10 @@ export async function runReviewCycle(
           console.log(
             `  ⚠️  Fixer output missing structured summary (${fixParseResult.failureReason}). Retrying fixer with format reminder...`
           );
-          const summaryRetryPrompt = `${fixerPrompt}\n${createFixerSummaryRetryReminder()}`;
-          fixResult = await runAgentWithRetry("fixer", config, summaryRetryPrompt);
+          const summaryRetryPrompt = `${fixerPrompt}\n${deps.createFixerSummaryRetryReminder()}`;
+          fixResult = await runAgentWithRetry("fixer", config, deps, summaryRetryPrompt);
           resultText = fixerAgentModule.extractResult(fixResult.output);
-          fixParseResult = parseFixSummaryOutput(resultText, fixResult.output);
+          fixParseResult = deps.parseFixSummaryOutput(resultText, fixResult.output);
           fixSummary = fixParseResult.ok ? fixParseResult.value : null;
         }
       }
@@ -713,7 +777,7 @@ export async function runReviewCycle(
         console.log(
           `  ❌ Fixer returned incomplete output (missing fix summary JSON: ${fixParseResult.failureReason}).`
         );
-        const rollback = checkpoint ? applyRollback(projectPath, checkpoint) : undefined;
+        const rollback = checkpoint ? applyRollback(projectPath, checkpoint, deps) : undefined;
         const entry = createIterationEntry(iteration, iterationStartTime, {
           error: {
             phase: "fixer",
@@ -723,7 +787,7 @@ export async function runReviewCycle(
           codexReview: codexReviewSummary ?? undefined,
           rollback,
         });
-        await appendLog(sessionPath, entry);
+        await deps.appendLog(sessionPath, entry);
         return finish({
           success: false,
           finalStatus: "failed",
@@ -738,7 +802,7 @@ export async function runReviewCycle(
       }
 
       if (!fixResult.success) {
-        const rollback = checkpoint ? applyRollback(projectPath, checkpoint) : undefined;
+        const rollback = checkpoint ? applyRollback(projectPath, checkpoint, deps) : undefined;
         return finish(
           await handleAgentFailure(
             "fixer",
@@ -747,6 +811,7 @@ export async function runReviewCycle(
             iteration,
             iterationStartTime,
             sessionPath,
+            deps,
             {
               review: reviewSummary ?? undefined,
               codexReview: codexReviewSummary ?? undefined,
@@ -761,7 +826,7 @@ export async function runReviewCycle(
         codexReview: codexReviewSummary ?? undefined,
         fixes: fixSummary ?? undefined,
       });
-      await appendLog(sessionPath, iterationEntry);
+      await deps.appendLog(sessionPath, iterationEntry);
 
       if (fixSummary?.stop_iteration === true) {
         hasRemainingIssues = false;
@@ -826,6 +891,6 @@ export async function runReviewCycle(
       wasInterrupted(),
       iteration
     );
-    await appendLog(sessionPath, sessionEndEntry).catch(() => {});
+    await deps.appendLog(sessionPath, sessionEndEntry).catch(() => {});
   }
 }
