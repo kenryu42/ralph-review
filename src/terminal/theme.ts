@@ -27,10 +27,14 @@ export type ColorLevel = 0 | 1 | 2 | 3;
  * Level 2: 256 colors
  * Level 3: 16 million colors (truecolor/24-bit)
  */
-function detectColorLevel(): ColorLevel {
+function detectColorLevel(
+  env: NodeJS.ProcessEnv = process.env,
+  isTTY: boolean | undefined = process.stdout?.isTTY,
+  platform: NodeJS.Platform = process.platform
+): ColorLevel {
   // Check for explicit NO_COLOR (disabled unless FORCE_COLOR overrides)
-  const noColor = process.env.NO_COLOR;
-  const forceColor = process.env.FORCE_COLOR;
+  const noColor = env.NO_COLOR;
+  const forceColor = env.FORCE_COLOR;
 
   // FORCE_COLOR takes precedence over NO_COLOR
   if (forceColor !== undefined && forceColor !== "") {
@@ -47,21 +51,18 @@ function detectColorLevel(): ColorLevel {
     return 0;
   }
 
-  // Check if we're in a TTY
-  const isTTY = process.stdout?.isTTY;
-
   // Not a TTY and no explicit force = no color
   if (!isTTY) {
     // But check for CI environments that support colors
-    const ci = process.env.CI;
+    const ci = env.CI;
     const ciName =
-      process.env.GITHUB_ACTIONS ||
-      process.env.GITLAB_CI ||
-      process.env.CIRCLECI ||
-      process.env.TRAVIS ||
-      process.env.DRONE ||
-      process.env.BUILDKITE ||
-      process.env.APPVEYOR;
+      env.GITHUB_ACTIONS ||
+      env.GITLAB_CI ||
+      env.CIRCLECI ||
+      env.TRAVIS ||
+      env.DRONE ||
+      env.BUILDKITE ||
+      env.APPVEYOR;
 
     if (!ci && !ciName) {
       return 0;
@@ -69,19 +70,19 @@ function detectColorLevel(): ColorLevel {
   }
 
   // Check for dumb terminal
-  const term = process.env.TERM;
+  const term = env.TERM;
   if (term === "dumb") {
     return 0;
   }
 
   // Windows detection - modern Windows terminals support truecolor
-  const isWindows = process.platform === "win32";
+  const isWindows = platform === "win32";
   if (isWindows) {
     // Windows Terminal, VS Code, and modern consoles support truecolor
-    const wtSession = process.env.WT_SESSION;
-    const termProgram = process.env.TERM_PROGRAM;
+    const wtSession = env.WT_SESSION;
+    const termProgram = env.TERM_PROGRAM;
 
-    if (wtSession || termProgram === "vscode" || process.env.COLORTERM === "truecolor") {
+    if (wtSession || termProgram === "vscode" || env.COLORTERM === "truecolor") {
       return 3;
     }
 
@@ -96,7 +97,7 @@ function detectColorLevel(): ColorLevel {
   }
 
   // Check COLORTERM for truecolor support
-  const colorTerm = process.env.COLORTERM;
+  const colorTerm = env.COLORTERM;
   if (colorTerm === "truecolor" || colorTerm === "24bit") {
     return 3;
   }
@@ -114,9 +115,6 @@ function detectColorLevel(): ColorLevel {
   // Default for TTY: assume basic color support
   return isTTY ? 1 : 0;
 }
-
-// Cache the detected level
-const colorLevel = detectColorLevel();
 
 /**
  * Convert hex color to RGB values
@@ -169,14 +167,15 @@ function createHexColor(hex: string): (text: string) => string {
   }
 
   return (text: string) => {
-    if (colorLevel === 0) return text;
+    const level = getColorLevel();
+    if (level === 0) return text;
 
-    if (colorLevel >= 3) {
+    if (level >= 3) {
       // Truecolor: 24-bit RGB
       return `${ESC}38;2;${rgb.r};${rgb.g};${rgb.b}m${text}${RESET}`;
     }
 
-    if (colorLevel >= 2) {
+    if (level >= 2) {
       // 256 colors
       const code = rgbToAnsi256(rgb.r, rgb.g, rgb.b);
       return `${ESC}38;5;${code}m${text}${RESET}`;
@@ -194,7 +193,8 @@ function createHexColor(hex: string): (text: string) => string {
  */
 function createStyler(colorHex?: string, styles: StyleName[] = []): (text: string) => string {
   return (text: string) => {
-    if (colorLevel === 0) return text;
+    const level = getColorLevel();
+    if (level === 0) return text;
 
     const codes: number[] = [];
 
@@ -204,7 +204,7 @@ function createStyler(colorHex?: string, styles: StyleName[] = []): (text: strin
     }
 
     // Add color code
-    if (colorHex && colorLevel >= 3) {
+    if (colorHex && level >= 3) {
       const rgb = hexToRgb(colorHex);
       if (rgb) {
         // For combined styles + truecolor, we need to handle this differently
@@ -212,7 +212,7 @@ function createStyler(colorHex?: string, styles: StyleName[] = []): (text: strin
         const colorPrefix = `${ESC}38;2;${rgb.r};${rgb.g};${rgb.b}m`;
         return `${stylePrefix}${colorPrefix}${text}${RESET}`;
       }
-    } else if (colorHex && colorLevel >= 2) {
+    } else if (colorHex && level >= 2) {
       const rgb = hexToRgb(colorHex);
       if (rgb) {
         const code = rgbToAnsi256(rgb.r, rgb.g, rgb.b);
@@ -245,14 +245,14 @@ export const theme = {
  * Check if rich colors are supported
  */
 export function isRich(): boolean {
-  return colorLevel >= 2;
+  return getColorLevel() >= 2;
 }
 
 /**
  * Get the current color level
  */
 export function getColorLevel(): ColorLevel {
-  return colorLevel;
+  return detectColorLevel();
 }
 
 /**
@@ -273,7 +273,7 @@ export function hex(value: string): (text: string) => string {
  * Apply bold style
  */
 export function bold(text: string): string {
-  if (colorLevel === 0) return text;
+  if (getColorLevel() === 0) return text;
   return `${ESC}${STYLES.bold}m${text}${RESET}`;
 }
 
@@ -281,7 +281,7 @@ export function bold(text: string): string {
  * Apply dim style
  */
 export function dim(text: string): string {
-  if (colorLevel === 0) return text;
+  if (getColorLevel() === 0) return text;
   return `${ESC}${STYLES.dim}m${text}${RESET}`;
 }
 
