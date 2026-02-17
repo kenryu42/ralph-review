@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import {
   extractFixesFromStats,
   extractLatestReviewSummary,
@@ -7,6 +7,7 @@ import {
   formatLastRunIssueSummary,
   formatPriorityBreakdown,
   formatProjectStatsSummary,
+  formatRelativeTime,
 } from "@/lib/tui/session-panel-utils";
 import type {
   FixEntry,
@@ -19,6 +20,12 @@ import type {
 import { buildFixEntry, buildFixSummary, buildSkippedEntry } from "../../test-utils/fix-summary";
 
 describe("SessionPanel helpers", () => {
+  const originalDateNow = Date.now;
+
+  afterEach(() => {
+    Date.now = originalDateNow;
+  });
+
   describe("extractFixesFromStats", () => {
     const createFix = (id: number, title: string, priority: Priority): FixEntry =>
       buildFixEntry({ id, title, priority });
@@ -314,6 +321,33 @@ describe("SessionPanel helpers", () => {
     });
   });
 
+  describe("formatRelativeTime", () => {
+    test("returns just now when under one minute", () => {
+      Date.now = () => 100_000;
+      expect(formatRelativeTime(99_500)).toBe("just now");
+    });
+
+    test("returns minutes ago for minute-level differences", () => {
+      Date.now = () => 10 * 60 * 1_000;
+      expect(formatRelativeTime(8 * 60 * 1_000)).toBe("2m ago");
+    });
+
+    test("returns hours ago for hour-level differences", () => {
+      Date.now = () => 10 * 60 * 60 * 1_000;
+      expect(formatRelativeTime(7 * 60 * 60 * 1_000)).toBe("3h ago");
+    });
+
+    test("returns yesterday for one-day difference", () => {
+      Date.now = () => 4 * 24 * 60 * 60 * 1_000;
+      expect(formatRelativeTime(3 * 24 * 60 * 60 * 1_000)).toBe("yesterday");
+    });
+
+    test("returns days ago for multi-day differences", () => {
+      Date.now = () => 6 * 24 * 60 * 60 * 1_000;
+      expect(formatRelativeTime(3 * 24 * 60 * 60 * 1_000)).toBe("3d ago");
+    });
+  });
+
   describe("extractLatestReviewSummary", () => {
     const baseReview = {
       findings: [],
@@ -399,6 +433,31 @@ describe("SessionPanel helpers", () => {
       );
 
       expect(result?.overall_explanation).toBe("current iteration");
+    });
+
+    test("parses summaries with escaped quotes and backslashes", () => {
+      const escapedReview = {
+        ...baseReview,
+        overall_explanation: 'has "quotes" and path C:\\\\temp\\\\file.ts',
+      };
+      const text = `start\n${JSON.stringify(escapedReview)}\nend`;
+      const result = extractLatestReviewSummary(text);
+      expect(result?.overall_explanation).toBe(escapedReview.overall_explanation);
+    });
+
+    test("returns last valid summary when followed by malformed JSON object", () => {
+      const valid = JSON.stringify({
+        ...baseReview,
+        overall_explanation: "valid",
+      });
+      const malformed = '{"findings":[}';
+      const text = `${valid}\n${malformed}`;
+      const result = extractLatestReviewSummary(text);
+      expect(result?.overall_explanation).toBe("valid");
+    });
+
+    test("returns null for whitespace-only input", () => {
+      expect(extractLatestReviewSummary("   \n\t  ")).toBeNull();
     });
   });
 
