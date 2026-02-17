@@ -2,6 +2,10 @@ import { describe, expect, test } from "bun:test";
 import { parseCodexReviewText } from "@/lib/types";
 
 describe("parseCodexReviewText", () => {
+  test("returns null for empty or whitespace input", () => {
+    expect(parseCodexReviewText(" \n\t  ")).toBeNull();
+  });
+
   test("parses codex review text into ReviewSummary", () => {
     const text = [
       "The new [r] hotkey can only be used once per dashboard process.",
@@ -72,5 +76,55 @@ describe("parseCodexReviewText", () => {
     expect(result?.findings).toHaveLength(0);
     expect(result?.overall_correctness).toBe("patch is correct");
     expect(result?.overall_explanation).toBe("The changes look good.");
+  });
+
+  test("returns null when marker comments are non-empty and lack finding headers", () => {
+    const text = ["Summary line.", "", "Full review comments:", "", "No concrete findings."].join(
+      "\n"
+    );
+
+    expect(parseCodexReviewText(text)).toBeNull();
+  });
+
+  test("parses comments when headers exist without the explicit marker", () => {
+    const text = [
+      "One issue was found.",
+      "",
+      "- [P1] Keep output drained - /tmp/file.ts:10-11",
+      "  This can block under high output volume.",
+    ].join("\n");
+
+    const result = parseCodexReviewText(text);
+    expect(result).not.toBeNull();
+    expect(result?.findings).toHaveLength(1);
+    expect(result?.findings[0]?.title).toBe("Keep output drained");
+    expect(result?.findings[0]?.code_location.line_range.start).toBe(10);
+    expect(result?.findings[0]?.code_location.line_range.end).toBe(11);
+  });
+
+  test("returns null when a header has an empty title", () => {
+    const text = [
+      "Summary line.",
+      "",
+      "Full review comments:",
+      "",
+      "- [P1] - /tmp/file.ts:10-12",
+      "  Body text here.",
+    ].join("\n");
+
+    expect(parseCodexReviewText(text)).toBeNull();
+  });
+
+  test("returns null when a header line range is reversed", () => {
+    const text = [
+      "Summary line.",
+      "",
+      "Full review comments:",
+      "",
+      "- [P1] Reversed range - /tmp/file.ts:20-10",
+      "  Body text here.",
+    ].join("\n");
+
+    expect(parseCodexReviewText(text)).toBeNull();
   });
 });
