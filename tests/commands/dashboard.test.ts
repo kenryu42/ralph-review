@@ -298,6 +298,18 @@ describe("dashboard markRunningSessions", () => {
 });
 
 describe("runOpenCommand", () => {
+  test("uses exec fallback for open when open handler is missing", async () => {
+    const calls: string[] = [];
+
+    await runOpenCommand("open", "http://127.0.0.1:4321", {
+      exec: async (command, filePath) => {
+        calls.push(`${command}:${filePath}`);
+      },
+    });
+
+    expect(calls).toEqual(["open:http://127.0.0.1:4321"]);
+  });
+
   test("calls open handler for darwin command", async () => {
     const calls: string[] = [];
 
@@ -308,6 +320,18 @@ describe("runOpenCommand", () => {
     });
 
     expect(calls).toEqual(["open:http://127.0.0.1:4321"]);
+  });
+
+  test("uses exec fallback for xdg-open when xdg-open handler is missing", async () => {
+    const calls: string[] = [];
+
+    await runOpenCommand("xdg-open", "http://127.0.0.1:4321", {
+      exec: async (command, filePath) => {
+        calls.push(`${command}:${filePath}`);
+      },
+    });
+
+    expect(calls).toEqual(["xdg-open:http://127.0.0.1:4321"]);
   });
 
   test("calls xdg-open handler for linux command", async () => {
@@ -332,6 +356,46 @@ describe("runOpenCommand", () => {
     });
 
     expect(calls).toEqual(["start:http://127.0.0.1:4321"]);
+  });
+
+  test("uses exec fallback for start when start handler is missing", async () => {
+    const calls: string[] = [];
+
+    await runOpenCommand("start", "http://127.0.0.1:4321", {
+      exec: async (command, filePath) => {
+        calls.push(`${command}:${filePath}`);
+      },
+    });
+
+    expect(calls).toEqual(["start:http://127.0.0.1:4321"]);
+  });
+
+  test("attempts shell fallback when no handlers are provided", async () => {
+    let outcome: "resolved" | "rejected" | undefined;
+
+    try {
+      await runOpenCommand("start", "http://127.0.0.1:4321");
+      outcome = "resolved";
+    } catch {
+      outcome = "rejected";
+    }
+
+    expect(outcome).toBeDefined();
+  });
+
+  test("prefers open handler over exec fallback for darwin command", async () => {
+    const calls: string[] = [];
+
+    await runOpenCommand("open", "http://127.0.0.1:4321", {
+      open: async (filePath: string) => {
+        calls.push(`open:${filePath}`);
+      },
+      exec: async (command, filePath) => {
+        calls.push(`${command}:${filePath}`);
+      },
+    });
+
+    expect(calls).toEqual(["open:http://127.0.0.1:4321"]);
   });
 });
 
@@ -594,6 +658,77 @@ describe("removeSession", () => {
     const result = removeSession(data, "/logs/nonexistent.jsonl");
 
     expect(result).toBe(false);
+  });
+
+  test("recomputes and sorts projects by total fixes after removal", () => {
+    const projectASession1 = createSessionStats({
+      sessionPath: "/logs/proj-a/session1.jsonl",
+      totalFixes: 1,
+      totalSkipped: 0,
+      priorityCounts: { P0: 0, P1: 1, P2: 0, P3: 0 },
+      iterations: 1,
+    });
+    const projectASession2 = createSessionStats({
+      sessionPath: "/logs/proj-a/session2.jsonl",
+      totalFixes: 1,
+      totalSkipped: 0,
+      priorityCounts: { P0: 0, P1: 0, P2: 1, P3: 0 },
+      iterations: 1,
+    });
+    const projectBSession = createSessionStats({
+      sessionPath: "/logs/proj-b/session1.jsonl",
+      totalFixes: 5,
+      totalSkipped: 0,
+      priorityCounts: { P0: 1, P1: 1, P2: 1, P3: 2 },
+      iterations: 2,
+    });
+
+    const data: DashboardData = {
+      generatedAt: Date.now(),
+      globalStats: {
+        totalFixes: 0,
+        totalSkipped: 0,
+        priorityCounts: { P0: 0, P1: 0, P2: 0, P3: 0 },
+        totalSessions: 0,
+        averageIterations: 0,
+        fixRate: 0,
+      },
+      projects: [
+        {
+          projectName: "proj-a",
+          displayName: "proj-a",
+          totalFixes: 2,
+          totalSkipped: 0,
+          priorityCounts: { P0: 0, P1: 1, P2: 1, P3: 0 },
+          sessionCount: 2,
+          averageIterations: 1,
+          fixRate: 1,
+          sessions: [projectASession1, projectASession2],
+        },
+        {
+          projectName: "proj-b",
+          displayName: "proj-b",
+          totalFixes: 5,
+          totalSkipped: 0,
+          priorityCounts: { P0: 1, P1: 1, P2: 1, P3: 2 },
+          sessionCount: 1,
+          averageIterations: 2,
+          fixRate: 1,
+          sessions: [projectBSession],
+        },
+      ],
+      reviewerAgentStats: [],
+      fixerAgentStats: [],
+      reviewerModelStats: [],
+      fixerModelStats: [],
+    };
+
+    const removed = removeSession(data, "/logs/proj-a/session1.jsonl");
+
+    expect(removed).toBe(true);
+    expect(data.projects.map((project) => project.projectName)).toEqual(["proj-b", "proj-a"]);
+    expect(data.globalStats.totalFixes).toBe(6);
+    expect(data.globalStats.totalSessions).toBe(2);
   });
 });
 

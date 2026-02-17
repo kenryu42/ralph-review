@@ -20,6 +20,7 @@ interface RunOpenCommandDeps {
   open?: (filePath: string) => Promise<void>;
   xdgOpen?: (filePath: string) => Promise<void>;
   start?: (filePath: string) => Promise<void>;
+  exec?: (command: BrowserOpenCommand, filePath: string) => Promise<void>;
 }
 
 export async function runOpenCommand(
@@ -27,29 +28,35 @@ export async function runOpenCommand(
   filePath: string,
   deps: RunOpenCommandDeps = {}
 ): Promise<void> {
+  const exec =
+    deps.exec ??
+    ((execCommand: BrowserOpenCommand, execFilePath: string) =>
+      $`${execCommand} ${execFilePath}`.quiet());
+
   if (command === "open") {
     if (deps.open) {
       await deps.open(filePath);
-    } else {
-      await $`open ${filePath}`.quiet();
+      return;
     }
+    await exec(command, filePath);
     return;
   }
 
   if (command === "xdg-open") {
     if (deps.xdgOpen) {
       await deps.xdgOpen(filePath);
-    } else {
-      await $`xdg-open ${filePath}`.quiet();
+      return;
     }
+    await exec(command, filePath);
     return;
   }
 
   if (deps.start) {
     await deps.start(filePath);
-  } else {
-    await $`start ${filePath}`.quiet();
+    return;
   }
+
+  await exec(command, filePath);
 }
 
 interface DashboardRuntime {
@@ -78,6 +85,8 @@ export interface DashboardRuntimeOverrides extends Partial<Omit<DashboardRuntime
   log?: Partial<DashboardRuntime["log"]>;
 }
 
+const DEFAULT_WAIT_FOREVER: Promise<never> = new Promise<never>(() => {});
+
 function createDashboardRuntime(overrides: DashboardRuntimeOverrides = {}): DashboardRuntime {
   return {
     cwd: overrides.cwd ?? process.cwd(),
@@ -93,7 +102,7 @@ function createDashboardRuntime(overrides: DashboardRuntimeOverrides = {}): Dash
       message: overrides.log?.message ?? p.log.message,
       success: overrides.log?.success ?? p.log.success,
     },
-    waitForever: overrides.waitForever ?? new Promise<never>(() => {}),
+    waitForever: overrides.waitForever ?? DEFAULT_WAIT_FOREVER,
   };
 }
 
