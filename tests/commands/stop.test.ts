@@ -9,6 +9,7 @@ interface StopHarnessOptions {
   tmuxSessions?: string[];
   lockData?: LockData | null;
   fastTimeout?: boolean;
+  hasStopCommandDef?: boolean;
 }
 
 interface StopHarnessResult {
@@ -86,6 +87,7 @@ async function runStopWithHarness(
   const activeSessions = options.activeSessions ?? [];
   const tmuxSessions = options.tmuxSessions ?? [];
   const lockData = options.lockData ?? null;
+  const hasStopCommandDef = options.hasStopCommandDef ?? true;
 
   mock.module("@/lib/lockfile", () => ({
     LOCK_SCHEMA_VERSION: 2,
@@ -199,7 +201,13 @@ async function runStopWithHarness(
   let exitCode: number | undefined;
 
   try {
-    await runStop(args);
+    if (hasStopCommandDef) {
+      await runStop(args);
+    } else {
+      await runStop(args, {
+        getCommandDef: () => undefined,
+      });
+    }
   } catch (error) {
     if (error instanceof Error && error.message.startsWith(EXIT_PREFIX)) {
       exitCode = Number.parseInt(error.message.slice(EXIT_PREFIX.length), 10);
@@ -243,6 +251,21 @@ describe("runStop", () => {
     expect(result.errors).toHaveLength(1);
     expect(result.errors[0]).toContain('stop: unknown option "--unknown"');
     expect(result.exitCode).toBe(1);
+  });
+
+  test("logs internal error and exits when stop command definition is missing", async () => {
+    const result = await runStopWithHarness([], {
+      hasStopCommandDef: false,
+    });
+
+    expect(result.errors).toEqual(["Internal error: stop command definition not found"]);
+    expect(result.exitCode).toBe(1);
+    expect(result.readLockfileCalls).toEqual([]);
+    expect(result.updateLockfileCalls).toEqual([]);
+    expect(result.removeLockfileCalls).toEqual([]);
+    expect(result.removeAllLockfilesCalls).toBe(0);
+    expect(result.sendInterruptCalls).toEqual([]);
+    expect(result.killSessionCalls).toEqual([]);
   });
 
   test("stop --all reports empty state and clears lockfiles when no sessions exist", async () => {

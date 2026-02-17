@@ -14,12 +14,27 @@ interface StopOptions {
   all: boolean;
 }
 
-export async function runStop(args: string[]): Promise<void> {
+interface StopDeps {
+  getCommandDef: typeof getCommandDef;
+  logError: (message: string) => void;
+  exit: (code: number) => void;
+}
+
+const DEFAULT_STOP_DEPS: StopDeps = {
+  getCommandDef,
+  logError: (message: string) => p.log.error(message),
+  exit: (code: number) => process.exit(code),
+};
+
+export async function runStop(args: string[], deps: Partial<StopDeps> = {}): Promise<void> {
+  const stopDeps = { ...DEFAULT_STOP_DEPS, ...deps };
+
   // Parse options
-  const stopDef = getCommandDef("stop");
+  const stopDef = stopDeps.getCommandDef("stop");
   if (!stopDef) {
-    p.log.error("Internal error: stop command definition not found");
-    process.exit(1);
+    stopDeps.logError("Internal error: stop command definition not found");
+    stopDeps.exit(1);
+    return;
   }
 
   let options: StopOptions;
@@ -27,8 +42,9 @@ export async function runStop(args: string[]): Promise<void> {
     const { values } = parseCommand<StopOptions>(stopDef, args);
     options = values;
   } catch (error) {
-    p.log.error(`${error}`);
-    process.exit(1);
+    stopDeps.logError(`${error}`);
+    stopDeps.exit(1);
+    return;
   }
 
   if (options.all) {
