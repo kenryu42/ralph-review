@@ -14,6 +14,7 @@ import {
   generateLogFilename,
   getGitBranch,
   getHtmlPath,
+  getLatestProjectLogSession,
   getProjectName,
   getSummaryPath,
   listLogSessions,
@@ -113,8 +114,19 @@ describe("logger", () => {
       expect(branch).toBeUndefined();
     });
 
-    // Note: testing actual git branch detection requires a real git repo
-    // which we skip in unit tests
+    test("returns branch name for git repository", async () => {
+      const repoPath = await mkdtemp(join(tempDir, "repo-"));
+      const initResult = Bun.spawnSync(["git", "init"], {
+        cwd: repoPath,
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      expect(initResult.exitCode).toBe(0);
+
+      const branch = await getGitBranch(repoPath);
+      expect(branch).toBeString();
+      expect(branch?.length).toBeGreaterThan(0);
+    });
   });
 
   describe("createLogSession", () => {
@@ -130,9 +142,47 @@ describe("logger", () => {
     });
   });
 
+  describe("getHtmlPath", () => {
+    test("replaces .jsonl with .html", () => {
+      expect(getHtmlPath("/tmp/logs/session.jsonl")).toBe("/tmp/logs/session.html");
+    });
+
+    test("appends .html when path is not .jsonl", () => {
+      expect(getHtmlPath("/tmp/logs/session")).toBe("/tmp/logs/session.html");
+    });
+  });
+
   describe("getSummaryPath", () => {
     test("replaces .jsonl with .summary.json", () => {
       expect(getSummaryPath("/tmp/logs/session.jsonl")).toBe("/tmp/logs/session.summary.json");
+    });
+
+    test("appends .summary.json when path is not .jsonl", () => {
+      expect(getSummaryPath("/tmp/logs/session")).toBe("/tmp/logs/session.summary.json");
+    });
+  });
+
+  describe("readSessionSummary", () => {
+    test("returns null when summary file does not exist", async () => {
+      const logPath = await createLogSession(tempDir, "/path/to/project");
+      const summary = await readSessionSummary(logPath);
+      expect(summary).toBeNull();
+    });
+
+    test("returns null when schema version does not match", async () => {
+      const logPath = await createLogSession(tempDir, "/path/to/project");
+      const summaryPath = getSummaryPath(logPath);
+      await Bun.write(
+        summaryPath,
+        JSON.stringify({
+          schemaVersion: 999,
+          logPath,
+          summaryPath,
+        })
+      );
+
+      const summary = await readSessionSummary(logPath);
+      expect(summary).toBeNull();
     });
   });
 
@@ -204,6 +254,24 @@ describe("logger", () => {
       expect(entries.length).toBe(2);
       expect(entries[0]?.type).toBe("system");
       expect(entries[1]?.type).toBe("iteration");
+    });
+
+    test("ignores blank lines while parsing log content", async () => {
+      const logPath = await createLogSession(tempDir, "/path/to/project");
+      const systemEntry: SystemEntry = {
+        type: "system",
+        timestamp: Date.now(),
+        projectPath: "/path/to/project",
+        reviewer: { agent: "codex" },
+        fixer: { agent: "claude" },
+        maxIterations: 5,
+      };
+
+      await Bun.write(logPath, `\n\n${JSON.stringify(systemEntry)}\n\n`, { createPath: true });
+
+      const entries = await readLog(logPath);
+      expect(entries).toHaveLength(1);
+      expect(entries[0]?.type).toBe("system");
     });
 
     test("updates summary after appending entries", async () => {
@@ -495,9 +563,48 @@ describe("logger", () => {
       expect(summary?.iterations).toBe(2);
       expect(summary?.totalFixes).toBe(1);
     });
+
+    test("marks summary as interrupted when iteration error includes interrupt text", async () => {
+      const logPath = await createLogSession(tempDir, "/path/to/project");
+      const systemEntry: SystemEntry = {
+        type: "system",
+        timestamp: Date.now(),
+        projectPath: "/path/to/project",
+        reviewer: { agent: "codex" },
+        fixer: { agent: "claude" },
+        maxIterations: 5,
+      };
+      const iterEntry: IterationEntry = {
+        type: "iteration",
+        timestamp: Date.now() + 1,
+        iteration: 1,
+        error: {
+          phase: "reviewer",
+          message: "Interrupted by user",
+        },
+      };
+
+      await appendLog(logPath, systemEntry);
+      await appendLog(logPath, iterEntry);
+
+      const summary = await readSessionSummary(logPath);
+      expect(summary?.status).toBe("interrupted");
+    });
   });
 
   describe("readLogIncremental", () => {
+    test("returns reset for an existing empty log file", async () => {
+      const logPath = await createLogSession(tempDir, "/path/to/project");
+      await Bun.write(logPath, "", { createPath: true });
+
+      const result = await readLogIncremental(logPath);
+      expect(result.mode).toBe("reset");
+      expect(result.entries).toEqual([]);
+      expect(result.state.offsetBytes).toBe(0);
+      expect(result.state.trailingPartialLine).toBe("");
+      expect(result.state.boundaryProbe).toBe("");
+    });
+
     test("returns reset with all entries on first read", async () => {
       const logPath = await createLogSession(tempDir, "/path/to/project");
       const systemEntry: SystemEntry = {
@@ -525,6 +632,24 @@ describe("logger", () => {
       expect(result.entries).toHaveLength(2);
       expect(result.state.logPath).toBe(logPath);
       expect(result.state.offsetBytes).toBe(Bun.file(logPath).size);
+      expect(result.state.trailingPartialLine).toBe("");
+    });
+
+    test("parses a single complete line without trailing newline", async () => {
+      const logPath = await createLogSession(tempDir, "/path/to/project");
+      const systemEntry: SystemEntry = {
+        type: "system",
+        timestamp: 1_700_000_000_000,
+        projectPath: "/path/to/project",
+        reviewer: { agent: "codex" },
+        fixer: { agent: "claude" },
+        maxIterations: 5,
+      };
+
+      await Bun.write(logPath, JSON.stringify(systemEntry), { createPath: true });
+      const result = await readLogIncremental(logPath);
+      expect(result.mode).toBe("reset");
+      expect(result.entries).toHaveLength(1);
       expect(result.state.trailingPartialLine).toBe("");
     });
 
@@ -558,6 +683,107 @@ describe("logger", () => {
       expect(second.entries).toHaveLength(1);
       expect(second.entries[0]?.type).toBe("iteration");
       expect(second.state.trailingPartialLine).toBe("");
+    });
+
+    test("returns unchanged when size and mtime match previous snapshot", async () => {
+      const logPath = await createLogSession(tempDir, "/path/to/project");
+      const systemEntry: SystemEntry = {
+        type: "system",
+        timestamp: 1_700_000_000_000,
+        projectPath: "/path/to/project",
+        reviewer: { agent: "codex" },
+        fixer: { agent: "claude" },
+        maxIterations: 5,
+      };
+
+      await Bun.write(logPath, `${JSON.stringify(systemEntry)}\n`, { createPath: true });
+      const first = await readLogIncremental(logPath);
+      const second = await readLogIncremental(logPath, first.state);
+
+      expect(second.mode).toBe("unchanged");
+      expect(second.entries).toEqual([]);
+      expect(second.state.boundaryProbe).toBe(first.state.boundaryProbe);
+    });
+
+    test("falls back to reset when mtime changes without size change", async () => {
+      const logPath = await createLogSession(tempDir, "/path/to/project");
+      const systemEntry: SystemEntry = {
+        type: "system",
+        timestamp: 1_700_000_000_000,
+        projectPath: "/path/to/project",
+        reviewer: { agent: "codex" },
+        fixer: { agent: "claude" },
+        maxIterations: 5,
+      };
+
+      await Bun.write(logPath, `${JSON.stringify(systemEntry)}\n`, { createPath: true });
+      const first = await readLogIncremental(logPath);
+
+      await Bun.sleep(10);
+      const sameContent = await Bun.file(logPath).text();
+      await Bun.write(logPath, sameContent, { createPath: true });
+
+      const second = await readLogIncremental(logPath, first.state);
+      expect(second.mode).toBe("reset");
+      expect(second.entries).toHaveLength(1);
+    });
+
+    test("falls back to reset when previous state has newer mtime than file", async () => {
+      const logPath = await createLogSession(tempDir, "/path/to/project");
+      const systemEntry: SystemEntry = {
+        type: "system",
+        timestamp: 1_700_000_000_000,
+        projectPath: "/path/to/project",
+        reviewer: { agent: "codex" },
+        fixer: { agent: "claude" },
+        maxIterations: 5,
+      };
+      const iterationEntry: IterationEntry = {
+        type: "iteration",
+        timestamp: 1_700_000_000_001,
+        iteration: 1,
+      };
+
+      await Bun.write(logPath, `${JSON.stringify(systemEntry)}\n`, { createPath: true });
+      const first = await readLogIncremental(logPath);
+      const existing = await Bun.file(logPath).text();
+      await Bun.write(logPath, `${existing}${JSON.stringify(iterationEntry)}\n`, {
+        createPath: true,
+      });
+
+      const second = await readLogIncremental(logPath, {
+        ...first.state,
+        lastModified: Bun.file(logPath).lastModified + 1_000_000,
+      });
+      expect(second.mode).toBe("reset");
+      expect(second.entries).toHaveLength(2);
+    });
+
+    test("supports previous state with zero offset and empty boundary probe", async () => {
+      const logPath = await createLogSession(tempDir, "/path/to/project");
+      const systemEntry: SystemEntry = {
+        type: "system",
+        timestamp: 1_700_000_000_000,
+        projectPath: "/path/to/project",
+        reviewer: { agent: "codex" },
+        fixer: { agent: "claude" },
+        maxIterations: 5,
+      };
+      await Bun.write(logPath, "", { createPath: true });
+
+      const previousState = {
+        logPath,
+        offsetBytes: 0,
+        lastModified: Bun.file(logPath).lastModified,
+        trailingPartialLine: "",
+        boundaryProbe: "",
+      };
+      await Bun.write(logPath, `${JSON.stringify(systemEntry)}\n`, { createPath: true });
+
+      const result = await readLogIncremental(logPath, previousState);
+      expect(result.mode).toBe("incremental");
+      expect(result.entries).toHaveLength(1);
+      expect(result.entries[0]?.type).toBe("system");
     });
 
     test("buffers partial trailing line and parses it when completed", async () => {
@@ -712,6 +938,14 @@ describe("logger", () => {
       const sessions = await listLogSessions(tempDir);
       expect(sessions).toEqual([]);
     });
+
+    test("returns empty array when logsDir is not a directory", async () => {
+      const filePath = join(tempDir, "not-a-directory");
+      await Bun.write(filePath, "x");
+
+      const sessions = await listLogSessions(filePath);
+      expect(sessions).toEqual([]);
+    });
   });
 
   describe("listProjectLogSessions", () => {
@@ -754,6 +988,52 @@ describe("logger", () => {
       expect(sessions.length).toBe(2);
       // Now uses full sanitized path
       expect(sessions.every((s) => s.projectName === "path-to-project-a")).toBe(true);
+    });
+
+    test("returns empty array when logsDir is not a directory", async () => {
+      const filePath = join(tempDir, "not-a-directory");
+      await Bun.write(filePath, "x");
+
+      const sessions = await listProjectLogSessions(filePath, "/path/to/project-a");
+      expect(sessions).toEqual([]);
+    });
+  });
+
+  describe("getLatestProjectLogSession", () => {
+    test("returns newest session for a project", async () => {
+      const projectPath = "/path/to/project-a";
+
+      const olderPath = await createLogSession(tempDir, projectPath);
+      await appendLog(olderPath, {
+        type: "system",
+        timestamp: Date.now(),
+        projectPath,
+        reviewer: { agent: "codex" },
+        fixer: { agent: "claude" },
+        maxIterations: 5,
+      } as SystemEntry);
+
+      await Bun.sleep(10);
+
+      const newerPath = await createLogSession(tempDir, projectPath, "feature");
+      await appendLog(newerPath, {
+        type: "system",
+        timestamp: Date.now(),
+        projectPath,
+        gitBranch: "feature",
+        reviewer: { agent: "codex" },
+        fixer: { agent: "claude" },
+        maxIterations: 5,
+      } as SystemEntry);
+
+      const latest = await getLatestProjectLogSession(tempDir, projectPath);
+      expect(latest).not.toBeNull();
+      expect(latest?.path).toBe(newerPath);
+    });
+
+    test("returns null when project has no sessions", async () => {
+      const latest = await getLatestProjectLogSession(tempDir, "/path/to/project-a");
+      expect(latest).toBeNull();
     });
   });
 
@@ -1154,6 +1434,159 @@ describe("logger", () => {
       expect(repairedSummary).not.toBeNull();
       expect(repairedSummary?.totalFixes).toBe(1);
       expect(repairedSummary?.iterations).toBe(1);
+    });
+
+    test("uses session_end status from rebuilt summary when summary file is missing", async () => {
+      const logPath = await createLogSession(tempDir, "/path/to/project");
+      const systemEntry: SystemEntry = {
+        type: "system",
+        timestamp: Date.now(),
+        projectPath: "/path/to/project",
+        reviewer: { agent: "codex" },
+        fixer: { agent: "claude" },
+        maxIterations: 5,
+      };
+      const sessionEndEntry: SessionEndEntry = {
+        type: "session_end",
+        timestamp: Date.now() + 1,
+        status: "interrupted",
+        reason: "manual stop",
+        iterations: 0,
+      };
+
+      await Bun.write(
+        logPath,
+        `${JSON.stringify(systemEntry)}\n${JSON.stringify(sessionEndEntry)}\n`,
+        {
+          createPath: true,
+        }
+      );
+
+      const session = {
+        path: logPath,
+        name: "test.jsonl",
+        projectName: "path-to-project",
+        timestamp: Date.now(),
+      };
+      const stats = await computeSessionStats(session);
+      expect(stats.status).toBe("interrupted");
+      expect(stats.iterations).toBe(0);
+    });
+
+    test("derives interrupted status from rebuilt iteration error message", async () => {
+      const logPath = await createLogSession(tempDir, "/path/to/project");
+      const systemEntry: SystemEntry = {
+        type: "system",
+        timestamp: Date.now(),
+        projectPath: "/path/to/project",
+        reviewer: { agent: "codex" },
+        fixer: { agent: "claude" },
+        maxIterations: 5,
+      };
+      const interruptedIteration: IterationEntry = {
+        type: "iteration",
+        timestamp: Date.now() + 1,
+        iteration: 1,
+        error: {
+          phase: "reviewer",
+          message: "Interrupt signal received",
+        },
+      };
+
+      await Bun.write(
+        logPath,
+        `${JSON.stringify(systemEntry)}\n${JSON.stringify(interruptedIteration)}\n`,
+        { createPath: true }
+      );
+
+      const session = {
+        path: logPath,
+        name: "test.jsonl",
+        projectName: "path-to-project",
+        timestamp: Date.now(),
+      };
+      const stats = await computeSessionStats(session);
+      expect(stats.status).toBe("interrupted");
+      expect(stats.iterations).toBe(1);
+    });
+
+    test("derives failed status from rebuilt non-interrupt iteration error", async () => {
+      const logPath = await createLogSession(tempDir, "/path/to/project");
+      const systemEntry: SystemEntry = {
+        type: "system",
+        timestamp: Date.now(),
+        projectPath: "/path/to/project",
+        reviewer: { agent: "codex" },
+        fixer: { agent: "claude" },
+        maxIterations: 5,
+      };
+      const failedIteration: IterationEntry = {
+        type: "iteration",
+        timestamp: Date.now() + 1,
+        iteration: 1,
+        error: {
+          phase: "reviewer",
+          message: "Agent crashed unexpectedly",
+        },
+      };
+
+      await Bun.write(
+        logPath,
+        `${JSON.stringify(systemEntry)}\n${JSON.stringify(failedIteration)}\n`,
+        {
+          createPath: true,
+        }
+      );
+
+      const session = {
+        path: logPath,
+        name: "test.jsonl",
+        projectName: "path-to-project",
+        timestamp: Date.now(),
+      };
+      const stats = await computeSessionStats(session);
+      expect(stats.status).toBe("failed");
+      expect(stats.iterations).toBe(1);
+    });
+
+    test("rebuild computes rollback failure totals when summary is missing", async () => {
+      const logPath = await createLogSession(tempDir, "/path/to/project");
+      const systemEntry: SystemEntry = {
+        type: "system",
+        timestamp: Date.now(),
+        projectPath: "/path/to/project",
+        reviewer: { agent: "codex" },
+        fixer: { agent: "claude" },
+        maxIterations: 5,
+      };
+      const rollbackFailure: IterationEntry = {
+        type: "iteration",
+        timestamp: Date.now() + 1,
+        iteration: 1,
+        rollback: {
+          attempted: true,
+          success: false,
+          reason: "restore failed",
+        },
+      };
+
+      await Bun.write(
+        logPath,
+        `${JSON.stringify(systemEntry)}\n${JSON.stringify(rollbackFailure)}\n`,
+        {
+          createPath: true,
+        }
+      );
+
+      const session = {
+        path: logPath,
+        name: "test.jsonl",
+        projectName: "path-to-project",
+        timestamp: Date.now(),
+      };
+      const stats = await computeSessionStats(session);
+      expect(stats.rollbackCount).toBe(1);
+      expect(stats.rollbackFailures).toBe(1);
     });
   });
 
