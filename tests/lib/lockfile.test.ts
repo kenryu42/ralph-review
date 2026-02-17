@@ -10,9 +10,11 @@ import {
   isProcessAlive,
   LOCK_SCHEMA_VERSION,
   listAllActiveSessions,
+  lockfileExists,
   PENDING_STARTUP_TIMEOUT_MS,
   RUNNING_STALE_AFTER_MS,
   readLockfile,
+  removeAllLockfiles,
   removeLockfile,
   STOPPING_STALE_AFTER_MS,
   touchHeartbeat,
@@ -23,7 +25,7 @@ describe("lockfile", () => {
   let tempLogsDir: string;
 
   beforeEach(async () => {
-    tempLogsDir = join(tmpdir(), `ralph-lockfile-test-${Date.now()}`);
+    tempLogsDir = join(tmpdir(), `ralph-lockfile-test-${Date.now()}-${crypto.randomUUID()}`);
     await mkdir(tempLogsDir, { recursive: true });
   });
 
@@ -60,6 +62,33 @@ describe("lockfile", () => {
 
     test("readLockfile returns null for missing lock", async () => {
       const data = await readLockfile(tempLogsDir, "/nonexistent/path");
+      expect(data).toBeNull();
+    });
+
+    test("readLockfile returns null for invalid JSON", async () => {
+      const projectPath = "/Users/test/project-invalid-json";
+      const lockPath = getLockPath(tempLogsDir, projectPath);
+      await Bun.write(lockPath, "{ this is not valid json }");
+
+      const data = await readLockfile(tempLogsDir, projectPath);
+      expect(data).toBeNull();
+    });
+
+    test("readLockfile returns null for invalid lock shape", async () => {
+      const projectPath = "/Users/test/project-invalid-shape";
+      const lockPath = getLockPath(tempLogsDir, projectPath);
+      await Bun.write(
+        lockPath,
+        JSON.stringify({
+          sessionId: "session-id",
+          sessionName: "rr-invalid-shape",
+          startTime: Date.now(),
+          projectPath,
+          state: "not-a-state",
+        })
+      );
+
+      const data = await readLockfile(tempLogsDir, projectPath);
       expect(data).toBeNull();
     });
   });
@@ -106,6 +135,14 @@ describe("lockfile", () => {
       expect(applied).toBe(false);
       const data = await readLockfile(tempLogsDir, projectPath);
       expect(data?.iteration).toBeUndefined();
+    });
+
+    test("returns false when lockfile does not exist", async () => {
+      const applied = await updateLockfile(tempLogsDir, "/Users/test/project-missing", {
+        state: "running",
+      });
+
+      expect(applied).toBe(false);
     });
 
     test("clears optional fields when updated with undefined", async () => {
@@ -187,6 +224,11 @@ describe("lockfile", () => {
       expect(removed).toBe(false);
       expect(await readLockfile(tempLogsDir, projectPath)).not.toBeNull();
     });
+
+    test("returns false when lockfile does not exist", async () => {
+      const removed = await removeLockfile(tempLogsDir, "/Users/test/project-missing");
+      expect(removed).toBe(false);
+    });
   });
 
   describe("isProcessAlive", () => {
@@ -201,6 +243,11 @@ describe("lockfile", () => {
   });
 
   describe("cleanupStaleLockfile", () => {
+    test("returns false when lockfile does not exist", async () => {
+      const cleaned = await cleanupStaleLockfile(tempLogsDir, "/Users/test/project-missing");
+      expect(cleaned).toBe(false);
+    });
+
     test("keeps pending lockfile within startup timeout", async () => {
       const projectPath = "/Users/test/project-pending-fresh";
       await createLockfile(tempLogsDir, projectPath, "rr-pending-fresh", {
@@ -278,9 +325,29 @@ describe("lockfile", () => {
       expect(cleaned).toBe(true);
       expect(await readLockfile(tempLogsDir, projectPath)).toBeNull();
     });
+
+    test("keeps stopping lockfile with fresh heartbeat", async () => {
+      const projectPath = "/Users/test/project-stopping-fresh";
+      await createLockfile(tempLogsDir, projectPath, "rr-stopping-fresh", {
+        branch: "main",
+        state: "stopping",
+        lastHeartbeat: Date.now(),
+        startTime: Date.now(),
+        pid: 999999999,
+      });
+
+      const cleaned = await cleanupStaleLockfile(tempLogsDir, projectPath);
+      expect(cleaned).toBe(false);
+      expect(await readLockfile(tempLogsDir, projectPath)).not.toBeNull();
+    });
   });
 
   describe("hasActiveLockfile", () => {
+    test("returns false when lockfile does not exist", async () => {
+      const active = await hasActiveLockfile(tempLogsDir, "/Users/test/project-missing");
+      expect(active).toBe(false);
+    });
+
     test("returns true for fresh active lock", async () => {
       const projectPath = "/Users/test/project-active";
       await createLockfile(tempLogsDir, projectPath, "rr-active", {
@@ -303,6 +370,22 @@ describe("lockfile", () => {
 
       const active = await hasActiveLockfile(tempLogsDir, projectPath);
       expect(active).toBe(false);
+    });
+
+    test("removes stale active lockfile and returns false", async () => {
+      const projectPath = "/Users/test/project-active-stale";
+      const oldHeartbeat = Date.now() - RUNNING_STALE_AFTER_MS - 2_000;
+      await createLockfile(tempLogsDir, projectPath, "rr-active-stale", {
+        branch: "main",
+        state: "running",
+        startTime: oldHeartbeat,
+        lastHeartbeat: oldHeartbeat,
+        pid: 999999999,
+      });
+
+      const active = await hasActiveLockfile(tempLogsDir, projectPath);
+      expect(active).toBe(false);
+      expect(await readLockfile(tempLogsDir, projectPath)).toBeNull();
     });
   });
 
@@ -328,6 +411,50 @@ describe("lockfile", () => {
       const sessions = await listAllActiveSessions(tempLogsDir);
       expect(sessions).toHaveLength(1);
       expect(sessions[0]?.sessionName).toBe("rr-active-123");
+    });
+  });
+
+  describe("lockfileExists", () => {
+    test("returns false before lockfile is created", async () => {
+      const exists = await lockfileExists(tempLogsDir, "/Users/test/project-exists-check");
+      expect(exists).toBe(false);
+    });
+
+    test("returns true after lockfile is created", async () => {
+      const projectPath = "/Users/test/project-exists-check";
+      await createLockfile(tempLogsDir, projectPath, "rr-exists-check", "main");
+
+      const exists = await lockfileExists(tempLogsDir, projectPath);
+      expect(exists).toBe(true);
+    });
+  });
+
+  describe("removeAllLockfiles", () => {
+    test("removes all .lock files and leaves other files untouched", async () => {
+      await createLockfile(tempLogsDir, "/Users/test/project-a", "rr-project-a", "main");
+      await createLockfile(tempLogsDir, "/Users/test/project-b", "rr-project-b", "main");
+      const nonLockPath = join(tempLogsDir, "notes.txt");
+      await Bun.write(nonLockPath, "keep me");
+
+      await removeAllLockfiles(tempLogsDir);
+
+      expect(await readLockfile(tempLogsDir, "/Users/test/project-a")).toBeNull();
+      expect(await readLockfile(tempLogsDir, "/Users/test/project-b")).toBeNull();
+      expect(await Bun.file(nonLockPath).exists()).toBe(true);
+    });
+
+    test("deletes invalid .lock files via fallback path", async () => {
+      const invalidLockPath = join(tempLogsDir, "invalid.lock");
+      await Bun.write(invalidLockPath, "{ not json");
+
+      await removeAllLockfiles(tempLogsDir);
+
+      expect(await Bun.file(invalidLockPath).exists()).toBe(false);
+    });
+
+    test("ignores missing logs directory", async () => {
+      const missingLogsDir = join(tempLogsDir, "missing-logs-dir");
+      await expect(removeAllLockfiles(missingLogsDir)).resolves.toBeUndefined();
     });
   });
 });
