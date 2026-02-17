@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import * as p from "@clack/prompts";
 import { runLog } from "@/commands/log";
 import { LOGS_DIR } from "@/lib/config";
 import { getProjectName, getSummaryPath } from "@/lib/logger";
@@ -26,7 +27,8 @@ function createSystemEntry(projectPath: string): SystemEntry {
 function createIterationEntry(
   iteration: number,
   fixes: FixEntry[] = [],
-  skipped = [] as ReturnType<typeof buildSkippedEntry>[]
+  skipped = [] as ReturnType<typeof buildSkippedEntry>[],
+  rollback?: IterationEntry["rollback"]
 ): IterationEntry {
   return {
     type: "iteration",
@@ -39,6 +41,7 @@ function createIterationEntry(
       fixes,
       skipped,
     }),
+    ...(rollback ? { rollback } : {}),
   };
 }
 
@@ -91,6 +94,44 @@ async function withMutedTerminalLogs<T>(run: () => Promise<T>): Promise<T> {
   } finally {
     process.stdout.write = originalStdoutWrite;
     process.stderr.write = originalStderrWrite;
+  }
+}
+
+interface CapturedClackLogs {
+  info: string[];
+  message: string[];
+  success: string[];
+}
+
+async function captureClackLogs<T>(
+  run: () => Promise<T>
+): Promise<{ result: T; logs: CapturedClackLogs }> {
+  const logs: CapturedClackLogs = {
+    info: [],
+    message: [],
+    success: [],
+  };
+  const originalInfo = p.log.info;
+  const originalMessage = p.log.message;
+  const originalSuccess = p.log.success;
+
+  p.log.info = ((message: string) => {
+    logs.info.push(message);
+  }) as typeof p.log.info;
+  p.log.message = ((message: string) => {
+    logs.message.push(message);
+  }) as typeof p.log.message;
+  p.log.success = ((message: string) => {
+    logs.success.push(message);
+  }) as typeof p.log.success;
+
+  try {
+    const result = await run();
+    return { result, logs };
+  } finally {
+    p.log.info = originalInfo;
+    p.log.message = originalMessage;
+    p.log.success = originalSuccess;
   }
 }
 
@@ -212,6 +253,86 @@ describe("runLog integration", () => {
 
     expect(outputs).toHaveLength(1);
     expect(outputs[0]).toEqual({ project: fixture.projectName, sessions: [] });
+  });
+
+  test("prints terminal guidance when no sessions exist", async () => {
+    const fixture = await createProjectFixture();
+    fixtures.push(fixture);
+
+    const { logs } = await withProjectCwd(fixture.projectPath, async () =>
+      withMutedTerminalLogs(async () =>
+        captureClackLogs(async () => {
+          await runLog([]);
+        })
+      )
+    );
+
+    expect(logs.info).toContain("No review sessions found for current working directory.");
+    expect(logs.message).toContain('Start a review with "rr run" first.');
+  });
+
+  test("prints empty project JSON when all discovered sessions are unknown and empty", async () => {
+    const fixture = await createProjectFixture();
+    fixtures.push(fixture);
+    const logsProjectDir = join(LOGS_DIR, fixture.projectName);
+    const unknownLog = join(logsProjectDir, "unknown.jsonl");
+    fixture.logPaths.push(unknownLog);
+
+    await writeLogEntries(unknownLog, []);
+
+    const outputs = await withProjectCwd(fixture.projectPath, async () =>
+      captureJsonOutput(async () => {
+        await runLog(["--json"]);
+      })
+    );
+
+    expect(outputs).toHaveLength(1);
+    expect(outputs[0]).toEqual({ project: fixture.projectName, sessions: [] });
+  });
+
+  test("prints terminal guidance when all discovered sessions are unknown and empty", async () => {
+    const fixture = await createProjectFixture();
+    fixtures.push(fixture);
+    const logsProjectDir = join(LOGS_DIR, fixture.projectName);
+    const unknownLog = join(logsProjectDir, "unknown.jsonl");
+    fixture.logPaths.push(unknownLog);
+
+    await writeLogEntries(unknownLog, []);
+
+    const { logs } = await withProjectCwd(fixture.projectPath, async () =>
+      withMutedTerminalLogs(async () =>
+        captureClackLogs(async () => {
+          await runLog([]);
+        })
+      )
+    );
+
+    expect(logs.info).toContain("No review sessions found for current working directory.");
+    expect(logs.message).toContain('Start a review with "rr run" first.');
+  });
+
+  test("renders rollback summary when rollback attempts are recorded", async () => {
+    const fixture = await createProjectFixture();
+    fixtures.push(fixture);
+    const logsProjectDir = join(LOGS_DIR, fixture.projectName);
+    const rollbackLog = join(logsProjectDir, "rollback.jsonl");
+    fixture.logPaths.push(rollbackLog);
+
+    await writeLogEntries(rollbackLog, [
+      createSystemEntry(fixture.projectPath),
+      createIterationEntry(1, [], [], { attempted: true, success: false, reason: "test rollback" }),
+      createSessionEndEntry("completed"),
+    ]);
+
+    const { logs } = await withProjectCwd(fixture.projectPath, async () =>
+      withMutedTerminalLogs(async () =>
+        captureClackLogs(async () => {
+          await runLog([]);
+        })
+      )
+    );
+
+    expect(logs.message).toContain("Rollback: 1 attempts (1 failed)");
   });
 
   test("renders and outputs project JSON after filtering unknown-empty sessions", async () => {

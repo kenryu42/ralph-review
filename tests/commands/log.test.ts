@@ -320,6 +320,14 @@ describe("buildSessionJson", () => {
     expect(result.fixer).toBeUndefined();
   });
 
+  test("ignores non-system entries when extracting agent settings", () => {
+    const session = createSessionStats({ entries: [createIterationEntry([])] });
+    const result = buildSessionJson("project", session, [], []);
+
+    expect(result.reviewer).toBeUndefined();
+    expect(result.fixer).toBeUndefined();
+  });
+
   test("includes duration in JSON output", () => {
     const session = createSessionStats({ totalDuration: 150000 });
     const result = buildSessionJson("project", session, [], []);
