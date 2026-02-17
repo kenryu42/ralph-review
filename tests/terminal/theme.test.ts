@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import type { ColorLevel } from "@/terminal/theme";
 import {
   bold,
   colorize,
@@ -10,215 +11,570 @@ import {
   theme,
 } from "@/terminal/theme";
 
-describe("terminal/theme", () => {
-  describe("color support detection", () => {
-    test("getColorLevel returns a valid level (0-3)", () => {
-      const level = getColorLevel();
-      expect(level).toBeGreaterThanOrEqual(0);
-      expect(level).toBeLessThanOrEqual(3);
-    });
+type ColorEnvKey =
+  | "NO_COLOR"
+  | "FORCE_COLOR"
+  | "CI"
+  | "GITHUB_ACTIONS"
+  | "GITLAB_CI"
+  | "CIRCLECI"
+  | "TRAVIS"
+  | "DRONE"
+  | "BUILDKITE"
+  | "APPVEYOR"
+  | "TERM"
+  | "WT_SESSION"
+  | "TERM_PROGRAM"
+  | "COLORTERM";
 
-    test("isRich returns boolean", () => {
-      const rich = isRich();
-      expect(typeof rich).toBe("boolean");
-    });
+type RuntimeOverrides = {
+  env?: Partial<Record<ColorEnvKey, string | undefined>>;
+  platform?: NodeJS.Platform;
+  isTTY?: boolean;
+};
+
+const COLOR_ENV_KEYS: readonly ColorEnvKey[] = [
+  "NO_COLOR",
+  "FORCE_COLOR",
+  "CI",
+  "GITHUB_ACTIONS",
+  "GITLAB_CI",
+  "CIRCLECI",
+  "TRAVIS",
+  "DRONE",
+  "BUILDKITE",
+  "APPVEYOR",
+  "TERM",
+  "WT_SESSION",
+  "TERM_PROGRAM",
+  "COLORTERM",
+];
+
+function withRuntimeOverrides<T>(overrides: RuntimeOverrides, callback: () => T): T {
+  const originalEnv = new Map<ColorEnvKey, string | undefined>();
+  for (const key of COLOR_ENV_KEYS) {
+    originalEnv.set(key, process.env[key]);
+    delete process.env[key];
+  }
+
+  const originalPlatformDescriptor = Object.getOwnPropertyDescriptor(process, "platform");
+  const originalStdoutIsTTYDescriptor = process.stdout
+    ? Object.getOwnPropertyDescriptor(process.stdout, "isTTY")
+    : undefined;
+
+  try {
+    if (overrides.env) {
+      for (const [key, value] of Object.entries(overrides.env) as Array<
+        [ColorEnvKey, string | undefined]
+      >) {
+        if (value === undefined) {
+          delete process.env[key];
+        } else {
+          process.env[key] = value;
+        }
+      }
+    }
+
+    if (overrides.platform) {
+      Object.defineProperty(process, "platform", {
+        configurable: true,
+        value: overrides.platform,
+        writable: true,
+      });
+    }
+
+    if (process.stdout && overrides.isTTY !== undefined) {
+      Object.defineProperty(process.stdout, "isTTY", {
+        configurable: true,
+        value: overrides.isTTY,
+        writable: true,
+      });
+    }
+
+    return callback();
+  } finally {
+    for (const key of COLOR_ENV_KEYS) {
+      const value = originalEnv.get(key);
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+
+    if (originalPlatformDescriptor) {
+      Object.defineProperty(process, "platform", originalPlatformDescriptor);
+    }
+
+    if (process.stdout) {
+      if (originalStdoutIsTTYDescriptor) {
+        Object.defineProperty(process.stdout, "isTTY", originalStdoutIsTTYDescriptor);
+      } else {
+        delete (process.stdout as { isTTY?: boolean }).isTTY;
+      }
+    }
+  }
+}
+
+describe("terminal/theme detectColorLevel", () => {
+  test("returns a valid ColorLevel type", () => {
+    const level: ColorLevel = getColorLevel();
+    expect(level).toBeGreaterThanOrEqual(0);
+    expect(level).toBeLessThanOrEqual(3);
   });
 
-  describe("color functions", () => {
-    test("hex creates a color function", () => {
-      const red = hex("#FF0000");
-      expect(typeof red).toBe("function");
-    });
-
-    test("hex color function applies ANSI codes in rich mode", () => {
-      const color = hex("#FF5A2D");
-      const result = color("test");
-
-      if (isRich()) {
-        expect(result).toContain("\x1B[");
-        expect(result).toContain("m");
-      } else {
-        expect(result).toBe("test");
+  test("uses FORCE_COLOR numeric value with clamping", () => {
+    withRuntimeOverrides(
+      {
+        env: { FORCE_COLOR: "-1" },
+        isTTY: false,
+        platform: "darwin",
+      },
+      () => {
+        expect(getColorLevel()).toBe(0);
       }
-    });
+    );
 
-    test("theme.accent applies color to text", () => {
-      const result = theme.accent("accent text");
-
-      if (isRich()) {
-        expect(result).toContain("\x1B[");
-        expect(stripAnsi(result)).toBe("accent text");
-      } else {
-        expect(result).toBe("accent text");
+    withRuntimeOverrides(
+      {
+        env: { FORCE_COLOR: "2" },
+        isTTY: false,
+        platform: "darwin",
+      },
+      () => {
+        expect(getColorLevel()).toBe(2);
+        expect(isRich()).toBe(true);
       }
-    });
+    );
 
-    test("theme.success applies color to text", () => {
-      const result = theme.success("success text");
-
-      if (isRich()) {
-        expect(stripAnsi(result)).toBe("success text");
-      } else {
-        expect(result).toBe("success text");
+    withRuntimeOverrides(
+      {
+        env: { FORCE_COLOR: "99" },
+        isTTY: false,
+        platform: "darwin",
+      },
+      () => {
+        expect(getColorLevel()).toBe(3);
       }
-    });
-
-    test("theme.error applies color to text", () => {
-      const result = theme.error("error text");
-
-      if (isRich()) {
-        expect(stripAnsi(result)).toBe("error text");
-      } else {
-        expect(result).toBe("error text");
-      }
-    });
-
-    test("theme.warn applies color to text", () => {
-      const result = theme.warn("warning text");
-
-      if (isRich()) {
-        expect(stripAnsi(result)).toBe("warning text");
-      } else {
-        expect(result).toBe("warning text");
-      }
-    });
-
-    test("theme.info applies color to text", () => {
-      const result = theme.info("info text");
-
-      if (isRich()) {
-        expect(stripAnsi(result)).toBe("info text");
-      } else {
-        expect(result).toBe("info text");
-      }
-    });
-
-    test("theme.muted applies color to text", () => {
-      const result = theme.muted("muted text");
-
-      if (isRich()) {
-        expect(stripAnsi(result)).toBe("muted text");
-      } else {
-        expect(result).toBe("muted text");
-      }
-    });
-
-    test("theme.command applies color to text", () => {
-      const result = theme.command("command text");
-
-      if (isRich()) {
-        expect(stripAnsi(result)).toBe("command text");
-      } else {
-        expect(result).toBe("command text");
-      }
-    });
-
-    test("theme.option applies color to text", () => {
-      const result = theme.option("option text");
-
-      if (isRich()) {
-        expect(stripAnsi(result)).toBe("option text");
-      } else {
-        expect(result).toBe("option text");
-      }
-    });
-
-    test("theme.heading applies bold and color", () => {
-      const result = theme.heading("heading text");
-
-      if (getColorLevel() > 0) {
-        expect(stripAnsi(result)).toBe("heading text");
-      } else {
-        expect(result).toBe("heading text");
-      }
-    });
+    );
   });
 
-  describe("style functions", () => {
-    test("bold applies bold style", () => {
-      const result = bold("bold text");
-
-      if (getColorLevel() > 0) {
-        expect(stripAnsi(result)).toBe("bold text");
-        expect(result).toContain("\x1B[");
-      } else {
-        expect(result).toBe("bold text");
+  test("FORCE_COLOR non-numeric enables truecolor", () => {
+    withRuntimeOverrides(
+      {
+        env: { FORCE_COLOR: "always" },
+        isTTY: false,
+        platform: "linux",
+      },
+      () => {
+        expect(getColorLevel()).toBe(3);
       }
-    });
-
-    test("dim applies dim style", () => {
-      const result = dim("dim text");
-
-      if (getColorLevel() > 0) {
-        expect(stripAnsi(result)).toBe("dim text");
-      } else {
-        expect(result).toBe("dim text");
-      }
-    });
+    );
   });
 
-  describe("colorize", () => {
-    test("colorize applies color when rich is true", () => {
-      const colored = (text: string) => `\x1B[31m${text}\x1B[0m`;
-      const result = colorize(true, colored, "test");
-
-      if (isRich()) {
-        expect(result).toContain("\x1B[");
+  test("FORCE_COLOR takes precedence over NO_COLOR", () => {
+    withRuntimeOverrides(
+      {
+        env: {
+          FORCE_COLOR: "1",
+          NO_COLOR: "1",
+        },
+        isTTY: false,
+        platform: "linux",
+      },
+      () => {
+        expect(getColorLevel()).toBe(1);
+        expect(isRich()).toBe(false);
       }
-      expect(stripAnsi(result)).toBe("test");
-    });
-
-    test("colorize returns plain text when rich is false", () => {
-      const colored = (text: string) => `\x1B[31m${text}\x1B[0m`;
-      const result = colorize(false, colored, "test");
-      expect(result).toBe("test");
-    });
+    );
   });
 
-  describe("stripAnsi", () => {
-    test("stripAnsi removes ANSI codes", () => {
-      const colored = "\x1B[31mred\x1B[0m \x1B[32mgreen\x1B[0m";
-      expect(stripAnsi(colored)).toBe("red green");
-    });
-
-    test("stripAnsi returns plain text unchanged", () => {
-      const plain = "no colors here";
-      expect(stripAnsi(plain)).toBe(plain);
-    });
-
-    test("stripAnsi handles empty string", () => {
-      expect(stripAnsi("")).toBe("");
-    });
-
-    test("stripAnsi handles complex ANSI sequences", () => {
-      const complex = "\x1B[1;38;2;255;90;45mbold colored\x1B[0m";
-      expect(stripAnsi(complex)).toBe("bold colored");
-    });
+  test("NO_COLOR disables colors when FORCE_COLOR is not set", () => {
+    withRuntimeOverrides(
+      {
+        env: { NO_COLOR: "1" },
+        isTTY: true,
+        platform: "linux",
+      },
+      () => {
+        expect(getColorLevel()).toBe(0);
+      }
+    );
   });
 
-  describe("edge cases", () => {
-    test("hex handles invalid hex gracefully", () => {
-      const invalid = hex("not-a-hex");
-      expect(invalid("test")).toBe("test");
-    });
+  test("returns no color for non-TTY outside CI", () => {
+    withRuntimeOverrides(
+      {
+        env: {},
+        isTTY: false,
+        platform: "linux",
+      },
+      () => {
+        expect(getColorLevel()).toBe(0);
+      }
+    );
+  });
 
-    test("hex handles hex without hash prefix", () => {
-      const color = hex("FF0000");
-      const result = color("test");
-      // Should work the same as with hash
-      expect(stripAnsi(result)).toBe("test");
-    });
+  test("returns no color for dumb terminal even in CI", () => {
+    withRuntimeOverrides(
+      {
+        env: {
+          CI: "1",
+          TERM: "dumb",
+        },
+        isTTY: false,
+        platform: "linux",
+      },
+      () => {
+        expect(getColorLevel()).toBe(0);
+      }
+    );
+  });
 
-    test("theme preserves text content", () => {
-      const text = "  spaced text  ";
-      const result = theme.accent(text);
-      expect(stripAnsi(result)).toBe(text);
-    });
+  test("detects truecolor from COLORTERM", () => {
+    withRuntimeOverrides(
+      {
+        env: { COLORTERM: "truecolor" },
+        isTTY: true,
+        platform: "linux",
+      },
+      () => {
+        expect(getColorLevel()).toBe(3);
+      }
+    );
 
-    test("theme handles special characters", () => {
-      const text = "hello\nworld\ttab";
-      const result = theme.accent(text);
-      expect(stripAnsi(result)).toBe(text);
-    });
+    withRuntimeOverrides(
+      {
+        env: { COLORTERM: "24bit" },
+        isTTY: true,
+        platform: "linux",
+      },
+      () => {
+        expect(getColorLevel()).toBe(3);
+      }
+    );
+  });
+
+  test("detects 256-color terminals from TERM", () => {
+    withRuntimeOverrides(
+      {
+        env: { TERM: "xterm-256color" },
+        isTTY: true,
+        platform: "linux",
+      },
+      () => {
+        expect(getColorLevel()).toBe(2);
+      }
+    );
+  });
+
+  test("detects basic color terminals from TERM", () => {
+    withRuntimeOverrides(
+      {
+        env: { TERM: "ansi" },
+        isTTY: true,
+        platform: "linux",
+      },
+      () => {
+        expect(getColorLevel()).toBe(1);
+      }
+    );
+
+    withRuntimeOverrides(
+      {
+        env: { TERM: "xterm" },
+        isTTY: true,
+        platform: "linux",
+      },
+      () => {
+        expect(getColorLevel()).toBe(1);
+      }
+    );
+  });
+
+  test("falls back to basic color for generic TTY", () => {
+    withRuntimeOverrides(
+      {
+        env: {},
+        isTTY: true,
+        platform: "linux",
+      },
+      () => {
+        expect(getColorLevel()).toBe(1);
+      }
+    );
+  });
+
+  test("falls through TERM parsing when terminal lacks color hints", () => {
+    withRuntimeOverrides(
+      {
+        env: { TERM: "vt100" },
+        isTTY: true,
+        platform: "linux",
+      },
+      () => {
+        expect(getColorLevel()).toBe(1);
+      }
+    );
+  });
+
+  test("handles Windows terminal capabilities", () => {
+    withRuntimeOverrides(
+      {
+        env: { WT_SESSION: "abc" },
+        isTTY: true,
+        platform: "win32",
+      },
+      () => {
+        expect(getColorLevel()).toBe(3);
+      }
+    );
+
+    withRuntimeOverrides(
+      {
+        env: { TERM_PROGRAM: "vscode" },
+        isTTY: true,
+        platform: "win32",
+      },
+      () => {
+        expect(getColorLevel()).toBe(3);
+      }
+    );
+
+    withRuntimeOverrides(
+      {
+        env: { COLORTERM: "truecolor" },
+        isTTY: true,
+        platform: "win32",
+      },
+      () => {
+        expect(getColorLevel()).toBe(3);
+      }
+    );
+
+    withRuntimeOverrides(
+      {
+        env: { TERM: "xterm" },
+        isTTY: true,
+        platform: "win32",
+      },
+      () => {
+        expect(getColorLevel()).toBe(3);
+      }
+    );
+
+    withRuntimeOverrides(
+      {
+        env: {},
+        isTTY: true,
+        platform: "win32",
+      },
+      () => {
+        expect(getColorLevel()).toBe(1);
+      }
+    );
+  });
+});
+
+describe("terminal/theme color formatting", () => {
+  test("hex returns passthrough function for invalid hex", () => {
+    withRuntimeOverrides(
+      {
+        env: { FORCE_COLOR: "3" },
+        isTTY: true,
+        platform: "linux",
+      },
+      () => {
+        const invalid = hex("not-a-hex");
+        expect(invalid("plain")).toBe("plain");
+      }
+    );
+  });
+
+  test("hex supports values without # prefix", () => {
+    withRuntimeOverrides(
+      {
+        env: { FORCE_COLOR: "3" },
+        isTTY: true,
+        platform: "linux",
+      },
+      () => {
+        expect(hex("FF0000")("value")).toBe("\x1B[38;2;255;0;0mvalue\x1B[0m");
+      }
+    );
+  });
+
+  test("hex uses truecolor formatting at level 3", () => {
+    withRuntimeOverrides(
+      {
+        env: { FORCE_COLOR: "3" },
+        isTTY: true,
+        platform: "linux",
+      },
+      () => {
+        expect(hex("#112233")("text")).toBe("\x1B[38;2;17;34;51mtext\x1B[0m");
+      }
+    );
+  });
+
+  test("hex uses ANSI-256 formatting at level 2", () => {
+    withRuntimeOverrides(
+      {
+        env: { FORCE_COLOR: "2" },
+        isTTY: true,
+        platform: "linux",
+      },
+      () => {
+        expect(hex("#FF0000")("text")).toBe("\x1B[38;5;196mtext\x1B[0m");
+      }
+    );
+  });
+
+  test("hex ANSI-256 conversion handles grayscale low/high/mid", () => {
+    withRuntimeOverrides(
+      {
+        env: { FORCE_COLOR: "2" },
+        isTTY: true,
+        platform: "linux",
+      },
+      () => {
+        expect(hex("#000000")("low")).toBe("\x1B[38;5;16mlow\x1B[0m");
+        expect(hex("#FFFFFF")("high")).toBe("\x1B[38;5;231mhigh\x1B[0m");
+        expect(hex("#808080")("mid")).toBe("\x1B[38;5;244mmid\x1B[0m");
+      }
+    );
+  });
+
+  test("hex falls back to plain text at level 1", () => {
+    withRuntimeOverrides(
+      {
+        env: { FORCE_COLOR: "1" },
+        isTTY: true,
+        platform: "linux",
+      },
+      () => {
+        expect(hex("#112233")("text")).toBe("text");
+      }
+    );
+  });
+
+  test("hex falls back to plain text at level 0", () => {
+    withRuntimeOverrides(
+      {
+        env: { FORCE_COLOR: "0" },
+        isTTY: true,
+        platform: "linux",
+      },
+      () => {
+        expect(hex("#112233")("text")).toBe("text");
+      }
+    );
+  });
+
+  test("heading composes bold and truecolor at level 3", () => {
+    withRuntimeOverrides(
+      {
+        env: { FORCE_COLOR: "3" },
+        isTTY: true,
+        platform: "linux",
+      },
+      () => {
+        expect(theme.heading("Heading")).toBe("\x1B[1m\x1B[38;2;255;200;0mHeading\x1B[0m");
+      }
+    );
+  });
+
+  test("heading composes bold and ANSI-256 at level 2", () => {
+    withRuntimeOverrides(
+      {
+        env: { FORCE_COLOR: "2" },
+        isTTY: true,
+        platform: "linux",
+      },
+      () => {
+        expect(theme.heading("Heading")).toBe("\x1B[1;38;5;220mHeading\x1B[0m");
+      }
+    );
+  });
+
+  test("heading is plain at level 0", () => {
+    withRuntimeOverrides(
+      {
+        env: { FORCE_COLOR: "0" },
+        isTTY: true,
+        platform: "linux",
+      },
+      () => {
+        expect(theme.heading("Heading")).toBe("Heading");
+      }
+    );
+  });
+
+  test("theme color functions preserve plain text content", () => {
+    withRuntimeOverrides(
+      {
+        env: { FORCE_COLOR: "2" },
+        isTTY: true,
+        platform: "linux",
+      },
+      () => {
+        const text = "hello\nworld\ttab";
+
+        expect(stripAnsi(theme.accent(text))).toBe(text);
+        expect(stripAnsi(theme.accentBright(text))).toBe(text);
+        expect(stripAnsi(theme.accentDim(text))).toBe(text);
+        expect(stripAnsi(theme.info(text))).toBe(text);
+        expect(stripAnsi(theme.success(text))).toBe(text);
+        expect(stripAnsi(theme.warn(text))).toBe(text);
+        expect(stripAnsi(theme.error(text))).toBe(text);
+        expect(stripAnsi(theme.muted(text))).toBe(text);
+        expect(stripAnsi(theme.command(text))).toBe(text);
+        expect(stripAnsi(theme.option(text))).toBe(text);
+      }
+    );
+  });
+});
+
+describe("terminal/theme utilities", () => {
+  test("bold and dim apply styles when color is enabled", () => {
+    withRuntimeOverrides(
+      {
+        env: { FORCE_COLOR: "1" },
+        isTTY: true,
+        platform: "linux",
+      },
+      () => {
+        expect(bold("bold text")).toBe("\x1B[1mbold text\x1B[0m");
+        expect(dim("dim text")).toBe("\x1B[2mdim text\x1B[0m");
+      }
+    );
+  });
+
+  test("bold and dim return plain text when color is disabled", () => {
+    withRuntimeOverrides(
+      {
+        env: { FORCE_COLOR: "0" },
+        isTTY: true,
+        platform: "linux",
+      },
+      () => {
+        expect(bold("bold text")).toBe("bold text");
+        expect(dim("dim text")).toBe("dim text");
+      }
+    );
+  });
+
+  test("colorize applies or bypasses formatter based on rich flag", () => {
+    const formatter = (text: string) => `\x1B[31m${text}\x1B[0m`;
+
+    expect(colorize(true, formatter, "test")).toBe("\x1B[31mtest\x1B[0m");
+    expect(colorize(false, formatter, "test")).toBe("test");
+  });
+
+  test("stripAnsi removes escape codes and preserves plain text", () => {
+    expect(stripAnsi("\x1B[31mred\x1B[0m \x1B[32mgreen\x1B[0m")).toBe("red green");
+    expect(stripAnsi("\x1B[1;38;2;255;90;45mbold colored\x1B[0m")).toBe("bold colored");
+    expect(stripAnsi("no colors here")).toBe("no colors here");
+    expect(stripAnsi("")).toBe("");
   });
 });
