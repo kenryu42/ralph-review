@@ -312,6 +312,23 @@ End of output.`;
       expect(result).toBeNull();
     });
 
+    test("parses fix summary from bare fenced JSON via repair", () => {
+      const json = JSON.stringify({
+        decision: "APPLY_SELECTIVELY",
+        stop_iteration: false,
+        fixes: [],
+        skipped: [],
+      });
+      const candidate = `\`\`\`
+${json}
+\`\`\``;
+
+      const result = parseFixSummary(candidate);
+      expect(result).not.toBeNull();
+      expect(result?.decision).toBe("APPLY_SELECTIVELY");
+      expect(result?.stop_iteration).toBe(false);
+    });
+
     test("accepts fix entry with omitted file field (undefined)", () => {
       const json = JSON.stringify({
         decision: "APPLY_SELECTIVELY",
@@ -452,9 +469,28 @@ ${REVIEW_SUMMARY_END_TOKEN}`;
       expect(result?.overall_correctness).toBe("patch is correct");
     });
 
+    test("returns null for framed review summary missing end token", () => {
+      const incomplete = `${REVIEW_SUMMARY_START_TOKEN}
+not json`;
+      const result = parseReviewSummary(incomplete);
+      expect(result).toBeNull();
+    });
+
     test("repairs trailing commas in review summary", () => {
       const candidate =
         '{"findings":[],"overall_correctness":"patch is correct","overall_explanation":"ok","overall_confidence_score":0.8,}';
+      const result = parseReviewSummary(candidate);
+      expect(result).not.toBeNull();
+      expect(result?.overall_confidence_score).toBe(0.8);
+    });
+
+    test("repairs trailing commas before a closing brace across whitespace", () => {
+      const candidate = `{
+  "findings": [],
+  "overall_correctness": "patch is correct",
+  "overall_explanation": "ok",
+  "overall_confidence_score": 0.8,
+   }`;
       const result = parseReviewSummary(candidate);
       expect(result).not.toBeNull();
       expect(result?.overall_confidence_score).toBe(0.8);
