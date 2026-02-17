@@ -6,6 +6,7 @@ import {
   createCheckpoint,
   discardCheckpoint,
   ensureGitRepository,
+  ensureGitRepositoryAsync,
   mergeBaseWithHead,
   rollbackToCheckpoint,
 } from "@/lib/git";
@@ -59,6 +60,38 @@ function commit(repoPath: string, filename: string, message: string): void {
   runGitIn(repoPath, ["commit", "-m", message]);
 }
 
+function patchGitSpawnSync(shouldFail: (command: string[]) => boolean): () => void {
+  const originalSpawnSync = Bun.spawnSync;
+  type SpawnSyncArgs =
+    | [command: string[], options?: { cwd?: string }]
+    | [options: { cmd: string[]; cwd?: string }];
+
+  Bun.spawnSync = ((...args: SpawnSyncArgs) => {
+    const firstArg = args[0];
+    const command = Array.isArray(firstArg) ? firstArg : firstArg.cmd;
+
+    if (shouldFail(command)) {
+      const cwd = Array.isArray(firstArg) ? args[1]?.cwd : firstArg.cwd;
+      return originalSpawnSync({
+        cmd: ["git", "rev-parse", "--verify", "refs/does-not-exist"],
+        cwd,
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+    }
+
+    if (Array.isArray(firstArg)) {
+      return originalSpawnSync(firstArg, args[1]);
+    }
+
+    return originalSpawnSync(firstArg);
+  }) as typeof Bun.spawnSync;
+
+  return () => {
+    Bun.spawnSync = originalSpawnSync;
+  };
+}
+
 describe("ensureGitRepository", () => {
   let tempDir: string;
 
@@ -78,6 +111,27 @@ describe("ensureGitRepository", () => {
   test("returns false for a non-git directory", () => {
     // tempDir without git init
     expect(ensureGitRepository(tempDir)).toBe(false);
+  });
+});
+
+describe("ensureGitRepositoryAsync", () => {
+  let tempDir: string;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "git-test-"));
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  test("returns true for a git repository", async () => {
+    initTestRepo(tempDir);
+    await expect(ensureGitRepositoryAsync(tempDir)).resolves.toBe(true);
+  });
+
+  test("returns false for a non-git directory", async () => {
+    await expect(ensureGitRepositoryAsync(tempDir)).resolves.toBe(false);
   });
 });
 
@@ -160,6 +214,46 @@ describe("mergeBaseWithHead", () => {
     const result = mergeBaseWithHead(repoPath, "main");
 
     expect(result).toBe(expected);
+  });
+
+  test("keeps local branch when upstream is not ahead", async () => {
+    const repoPath = join(tempDir, "repo");
+    const remotePath = join(tempDir, "remote.git");
+
+    await Bun.write(join(repoPath, ".gitkeep"), "");
+    await Bun.write(join(remotePath, ".gitkeep"), "");
+
+    runGitIn(remotePath, ["init", "--bare"]);
+    initTestRepo(repoPath);
+    commit(repoPath, "base.txt", "base commit");
+
+    runGitIn(repoPath, ["remote", "add", "origin", remotePath]);
+    runGitIn(repoPath, ["push", "-u", "origin", "main"]);
+    runGitIn(repoPath, ["checkout", "-b", "feature"]);
+    commit(repoPath, "feature.txt", "feature commit");
+    runGitIn(repoPath, ["fetch", "origin"]);
+
+    const expected = runGitStdout(repoPath, ["merge-base", "HEAD", "main"]);
+    const result = mergeBaseWithHead(repoPath, "main");
+
+    expect(result).toBe(expected);
+  });
+
+  test("returns undefined when repository root cannot be resolved", async () => {
+    initTestRepo(tempDir);
+    commit(tempDir, "base.txt", "base commit");
+
+    const restoreSpawnSync = patchGitSpawnSync(
+      (command) =>
+        command[0] === "git" && command[1] === "rev-parse" && command[2] === "--show-toplevel"
+    );
+
+    try {
+      const result = mergeBaseWithHead(tempDir, "main");
+      expect(result).toBeUndefined();
+    } finally {
+      restoreSpawnSync();
+    }
   });
 
   test("returns undefined when target branch does not exist", async () => {
@@ -372,6 +466,65 @@ exec "$REAL_GIT" "$@"
       expect(checkRef.exitCode).not.toBe(0);
     }
   });
+
+  test("discardCheckpoint no-ops for missing snapshot directory", () => {
+    const missingSnapshot = {
+      kind: "snapshot" as const,
+      id: "missing",
+      snapshotDir: join(tempDir, "missing-snapshot"),
+    };
+    expect(() => discardCheckpoint(tempDir, missingSnapshot)).not.toThrow();
+  });
+
+  test("discardCheckpoint no-ops for clean checkpoint", () => {
+    const cleanCheckpoint = {
+      kind: "clean" as const,
+      id: "clean",
+    };
+    expect(() => discardCheckpoint(tempDir, cleanCheckpoint)).not.toThrow();
+  });
+
+  test("discardCheckpoint no-ops when checkpoint ref does not exist", () => {
+    const missingRef = {
+      kind: "ref" as const,
+      id: "missing-ref",
+      ref: "refs/ralph-review/checkpoints/missing-ref",
+      commit: "deadbeef",
+    };
+    expect(() => discardCheckpoint(tempDir, missingRef)).not.toThrow();
+  });
+
+  test("throws contextual error when checkpoint stash creation fails", async () => {
+    const restoreSpawnSync = patchGitSpawnSync(
+      (command) => command[0] === "git" && command[1] === "stash" && command[2] === "push"
+    );
+
+    try {
+      expect(() => createCheckpoint(tempDir, "stash-failure")).toThrow(
+        "Failed to create checkpoint stash"
+      );
+    } finally {
+      restoreSpawnSync();
+    }
+  });
+
+  test("throws when deleting checkpoint ref fails", async () => {
+    await Bun.write(join(tempDir, "base.txt"), "dirty");
+    const checkpoint = createCheckpoint(tempDir, "delete-fail");
+    if (checkpoint.kind !== "ref") {
+      throw new Error("Expected ref checkpoint");
+    }
+
+    const restoreSpawnSync = patchGitSpawnSync(
+      (command) => command[0] === "git" && command[1] === "update-ref" && command[2] === "-d"
+    );
+
+    try {
+      expect(() => discardCheckpoint(tempDir, checkpoint)).toThrow("Failed to discard checkpoint");
+    } finally {
+      restoreSpawnSync();
+    }
+  });
 });
 
 describe("checkpoint management on unborn HEAD", () => {
@@ -417,5 +570,39 @@ describe("checkpoint management on unborn HEAD", () => {
     expect(status).toContain("A  staged.txt");
     expect(status).toContain("AM mixed.txt");
     expect(status).toContain("?? untracked.txt");
+  });
+
+  test("removes git index when snapshot index is unavailable", async () => {
+    await Bun.write(join(tempDir, "staged.txt"), "staged content");
+    runGitIn(tempDir, ["add", "staged.txt"]);
+
+    const checkpoint = createCheckpoint(tempDir, "unborn-no-index");
+    expect(checkpoint.kind).toBe("snapshot");
+    if (checkpoint.kind !== "snapshot") {
+      return;
+    }
+
+    await rm(join(checkpoint.snapshotDir, "index"), { force: true });
+    await Bun.write(join(tempDir, "staged.txt"), "mutated");
+
+    rollbackToCheckpoint(tempDir, checkpoint);
+
+    expect(await Bun.file(join(tempDir, "staged.txt")).text()).toBe("staged content");
+    expect(await Bun.file(join(tempDir, ".git", "index")).exists()).toBe(false);
+  });
+
+  test("throws contextual error when restoring snapshot archive fails", async () => {
+    await Bun.write(join(tempDir, "tracked.txt"), "tracked");
+    const checkpoint = createCheckpoint(tempDir, "unborn-broken-archive");
+    expect(checkpoint.kind).toBe("snapshot");
+    if (checkpoint.kind !== "snapshot") {
+      return;
+    }
+
+    await rm(join(checkpoint.snapshotDir, "worktree.tar"), { force: true });
+
+    expect(() => rollbackToCheckpoint(tempDir, checkpoint)).toThrow(
+      "Failed to restore working tree snapshot"
+    );
   });
 });
