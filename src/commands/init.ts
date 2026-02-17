@@ -162,6 +162,9 @@ export interface InitRuntimeOverrides extends Partial<Omit<InitRuntime, "prompt"
 }
 
 const PROCESS_EXIT = process.exit.bind(process) as (code: number) => never;
+const DEFAULT_SELECT = p.select as unknown as InitPromptRuntime["select"];
+const DEFAULT_CONFIRM = p.confirm as unknown as InitPromptRuntime["confirm"];
+const DEFAULT_TEXT = p.text as unknown as InitPromptRuntime["text"];
 
 export function createInitRuntime(overrides: InitRuntimeOverrides = {}): InitRuntime {
   const defaultPrompt: InitPromptRuntime = {
@@ -169,9 +172,9 @@ export function createInitRuntime(overrides: InitRuntimeOverrides = {}): InitRun
     outro: p.outro,
     cancel: p.cancel,
     isCancel: p.isCancel,
-    select: async (options) => p.select(options as Parameters<typeof p.select>[0]),
-    confirm: async (options) => p.confirm(options),
-    text: async (options) => p.text(options as Parameters<typeof p.text>[0]),
+    select: DEFAULT_SELECT,
+    confirm: DEFAULT_CONFIRM,
+    text: DEFAULT_TEXT,
     spinner: p.spinner,
     log: {
       info: p.log.info,
@@ -944,10 +947,7 @@ export async function runInitWithRuntime(
 
     handleCancel(runtime, shouldOverwrite);
 
-    if (!shouldOverwrite) {
-      runtime.prompt.cancel("Setup cancelled.");
-      return;
-    }
+    if (!shouldOverwrite) return runtime.prompt.cancel("Setup cancelled.");
   }
 
   if (!runtime.checkTmuxInstalled()) {
@@ -1058,6 +1058,6 @@ export async function runInitWithRuntime(
   runtime.prompt.outro("You can now run: rr run");
 }
 
-export async function runInit(): Promise<void> {
-  await runInitWithRuntime();
+export async function runInit(runtimeOverrides: InitRuntimeOverrides = {}): Promise<void> {
+  await runInitWithRuntime(runtimeOverrides);
 }

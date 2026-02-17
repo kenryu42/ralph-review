@@ -9,7 +9,7 @@ import type {
 } from "@/lib/diagnostics/types";
 
 interface DoctorRuntime {
-  runDiagnostics: () => Promise<DiagnosticsReport>;
+  runDiagnostics: (context: "doctor") => Promise<DiagnosticsReport>;
   applyFixes: (
     items: DiagnosticItem[],
     deps?: Partial<RemediationDependencies>
@@ -241,11 +241,11 @@ function renderDoctorReport(report: DiagnosticsReport, note: DoctorRuntime["note
 
 function createDoctorRuntime(overrides: DoctorRuntimeOverrides = {}): DoctorRuntime {
   return {
-    runDiagnostics: overrides.runDiagnostics ?? (() => runDiagnostics("doctor")),
+    runDiagnostics: overrides.runDiagnostics ?? runDiagnostics,
     applyFixes: overrides.applyFixes ?? defaultApplyFixes,
     intro: overrides.intro ?? p.intro,
     note: overrides.note ?? p.note,
-    spinner: overrides.spinner ?? (() => p.spinner()),
+    spinner: overrides.spinner ?? p.spinner,
     log: {
       error: overrides.log?.error ?? p.log.error,
       warn: overrides.log?.warn ?? p.log.warn,
@@ -253,7 +253,7 @@ function createDoctorRuntime(overrides: DoctorRuntimeOverrides = {}): DoctorRunt
       info: overrides.log?.info ?? p.log.info,
       step: overrides.log?.step ?? p.log.step,
     },
-    exit: overrides.exit ?? ((code: number) => process.exit(code)),
+    exit: overrides.exit ?? process.exit,
   };
 }
 
@@ -269,7 +269,7 @@ export async function runDoctor(
   spinner.start("Running diagnostics...");
   let report: DiagnosticsReport;
   try {
-    report = await runtime.runDiagnostics();
+    report = await runtime.runDiagnostics("doctor");
   } finally {
     spinner.stop("Diagnostics complete.");
   }
@@ -307,7 +307,7 @@ export async function runDoctor(
         const reSpinner = runtime.spinner();
         reSpinner.start("Re-running diagnostics...");
         try {
-          report = await runtime.runDiagnostics();
+          report = await runtime.runDiagnostics("doctor");
         } finally {
           reSpinner.stop("Diagnostics complete.");
         }
