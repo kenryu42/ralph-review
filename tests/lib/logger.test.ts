@@ -519,6 +519,54 @@ describe("logger", () => {
       expect(leftovers.length).toBe(0);
     });
 
+    test("uses empty-summary initialization when an existing log file is zero bytes", async () => {
+      const logPath = await createLogSession(tempDir, "/path/to/project");
+      const systemEntry: SystemEntry = {
+        type: "system",
+        timestamp: Date.now(),
+        projectPath: "/path/to/project",
+        reviewer: { agent: "codex" },
+        fixer: { agent: "claude" },
+        maxIterations: 5,
+      };
+
+      await Bun.write(logPath, "", { createPath: true });
+      await appendLog(logPath, systemEntry);
+
+      const summary = await readSessionSummary(logPath);
+      expect(summary).not.toBeNull();
+      expect(summary?.iterations).toBe(0);
+      expect(summary?.projectPath).toBe("/path/to/project");
+    });
+
+    test("cleans up temporary summary file when atomic rename fails", async () => {
+      const logPath = await createLogSession(tempDir, "/path/to/project");
+      const summaryPath = getSummaryPath(logPath);
+      const summaryFilename = basename(summaryPath);
+      const systemEntry: SystemEntry = {
+        type: "system",
+        timestamp: Date.now(),
+        projectPath: "/path/to/project",
+        reviewer: { agent: "codex" },
+        fixer: { agent: "claude" },
+        maxIterations: 5,
+      };
+
+      await Bun.write(join(summaryPath, "blocker"), "x", { createPath: true });
+
+      await expect(appendLog(logPath, systemEntry)).rejects.toThrow();
+
+      const glob = new Bun.Glob(`${summaryFilename}.tmp.*`);
+      const leftovers: string[] = [];
+      for await (const file of glob.scan({ cwd: dirname(summaryPath) })) {
+        leftovers.push(file);
+      }
+      expect(leftovers).toEqual([]);
+
+      await rm(summaryPath, { recursive: true, force: true });
+      await deleteSessionFiles(logPath);
+    });
+
     test("preserves existing log content when appending without active writer", async () => {
       const logPath = await createLogSession(tempDir, "/path/to/project");
 
