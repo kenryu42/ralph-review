@@ -577,6 +577,17 @@ async function rebuildSessionSummary(logPath: string): Promise<SessionSummary | 
   return summary;
 }
 
+async function resolveSessionSummary(logPath: string): Promise<SessionSummary | null> {
+  if (await isSummaryFresh(logPath)) {
+    const summary = await readSessionSummary(logPath);
+    if (summary) {
+      return summary;
+    }
+  }
+
+  return rebuildSessionSummary(logPath);
+}
+
 async function getSummaryForAppend(logPath: string): Promise<SessionSummary> {
   const cached = SUMMARY_CACHE.get(logPath);
   if (cached) {
@@ -584,29 +595,11 @@ async function getSummaryForAppend(logPath: string): Promise<SessionSummary> {
   }
 
   const file = Bun.file(logPath);
-  if (!(await file.exists()) || file.size === 0) {
-    const empty = createEmptySessionSummary(logPath);
-    SUMMARY_CACHE.set(logPath, empty);
-    return empty;
-  }
-
-  if (await isSummaryFresh(logPath)) {
-    const summary = await readSessionSummary(logPath);
-    if (summary) {
-      SUMMARY_CACHE.set(logPath, summary);
-      return summary;
-    }
-  }
-
-  const rebuilt = await rebuildSessionSummary(logPath);
-  if (rebuilt) {
-    SUMMARY_CACHE.set(logPath, rebuilt);
-    return rebuilt;
-  }
-
-  const empty = createEmptySessionSummary(logPath);
-  SUMMARY_CACHE.set(logPath, empty);
-  return empty;
+  const resolvedSummary =
+    (await file.exists()) && file.size > 0 ? await resolveSessionSummary(logPath) : null;
+  const summary = resolvedSummary ?? createEmptySessionSummary(logPath);
+  SUMMARY_CACHE.set(logPath, summary);
+  return summary;
 }
 
 /**
@@ -837,15 +830,8 @@ export async function computeSessionStats(session: LogSession): Promise<SessionS
   const entries = await readLog(session.path);
   const metrics = computeIterationMetrics(entries);
 
-  // Only use cached summary if it's fresh (not older than the log file)
-  // This handles the case where a crash occurred between log write and summary write
-  let summary: SessionSummary | null = null;
-  if (await isSummaryFresh(session.path)) {
-    summary = await readSessionSummary(session.path);
-  }
-  if (!summary) {
-    summary = await rebuildSessionSummary(session.path);
-  }
+  // This handles the case where a crash occurred between log write and summary write.
+  const summary = await resolveSessionSummary(session.path);
 
   const systemEntry = entries.find((e): e is SystemEntry => e.type === "system");
 
