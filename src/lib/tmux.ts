@@ -19,6 +19,59 @@ interface ComputeNextTmuxCaptureIntervalOptions {
   previousIntervalMs: number;
 }
 
+interface ShellStatusResult {
+  exitCode: number;
+}
+
+interface ShellTextResult extends ShellStatusResult {
+  text(): string;
+}
+
+interface TmuxCaptureProcess {
+  exited: Promise<number>;
+  exitCode: number | null;
+  stdout: ReadableStream<Uint8Array> | null;
+  kill(): unknown;
+}
+
+interface TmuxDependencies {
+  hasSession(name: string): Promise<ShellStatusResult>;
+  createSession(name: string, command: string): Promise<unknown>;
+  sendInterrupt(name: string): Promise<unknown>;
+  killSession(name: string): Promise<unknown>;
+  listSessions(): Promise<ShellTextResult>;
+  spawnCapturePane(name: string, lines: number): TmuxCaptureProcess;
+  readText(stdout: ReadableStream<Uint8Array>): Promise<string>;
+  setTimeout: typeof setTimeout;
+  clearTimeout: typeof clearTimeout;
+}
+
+type SessionExistsDeps = Pick<TmuxDependencies, "hasSession">;
+type CreateSessionDeps = Pick<TmuxDependencies, "createSession">;
+type SendInterruptDeps = Pick<TmuxDependencies, "sendInterrupt">;
+type KillSessionDeps = Pick<TmuxDependencies, "killSession">;
+type ListSessionsDeps = Pick<TmuxDependencies, "listSessions">;
+type SessionOutputDeps = Pick<
+  TmuxDependencies,
+  "spawnCapturePane" | "readText" | "setTimeout" | "clearTimeout"
+>;
+
+const TMUX_DEPS: TmuxDependencies = {
+  hasSession: (name) => $`tmux has-session -t ${name} 2>/dev/null`.quiet(),
+  createSession: (name, command) => $`tmux new-session -d -s ${name} ${command}`.quiet(),
+  sendInterrupt: (name) => $`tmux send-keys -t ${name} C-c`.quiet(),
+  killSession: (name) => $`tmux kill-session -t ${name}`.quiet(),
+  listSessions: () => $`tmux list-sessions -F '#{session_name}'`.quiet(),
+  spawnCapturePane: (name, lines) =>
+    Bun.spawn(["tmux", "capture-pane", "-t", name, "-p", "-S", `-${lines}`], {
+      stdout: "pipe",
+      stderr: "ignore",
+    }),
+  readText: (stdout) => new Response(stdout).text(),
+  setTimeout,
+  clearTimeout,
+};
+
 function normalizeCaptureInterval(intervalMs: number): number {
   if (!Number.isFinite(intervalMs) || intervalMs <= 0) {
     return TMUX_CAPTURE_MIN_INTERVAL_MS;
@@ -76,38 +129,48 @@ export function generateSessionName(projectName?: string): string {
   return `rr-${sanitizeBasename(name)}-${Date.now()}`;
 }
 
-export async function sessionExists(name: string): Promise<boolean> {
+export async function sessionExists(
+  name: string,
+  deps: SessionExistsDeps = TMUX_DEPS
+): Promise<boolean> {
   try {
-    const result = await $`tmux has-session -t ${name} 2>/dev/null`.quiet();
+    const result = await deps.hasSession(name);
     return result.exitCode === 0;
   } catch {
     return false;
   }
 }
 
-export async function createSession(name: string, command: string): Promise<void> {
-  await $`tmux new-session -d -s ${name} ${command}`;
+export async function createSession(
+  name: string,
+  command: string,
+  deps: CreateSessionDeps = TMUX_DEPS
+): Promise<void> {
+  await deps.createSession(name, command);
 }
 
-export async function sendInterrupt(name: string): Promise<void> {
+export async function sendInterrupt(
+  name: string,
+  deps: SendInterruptDeps = TMUX_DEPS
+): Promise<void> {
   try {
-    await $`tmux send-keys -t ${name} C-c`.quiet();
+    await deps.sendInterrupt(name);
   } catch {
     // Session might not exist
   }
 }
 
-export async function killSession(name: string): Promise<void> {
+export async function killSession(name: string, deps: KillSessionDeps = TMUX_DEPS): Promise<void> {
   try {
-    await $`tmux kill-session -t ${name}`.quiet();
+    await deps.killSession(name);
   } catch {
     // Session might not exist
   }
 }
 
-export async function listSessions(): Promise<string[]> {
+export async function listSessions(deps: ListSessionsDeps = TMUX_DEPS): Promise<string[]> {
   try {
-    const result = await $`tmux list-sessions -F '#{session_name}'`.quiet();
+    const result = await deps.listSessions();
     if (result.exitCode !== 0) {
       return [];
     }
@@ -117,8 +180,8 @@ export async function listSessions(): Promise<string[]> {
   }
 }
 
-export async function listRalphSessions(): Promise<string[]> {
-  const sessions = await listSessions();
+export async function listRalphSessions(deps: ListSessionsDeps = TMUX_DEPS): Promise<string[]> {
+  const sessions = await listSessions(deps);
   return sessions.filter((name) => name.startsWith("rr-"));
 }
 
@@ -127,30 +190,31 @@ export function normalizeSessionOutput(output: string): string {
   return output.trimEnd();
 }
 
-export async function getSessionOutput(name: string, lines: number = 50): Promise<string> {
+export async function getSessionOutput(
+  name: string,
+  lines: number = 50,
+  deps: SessionOutputDeps = TMUX_DEPS
+): Promise<string> {
   const safeLines = Number.isFinite(lines) && lines > 0 ? Math.floor(lines) : 50;
   const timeoutMs = 750;
 
   try {
-    const proc = Bun.spawn(["tmux", "capture-pane", "-t", name, "-p", "-S", `-${safeLines}`], {
-      stdout: "pipe",
-      stderr: "ignore",
-    });
+    const proc = deps.spawnCapturePane(name, safeLines);
 
     let timedOut = false;
-    const timeoutId = setTimeout(() => {
+    const timeoutId = deps.setTimeout(() => {
       timedOut = true;
       proc.kill();
     }, timeoutMs);
 
     await proc.exited.catch(() => {});
-    clearTimeout(timeoutId);
+    deps.clearTimeout(timeoutId);
 
     if (timedOut || proc.exitCode !== 0 || !proc.stdout) {
       return "";
     }
 
-    const output = await new Response(proc.stdout).text();
+    const output = await deps.readText(proc.stdout);
     return normalizeSessionOutput(output);
   } catch {
     return "";
