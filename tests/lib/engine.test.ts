@@ -71,6 +71,14 @@ describe("engine", () => {
       expect(result.reason).toContain("interrupted");
       expect(result.sessionPath).toBe(testSessionPath);
     });
+
+    test("returns unexpected failure when issues remain before max iterations", () => {
+      const result = determineCycleResult(true, 2, 10, false, testSessionPath);
+      expect(result.success).toBe(false);
+      expect(result.finalStatus).toBe("failed");
+      expect(result.reason).toContain("ended unexpectedly");
+      expect(result.sessionPath).toBe(testSessionPath);
+    });
   });
 
   describe("calculateRetryDelay", () => {
@@ -199,6 +207,14 @@ End of output.`;
       });
       expect(suffix).toContain("Rollback failed");
       expect(suffix).toContain("apply failed");
+    });
+
+    test("formats rollback suffix for successful rollback", () => {
+      const suffix = rollbackReasonSuffix({
+        attempted: true,
+        success: true,
+      });
+      expect(suffix).toContain("Changes were rolled back");
     });
   });
 
