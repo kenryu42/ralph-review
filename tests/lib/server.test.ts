@@ -1,9 +1,11 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import * as lockfile from "@/lib/lockfile";
 import { createLockfile, removeLockfile } from "@/lib/lockfile";
-import { getHtmlPath, getSummaryPath } from "@/lib/logger";
+import * as logger from "@/lib/logger";
+import { getHtmlPath, getProjectName, getSummaryPath } from "@/lib/logger";
 import { type DashboardServerEvent, startDashboardServer } from "@/lib/server";
 import type { DashboardData, SessionStats } from "@/lib/types";
 
@@ -88,6 +90,7 @@ describe("server", () => {
     if (server) {
       server.stop(true);
     }
+    mock.restore();
     for (const lock of createdLocks) {
       await removeLockfile(tempDir, lock.projectPath, { expectedSessionId: lock.sessionId });
     }
@@ -208,6 +211,79 @@ describe("server", () => {
     expect(events[1]?.reason).toBe("running_session");
   });
 
+  test("DELETE /api/sessions returns 409 when project and branch match an active session", async () => {
+    const data = createTestData(tempDir);
+    const project = data.projects[0];
+    const session = project?.sessions[0];
+    const sessionPath = session?.sessionPath ?? "";
+    const runningSessionId = "running-branch-session-id";
+    const activeProjectPath = join(tempDir, "active-project");
+    if (project && session) {
+      project.projectName = getProjectName(activeProjectPath);
+      session.status = "running";
+      session.sessionId = undefined;
+      session.gitBranch = "main";
+    }
+
+    await createLockfile(tempDir, activeProjectPath, "rr-running-session", {
+      branch: "main",
+      sessionId: runningSessionId,
+      state: "running",
+      mode: "background",
+      lastHeartbeat: Date.now(),
+      pid: process.pid,
+    });
+    createdLocks.push({ projectPath: activeProjectPath, sessionId: runningSessionId });
+
+    const { events, onEvent } = createEventCollector();
+    server = startDashboardServer({ data, onEvent, logsDir: tempDir });
+
+    const res = await fetch(`http://localhost:${server.port}/api/sessions`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionPath }),
+    });
+
+    expect(res.status).toBe(409);
+    expect(await res.text()).toContain("Cannot delete a running session");
+    expect(events.map((event) => event.event)).toEqual([
+      "session_delete_requested",
+      "session_delete_running_conflict",
+    ]);
+    expect(events[1]?.status).toBe(409);
+    expect(events[1]?.details?.projectName).toBe(project?.projectName);
+    expect(events[1]?.details?.gitBranch).toBe("main");
+  });
+
+  test("DELETE /api/sessions deletes a non-terminal session when no active lock exists", async () => {
+    const data = createTestData(tempDir);
+    const session = data.projects[0]?.sessions[0];
+    const sessionPath = session?.sessionPath ?? "";
+    const { events, onEvent } = createEventCollector();
+    if (session) {
+      session.status = "running";
+      session.sessionId = undefined;
+    }
+
+    await Bun.write(sessionPath, '{"type":"system"}\n', { createPath: true });
+    await Bun.write(getHtmlPath(sessionPath), "<html></html>", { createPath: true });
+    await Bun.write(getSummaryPath(sessionPath), "{}", { createPath: true });
+
+    server = startDashboardServer({ data, onEvent });
+
+    const res = await fetch(`http://localhost:${server.port}/api/sessions`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionPath }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(events.map((event) => event.event)).toEqual([
+      "session_delete_requested",
+      "session_delete_success",
+    ]);
+  });
+
   test("DELETE /api/sessions with missing body returns 400", async () => {
     const data = createTestData(tempDir);
     const { events, onEvent } = createEventCollector();
@@ -244,6 +320,119 @@ describe("server", () => {
     ]);
     expect(events[1]?.status).toBe(400);
     expect(events[1]?.reason).toBe("missing_session_path");
+  });
+
+  test("DELETE /api/sessions uses default JSON event sink when onEvent is absent", async () => {
+    const data = createTestData(tempDir);
+    const originalLog = console.log;
+    const emitted: string[] = [];
+    console.log = ((...args: unknown[]) => {
+      emitted.push(args.map(String).join(" "));
+    }) as typeof console.log;
+    try {
+      server = startDashboardServer({ data });
+
+      const res = await fetch(`http://localhost:${server.port}/api/sessions`, {
+        method: "DELETE",
+      });
+
+      expect(res.status).toBe(400);
+    } finally {
+      console.log = originalLog;
+    }
+
+    const events = emitted.flatMap((entry) => {
+      try {
+        const parsed = JSON.parse(entry) as DashboardServerEvent;
+        return parsed.source === "dashboard-server" ? [parsed] : [];
+      } catch {
+        return [];
+      }
+    });
+    expect(events[0]?.event).toBe("session_delete_requested");
+    expect(events[1]?.event).toBe("session_delete_invalid_json");
+  });
+
+  test("DELETE /api/sessions keeps request handling resilient when onEvent throws", async () => {
+    const data = createTestData(tempDir);
+    const originalError = console.error;
+    const errors: string[] = [];
+    console.error = ((...args: unknown[]) => {
+      errors.push(args.map(String).join(" "));
+    }) as typeof console.error;
+    try {
+      server = startDashboardServer({
+        data,
+        onEvent: () => {
+          throw "sink-failure";
+        },
+      });
+
+      const res = await fetch(`http://localhost:${server.port}/api/sessions`, {
+        method: "DELETE",
+      });
+
+      expect(res.status).toBe(400);
+    } finally {
+      console.error = originalError;
+    }
+
+    expect(errors.some((line) => line.includes("failed to emit log event: sink-failure"))).toBe(
+      true
+    );
+  });
+
+  test("DELETE /api/sessions returns 500 when deleting session files fails", async () => {
+    spyOn(logger, "deleteSessionFiles").mockImplementation(async () => {
+      throw new Error("disk failure");
+    });
+    const data = createTestData(tempDir);
+    const sessionPath = data.projects[0]?.sessions[0]?.sessionPath ?? "";
+    const { events, onEvent } = createEventCollector();
+    server = startDashboardServer({ data, onEvent });
+
+    const res = await fetch(`http://localhost:${server.port}/api/sessions`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionPath }),
+    });
+
+    expect(res.status).toBe(500);
+    expect(await res.text()).toContain("Failed to delete session files");
+    expect(events.map((event) => event.event)).toEqual([
+      "session_delete_requested",
+      "session_delete_delete_files_failed",
+    ]);
+    expect(events[1]?.status).toBe("error");
+    expect(events[1]?.reason).toBe("delete_session_files_failed");
+    expect(events[1]?.details?.message).toBe("disk failure");
+  });
+
+  test("DELETE /api/sessions returns 500 when lockfile lookup throws a non-Error", async () => {
+    spyOn(lockfile, "listAllActiveSessions").mockImplementation(async () => {
+      throw "lockfile exploded";
+    });
+    const data = createTestData(tempDir);
+    const sessionPath = data.projects[0]?.sessions[0]?.sessionPath ?? "";
+    const { events, onEvent } = createEventCollector();
+    server = startDashboardServer({ data, onEvent });
+
+    const res = await fetch(`http://localhost:${server.port}/api/sessions`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionPath }),
+    });
+
+    expect(res.status).toBe(500);
+    expect(await res.text()).toContain("Internal server error");
+    expect(events.map((event) => event.event)).toEqual([
+      "session_delete_requested",
+      "session_delete_unhandled_error",
+    ]);
+    expect(events[1]?.status).toBe(500);
+    expect(events[1]?.sessionPath).toBe(sessionPath);
+    expect(events[1]?.reason).toBe("unexpected_error");
+    expect(events[1]?.details?.message).toBe("lockfile exploded");
   });
 
   test("GET /api/sessions returns 405", async () => {
