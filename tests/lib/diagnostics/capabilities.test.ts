@@ -239,6 +239,37 @@ describe("diagnostics capabilities", () => {
     expect(capabilities.pi.probeWarnings[0]).toContain("pi --list-models exited with code 3");
   });
 
+  test("discovers pi models from probe output when pi probe succeeds", async () => {
+    Bun.spawn = ((args) => {
+      expect(args).toEqual(["pi", "--list-models"]);
+      return createMockProcess(
+        createTextStream(
+          [
+            "provider   model                              context  max-out",
+            "anthropic  claude-sonnet-4-5                 200K     64K",
+            "llm-proxy  gemini_cli/gemini-3-pro-preview   1M       64K",
+          ].join("\n")
+        ),
+        createTextStream(""),
+        0
+      );
+    }) as typeof Bun.spawn;
+
+    const capabilities = await discoverAgentCapabilities({
+      availabilityOverride: {
+        ...createDynamicAvailability(),
+        opencode: false,
+      },
+    });
+
+    expect(capabilities.pi.modelCatalogSource).toBe("dynamic");
+    expect(capabilities.pi.models).toEqual([
+      { provider: "anthropic", model: "claude-sonnet-4-5" },
+      { provider: "llm-proxy", model: "gemini_cli/gemini-3-pro-preview" },
+    ]);
+    expect(capabilities.pi.probeWarnings).toEqual([]);
+  });
+
   test("skips dynamic probes when probeAgents excludes opencode and pi", async () => {
     let opencodeProbeCalls = 0;
     let piProbeCalls = 0;
