@@ -828,6 +828,22 @@ export async function runReviewCycle(
       });
       await deps.appendLog(sessionPath, iterationEntry);
 
+      const hasBlockedItems =
+        fixSummary?.skipped.some((item) => /^blocked\b/i.test(item.reason.trim())) ?? false;
+
+      if (hasBlockedItems) {
+        hasRemainingIssues = true;
+        console.log("⚠️  Fixer reported blocked items that require follow-up.");
+        discardCheckpointSafe();
+        return finish({
+          success: false,
+          finalStatus: "completed",
+          iterations: iteration,
+          reason: "Fixer reported blocked items that require external follow-up",
+          sessionPath,
+        });
+      }
+
       if (fixSummary?.stop_iteration === true) {
         hasRemainingIssues = false;
         console.log("✅ No issues to fix - code is clean!");
@@ -841,22 +857,6 @@ export async function runReviewCycle(
       } else {
         // Treat any non-clean signal conservatively and continue iterating.
         hasRemainingIssues = true;
-      }
-
-      // Detect NEED_INFO loop: fixer requested more info but made no fixes
-      // This prevents token waste from repeating iterations with same result
-      if (fixSummary?.decision === "NEED_INFO" && fixSummary.fixes.length === 0) {
-        discardCheckpointSafe();
-        console.log("⚠️  Fixer needs more information to proceed but made no changes.");
-        console.log("   Review may contain unverifiable claims. Stopping to avoid token waste.");
-        return finish({
-          success: false,
-          finalStatus: "failed",
-          iterations: iteration,
-          reason:
-            "Fixer requested more information and made no changes - stopping without rollback",
-          sessionPath,
-        });
       }
 
       discardCheckpointSafe();
