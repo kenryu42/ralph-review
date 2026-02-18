@@ -719,6 +719,50 @@ describe("runReviewCycle", () => {
     });
   });
 
+  test("stores codex reviewSummary when codex session extraction returns valid JSON", async () => {
+    await withHarness(async (state, deps) => {
+      const reviewSummary = buildReviewSummary();
+      queueRunAgentSteps(
+        state,
+        resultStep(successResult("codex raw output")),
+        resultStep(successResult("fix output"))
+      );
+      queueReviewParses(state, parseReviewSuccess(reviewSummary));
+      queueFixParses(
+        state,
+        parseFixSuccess(
+          buildFixSummary({
+            decision: "NO_CHANGES_NEEDED",
+            stop_iteration: true,
+            fixes: [],
+            skipped: [],
+          })
+        )
+      );
+
+      const result = await runReviewCycle(
+        createConfig({
+          reviewer: { agent: "codex" },
+        }),
+        undefined,
+        undefined,
+        {
+          projectPath: TEST_PROJECT_PATH,
+          sessionId: TEST_SESSION_ID,
+        },
+        deps
+      );
+
+      expect(result.success).toBe(true);
+      expect(
+        state.updateLockfileCalls.some((call) => call.updates.reviewSummary !== undefined)
+      ).toBe(true);
+      expect(
+        state.updateLockfileCalls.some((call) => call.updates.codexReviewText !== undefined)
+      ).toBe(false);
+    });
+  });
+
   test("continues when codex reviewer lockfile updates fail", async () => {
     await withHarness(async (state, deps) => {
       state.updateLockfileFailuresRemaining = 100;

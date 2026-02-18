@@ -570,18 +570,13 @@ export async function runReviewCycle(
       }
 
       const reviewerAgentModule = deps.AGENTS[config.reviewer.agent];
-      let extractedReviewerText = reviewerAgentModule.extractResult(reviewResult.output);
-      let reviewParseResult =
-        config.reviewer.agent === "codex"
-          ? null
-          : deps.parseReviewSummaryOutput(extractedReviewerText, reviewResult.output);
+      let extractedReviewerText = await reviewerAgentModule.extractResult(reviewResult.output);
+      let reviewParseResult = deps.parseReviewSummaryOutput(
+        extractedReviewerText,
+        reviewResult.output
+      );
 
-      if (
-        config.reviewer.agent !== "codex" &&
-        reviewParseResult &&
-        !reviewParseResult.ok &&
-        !wasInterrupted()
-      ) {
+      if (config.reviewer.agent !== "codex" && !reviewParseResult.ok && !wasInterrupted()) {
         const initialReviewResult = reviewResult;
         const initialExtractedReviewerText = extractedReviewerText;
         const initialReviewParseResult = reviewParseResult;
@@ -618,7 +613,7 @@ export async function runReviewCycle(
           }
 
           reviewResult = retryResult;
-          extractedReviewerText = reviewerAgentModule.extractResult(reviewResult.output);
+          extractedReviewerText = await reviewerAgentModule.extractResult(reviewResult.output);
           reviewParseResult = deps.parseReviewSummaryOutput(
             extractedReviewerText,
             reviewResult.output
@@ -670,42 +665,47 @@ export async function runReviewCycle(
       let reviewJson: string | null = null;
 
       if (config.reviewer.agent === "codex") {
-        codexReviewSummary = { text: reviewTextForFixer };
-        await deps
-          .updateLockfile(
-            undefined,
-            projectPath,
-            { codexReviewText: reviewTextForFixer },
-            {
-              expectedSessionId: sessionId,
-            }
-          )
-          .catch(() => {});
-      } else {
-        if (reviewParseResult?.ok) {
-          reviewSummary = reviewParseResult.value;
-          reviewJson = JSON.stringify(reviewSummary);
-          if (reviewParseResult.usedRepair) {
-            console.log("  ⚠️  Reviewer summary required deterministic local JSON repair.");
-          }
-        } else {
+        if (!reviewParseResult.ok) {
           console.log(
-            `  ⚠️  Could not parse reviewer summary JSON (${reviewParseResult?.failureReason ?? "unknown error"})`
+            `  ⚠️  Could not parse codex session review JSON (${reviewParseResult.failureReason ?? "unknown error"}). Falling back to raw codex output.`
           );
-        }
-
-        if (reviewSummary) {
+          codexReviewSummary = { text: reviewTextForFixer };
           await deps
             .updateLockfile(
               undefined,
               projectPath,
-              { reviewSummary },
+              { codexReviewText: reviewTextForFixer },
               {
                 expectedSessionId: sessionId,
               }
             )
             .catch(() => {});
         }
+      } else if (!reviewParseResult.ok) {
+        console.log(
+          `  ⚠️  Could not parse reviewer summary JSON (${reviewParseResult.failureReason ?? "unknown error"})`
+        );
+      }
+
+      if (reviewParseResult.ok) {
+        reviewSummary = reviewParseResult.value;
+        reviewJson = JSON.stringify(reviewSummary);
+        if (reviewParseResult.usedRepair) {
+          console.log("  ⚠️  Reviewer summary required deterministic local JSON repair.");
+        }
+      }
+
+      if (reviewSummary) {
+        await deps
+          .updateLockfile(
+            undefined,
+            projectPath,
+            { reviewSummary },
+            {
+              expectedSessionId: sessionId,
+            }
+          )
+          .catch(() => {});
       }
 
       const fixerPrompt = deps.createFixerPrompt(reviewJson ?? reviewTextForFixer);
@@ -748,7 +748,7 @@ export async function runReviewCycle(
       };
 
       let fixResult = await runAgentWithRetry("fixer", config, deps, fixerPrompt);
-      let resultText = fixerAgentModule.extractResult(fixResult.output);
+      let resultText = await fixerAgentModule.extractResult(fixResult.output);
       let fixParseResult = deps.parseFixSummaryOutput(resultText, fixResult.output);
       let fixSummary = fixParseResult.ok ? fixParseResult.value : null;
 
@@ -763,7 +763,7 @@ export async function runReviewCycle(
           );
           const summaryRetryPrompt = `${fixerPrompt}\n${deps.createFixerSummaryRetryReminder()}`;
           fixResult = await runAgentWithRetry("fixer", config, deps, summaryRetryPrompt);
-          resultText = fixerAgentModule.extractResult(fixResult.output);
+          resultText = await fixerAgentModule.extractResult(fixResult.output);
           fixParseResult = deps.parseFixSummaryOutput(resultText, fixResult.output);
           fixSummary = fixParseResult.ok ? fixParseResult.value : null;
         }

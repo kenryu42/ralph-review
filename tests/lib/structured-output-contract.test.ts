@@ -58,7 +58,7 @@ describe("structured output parser contract fixtures", () => {
       const expectedPath = `${FIXTURE_ROOT}/${fixtureFile.replace(/\.jsonl$/, ".expected.json")}`;
       const expected = (await Bun.file(expectedPath).json()) as FixtureExpectation;
 
-      const extracted = AGENTS[agent].extractResult(rawOutput);
+      const extracted = await AGENTS[agent].extractResult(rawOutput);
       const parsed =
         role === "fixer"
           ? parseFixSummaryOutput(extracted, rawOutput)
