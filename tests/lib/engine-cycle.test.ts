@@ -905,7 +905,7 @@ describe("runReviewCycle", () => {
     });
   });
 
-  test("stops early on NEED_INFO with no fixes and skips rollback", async () => {
+  test("stops immediately when skipped includes BLOCKED items", async () => {
     await withHarness(async (state, deps) => {
       queueRunAgentSteps(
         state,
@@ -917,16 +917,23 @@ describe("runReviewCycle", () => {
         state,
         parseFixSuccess(
           buildFixSummary({
-            decision: "NEED_INFO",
-            stop_iteration: false,
+            decision: "NO_CHANGES_NEEDED",
+            stop_iteration: true,
             fixes: [],
-            skipped: [],
+            skipped: [
+              {
+                id: 1,
+                title: "External test infra timeout",
+                priority: "P1",
+                reason: "BLOCKED: npm run test timed out in external CI service",
+              },
+            ],
           })
         )
       );
 
       const result = await runReviewCycle(
-        createConfig(),
+        createConfig({ maxIterations: 3 }),
         undefined,
         undefined,
         {
@@ -937,7 +944,57 @@ describe("runReviewCycle", () => {
       );
 
       expect(result.success).toBe(false);
-      expect(result.reason).toContain("requested more information");
+      expect(result.finalStatus).toBe("completed");
+      expect(result.iterations).toBe(1);
+      expect(result.reason).toContain("blocked items");
+      expect(state.runAgentCalls.map((call) => call.role)).toEqual(["reviewer", "fixer"]);
+      expect(state.rollbackCalls).toHaveLength(0);
+    });
+  });
+
+  test("stops immediately when skipped includes blocked marker with varied formatting", async () => {
+    await withHarness(async (state, deps) => {
+      queueRunAgentSteps(
+        state,
+        resultStep(successResult("review output")),
+        resultStep(successResult("fix output"))
+      );
+      queueReviewParses(state, parseReviewSuccess(buildReviewSummary()));
+      queueFixParses(
+        state,
+        parseFixSuccess(
+          buildFixSummary({
+            decision: "NO_CHANGES_NEEDED",
+            stop_iteration: true,
+            fixes: [],
+            skipped: [
+              {
+                id: 1,
+                title: "External test infra timeout",
+                priority: "P1",
+                reason: "Blocked - npm run test timed out in external CI service",
+              },
+            ],
+          })
+        )
+      );
+
+      const result = await runReviewCycle(
+        createConfig({ maxIterations: 3 }),
+        undefined,
+        undefined,
+        {
+          projectPath: TEST_PROJECT_PATH,
+          sessionId: TEST_SESSION_ID,
+        },
+        deps
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.finalStatus).toBe("completed");
+      expect(result.iterations).toBe(1);
+      expect(result.reason).toContain("blocked items");
+      expect(state.runAgentCalls.map((call) => call.role)).toEqual(["reviewer", "fixer"]);
       expect(state.rollbackCalls).toHaveLength(0);
     });
   });

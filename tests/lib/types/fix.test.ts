@@ -74,4 +74,14 @@ describe("isFixSummary", () => {
       })
     ).toBe(false);
   });
+
+  test("returns false when decision is the removed NEED_INFO value", () => {
+    expect(
+      isFixSummary({
+        decision: "NEED_INFO",
+        fixes: [],
+        skipped: [],
+      })
+    ).toBe(false);
+  });
 });
