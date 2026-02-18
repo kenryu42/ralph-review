@@ -18,6 +18,7 @@ import type {
 
 const defaultCodexReasoningEffort = "high";
 const codexReasoningOptions = new Set(["low", "medium", "high", "xhigh"]);
+const CODEX_SESSION_LOOKBACK_DAYS = 3;
 
 function resolveCodexReasoningEffort(reasoning?: string): string {
   if (isReasoningLevel(reasoning) && codexReasoningOptions.has(reasoning)) {
@@ -72,6 +73,110 @@ export const codexConfig: AgentConfig = {
 
 export function parseCodexStreamEvent(line: string): CodexStreamEvent | null {
   return parseJsonlEvent<CodexStreamEvent>(line);
+}
+
+function padDatePart(value: number): string {
+  return value.toString().padStart(2, "0");
+}
+
+function buildSessionDayPath(sessionsRoot: string, date: Date): string {
+  const year = date.getFullYear();
+  const month = padDatePart(date.getMonth() + 1);
+  const day = padDatePart(date.getDate());
+  return `${sessionsRoot}/${year}/${month}/${day}`;
+}
+
+function findSessionFileForThread(threadId: string, sessionsRoot: string): string | null {
+  const now = new Date();
+
+  for (let dayOffset = 0; dayOffset < CODEX_SESSION_LOOKBACK_DAYS; dayOffset += 1) {
+    const date = new Date(now);
+    date.setDate(now.getDate() - dayOffset);
+    const dayPath = buildSessionDayPath(sessionsRoot, date);
+
+    try {
+      const glob = new Bun.Glob(`*-${threadId}.jsonl`);
+      const matches = Array.from(glob.scanSync({ cwd: dayPath })).sort((left, right) =>
+        left.localeCompare(right)
+      );
+      const latestMatch = matches.at(-1);
+      if (latestMatch) {
+        return `${dayPath}/${latestMatch}`;
+      }
+    } catch {
+      // Ignore missing date directories and continue searching.
+    }
+  }
+
+  return null;
+}
+
+type ExitedReviewModeMatch = { reviewOutput: string | null };
+
+function matchExitedReviewMode(line: string): ExitedReviewModeMatch | null {
+  const event = parseJsonlEvent<Record<string, unknown>>(line);
+  if (!event || event.type !== "event_msg") {
+    return null;
+  }
+
+  const payload = event.payload;
+  if (typeof payload !== "object" || payload === null) {
+    return null;
+  }
+
+  const payloadRecord = payload as Record<string, unknown>;
+  if (payloadRecord.type !== "exited_review_mode") {
+    return null;
+  }
+
+  const reviewOutput = payloadRecord.review_output;
+  if (typeof reviewOutput === "string") {
+    return { reviewOutput: reviewOutput.trim() || null };
+  }
+
+  if (typeof reviewOutput === "object" && reviewOutput !== null) {
+    return { reviewOutput: JSON.stringify(reviewOutput) };
+  }
+
+  return { reviewOutput: null };
+}
+
+async function readExitedReviewModeOutput(sessionPath: string): Promise<string | null> {
+  try {
+    const text = await Bun.file(sessionPath).text();
+    const lines = text.split("\n");
+
+    for (let idx = lines.length - 1; idx >= 0; idx -= 1) {
+      const line = lines[idx];
+      if (!line?.trim()) {
+        continue;
+      }
+
+      const match = matchExitedReviewMode(line);
+      if (match) {
+        return match.reviewOutput;
+      }
+    }
+  } catch {
+    // Fallback to stream output if session file is unavailable.
+  }
+
+  return null;
+}
+
+async function extractCodexSessionResult(threadId: string): Promise<string | null> {
+  const homeDir = process.env.HOME;
+  if (!homeDir) {
+    return null;
+  }
+
+  const sessionsRoot = `${homeDir}/.codex/sessions`;
+  const sessionPath = findSessionFileForThread(threadId, sessionsRoot);
+  if (!sessionPath) {
+    return null;
+  }
+
+  return readExitedReviewModeOutput(sessionPath);
 }
 
 function extractShellCommand(fullCommand: string): string {
@@ -144,18 +249,37 @@ export function formatCodexEventForDisplay(event: CodexStreamEvent): string | nu
   }
 }
 
-export function extractCodexResult(output: string): string | null {
+export async function extractCodexResult(output: string): Promise<string | null> {
   if (!output.trim()) {
     return null;
   }
 
   const lines = output.split("\n");
   let lastResult: string | null = null;
+  let threadId: string | null = null;
+  let sawTurnCompleted = false;
 
   for (const line of lines) {
     const event = parseCodexStreamEvent(line);
+    if (event?.type === "thread.started" && !threadId) {
+      threadId = event.thread_id;
+      continue;
+    }
+
+    if (event?.type === "turn.completed") {
+      sawTurnCompleted = true;
+      continue;
+    }
+
     if (event?.type === "item.completed" && event.item.type === "agent_message") {
       lastResult = event.item.text;
+    }
+  }
+
+  if (threadId && sawTurnCompleted) {
+    const sessionResult = await extractCodexSessionResult(threadId);
+    if (sessionResult) {
+      return sessionResult;
     }
   }
 

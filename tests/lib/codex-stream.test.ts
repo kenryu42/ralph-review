@@ -1,9 +1,110 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   extractCodexResult,
   formatCodexEventForDisplay,
   parseCodexStreamEvent,
 } from "@/lib/agents/codex";
+
+const TEST_THREAD_ID = "019c7011-02b8-7171-bf4f-1655372d8cf6";
+
+let originalHome: string | undefined;
+
+function padDatePart(value: number): string {
+  return value.toString().padStart(2, "0");
+}
+
+function createHomeDir(): string {
+  return `/tmp/rr-codex-session-tests-${crypto.randomUUID()}`;
+}
+
+function buildSessionPath(
+  homeDir: string,
+  threadId: string,
+  dayOffset = 0,
+  timePart = "00-00-00"
+): string {
+  const date = new Date();
+  date.setDate(date.getDate() - dayOffset);
+  const year = date.getFullYear();
+  const month = padDatePart(date.getMonth() + 1);
+  const day = padDatePart(date.getDate());
+  return `${homeDir}/.codex/sessions/${year}/${month}/${day}/rollout-${year}-${month}-${day}T${timePart}-${threadId}.jsonl`;
+}
+
+async function writeSessionLines(
+  homeDir: string,
+  threadId: string,
+  lines: string[],
+  dayOffset = 0,
+  timePart = "00-00-00"
+): Promise<string> {
+  const sessionPath = buildSessionPath(homeDir, threadId, dayOffset, timePart);
+  await Bun.write(sessionPath, `${lines.join("\n")}\n`);
+  return sessionPath;
+}
+
+function createReviewOutput(overallExplanation: string): Record<string, unknown> {
+  return {
+    findings: [],
+    overall_correctness: "patch is correct",
+    overall_explanation: overallExplanation,
+    overall_confidence_score: 0.9,
+  };
+}
+
+async function writeExitedReviewModeSession(
+  homeDir: string,
+  threadId: string,
+  reviewOutput: unknown,
+  dayOffset = 0,
+  timePart = "00-00-00"
+): Promise<string> {
+  const lines = [
+    JSON.stringify({
+      type: "event_msg",
+      payload: {
+        type: "exited_review_mode",
+        review_output: reviewOutput,
+      },
+    }),
+  ];
+  return writeSessionLines(homeDir, threadId, lines, dayOffset, timePart);
+}
+
+function threadStartedLine(threadId: string): string {
+  return JSON.stringify({ type: "thread.started", thread_id: threadId });
+}
+
+function turnCompletedLine(): string {
+  return JSON.stringify({
+    type: "turn.completed",
+    usage: { input_tokens: 0, cached_input_tokens: 0, output_tokens: 0 },
+  });
+}
+
+function agentMessageLine(text: string): string {
+  return JSON.stringify({
+    type: "item.completed",
+    item: { id: "item_140", type: "agent_message", text },
+  });
+}
+
+function buildSessionStreamJsonl(threadId: string, agentText: string): string {
+  return [threadStartedLine(threadId), turnCompletedLine(), agentMessageLine(agentText)].join("\n");
+}
+
+beforeEach(() => {
+  originalHome = process.env.HOME;
+});
+
+afterEach(() => {
+  if (originalHome === undefined) {
+    delete process.env.HOME;
+    return;
+  }
+
+  process.env.HOME = originalHome;
+});
 
 describe("codex-stream", () => {
   describe("parseCodexStreamEvent", () => {
@@ -335,7 +436,7 @@ describe("codex-stream", () => {
   });
 
   describe("extractCodexResult", () => {
-    test("extracts result from agent_message item", () => {
+    test("extracts result from agent_message item", async () => {
       const jsonl = [
         JSON.stringify({
           type: "thread.started",
@@ -359,12 +460,12 @@ describe("codex-stream", () => {
         }),
       ].join("\n");
 
-      const result = extractCodexResult(jsonl);
+      const result = await extractCodexResult(jsonl);
 
       expect(result).toBe("The final answer is 42");
     });
 
-    test("returns null when no agent_message found", () => {
+    test("returns null when no agent_message found", async () => {
       const jsonl = [
         JSON.stringify({
           type: "thread.started",
@@ -380,17 +481,17 @@ describe("codex-stream", () => {
         }),
       ].join("\n");
 
-      const result = extractCodexResult(jsonl);
+      const result = await extractCodexResult(jsonl);
 
       expect(result).toBeNull();
     });
 
-    test("returns null for empty output", () => {
-      const result = extractCodexResult("");
+    test("returns null for empty output", async () => {
+      const result = await extractCodexResult("");
       expect(result).toBeNull();
     });
 
-    test("handles output with blank lines", () => {
+    test("handles output with blank lines", async () => {
       const jsonl = [
         JSON.stringify({
           type: "thread.started",
@@ -408,12 +509,12 @@ describe("codex-stream", () => {
         "",
       ].join("\n");
 
-      const result = extractCodexResult(jsonl);
+      const result = await extractCodexResult(jsonl);
 
       expect(result).toBe("Found it");
     });
 
-    test("handles malformed lines gracefully", () => {
+    test("handles malformed lines gracefully", async () => {
       const jsonl = [
         "{invalid json}",
         JSON.stringify({
@@ -426,12 +527,12 @@ describe("codex-stream", () => {
         }),
       ].join("\n");
 
-      const result = extractCodexResult(jsonl);
+      const result = await extractCodexResult(jsonl);
 
       expect(result).toBe("Still works");
     });
 
-    test("returns last agent_message if multiple found", () => {
+    test("returns last agent_message if multiple found", async () => {
       const jsonl = [
         JSON.stringify({
           type: "item.completed",
@@ -451,9 +552,124 @@ describe("codex-stream", () => {
         }),
       ].join("\n");
 
-      const result = extractCodexResult(jsonl);
+      const result = await extractCodexResult(jsonl);
 
       expect(result).toBe("Last message");
+    });
+
+    test("prefers exited_review_mode.review_output from codex session file", async () => {
+      const homeDir = createHomeDir();
+      process.env.HOME = homeDir;
+      const reviewOutput = createReviewOutput("Session review JSON");
+
+      await writeExitedReviewModeSession(homeDir, TEST_THREAD_ID, reviewOutput);
+
+      const result = await extractCodexResult(
+        buildSessionStreamJsonl(TEST_THREAD_ID, "Fallback stream message")
+      );
+
+      expect(result).toBe(JSON.stringify(reviewOutput));
+    });
+
+    test("uses the latest same-day session file for a thread", async () => {
+      const homeDir = createHomeDir();
+      process.env.HOME = homeDir;
+
+      const earlierReviewOutput = createReviewOutput("Earlier session JSON");
+      const latestReviewOutput = createReviewOutput("Latest session JSON");
+
+      await writeExitedReviewModeSession(
+        homeDir,
+        TEST_THREAD_ID,
+        earlierReviewOutput,
+        0,
+        "00-00-00"
+      );
+      await writeExitedReviewModeSession(
+        homeDir,
+        TEST_THREAD_ID,
+        latestReviewOutput,
+        0,
+        "23-59-59"
+      );
+
+      const result = await extractCodexResult(
+        buildSessionStreamJsonl(TEST_THREAD_ID, "Fallback stream message")
+      );
+
+      expect(result).toBe(JSON.stringify(latestReviewOutput));
+    });
+
+    test("ignores stale exited_review_mode output from older turns", async () => {
+      const homeDir = createHomeDir();
+      process.env.HOME = homeDir;
+
+      await writeSessionLines(homeDir, TEST_THREAD_ID, [
+        JSON.stringify({
+          type: "event_msg",
+          payload: {
+            type: "exited_review_mode",
+            review_output: createReviewOutput("Older review JSON"),
+          },
+        }),
+        JSON.stringify({
+          type: "event_msg",
+          payload: {
+            type: "exited_review_mode",
+            review_output: null,
+          },
+        }),
+      ]);
+
+      const result = await extractCodexResult(
+        buildSessionStreamJsonl(TEST_THREAD_ID, "Fresh stream message")
+      );
+
+      expect(result).toBe("Fresh stream message");
+    });
+
+    test("falls back to stream text when turn.completed is missing", async () => {
+      const homeDir = createHomeDir();
+      process.env.HOME = homeDir;
+
+      await writeExitedReviewModeSession(
+        homeDir,
+        TEST_THREAD_ID,
+        createReviewOutput("Session review JSON")
+      );
+
+      const jsonl = [
+        threadStartedLine(TEST_THREAD_ID),
+        agentMessageLine("Fallback stream message"),
+      ].join("\n");
+
+      const result = await extractCodexResult(jsonl);
+
+      expect(result).toBe("Fallback stream message");
+    });
+
+    test("falls back to stream text when session file is missing", async () => {
+      process.env.HOME = createHomeDir();
+
+      const result = await extractCodexResult(
+        buildSessionStreamJsonl(TEST_THREAD_ID, "Fallback stream message")
+      );
+
+      expect(result).toBe("Fallback stream message");
+    });
+
+    test("finds session files within the 3-day lookup window", async () => {
+      const homeDir = createHomeDir();
+      process.env.HOME = homeDir;
+      const reviewOutput = createReviewOutput("Session review JSON");
+
+      await writeExitedReviewModeSession(homeDir, TEST_THREAD_ID, reviewOutput, 2);
+
+      const result = await extractCodexResult(
+        buildSessionStreamJsonl(TEST_THREAD_ID, "Fallback stream message")
+      );
+
+      expect(result).toBe(JSON.stringify(reviewOutput));
     });
   });
 });

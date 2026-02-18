@@ -11,7 +11,7 @@ interface AgentModule {
   config: AgentConfig;
   usesJsonl: boolean;
   formatLine?: (line: string) => string | null;
-  extractResult: (output: string) => string | null;
+  extractResult: (output: string) => string | null | Promise<string | null>;
 }
 
 export const AGENTS: Record<AgentType, AgentModule> = {
