@@ -106,6 +106,8 @@ describe("cli", () => {
       expect(optionNames).toContain("simplifier");
       expect(optionNames).toContain("sound");
       expect(optionNames).toContain("no-sound");
+      expect(optionNames).toContain("watch");
+      expect(optionNames).toContain("no-watch");
       expect(optionNames).not.toContain("list");
     });
 

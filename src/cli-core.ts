@@ -45,7 +45,7 @@ export const COMMANDS: CommandDef[] = [
         name: "force",
         alias: "f",
         type: "boolean",
-        description: "Run full max iterations even if stop_iteration is true",
+        description: "Run full max iterations even if no issues are found",
       },
       {
         name: "base",
@@ -80,9 +80,19 @@ export const COMMANDS: CommandDef[] = [
         type: "boolean",
         description: "Disable finish sound for this run (override config)",
       },
+      {
+        name: "watch",
+        type: "boolean",
+        description: "Open Session Panel after starting the run (override config)",
+      },
+      {
+        name: "no-watch",
+        type: "boolean",
+        description: "Start run without opening Session Panel (override config)",
+      },
       SIMPLIFIER_OPTION,
     ],
-    examples: ["rr run", "rr run --base main"],
+    examples: ["rr run", "rr run --base main", "rr run --no-watch"],
   },
   {
     name: "list",
@@ -150,7 +160,7 @@ export const COMMANDS: CommandDef[] = [
         name: "force",
         alias: "f",
         type: "boolean",
-        description: "Run full max iterations even if stop_iteration is true",
+        description: "Run full max iterations even if no issues are found",
       },
       SIMPLIFIER_OPTION,
     ],
