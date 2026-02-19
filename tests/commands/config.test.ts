@@ -20,7 +20,7 @@ const baseConfig: Config = {
   reviewer: { agent: "codex", model: "gpt-5.3-codex", reasoning: "high" },
   fixer: { agent: "claude", model: "claude-opus-4-6", reasoning: "medium" },
   "code-simplifier": { agent: "droid", model: "gpt-5.2-codex", reasoning: "low" },
-  run: { simplifier: false },
+  run: { simplifier: false, watch: false },
   maxIterations: 5,
   iterationTimeout: 1800000,
   defaultReview: { type: "uncommitted" },
@@ -136,6 +136,7 @@ describe("config command helpers", () => {
     test("accepts supported keys", () => {
       expect(parseConfigKey("reviewer.agent")).toBe("reviewer.agent");
       expect(parseConfigKey("run.simplifier")).toBe("run.simplifier");
+      expect(parseConfigKey("run.watch")).toBe("run.watch");
       expect(parseConfigKey("notifications.sound.enabled")).toBe("notifications.sound.enabled");
     });
 
@@ -223,6 +224,8 @@ describe("config command helpers", () => {
       expect(parseConfigValue("notifications.sound.enabled", "false")).toBe(false);
       expect(parseConfigValue("run.simplifier", "true")).toBe(true);
       expect(parseConfigValue("run.simplifier", "false")).toBe(false);
+      expect(parseConfigValue("run.watch", "true")).toBe(true);
+      expect(parseConfigValue("run.watch", "false")).toBe(false);
     });
 
     test("rejects invalid boolean strings", () => {
@@ -230,6 +233,7 @@ describe("config command helpers", () => {
         'must be "true" or "false"'
       );
       expect(() => parseConfigValue("run.simplifier", "yes")).toThrow('must be "true" or "false"');
+      expect(() => parseConfigValue("run.watch", "yes")).toThrow('must be "true" or "false"');
     });
   });
 
@@ -247,6 +251,7 @@ describe("config command helpers", () => {
       expect(getConfigValue(createBaseConfig(), "iterationTimeout")).toBe(1800000);
       expect(getConfigValue(createBaseConfig(), "defaultReview.type")).toBe("uncommitted");
       expect(getConfigValue(createBaseConfig(), "run.simplifier")).toBe(false);
+      expect(getConfigValue(createBaseConfig(), "run.watch")).toBe(false);
       expect(getConfigValue(createBaseConfig(), "notifications.sound.enabled")).toBe(false);
     });
 
@@ -567,6 +572,9 @@ describe("config command helpers", () => {
       expect(() => setConfigValue(createBaseConfig(), "run.simplifier", "true")).toThrow(
         'must be "true" or "false"'
       );
+      expect(() => setConfigValue(createBaseConfig(), "run.watch", "true")).toThrow(
+        'must be "true" or "false"'
+      );
       expect(() =>
         setConfigValue(createBaseConfig(), "notifications.sound.enabled", "true")
       ).toThrow('must be "true" or "false"');
@@ -595,6 +603,11 @@ describe("config command helpers", () => {
 
       const withRun = setConfigValue(createBaseConfig(), "run.simplifier", true);
       expect(withRun.run?.simplifier).toBe(true);
+      expect(withRun.run?.watch).toBe(false);
+
+      const withWatch = setConfigValue(createBaseConfig(), "run.watch", true);
+      expect(withWatch.run?.watch).toBe(true);
+      expect(withWatch.run?.simplifier).toBe(false);
 
       const withRetries = setConfigValue(createBaseConfig(), "retry.maxRetries", 7);
       expect(withRetries.retry?.maxRetries).toBe(7);
@@ -626,7 +639,7 @@ describe("config command helpers", () => {
           baseDelayMs: 0,
           maxDelayMs: 0,
         },
-        run: { simplifier: "yes" },
+        run: { simplifier: "yes", watch: "yes" },
         notifications: { sound: { enabled: "yes" } },
       } as unknown as Config;
 
@@ -637,6 +650,7 @@ describe("config command helpers", () => {
       expect(errors.some((error) => error.includes("retry.baseDelayMs"))).toBe(true);
       expect(errors.some((error) => error.includes("retry.maxDelayMs"))).toBe(true);
       expect(errors.some((error) => error.includes("run.simplifier"))).toBe(true);
+      expect(errors.some((error) => error.includes("run.watch"))).toBe(true);
       expect(errors.some((error) => error.includes("notifications.sound.enabled"))).toBe(true);
     });
 

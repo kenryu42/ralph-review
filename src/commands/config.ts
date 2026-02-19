@@ -68,6 +68,7 @@ const CONFIG_KEYS = [
   "defaultReview.type",
   "defaultReview.branch",
   "run.simplifier",
+  "run.watch",
   "retry.maxRetries",
   "retry.baseDelayMs",
   "retry.maxDelayMs",
@@ -250,6 +251,7 @@ export function parseConfigValue(key: ConfigKey, rawValue: string): ConfigValue 
       return rawValue;
 
     case "run.simplifier":
+    case "run.watch":
       if (rawValue !== "true" && rawValue !== "false") {
         throw new Error(`Value for "${key}" must be "true" or "false".`);
       }
@@ -304,6 +306,8 @@ export function getConfigValue(config: Config, key: ConfigKey): unknown {
       return config.defaultReview.type === "base" ? config.defaultReview.branch : undefined;
     case "run.simplifier":
       return config.run?.simplifier;
+    case "run.watch":
+      return config.run?.watch;
     case "retry.maxRetries":
       return config.retry?.maxRetries;
     case "retry.baseDelayMs":
@@ -486,7 +490,13 @@ export function setConfigValue(config: Config, key: ConfigKey, value: ConfigValu
       if (typeof value !== "boolean") {
         throw new Error(`Value for "${key}" must be "true" or "false".`);
       }
-      next.run = { simplifier: value };
+      next.run = { simplifier: value, watch: next.run?.watch ?? true };
+      return next;
+    case "run.watch":
+      if (typeof value !== "boolean") {
+        throw new Error(`Value for "${key}" must be "true" or "false".`);
+      }
+      next.run = { simplifier: next.run?.simplifier ?? false, watch: value };
       return next;
     case "retry.maxRetries":
       next.retry = next.retry ? { ...next.retry } : { ...DEFAULT_RETRY_CONFIG };
@@ -580,6 +590,9 @@ export function validateConfigInvariants(config: Config): string[] {
   }
   if (config.run && typeof config.run.simplifier !== "boolean") {
     errors.push("run.simplifier must be a boolean.");
+  }
+  if (config.run && typeof config.run.watch !== "boolean") {
+    errors.push("run.watch must be a boolean.");
   }
 
   return errors;
