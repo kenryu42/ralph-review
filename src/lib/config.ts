@@ -100,9 +100,13 @@ function parseRunConfig(value: unknown): RunConfig | undefined {
   if (typeof value.simplifier !== "boolean") {
     return undefined;
   }
+  if (value.watch !== undefined && typeof value.watch !== "boolean") {
+    return undefined;
+  }
 
   return {
     simplifier: value.simplifier,
+    watch: value.watch === undefined ? true : value.watch,
   };
 }
 
@@ -232,6 +236,6 @@ export async function configExists(path: string = CONFIG_PATH): Promise<boolean>
 export const DEFAULT_CONFIG: Partial<Config> = {
   maxIterations: 5,
   iterationTimeout: 1800000,
-  run: { simplifier: false },
+  run: { simplifier: false, watch: true },
   notifications: { sound: { enabled: DEFAULT_NOTIFICATIONS_CONFIG.sound.enabled } },
 };

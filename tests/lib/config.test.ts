@@ -109,12 +109,24 @@ describe("config", () => {
       const configPath = join(tempDir, "config.json");
       const configWithRun = {
         ...testConfig,
-        run: { simplifier: true },
+        run: { simplifier: true, watch: false },
       };
 
       await Bun.write(configPath, JSON.stringify(configWithRun, null, 2));
       const loaded = await loadConfig(configPath);
-      expect(loaded?.run).toEqual({ simplifier: true });
+      expect(loaded?.run).toEqual({ simplifier: true, watch: false });
+    });
+
+    test("loadConfig defaults run.watch to true when omitted from existing config", async () => {
+      const configPath = join(tempDir, "config.json");
+      const configWithLegacyRun = {
+        ...testConfig,
+        run: { simplifier: true },
+      };
+
+      await Bun.write(configPath, JSON.stringify(configWithLegacyRun, null, 2));
+      const loaded = await loadConfig(configPath);
+      expect(loaded?.run).toEqual({ simplifier: true, watch: true });
     });
 
     test("loadConfig rejects invalid code-simplifier settings", async () => {
@@ -136,7 +148,7 @@ describe("config", () => {
       const configPath = join(tempDir, "config.json");
       const configWithInvalidRun = {
         ...testConfig,
-        run: { simplifier: "yes" },
+        run: { simplifier: "yes", watch: true },
       };
 
       await Bun.write(configPath, JSON.stringify(configWithInvalidRun, null, 2));
@@ -270,6 +282,15 @@ describe("config", () => {
       const withInvalidRun = {
         ...createValidConfigInput(),
         run: 1,
+      };
+
+      expect(parseConfig(withInvalidRun)).toBeNull();
+    });
+
+    test("parseConfig rejects run when watch is not a boolean", () => {
+      const withInvalidRun = {
+        ...createValidConfigInput(),
+        run: { simplifier: true, watch: "yes" },
       };
 
       expect(parseConfig(withInvalidRun)).toBeNull();
