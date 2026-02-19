@@ -33,6 +33,8 @@ export interface RunOptions {
   commit?: string;
   custom?: string;
   simplifier?: boolean;
+  watch?: boolean;
+  "no-watch"?: boolean;
   sound?: boolean;
   "no-sound"?: boolean;
 }
@@ -78,6 +80,22 @@ export function resolveRunSoundOverride(options: RunOptions): SoundOverride | un
 
 export function resolveRunSimplifierEnabled(options: RunOptions, config: Config | null): boolean {
   return options.simplifier === true || config?.run?.simplifier === true;
+}
+
+export function resolveRunWatchEnabled(options: RunOptions, config: Config | null): boolean {
+  if (options.watch && options["no-watch"]) {
+    throw new Error("Cannot use --watch and --no-watch together");
+  }
+
+  if (options.watch) {
+    return true;
+  }
+
+  if (options["no-watch"]) {
+    return false;
+  }
+
+  return config?.run?.watch ?? true;
 }
 
 export function formatRunAgentsNote(config: Config, reviewOptions: ReviewOptions): string {
@@ -164,6 +182,7 @@ export interface RunRuntime {
     env: Record<string, string | undefined>;
     pid: number;
     execPath: string;
+    stdoutIsTTY: boolean;
     exit: (code: number) => void;
   };
   timer: {
@@ -171,6 +190,7 @@ export interface RunRuntime {
     setInterval: (handler: () => void, ms: number) => IntervalHandle;
     clearInterval: (handle: IntervalHandle) => void;
   };
+  openSessionPanel: (projectPath: string, branch?: string) => Promise<void>;
   consoleLog: (...args: unknown[]) => void;
 }
 
@@ -235,6 +255,7 @@ export function createRunRuntime(overrides: RunRuntimeOverrides = {}): RunRuntim
       env: process.env,
       pid: process.pid,
       execPath: process.execPath,
+      stdoutIsTTY: process.stdout.isTTY === true,
       exit: (code: number) => {
         process.exit(code);
       },
@@ -243,6 +264,10 @@ export function createRunRuntime(overrides: RunRuntimeOverrides = {}): RunRuntim
       now: () => Date.now(),
       setInterval: (handler, ms) => setInterval(handler, ms),
       clearInterval: (handle) => clearInterval(handle),
+    },
+    openSessionPanel: async (projectPath, branch) => {
+      const { renderDashboard } = await import("@/lib/tui/index");
+      await renderDashboard({ projectPath, branch });
     },
     consoleLog: (...args: unknown[]) => console.log(...args),
   };
@@ -358,6 +383,12 @@ async function runInBackground(
     runtime.prompt.log.error(`Failed to start background session: ${error}`);
     runtime.process.exit(1);
   }
+}
+
+function logWatchReconnectHint(runtime: RunRuntime): void {
+  runtime.prompt.log.message("Session Panel closed.");
+  runtime.prompt.log.message("Re-open panel: rr status");
+  runtime.prompt.log.message("Stop session:   rr stop");
 }
 
 export async function runForeground(
@@ -621,6 +652,18 @@ export async function startReview(
   }
 
   const runSimplifier = resolveRunSimplifierEnabled(options, config);
+  let runWatch: boolean;
+  try {
+    runWatch = resolveRunWatchEnabled(options, config);
+  } catch (error) {
+    runtime.prompt.log.error(`${error}`);
+    runtime.process.exit(1);
+    return;
+  }
+  if (runWatch && !runtime.process.stdoutIsTTY) {
+    runtime.prompt.log.warn("Watch mode is disabled because stdout is not a TTY.");
+    runWatch = false;
+  }
 
   // Check if inside tmux - warn about nesting
   if (runtime.tmux.isInsideTmux()) {
@@ -638,4 +681,18 @@ export async function startReview(
     runSimplifier,
     soundOverride
   );
+
+  if (!runWatch) {
+    return;
+  }
+
+  const projectPath = runtime.process.cwd();
+  try {
+    const branch = await runtime.getGitBranch(projectPath);
+    await runtime.openSessionPanel(projectPath, branch ?? undefined);
+  } catch (error) {
+    runtime.prompt.log.warn(`Could not open Session Panel: ${error}`);
+  }
+
+  logWatchReconnectHint(runtime);
 }

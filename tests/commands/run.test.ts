@@ -13,6 +13,7 @@ import {
   type RunRuntimeOverrides,
   resolveRunSimplifierEnabled,
   resolveRunSoundOverride,
+  resolveRunWatchEnabled,
   runForeground,
   startReview,
 } from "@/commands/run";
@@ -102,6 +103,8 @@ interface RunHarnessOptions {
   generatedSessionName?: string;
   gitBranch?: string | null;
   touchHeartbeatReject?: boolean;
+  stdoutIsTTY?: boolean;
+  openSessionPanelError?: Error;
 }
 
 interface RunHarness {
@@ -138,6 +141,7 @@ interface RunHarness {
   }>;
   resolveSoundEnabledCalls: Array<{ override: "on" | "off" | undefined }>;
   playSoundCalls: Array<"success" | "warning" | "error">;
+  openSessionPanelCalls: Array<{ projectPath: string; branch: string | undefined }>;
   consoleLogs: string[];
   intervalHandlers: Array<() => void>;
   clearIntervalCalls: unknown[];
@@ -175,6 +179,7 @@ function createRunHarness(options: RunHarnessOptions = {}): RunHarness {
   }> = [];
   const resolveSoundEnabledCalls: Array<{ override: "on" | "off" | undefined }> = [];
   const playSoundCalls: Array<"success" | "warning" | "error"> = [];
+  const openSessionPanelCalls: Array<{ projectPath: string; branch: string | undefined }> = [];
   const consoleLogs: string[] = [];
   const intervalHandlers: Array<() => void> = [];
   const clearIntervalCalls: unknown[] = [];
@@ -356,6 +361,7 @@ function createRunHarness(options: RunHarnessOptions = {}): RunHarness {
       env: processEnv,
       pid: 4242,
       execPath: "/bun/bin/bun",
+      stdoutIsTTY: options.stdoutIsTTY ?? true,
       exit: (code) => {
         exits.push(code);
         throw new Error(`${EXIT_PREFIX}${code}`);
@@ -374,6 +380,12 @@ function createRunHarness(options: RunHarnessOptions = {}): RunHarness {
       clearInterval: (handle) => {
         clearIntervalCalls.push(handle);
       },
+    },
+    openSessionPanel: async (projectPath, branch) => {
+      openSessionPanelCalls.push({ projectPath, branch });
+      if (options.openSessionPanelError) {
+        throw options.openSessionPanelError;
+      }
     },
     consoleLog: (...args) => {
       consoleLogs.push(args.map((arg) => String(arg)).join(" "));
@@ -400,6 +412,7 @@ function createRunHarness(options: RunHarnessOptions = {}): RunHarness {
     runReviewCycleCalls,
     resolveSoundEnabledCalls,
     playSoundCalls,
+    openSessionPanelCalls,
     consoleLogs,
     intervalHandlers,
     clearIntervalCalls,
@@ -522,6 +535,16 @@ describe("run command", () => {
       const { values } = parseCommand<RunOptions>(runDef, ["--no-sound"]);
       expect(values["no-sound"]).toBe(true);
     });
+
+    test("parses --watch option", () => {
+      const { values } = parseCommand<RunOptions>(runDef, ["--watch"]);
+      expect(values.watch).toBe(true);
+    });
+
+    test("parses --no-watch option", () => {
+      const { values } = parseCommand<RunOptions>(runDef, ["--no-watch"]);
+      expect(values["no-watch"]).toBe(true);
+    });
   });
 
   describe("sound helpers", () => {
@@ -604,7 +627,7 @@ describe("run command", () => {
     test("returns true when --simplifier is passed even if config is false", () => {
       const config = {
         ...createConfig(),
-        run: { simplifier: false },
+        run: { simplifier: false, watch: true },
       } satisfies Config;
       expect(resolveRunSimplifierEnabled({ simplifier: true }, config)).toBe(true);
     });
@@ -612,7 +635,7 @@ describe("run command", () => {
     test("uses config default when --simplifier is not passed", () => {
       const config = {
         ...createConfig(),
-        run: { simplifier: true },
+        run: { simplifier: true, watch: true },
       } satisfies Config;
       expect(resolveRunSimplifierEnabled({}, config)).toBe(true);
     });
@@ -625,6 +648,38 @@ describe("run command", () => {
 
       expect(resolveRunSimplifierEnabled({}, config)).toBe(false);
       expect(resolveRunSimplifierEnabled({}, null)).toBe(false);
+    });
+  });
+
+  describe("resolveRunWatchEnabled", () => {
+    test("returns true for --watch", () => {
+      expect(resolveRunWatchEnabled({ watch: true }, createConfig())).toBe(true);
+    });
+
+    test("returns false for --no-watch", () => {
+      expect(resolveRunWatchEnabled({ "no-watch": true }, createConfig())).toBe(false);
+    });
+
+    test("uses config default when no watch override is passed", () => {
+      const config = {
+        ...createConfig(),
+        run: { simplifier: false, watch: false },
+      } satisfies Config;
+      expect(resolveRunWatchEnabled({}, config)).toBe(false);
+    });
+
+    test("defaults to true when config is missing run settings", () => {
+      const config = createConfig();
+      delete config.run;
+
+      expect(resolveRunWatchEnabled({}, config)).toBe(true);
+      expect(resolveRunWatchEnabled({}, null)).toBe(true);
+    });
+
+    test("throws when both watch overrides are provided", () => {
+      expect(() =>
+        resolveRunWatchEnabled({ watch: true, "no-watch": true }, createConfig())
+      ).toThrow("Cannot use --watch and --no-watch together");
     });
   });
 
@@ -749,6 +804,89 @@ describe("run command", () => {
 
       expect(exitCode).toBe(1);
       expect(harness.errors[0]).toContain("Cannot use --sound and --no-sound together");
+    });
+
+    test("exits when watch flags conflict", async () => {
+      const harness = createRunHarness({
+        runValues: {
+          watch: true,
+          "no-watch": true,
+        },
+      });
+
+      const exitCode = await captureExitCode(async () => {
+        await startReview([], harness.overrides);
+      });
+
+      expect(exitCode).toBe(1);
+      expect(harness.errors[0]).toContain("Cannot use --watch and --no-watch together");
+    });
+
+    test("opens Session Panel by default and prints reconnect hints when closed", async () => {
+      const harness = createRunHarness();
+
+      await startReview([], harness.overrides);
+
+      expect(harness.openSessionPanelCalls).toEqual([
+        {
+          projectPath: "/repo/project",
+          branch: "main",
+        },
+      ]);
+      expect(harness.messages).toContain("Session Panel closed.");
+      expect(harness.messages).toContain("Re-open panel: rr status");
+      expect(harness.messages).toContain("Stop session:   rr stop");
+    });
+
+    test("skips Session Panel when --no-watch is passed", async () => {
+      const harness = createRunHarness({
+        runValues: {
+          "no-watch": true,
+        },
+      });
+
+      await startReview([], harness.overrides);
+
+      expect(harness.openSessionPanelCalls).toHaveLength(0);
+    });
+
+    test("opens Session Panel when --watch overrides disabled config", async () => {
+      const config = {
+        ...createConfig(),
+        run: { simplifier: false, watch: false },
+      } satisfies Config;
+      const harness = createRunHarness({
+        runValues: {
+          watch: true,
+        },
+        diagnostics: createDiagnosticsReport([], config),
+      });
+
+      await startReview([], harness.overrides);
+
+      expect(harness.openSessionPanelCalls).toHaveLength(1);
+    });
+
+    test("disables watch mode in non-interactive terminals", async () => {
+      const harness = createRunHarness({
+        stdoutIsTTY: false,
+      });
+
+      await startReview([], harness.overrides);
+
+      expect(harness.warnings).toContain("Watch mode is disabled because stdout is not a TTY.");
+      expect(harness.openSessionPanelCalls).toHaveLength(0);
+    });
+
+    test("warns when Session Panel cannot be opened", async () => {
+      const harness = createRunHarness({
+        openSessionPanelError: new Error("tui unavailable"),
+      });
+
+      await startReview([], harness.overrides);
+
+      expect(harness.warnings).toContain("Could not open Session Panel: Error: tui unavailable");
+      expect(harness.messages).toContain("Re-open panel: rr status");
     });
 
     test("fills base branch from defaultReview when no explicit mode is provided", async () => {
