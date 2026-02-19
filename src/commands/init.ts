@@ -53,6 +53,7 @@ interface InitInput {
   defaultReviewType: "uncommitted" | "base";
   defaultReviewBranch?: string;
   runSimplifierByDefault: boolean;
+  runWatchByDefault: boolean;
   soundNotificationsEnabled: boolean;
 }
 
@@ -315,6 +316,7 @@ export function buildConfig(input: InitInput): Config {
     ),
     run: {
       simplifier: input.runSimplifierByDefault,
+      watch: input.runWatchByDefault,
     },
     maxIterations: input.maxIterations,
     iterationTimeout: input.iterationTimeoutMinutes * 60 * 1000,
@@ -532,6 +534,7 @@ function formatConfigDisplay(config: Config): string {
     `  Iteration timeout:   ${config.iterationTimeout / 1000 / 60} minutes`,
     `  Default review:      ${defaultReviewDisplay}`,
     `  Run simplifier:      ${config.run?.simplifier ? "enabled" : "disabled"}`,
+    `  Run watch panel:     ${(config.run?.watch ?? true) ? "enabled" : "disabled"}`,
     `  Sound notify:        ${config.notifications.sound.enabled ? "enabled" : "disabled"}`,
   ].join("\n");
 }
@@ -751,6 +754,7 @@ export async function buildAutoInitInput(
       iterationTimeoutMinutes,
       defaultReviewType: "uncommitted",
       runSimplifierByDefault: false,
+      runWatchByDefault: DEFAULT_CONFIG.run?.watch ?? true,
       soundNotificationsEnabled: DEFAULT_CONFIG.notifications?.sound.enabled ?? true,
     },
     skippedAgents,
@@ -912,8 +916,18 @@ async function promptForCustomInitInput(
     defaultReviewType: defaultReviewType as "uncommitted" | "base",
     defaultReviewBranch: defaultReviewBranch as string | undefined,
     runSimplifierByDefault: runSimplifierByDefault as boolean,
+    runWatchByDefault: DEFAULT_CONFIG.run?.watch ?? true,
     soundNotificationsEnabled: DEFAULT_CONFIG.notifications?.sound.enabled ?? true,
   } satisfies InitInput;
+}
+
+async function promptForRunWatch(runtime: InitRuntime, defaultValue: boolean): Promise<boolean> {
+  const shouldEnable = await runtime.prompt.confirm({
+    message: "Open Session Panel automatically after 'rr run'?",
+    initialValue: defaultValue,
+  });
+  handleCancel(runtime, shouldEnable);
+  return shouldEnable as boolean;
 }
 
 async function promptForSoundNotifications(
@@ -1029,15 +1043,16 @@ export async function runInitWithRuntime(
   }
 
   const resolvedInput = requireInitInput(runtime, input);
-  const inputWithSound: InitInput = {
+  const inputWithPreferences: InitInput = {
     ...resolvedInput,
+    runWatchByDefault: await promptForRunWatch(runtime, resolvedInput.runWatchByDefault),
     soundNotificationsEnabled: await promptForSoundNotifications(
       runtime,
       resolvedInput.soundNotificationsEnabled
     ),
   };
 
-  const config = buildConfig(inputWithSound);
+  const config = buildConfig(inputWithPreferences);
   runtime.prompt.log.info(`Proposed configuration:\n${formatConfigDisplay(config)}`);
 
   const shouldSave = await runtime.prompt.confirm({

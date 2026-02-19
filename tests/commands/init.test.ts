@@ -104,7 +104,7 @@ function createExistingConfigWithPi(): Config {
       model: "gpt-5.2-codex",
       reasoning: "low",
     },
-    run: { simplifier: false },
+    run: { simplifier: false, watch: true },
     maxIterations: 4,
     iterationTimeout: 1200000,
     defaultReview: { type: "base", branch: "main" },
@@ -343,6 +343,7 @@ describe("init command", () => {
         iterationTimeoutMinutes: 30,
         defaultReviewType: "uncommitted",
         runSimplifierByDefault: false,
+        runWatchByDefault: true,
         soundNotificationsEnabled: false,
       });
 
@@ -360,7 +361,7 @@ describe("init command", () => {
       expect(config.maxIterations).toBe(5);
       expect(config.iterationTimeout).toBe(1800000);
       expect(config.defaultReview).toEqual({ type: "uncommitted" });
-      expect(config.run).toEqual({ simplifier: false });
+      expect(config.run).toEqual({ simplifier: false, watch: true });
       expect(config.notifications.sound.enabled).toBe(false);
     });
 
@@ -382,6 +383,7 @@ describe("init command", () => {
         iterationTimeoutMinutes: 10,
         defaultReviewType: "uncommitted",
         runSimplifierByDefault: true,
+        runWatchByDefault: false,
         soundNotificationsEnabled: true,
       });
 
@@ -413,6 +415,7 @@ describe("init command", () => {
           iterationTimeoutMinutes: 10,
           defaultReviewType: "uncommitted",
           runSimplifierByDefault: false,
+          runWatchByDefault: true,
           soundNotificationsEnabled: true,
         })
       ).toThrow("Pi agent requires provider and model");
@@ -431,6 +434,7 @@ describe("init command", () => {
         defaultReviewType: "base",
         defaultReviewBranch: "main",
         runSimplifierByDefault: false,
+        runWatchByDefault: true,
         soundNotificationsEnabled: false,
       });
 
@@ -449,6 +453,7 @@ describe("init command", () => {
         iterationTimeoutMinutes: 30,
         defaultReviewType: "base",
         runSimplifierByDefault: false,
+        runWatchByDefault: true,
         soundNotificationsEnabled: false,
       });
 
@@ -669,6 +674,7 @@ describe("init command", () => {
       expect(result.input.simplifierAgent).toBe("codex");
       expect(result.input.defaultReviewType).toBe("uncommitted");
       expect(result.input.runSimplifierByDefault).toBe(false);
+      expect(result.input.runWatchByDefault).toBe(true);
       expect(result.input.soundNotificationsEnabled).toBe(true);
       expect(result.input.maxIterations).toBeGreaterThan(0);
       expect(result.input.iterationTimeoutMinutes).toBeGreaterThan(0);
@@ -776,7 +782,7 @@ describe("init command", () => {
           },
         }),
         selectResponses: ["auto"],
-        confirmResponses: [true, true],
+        confirmResponses: [true, true, true],
       });
 
       await runInitWithRuntime(harness.overrides);
@@ -845,7 +851,7 @@ describe("init command", () => {
           "base",
         ],
         textResponses: ["7", "15", "develop"],
-        confirmResponses: [true, false, true],
+        confirmResponses: [true, true, false, true],
       });
 
       await runInitWithRuntime(harness.overrides);
@@ -854,6 +860,7 @@ describe("init command", () => {
       expect(harness.ensureConfigDirCalls).toBe(1);
       expect(harness.savedConfigs[0]?.defaultReview).toEqual({ type: "base", branch: "develop" });
       expect(harness.savedConfigs[0]?.run?.simplifier).toBe(true);
+      expect(harness.savedConfigs[0]?.run?.watch).toBe(true);
       expect(harness.savedConfigs[0]?.notifications.sound.enabled).toBe(false);
       expect(harness.savedConfigs[0]?.maxIterations).toBe(7);
       expect(harness.savedConfigs[0]?.iterationTimeout).toBe(15 * 60 * 1000);
@@ -884,7 +891,7 @@ describe("init command", () => {
           "uncommitted",
         ],
         textResponses: ["4", "12"],
-        confirmResponses: [false, true, true],
+        confirmResponses: [false, true, true, true],
       });
 
       await runInitWithRuntime(harness.overrides);
@@ -1080,7 +1087,7 @@ describe("init command", () => {
           "uncommitted",
         ],
         textResponses: ["3", "10"],
-        confirmResponses: [false, true, true],
+        confirmResponses: [false, true, true, true],
       });
 
       await runInitWithRuntime(harness.overrides);
@@ -1113,7 +1120,7 @@ describe("init command", () => {
         availability: createAvailability({ codex: true }),
         capabilities: createCapabilities(),
         selectResponses: ["auto"],
-        confirmResponses: [true, false],
+        confirmResponses: [true, true, false],
       });
 
       await runInitWithRuntime(harness.overrides);
@@ -1191,7 +1198,7 @@ describe("init command", () => {
         availability: createAvailability({ codex: true }),
         capabilities: createCapabilities(),
         selectResponses: ["auto"],
-        confirmResponses: [true, true],
+        confirmResponses: [true, true, true],
       });
 
       await runInit(harness.overrides);
