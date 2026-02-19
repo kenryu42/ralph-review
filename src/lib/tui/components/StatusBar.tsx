@@ -19,7 +19,7 @@ export function StatusBar({ hasSession, focusedPanel }: StatusBarProps) {
       <box flexDirection="row" gap={2}>
         <text>
           <span fg={TUI_COLORS.accent.key}>[q]</span>
-          <span fg={TUI_COLORS.text.muted}> Quit</span>
+          <span fg={TUI_COLORS.text.muted}> Close panel</span>
         </text>
         {!hasSession && (
           <text>
