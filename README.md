@@ -79,8 +79,11 @@ Setup also prompts whether to play a sound when a background review session fini
 ### Running Reviews
 
 ```bash
-# Start a full review cycle (background)
+# Start a full review cycle and open the Session Panel
 rr run
+
+# Start a full review cycle without opening the Session Panel
+rr run --no-watch
 
 # One-off override: force sound on/off for this run
 rr run --sound
@@ -97,7 +100,7 @@ rr doctor
 ### Managing Sessions
 
 ```bash
-# Check current status
+# Re-open Session Panel watch mode
 rr status
 
 # Stop the review
@@ -156,6 +159,10 @@ Configuration is stored at `~/.config/ralph-review/config.json`:
     "model": "claude-opus-4-6",
     "reasoning": "high"
   },
+  "run": {
+    "simplifier": false,
+    "watch": true
+  },
   "maxIterations": 5,
   "iterationTimeout": 1800000,
   "notifications": {
@@ -180,7 +187,7 @@ rr config edit
 | Command | Description |
 |---------|-------------|
 | `rr init` | Configure reviewer/fixer/simplifier (auto or custom) |
-| `rr run` | Start background review cycle |
+| `rr run` | Start review cycle and open Session Panel |
 | `rr status` | Show current status |
 | `rr stop` | Graceful stop |
 | `rr stop --force` | Force kill |
