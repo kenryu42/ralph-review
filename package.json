@@ -33,9 +33,9 @@
     "bun": ">=1.0.0"
   },
   "bin": {
-    "ralph-review": "./src/cli.ts",
-    "rr": "./src/cli.ts",
-    "rrr": "./src/cli-rrr.ts"
+    "ralph-review": "src/cli.ts",
+    "rr": "src/cli.ts",
+    "rrr": "src/cli-rrr.ts"
   },
   "files": [
     "src/cli.ts",
