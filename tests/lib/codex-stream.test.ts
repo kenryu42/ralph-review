@@ -571,6 +571,150 @@ describe("codex-stream", () => {
       expect(result).toBe(JSON.stringify(reviewOutput));
     });
 
+    test("uses trimmed string from exited_review_mode.review_output", async () => {
+      const homeDir = createHomeDir();
+      process.env.HOME = homeDir;
+
+      await writeExitedReviewModeSession(homeDir, TEST_THREAD_ID, "  Session review text  ");
+
+      const result = await extractCodexResult(
+        buildSessionStreamJsonl(TEST_THREAD_ID, "Fallback stream message")
+      );
+
+      expect(result).toBe("Session review text");
+    });
+
+    test("falls back when exited_review_mode.review_output is only whitespace", async () => {
+      const homeDir = createHomeDir();
+      process.env.HOME = homeDir;
+
+      await writeExitedReviewModeSession(homeDir, TEST_THREAD_ID, "   ");
+
+      const result = await extractCodexResult(
+        buildSessionStreamJsonl(TEST_THREAD_ID, "Fallback stream message")
+      );
+
+      expect(result).toBe("Fallback stream message");
+    });
+
+    test("falls back when session event payload is not an object", async () => {
+      const homeDir = createHomeDir();
+      process.env.HOME = homeDir;
+
+      await writeSessionLines(homeDir, TEST_THREAD_ID, [
+        JSON.stringify({
+          type: "event_msg",
+          payload: "bad payload",
+        }),
+      ]);
+
+      const result = await extractCodexResult(
+        buildSessionStreamJsonl(TEST_THREAD_ID, "Fallback stream message")
+      );
+
+      expect(result).toBe("Fallback stream message");
+    });
+
+    test("falls back when session payload type is not exited_review_mode", async () => {
+      const homeDir = createHomeDir();
+      process.env.HOME = homeDir;
+
+      await writeSessionLines(homeDir, TEST_THREAD_ID, [
+        JSON.stringify({
+          type: "event_msg",
+          payload: {
+            type: "review_mode_update",
+            review_output: createReviewOutput("Ignored review JSON"),
+          },
+        }),
+      ]);
+
+      const result = await extractCodexResult(
+        buildSessionStreamJsonl(TEST_THREAD_ID, "Fallback stream message")
+      );
+
+      expect(result).toBe("Fallback stream message");
+    });
+
+    test("falls back when session line is not event_msg", async () => {
+      const homeDir = createHomeDir();
+      process.env.HOME = homeDir;
+
+      await writeSessionLines(homeDir, TEST_THREAD_ID, [
+        JSON.stringify({
+          type: "thread.started",
+          thread_id: TEST_THREAD_ID,
+        }),
+      ]);
+
+      const result = await extractCodexResult(
+        buildSessionStreamJsonl(TEST_THREAD_ID, "Fallback stream message")
+      );
+
+      expect(result).toBe("Fallback stream message");
+    });
+
+    test("falls back when session file has no exited_review_mode events", async () => {
+      const homeDir = createHomeDir();
+      process.env.HOME = homeDir;
+
+      await writeSessionLines(homeDir, TEST_THREAD_ID, [
+        JSON.stringify({
+          type: "event_msg",
+          payload: {
+            type: "review_mode_update",
+          },
+        }),
+        JSON.stringify({
+          type: "event_msg",
+          payload: {
+            type: "step",
+            value: "still not exited review mode",
+          },
+        }),
+      ]);
+
+      const result = await extractCodexResult(
+        buildSessionStreamJsonl(TEST_THREAD_ID, "Fallback stream message")
+      );
+
+      expect(result).toBe("Fallback stream message");
+    });
+
+    test("falls back when session file exists but cannot be read", async () => {
+      const homeDir = createHomeDir();
+      process.env.HOME = homeDir;
+
+      const sessionPath = await writeSessionLines(homeDir, TEST_THREAD_ID, [
+        JSON.stringify({
+          type: "event_msg",
+          payload: {
+            type: "exited_review_mode",
+            review_output: "This should not be readable",
+          },
+        }),
+      ]);
+      const chmodResult = Bun.spawnSync({ cmd: ["chmod", "000", sessionPath] });
+      expect(chmodResult.exitCode).toBe(0);
+
+      try {
+        let readError: unknown = null;
+        try {
+          await Bun.file(sessionPath).text();
+        } catch (error) {
+          readError = error;
+        }
+        expect(readError).not.toBeNull();
+
+        const result = await extractCodexResult(
+          buildSessionStreamJsonl(TEST_THREAD_ID, "Fallback stream message")
+        );
+        expect(result).toBe("Fallback stream message");
+      } finally {
+        Bun.spawnSync({ cmd: ["chmod", "644", sessionPath] });
+      }
+    });
+
     test("uses the latest same-day session file for a thread", async () => {
       const homeDir = createHomeDir();
       process.env.HOME = homeDir;
@@ -650,6 +794,16 @@ describe("codex-stream", () => {
 
     test("falls back to stream text when session file is missing", async () => {
       process.env.HOME = createHomeDir();
+
+      const result = await extractCodexResult(
+        buildSessionStreamJsonl(TEST_THREAD_ID, "Fallback stream message")
+      );
+
+      expect(result).toBe("Fallback stream message");
+    });
+
+    test("falls back to stream text when HOME is unavailable", async () => {
+      delete process.env.HOME;
 
       const result = await extractCodexResult(
         buildSessionStreamJsonl(TEST_THREAD_ID, "Fallback stream message")
