@@ -145,6 +145,19 @@
         }
       ]
     },
+    "run": {
+      "type": "object",
+      "properties": {
+        "simplifier": {
+          "type": "boolean"
+        },
+        "watch": {
+          "type": "boolean"
+        }
+      },
+      "required": ["simplifier"],
+      "additionalProperties": false
+    },
     "maxIterations": {
       "type": "integer",
       "exclusiveMinimum": 0,
@@ -206,19 +219,6 @@
           "additionalProperties": false
         }
       ]
-    },
-    "run": {
-      "type": "object",
-      "properties": {
-        "simplifier": {
-          "type": "boolean"
-        },
-        "watch": {
-          "type": "boolean"
-        }
-      },
-      "required": ["simplifier"],
-      "additionalProperties": false
     },
     "notifications": {
       "type": "object",

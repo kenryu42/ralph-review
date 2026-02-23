@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { parseConfig } from "@/lib/config";
 import { CONFIG_SCHEMA_URI, CONFIG_VERSION } from "@/lib/types";
 
 interface JsonSchema {
@@ -53,5 +54,30 @@ describe("config schema artifact", () => {
     expect(watchProperty?.type).toBe("boolean");
     expect(required).toContain("simplifier");
     expect(required).not.toContain("watch");
+  });
+
+  test("includes every top-level key emitted by parseConfig", async () => {
+    const candidate = {
+      reviewer: { agent: "codex", model: "gpt-5.2-codex", reasoning: "medium" },
+      fixer: { agent: "claude", model: "sonnet", reasoning: "high" },
+      "code-simplifier": { agent: "gemini", model: "gemini-2.5-pro", reasoning: "low" },
+      run: { simplifier: true, watch: false },
+      maxIterations: 5,
+      iterationTimeout: 1800000,
+      retry: { maxRetries: 3, baseDelayMs: 1000, maxDelayMs: 30000 },
+      defaultReview: { type: "base", branch: "main" },
+      notifications: { sound: { enabled: true } },
+    };
+
+    const parsed = parseConfig(candidate);
+    expect(parsed).not.toBeNull();
+
+    const schemaText = await Bun.file("assets/ralph-review.schema.json").text();
+    const schema = JSON.parse(schemaText) as JsonSchema;
+    const properties = schema.properties ?? {};
+
+    for (const key of Object.keys(parsed ?? {})) {
+      expect(properties[key]).toBeDefined();
+    }
   });
 });
