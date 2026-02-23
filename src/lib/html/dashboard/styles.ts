@@ -324,7 +324,7 @@ export const DASHBOARD_CSS = `
     align-items: center;
     line-height: 1.05;
   }
-  .detail-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+  .detail-grid { display: grid; grid-template-columns: 1fr; gap: 16px; }
   .panel { background: var(--panel-2); border-radius: 14px; padding: 14px; border: 1px solid transparent; }
   .panel-title { font-size: 13px; text-transform: uppercase; letter-spacing: 0.14em; color: var(--muted); margin-bottom: 10px; }
   .skipped-compact {
