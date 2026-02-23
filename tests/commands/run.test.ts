@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -608,6 +608,11 @@ describe("run command", () => {
       }
     });
 
+    test("exposes working default process.cwd wrapper", () => {
+      const runtime = createRunRuntime();
+      expect(runtime.process.cwd()).toBe(process.cwd());
+    });
+
     test("delegates process exit through the runtime wrapper", () => {
       const runtime = createRunRuntime();
       const originalExit = process.exit;
@@ -619,6 +624,52 @@ describe("run command", () => {
         expect(() => runtime.process.exit(7)).toThrow(`${EXIT_PREFIX}7`);
       } finally {
         process.exit = originalExit;
+      }
+    });
+
+    test("delegates openSessionPanel to dashboard renderer with explicit branch", async () => {
+      const renderDashboardCalls: Array<{ projectPath: string; branch: string | undefined }> = [];
+      mock.module("@/lib/tui/index", () => ({
+        renderDashboard: async (payload: { projectPath: string; branch: string | undefined }) => {
+          renderDashboardCalls.push(payload);
+        },
+      }));
+
+      try {
+        const runtime = createRunRuntime();
+        await runtime.openSessionPanel("/repo/project", "feature/test");
+
+        expect(renderDashboardCalls).toEqual([
+          {
+            projectPath: "/repo/project",
+            branch: "feature/test",
+          },
+        ]);
+      } finally {
+        mock.restore();
+      }
+    });
+
+    test("delegates openSessionPanel to dashboard renderer with undefined branch", async () => {
+      const renderDashboardCalls: Array<{ projectPath: string; branch: string | undefined }> = [];
+      mock.module("@/lib/tui/index", () => ({
+        renderDashboard: async (payload: { projectPath: string; branch: string | undefined }) => {
+          renderDashboardCalls.push(payload);
+        },
+      }));
+
+      try {
+        const runtime = createRunRuntime();
+        await runtime.openSessionPanel("/repo/project");
+
+        expect(renderDashboardCalls).toEqual([
+          {
+            projectPath: "/repo/project",
+            branch: undefined,
+          },
+        ]);
+      } finally {
+        mock.restore();
       }
     });
   });
