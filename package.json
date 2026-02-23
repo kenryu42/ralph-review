@@ -4,14 +4,17 @@
   "description": "AI-powered code review CLI tool that automates review cycles using AI coding agents",
   "license": "MIT",
   "type": "module",
-  "author": "Ralph Review Team",
+  "author": {
+    "name": "J Liew",
+    "email": "jliew@420024lab.com"
+  },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/yourusername/ralph-review.git"
+    "url": "git+https://github.com/kenryu42/ralph-review.git"
   },
-  "homepage": "https://github.com/yourusername/ralph-review#readme",
+  "homepage": "https://github.com/kenryu42/ralph-review#readme",
   "bugs": {
-    "url": "https://github.com/yourusername/ralph-review/issues"
+    "url": "https://github.com/kenryu42/ralph-review/issues"
   },
   "os": [
     "!win32"
