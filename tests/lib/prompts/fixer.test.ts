@@ -10,11 +10,11 @@ describe("createFixerPrompt", () => {
     expect(prompt).toContain("NO_CHANGES_NEEDED with fixes=[] and skipped=[]");
   });
 
-  test("removes NEED_INFO decision path and uses BLOCKED prefix", () => {
+  test("removes NEED_INFO decision path and keeps decision enum", () => {
     const prompt = createFixerPrompt("review payload");
 
     expect(prompt).not.toContain("NEED_INFO");
-    expect(prompt).toContain("BLOCKED:");
+    expect(prompt).toContain("APPLY: <count or none>   SKIP: <count or none>");
     expect(prompt).toContain('"decision": "<NO_CHANGES_NEEDED | APPLY_SELECTIVELY | APPLY_MOST>"');
   });
 

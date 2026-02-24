@@ -828,22 +828,6 @@ export async function runReviewCycle(
       });
       await deps.appendLog(sessionPath, iterationEntry);
 
-      const hasBlockedItems =
-        fixSummary?.skipped.some((item) => /^blocked\b/i.test(item.reason.trim())) ?? false;
-
-      if (hasBlockedItems) {
-        hasRemainingIssues = true;
-        console.log("⚠️  Fixer reported blocked items that require follow-up.");
-        discardCheckpointSafe();
-        return finish({
-          success: false,
-          finalStatus: "completed",
-          iterations: iteration,
-          reason: "Fixer reported blocked items that require external follow-up",
-          sessionPath,
-        });
-      }
-
       if (fixSummary?.stop_iteration === true) {
         hasRemainingIssues = false;
         console.log("✅ No issues to fix - code is clean!");

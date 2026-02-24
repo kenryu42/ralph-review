@@ -16,7 +16,6 @@ export function createFixerPrompt(reviewOutput: string): string {
 - Classify each concrete issue as:
   - APPLY: real issue you can safely fix now
   - SKIP: false positive / not actionable
-  - BLOCKED: real issue but blocked by external constraints in this environment
 - Prioritize correctness/security/reliability/API compatibility over style.
 - Use minimal safe changes.
 
@@ -37,24 +36,22 @@ ${reviewOutput}
    - Prefer one aggregate command; otherwise run available lint -> typecheck -> test -> build.
    - Treat warnings as blocking.
    - Iterate fix + rerun until clean.
-6) If a real issue cannot be resolved safely due to external blockers, put it in skipped with
-   reason starting "BLOCKED:" including command/error details.
 
 ## Special rule: tracking-status claims
 Claims like "file is untracked/not committed/missing from git" are SKIP in this pre-commit workflow.
 Only treat as real if the file truly does not exist on disk.
 
 ## Stop logic (compute before fixes)
-STOP_ITERATION = (APPLY is empty) AND (BLOCKED is empty)
+STOP_ITERATION = (APPLY is empty)
 
 Implications:
-- stop_iteration=true means no actionable or blocked items remain.
+- stop_iteration=true means no actionable issues remain.
 - If stop_iteration=true, do not include patch/diff output.
 - If fixes is non-empty, stop_iteration must be false.
 
 ## Human-readable section (concise)
 DECISION: <NO CHANGES NEEDED | APPLY SELECTIVELY | APPLY MOST>
-APPLY: <count or none>   SKIP: <count or none>   BLOCKED: <count or none>
+APPLY: <count or none>   SKIP: <count or none>
 VERIFICATION NOTES:
 - what changed and what you checked
 - commands run and pass/fail status (if fixes were applied)
@@ -82,23 +79,23 @@ ${FIX_SUMMARY_START_TOKEN}
       "id": 2,
       "title": "<one-line title>",
       "priority": "<P0 | P1 | P2 | P3>",
-      "reason": "<must start with SKIP: or BLOCKED:>"
+      "reason": "<must start with SKIP:>"
     }
   ]
 }
 ${FIX_SUMMARY_END_TOKEN}
 
 JSON rules:
-- stop_iteration MUST equal (APPLY empty AND BLOCKED empty), computed before fixes.
+- stop_iteration MUST equal (APPLY empty), computed before fixes.
 - If reviewer findings are empty and re-check finds no issues:
   - decision MUST be NO_CHANGES_NEEDED
   - fixes MUST be []
   - skipped MUST be []
 - If stop_iteration is true:
   - fixes MUST be []
-  - skipped MUST contain only SKIP items (no BLOCKED items)
+  - skipped MUST contain only SKIP items
 - Include all APPLY items in fixes.
-- Include all SKIP and BLOCKED items in skipped with required reason prefix.
+- Include all SKIP items in skipped with required reason prefix.
 - Use [] when empty.
 - Priority must be exactly P0/P1/P2/P3.
 - The delimited JSON block must be the final output (no trailing text).`;
