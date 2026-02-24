@@ -1,220 +1,82 @@
-# ralph-review
+# Ralph Review
 
-A CLI that automates review cycles using your choice of AI coding agents.
+[![CI](https://github.com/kenryu42/ralph-review/actions/workflows/ci.yml/badge.svg)](https://github.com/kenryu42/ralph-review/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/github/kenryu42/ralph-review/branch/main/graph/badge.svg?token=C9QTION6ZF)](https://codecov.io/github/kenryu42/ralph-review)
+[![Version](https://img.shields.io/github/v/tag/kenryu42/ralph-review?label=version&color=blue)](https://github.com/kenryu42/ralph-review)
+[![License: MIT](https://img.shields.io/badge/License-MIT-red.svg)](https://opensource.org/licenses/MIT)
 
-## Features
-
-- 🤖 **Multi-agent support**: Use Codex, Claude, or OpenCode for reviewing and implementing fixes
-- 🔄 **Automated review cycles**: Reviewer finds issues → Fixer fixes → repeat until clean
-- 📺 **Background execution**: Runs in tmux so you can continue working
-- 📊 **HTML log viewer**: Browse review history in your browser
-- ⚡ **Simple CLI**: Just `rr run` to start
-
-## Installation
-
-### Prerequisites
-
-- [Bun](https://bun.sh/) runtime (v1.0.0+)
-- [tmux](https://github.com/tmux/tmux) for background sessions
-- At least one AI coding agent installed:
-  - [Codex](https://github.com/openai/codex) (`codex`)
-  - [Claude Code](https://github.com/anthropics/claude-code) (`claude`)
-  - [OpenCode](https://github.com/opencode-ai/opencode) (`opencode`)
-
-### Install from npm
-
-```bash
-# Install globally with bun
-bun install -g ralph-review
-
-# Or with npm (requires bun runtime)
-npm install -g ralph-review
-```
-
-### Install from source
-
-```bash
-# Clone the repository
-git clone https://github.com/yourusername/ralph-review.git
-cd ralph-review
-
-# Install dependencies
-bun install
-
-# Link globally for development
-bun link
-```
-
-### Uninstall
-
-```bash
-# If installed via npm/bun
-bun remove -g ralph-review
-# or
-npm uninstall -g ralph-review
-```
-
-## Usage
-
-### Initial Setup
-
-```bash
-# Configure your reviewer, fixer, and simplifier agents
-rr init
-```
-
-`rr init` starts with a setup mode choice:
-- **Auto Setup (recommended)**: Detects installed agents/models and creates a full config automatically.
-- **Customize Setup**: Prompts for reviewer, fixer, and code simplifier settings in detail.
-
-Auto setup defaults:
-- `maxIterations`: current `DEFAULT_CONFIG.maxIterations` (fallback `5`)
-- `iterationTimeout`: current `DEFAULT_CONFIG.iterationTimeout` (fallback `30` minutes)
-- `defaultReview`: `uncommitted`
-
-Both setup modes show the proposed config and ask for confirmation before saving.
-Reasoning is only prompted for selections that support reasoning.
-Setup also prompts whether to play a sound when a background review session finishes.
-
-### Running Reviews
-
-```bash
-# Start a full review cycle and open the Session Panel
-rr run
-
-# Start a full review cycle without opening the Session Panel
-rr run --no-watch
-
-# One-off override: force sound on/off for this run
-rr run --sound
-rr run --no-sound
-```
-
-### Diagnostics
-
-```bash
-# Check environment, config, binaries, and model availability
-rr doctor
-```
-
-### Managing Sessions
-
-```bash
-# Re-open Session Panel watch mode
-rr status
-
-# Stop the review
-rr stop
-rr stop --force  # Force kill immediately
-```
-
-### Viewing Logs
-
-```bash
-# Open latest log in browser
-rr log
-
-# List all log sessions
-rr log --list
-
-# Open specific log session
-rr log <timestamp>
-```
+Run review→fix cycles until your code is clean.
 
 ## How It Works
 
-1. **Review Phase**: The reviewer agent analyzes your uncommitted changes
-2. **Implementation Phase**: If issues found, the fixer agent fixes them
-3. **Repeat**: Continue until no issues or max iterations reached (default: 10)
+Ralph Review runs automated review cycles by pairing two AI agents — a **reviewer** and a **fixer**. The reviewer analyzes your changes and produces a structured list of issues. The fixer then independently verifies each finding against the actual code and applies fixes only where warranted. This repeats until the reviewer finds no issues or the iteration limit is reached.
 
-Fixer safety net:
-- A git checkpoint is captured before each fixer pass.
-- On fixer failure/incomplete output, changes are rolled back automatically.
-- If fixer returns `NEED_INFO` with no changes, run stops as warning without rollback.
-
-The tool runs in a tmux session so you can:
-- Continue working in your terminal
-- View results in HTML format
-
-## Configuration
-
-Configuration is stored at `~/.config/ralph-review/config.json`:
-
-```json
-{
-  "$schema": "https://raw.githubusercontent.com/kenryu42/ralph-review/main/assets/ralph-review.schema.json",
-  "version": 1,
-  "reviewer": {
-    "agent": "codex",
-    "model": "gpt-5.2-codex",
-    "reasoning": "high"
-  },
-  "fixer": {
-    "agent": "droid",
-    "model": "gpt-5.2-codex",
-    "reasoning": "high"
-  },
-  "code-simplifier": {
-    "agent": "claude",
-    "model": "claude-opus-4-6",
-    "reasoning": "high"
-  },
-  "run": {
-    "simplifier": false,
-    "watch": true
-  },
-  "maxIterations": 5,
-  "iterationTimeout": 1800000,
-  "notifications": {
-    "sound": {
-      "enabled": false
-    }
-  },
-  "defaultReview": {
-    "type": "uncommitted"
-  }
-}
+```mermaid
+flowchart LR
+    A[Your changes] --> B[Reviewer agent]
+    B -->|Issues found| C[Fixer agent]
+    C -->|Verify & fix| D{Clean?}
+    D -->|No| B
+    D -->|Yes| E[Done]
+    B -->|No issues| E
 ```
 
-Edit configuration directly in your preferred editor:
+The fixer doesn't blindly trust the reviewer — it reads the code, confirms each issue is real, and skips false positives. You can use different agents for each role (e.g. Claude reviews, Gemini fixes).
+
+## Prerequisites
+
+- [Bun](https://bun.sh) (runtime)
+- [tmux](https://github.com/tmux/tmux) (background sessions)
+- At least one supported agent CLI installed and authenticated
+
+## Installation
 
 ```bash
-rr config edit
+npm install -g ralph-review
 ```
 
-## Commands Reference
+## Quick Start
+
+```bash
+# Auto-detect installed agents and configure reviewer/fixer
+rr init
+
+# Start a review cycle (runs in tmux)
+rr run
+```
+
+`rr run` launches a tmux session so you can detach and keep working. Use `rr status` to check progress and `rr stop` to cancel.
+
+## Commands
 
 | Command | Description |
 |---------|-------------|
-| `rr init` | Configure reviewer/fixer/simplifier (auto or custom) |
-| `rr run` | Start review cycle and open Session Panel |
-| `rr status` | Show current status |
-| `rr stop` | Graceful stop |
-| `rr stop --force` | Force kill |
-| `rr log` | Open latest log |
-| `rr log --list` | List all logs |
-| `rr doctor` | Run setup and runtime diagnostics |
-| `rr --help` | Show help |
-| `rr --version` | Show version |
+| `rr init` | Configure reviewer, fixer, and simplifier agents (auto-detects installed CLIs) |
+| `rr run` | Start review cycle in a tmux session |
+| `rr run --base main` | Review changes against a base branch |
+| `rr run --uncommitted` | Review staged, unstaged, and untracked changes |
+| `rr run --commit SHA` | Review changes introduced by a specific commit |
+| `rr run --max N` | Set max iterations |
+| `rr run --simplifier` | Run a code-simplifier pass before review iterations |
+| `rr config show` | Print full configuration |
+| `rr config set KEY VAL` | Update a config value (e.g. `rr config set maxIterations 8`) |
+| `rr list` | List active review sessions |
+| `rr status` | Show current review status |
+| `rr stop` | Stop running review session (`--all` to stop all) |
+| `rr log` | View review logs (`-n 5` for last 5, `--json` for JSON output) |
+| `rr dashboard` | Open review dashboard in browser |
+| `rr doctor` | Run environment and configuration diagnostics (`--fix` to auto-resolve) |
 
-## Development
+The `rrr` command is a shorthand alias for `rr run` — all flags work the same.
 
-```bash
-# Install dependencies
-bun install
+## Supported Coding Agents
 
-# Regenerate config JSON schema
-bun run build:schema
-
-# Run tests
-bun test
-
-# Run CLI directly (during development)
-bun src/cli.ts --help
-
-# Link package globally for testing
-bun link
-```
+- [**Claude Code**](https://code.claude.com/docs/en/overview)
+- [**Codex**](https://openai.com/codex/)
+- [**Droid**](https://factory.ai/)
+- [**Gemini CLI**](https://geminicli.com/)
+- [**OpenCode**](https://opencode.ai/)
+- [**Pi**](https://pi.dev)
 
 ## License
 
