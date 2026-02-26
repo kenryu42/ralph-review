@@ -11,7 +11,9 @@ Run review-fix cycles until your code is clean.
 
 ## Table of Contents
 
+- [Why This Exists](#why-this-exists)
 - [How It Works](#how-it-works)
+- [Agent Roles](#agent-roles)
 - [Prerequisites](#prerequisites)
 - [Installation](#installation)
 - [Quick Start](#quick-start)
@@ -22,46 +24,70 @@ Run review-fix cycles until your code is clean.
 
 ---
 
+## Why This Exists
+
+I am a big fan of Codex's review feature. It consistently finds bugs that other coding agents miss.
+
+My usual workflow was repetitive: run a Codex review, copy and paste the findings into a new session,
+ask another agent if it agrees, and then ask it to fix the issues.
+
+Why not fix it in the same session? Because I wanted an independent second opinion before applying changes, and a fresh context helped avoid the first agent’s bias carrying into the fix.
+
+Doing that manually is tedious and time-consuming, so I built this tool to automate the loop. I also
+wanted an easy way to try different coding agents and models.
+
+I also occasionally run a code simplifier pass before review, so I included that workflow here too.
+
+If this helps other people, great. If not, it still helps me.
+
+---
+
 ## How It Works
 
 Ralph Review automates code review by pairing two AI agents -- a **reviewer** and a **fixer** -- and looping until the code is clean or the iteration limit is reached.
 
-```
-  Your changes
-       |
-       v
-  (optional) Code Simplifier          
-       |                               
-       v
-  +-----------------+
-  | Reviewer agent  |                 
-  +-----------------+                 
-       |
-       v
-  Create git checkpoint                
-       |
-       v
-  +-----------------+
-  |  Fixer agent    |                 
-  | (verify & fix)  |                 
-  +-----------------+
-       |
-       v
-  Parse fix summary
-       |
-       +--- no actionable issues left ---> Stop
-       |
-       +--- issues remain
-       |
-       v
-  Discard checkpoint, loop back to Reviewer
+```text
+┌──────────────────────────────┐
+│         Your changes         │
+└──────────────┬───────────────┘
+               │
+               ▼
+┌──────────────────────────────┐
+│ Code Simplifier (optional)   │
+└──────────────┬───────────────┘
+               │
+               ▼
+      ┌─────────────────┐
+      │ Reviewer agent  │ ◀───────────────────────────────┐
+      └────────┬────────┘                                 │
+               │                                          │
+               ▼                                          │
+   ┌───────────────────────┐                              │
+   │ Create git checkpoint │                              │
+   └───────────┬───────────┘                              │
+               │                                          │
+               ▼                                          │
+      ┌─────────────────┐                                 │
+      │   Fixer agent   │                                 │
+      │  (verify & fix) │                                 │
+      └────────┬────────┘                                 │
+               │                                          │
+               ▼                                          │
+    ┌───────────────────────┐                             │
+    │   Parse fix summary   │                             │
+    └──────────┬────────────┘                             │
+               │                                          │
+               ├── no actionable issues left ────▶ Stop   │
+               │                                          │
+               ▼                                          │
+  Discard checkpoint, loop back to Reviewer ──────────────┘
   (until max iterations reached)
 ```
 
 **How the cycle works:**
 
-1. An optional **code simplifier** pass can run first (enabled with `--simplifier`) to reduce diff complexity before review.
-2. The **reviewer** analyzes your changes and returns structured review output (or raw output fallback).
+1. An optional **code simplifier** pass can run first (enabled with `--simplifier`) to reduce code complexity before review.
+2. The **reviewer** analyzes your changes and returns structured review output.
 3. A **git checkpoint** is created so the fixer's changes can be rolled back if something goes wrong.
 4. The **fixer** independently reads the code, confirms each issue is real, and applies fixes only where warranted. It does not blindly trust the reviewer.
 5. The fixer outputs a structured summary. If it reports no actionable issues left -- either no real issues were found or all remaining items were safely skipped -- the cycle ends.
@@ -71,11 +97,33 @@ You can assign different AI agents to each role (e.g. Claude reviews, Gemini fix
 
 ---
 
+## Agent Roles
+
+Ralph Review orchestrates three distinct roles. You can assign any [supported coding agent](#supported-coding-agents) to each role.
+
+### Code Simplifier (optional)
+
+Enabled with `--simplifier`. Runs once before the review loop begins, reducing code complexity while preserving exact behavior. Operates on the same diff scope as the reviewer (uncommitted changes, base branch diff, or a specific commit).
+
+Prompt adapted from the [Claude Code code-simplifier plugin](https://github.com/anthropics/claude-plugins-official/blob/main/plugins/code-simplifier/agents/code-simplifier.md).
+
+### Reviewer
+
+Analyzes changes for bugs that impact correctness, security, reliability, or maintainability. Outputs structured JSON with findings, each tagged P0–P3 by priority. Ignores style nits and pre-existing issues — only flags bugs introduced in the change. Does not suggest fixes.
+
+Prompt adapted from the [Codex CLI review prompt](https://github.com/openai/codex/blob/main/codex-rs/core/review_prompt.md).
+
+### Fixer
+
+Treats review findings as untrusted input — verifies every claim against actual code before acting. Classifies each issue as APPLY (real and fixable) or SKIP (false positive or not actionable). Applies minimal safe changes, then runs project verification (lint, typecheck, tests, build). When no actionable issues remain, signals the cycle to stop.
+
+---
+
 ## Prerequisites
 
 - [Bun](https://bun.sh) (runtime)
 - [tmux](https://github.com/tmux/tmux) (background sessions)
-- At least one supported agent CLI installed and authenticated
+- At least one [supported agent CLI](#supported-coding-agents) installed and authenticated
 
 ---
 
@@ -95,9 +143,10 @@ rr init
 
 # Start a review cycle (runs in tmux)
 rr run
-```
 
-`rr run` launches a tmux session so you can detach and keep working. Use `rr status` to check progress and `rr stop` to cancel.
+# Or use shorthand alias for `rr run`
+rrr
+```
 
 ---
 
@@ -146,7 +195,10 @@ After running `rr init`, Ralph Review stores its configuration in your project d
 # View current configuration
 rr config show
 
-# Change a setting
+# Edit configuration in your editor
+rr config edit
+
+# Or set a specific config using cli
 rr config set maxIterations 5
 ```
 
