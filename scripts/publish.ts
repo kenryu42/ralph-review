@@ -71,11 +71,11 @@ export function bumpVersion(version: string, type: BumpType): string {
 }
 
 export function replacePackageVersion(packageJson: string, newVersion: string): string {
-  const updated = packageJson.replace(/"version"\s*:\s*"[^"]+"/, `"version": "${newVersion}"`);
-  if (updated === packageJson) {
+  const versionPattern = /"version"\s*:\s*"[^"]+"/;
+  if (!versionPattern.test(packageJson)) {
     throw new Error("Could not find version field in package.json");
   }
-  return updated;
+  return packageJson.replace(versionPattern, `"version": "${newVersion}"`);
 }
 
 async function updatePackageVersion(newVersion: string): Promise<void> {
