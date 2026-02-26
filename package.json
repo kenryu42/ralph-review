@@ -1,7 +1,7 @@
 {
   "name": "ralph-review",
   "version": "0.1.0",
-  "description": "AI-powered code review CLI tool that automates review cycles using AI coding agents",
+  "description": "A CLI tool that orchestrates agentic review-fix cycles until your code is clean.",
   "license": "MIT",
   "type": "module",
   "author": {

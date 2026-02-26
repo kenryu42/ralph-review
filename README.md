@@ -5,7 +5,7 @@
 [![Version](https://img.shields.io/github/v/tag/kenryu42/ralph-review?label=version&color=blue)](https://github.com/kenryu42/ralph-review)
 [![License: MIT](https://img.shields.io/badge/License-MIT-red.svg)](https://opensource.org/licenses/MIT)
 
-Run review-fix cycles until your code is clean.
+A CLI tool that orchestrates agentic review-fix cycles until your code is clean.
 
 ---
 
