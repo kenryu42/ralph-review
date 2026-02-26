@@ -988,7 +988,7 @@ export async function runInitWithRuntime(
   const setupMode = await runtime.prompt.select({
     message: "Choose setup mode",
     options: [
-      { value: "auto", label: "Auto Setup", hint: "recommended" },
+      { value: "auto", label: "Auto Setup" },
       { value: "custom", label: "Customize Setup", hint: "configure each detail manually" },
     ],
     initialValue: "auto",
