@@ -26,14 +26,14 @@ Run review-fix cycles until your code is clean.
 
 ## Why This Exists
 
-I am a big fan of Codex's review feature. It consistently finds bugs that other coding agents miss.
+I've been a huge fan of Codex's review feature ever since its [first release](https://x.com/DanielEdrisian/status/1968819243694104899). Because the GPT Codex model actually reads many files to gather context and reasoning, it is slower than other agents, but it consistently finds bugs they miss.
 
 My usual workflow was repetitive: run a Codex review, copy and paste the findings into a new session,
 ask another agent if it agrees, and then ask it to fix the issues.
 
 Why not fix it in the same session? Because I wanted an independent second opinion before applying changes, and a fresh context helped avoid the first agent’s bias carrying into the fix.
 
-Doing that manually is tedious and time-consuming, so I built this tool to automate the loop. I also
+Doing that manually is tedious and time-consuming, so I built this tool to automate the loop. Inspired by the [Ralph Wiggum technique](https://ghuntley.com/ralph/) by Geoffrey Huntley. I also
 wanted an easy way to try different coding agents and models.
 
 I also occasionally run a code simplifier pass before review, so I included that workflow here too.
@@ -58,29 +58,30 @@ Ralph Review automates code review by pairing two AI agents -- a **reviewer** an
                │
                ▼
       ┌─────────────────┐
-      │ Reviewer agent  │ ◀───────────────────────────────┐
-      └────────┬────────┘                                 │
-               │                                          │
-               ▼                                          │
-   ┌───────────────────────┐                              │
-   │ Create git checkpoint │                              │
-   └───────────┬───────────┘                              │
-               │                                          │
-               ▼                                          │
-      ┌─────────────────┐                                 │
-      │   Fixer agent   │                                 │
-      │  (verify & fix) │                                 │
-      └────────┬────────┘                                 │
-               │                                          │
-               ▼                                          │
-    ┌───────────────────────┐                             │
-    │   Parse fix summary   │                             │
-    └──────────┬────────────┘                             │
-               │                                          │
-               ├── no actionable issues left ────▶ Stop   │
-               │                                          │
-               ▼                                          │
-  Discard checkpoint, loop back to Reviewer ──────────────┘
+      │ Reviewer agent  │ ◀───────────────────────────────────────┐
+      └────────┬────────┘                                         │
+               │                                                  │
+               ▼                                                  │
+   ┌───────────────────────┐                                      │
+   │ Create git checkpoint │                                      │
+   └───────────┬───────────┘                                      │
+               │                                                  │
+               ▼                                                  │
+      ┌─────────────────┐                                         │
+      │   Fixer agent   │                                         │
+      │  (verify & fix) │                                         │
+      └────────┬────────┘                                         │
+               │                                                  │
+               ▼                                                  │
+    ┌───────────────────────┐                                     │
+    │   Parse fix summary   │                                     │
+    └──────────┬────────────┘                                     │
+               │                                                  │
+               ├── no issues found (verified by fixer) ──▶ Stop   │
+               ├── issues found, all skipped by fixer  ──▶ Stop   │
+               │                                                  │
+               ▼                                                  │
+  Discard checkpoint, loop back to Reviewer ──────────────────────┘
   (until max iterations reached)
 ```
 
