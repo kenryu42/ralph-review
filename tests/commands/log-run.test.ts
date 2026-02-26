@@ -176,6 +176,9 @@ async function createProjectFixture(): Promise<ProjectFixture> {
 }
 
 async function cleanupProjectFixture(fixture: ProjectFixture): Promise<void> {
+  const logsProjectDir = join(LOGS_DIR, fixture.projectName);
+  const lockPath = join(LOGS_DIR, `${fixture.projectName}.lock`);
+
   await Promise.all(
     fixture.logPaths.flatMap((logPath) => [
       Bun.file(logPath)
@@ -186,6 +189,10 @@ async function cleanupProjectFixture(fixture: ProjectFixture): Promise<void> {
         .catch(() => {}),
     ])
   );
+  await rm(logsProjectDir, { recursive: true, force: true });
+  await Bun.file(lockPath)
+    .delete()
+    .catch(() => {});
   await rm(fixture.rootPath, { recursive: true, force: true });
 }
 
