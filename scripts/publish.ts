@@ -210,7 +210,7 @@ async function preflight(
 
   // 2. Verify previous tag exists for changelog
   const prevTag = `v${previousVersion}`;
-  const tagCheck = await $`git rev-parse ${prevTag}`.nothrow();
+  const tagCheck = await $`git rev-parse ${prevTag}`.nothrow().quiet();
   if (tagCheck.exitCode !== 0) {
     console.warn(`  ⚠️  Previous tag ${prevTag} not found - changelog may be incomplete`);
   } else {
@@ -219,7 +219,7 @@ async function preflight(
 
   // 3. Verify version doesn't already have a tag
   const newTag = `v${newVersion}`;
-  const newTagCheck = await $`git rev-parse ${newTag}`.nothrow();
+  const newTagCheck = await $`git rev-parse ${newTag}`.nothrow().quiet();
   if (newTagCheck.exitCode === 0) {
     console.warn(`  ⚠️  Tag ${newTag} already exists`);
   }
