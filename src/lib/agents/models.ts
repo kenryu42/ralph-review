@@ -25,24 +25,33 @@ export const codexModelOptions = [
 ] as const;
 
 export const droidModelOptions = [
-  { value: "gpt-5.1", label: "GPT-5.1" },
-  { value: "gpt-5.1-codex", label: "GPT-5.1 Codex" },
-  { value: "gpt-5.1-codex-max", label: "GPT-5.1 Codex Max" },
-  { value: "gpt-5.2", label: "GPT-5.2" },
-  { value: "gpt-5.2-codex", label: "GPT-5.2 Codex" },
-  { value: "claude-opus-4-6", label: "Claude Opus 4.6" },
-  { value: "claude-sonnet-4-5-20250929", label: "Claude Sonnet 4.5" },
   { value: "claude-opus-4-5-20251101", label: "Claude Opus 4.5" },
+  { value: "claude-opus-4-6", label: "Claude Opus 4.6 (default)" },
+  { value: "claude-opus-4-6-fast", label: "Claude Opus 4.6 Fast Mode" },
+  { value: "claude-sonnet-4-5-20250929", label: "Claude Sonnet 4.5" },
+  { value: "claude-sonnet-4-6", label: "Claude Sonnet 4.6" },
   { value: "claude-haiku-4-5-20251001", label: "Claude Haiku 4.5" },
+  { value: "gpt-5.1", label: "GPT-5.1" },
+  { value: "gpt-5.1-codex", label: "GPT-5.1-Codex" },
+  { value: "gpt-5.1-codex-max", label: "GPT-5.1-Codex-Max" },
+  { value: "gpt-5.2", label: "GPT-5.2" },
+  { value: "gpt-5.2-codex", label: "GPT-5.2-Codex" },
+  { value: "gpt-5.3-codex", label: "GPT-5.3-Codex" },
   { value: "gemini-3-pro-preview", label: "Gemini 3 Pro" },
+  { value: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro" },
   { value: "gemini-3-flash-preview", label: "Gemini 3 Flash" },
   { value: "glm-4.7", label: "Droid Core (GLM-4.7)" },
+  { value: "glm-5", label: "Droid Core (GLM-5)" },
   { value: "kimi-k2.5", label: "Droid Core (Kimi K2.5)" },
+  { value: "minimax-m2.5", label: "Droid Core (MiniMax M2.5)" },
 ] as const;
 
 export const geminiModelOptions = [
-  { value: "gemini-3-pro-preview", label: "Gemini 3 Pro" },
+  { value: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro" },
   { value: "gemini-3-flash-preview", label: "Gemini 3 Flash" },
+  { value: "gemini-2.5-pro", label: "Gemini 2.5 Pro" },
+  { value: "gemini-2.5-flash", label: "Gemini 2.5 Flash" },
+  { value: "gemini-2.5-flash-lite", label: "Gemini 2.5 Flash Lite" },
 ] as const;
 
 const commonReasoningLevels: readonly ReasoningLevel[] = ["low", "medium", "high", "xhigh"];
@@ -53,11 +62,15 @@ const droidReasoningLevelsByModel: Record<string, readonly ReasoningLevel[]> = {
   "gpt-5.1-codex-max": ["low", "medium", "high", "xhigh"],
   "gpt-5.2": ["low", "medium", "high", "xhigh"],
   "gpt-5.2-codex": ["low", "medium", "high", "xhigh"],
+  "gpt-5.3-codex": ["low", "medium", "high", "xhigh"],
   "claude-sonnet-4-5-20250929": ["low", "medium", "high"],
+  "claude-sonnet-4-6": ["low", "medium", "high"],
   "claude-opus-4-5-20251101": ["low", "medium", "high"],
   "claude-haiku-4-5-20251001": ["low", "medium", "high"],
   "claude-opus-4-6": ["low", "medium", "high", "max"],
+  "claude-opus-4-6-fast": ["low", "medium", "high", "max"],
   "gemini-3-pro-preview": ["low", "medium", "high"],
+  "gemini-3.1-pro-preview": ["low", "medium", "high"],
   "gemini-3-flash-preview": ["low", "medium", "high"],
 };
 
