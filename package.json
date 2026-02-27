@@ -1,6 +1,6 @@
 {
   "name": "ralph-review",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "A CLI tool that orchestrates agentic review-fix cycles until your code is clean.",
   "license": "MIT",
   "type": "module",
