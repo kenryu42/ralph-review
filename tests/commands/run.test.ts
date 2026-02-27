@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -1381,27 +1381,30 @@ describe("run command", () => {
   });
 
   describe("lockfile functions from @/lib/lockfile", () => {
-    let tempDir: string;
-
-    beforeEach(async () => {
-      tempDir = await mkdtemp(join(tmpdir(), "ralph-run-test-"));
-    });
-
-    afterEach(async () => {
-      await rm(tempDir, { recursive: true, force: true });
-    });
+    async function withTempDir(testFn: (tempDir: string) => Promise<void>): Promise<void> {
+      const tempDir = await mkdtemp(join(tmpdir(), "ralph-run-test-"));
+      try {
+        await testFn(tempDir);
+      } finally {
+        await rm(tempDir, { recursive: true, force: true });
+      }
+    }
 
     test("createLockfile creates file", async () => {
-      await createLockfile(tempDir, "/test/project", "test-session", "main");
-      const exists = await lockfileExists(tempDir, "/test/project");
-      expect(exists).toBe(true);
+      await withTempDir(async (tempDir) => {
+        await createLockfile(tempDir, "/test/project", "test-session", "main");
+        const exists = await lockfileExists(tempDir, "/test/project");
+        expect(exists).toBe(true);
+      });
     });
 
     test("removeLockfile removes file", async () => {
-      await createLockfile(tempDir, "/test/project", "test-session", "main");
-      await removeLockfile(tempDir, "/test/project");
-      const exists = await lockfileExists(tempDir, "/test/project");
-      expect(exists).toBe(false);
+      await withTempDir(async (tempDir) => {
+        await createLockfile(tempDir, "/test/project", "test-session", "main");
+        await removeLockfile(tempDir, "/test/project");
+        const exists = await lockfileExists(tempDir, "/test/project");
+        expect(exists).toBe(false);
+      });
     });
   });
 });
