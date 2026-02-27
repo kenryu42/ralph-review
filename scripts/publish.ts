@@ -212,7 +212,7 @@ async function preflight(
   const prevTag = `v${previousVersion}`;
   const tagCheck = await $`git rev-parse ${prevTag}`.nothrow().quiet();
   if (tagCheck.exitCode !== 0) {
-    console.warn(`  ⚠️  Previous tag ${prevTag} not found - changelog may be incomplete`);
+    console.warn(`  ⚠️  Previous tag ${prevTag} not found - changelog will include all commits`);
   } else {
     console.log(`  ✓ Previous tag ${prevTag} exists`);
   }
