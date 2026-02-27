@@ -1,4 +1,4 @@
-import { readdir } from "node:fs/promises";
+import { access, readdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { LOGS_DIR } from "./config";
 import { getProjectName } from "./logger";
@@ -115,10 +115,8 @@ function isLockState(value: unknown): value is LockState {
 }
 
 async function readLockfileByPath(lockPath: string): Promise<LockData | null> {
-  const file = Bun.file(lockPath);
-
   try {
-    const content = await file.text();
+    const content = await readFile(lockPath, "utf-8");
     const raw = JSON.parse(content) as LockData;
 
     if (
@@ -152,7 +150,7 @@ async function removeLockfileByPath(
     }
 
     try {
-      await Bun.file(lockPath).delete();
+      await unlink(lockPath);
       return true;
     } catch {
       return false;
@@ -207,7 +205,7 @@ export async function createLockfile(
   };
 
   await queueLockWrite(lockPath, async () => {
-    await Bun.write(lockPath, JSON.stringify(lockData, null, 2));
+    await writeFile(lockPath, JSON.stringify(lockData, null, 2));
   });
 }
 
@@ -257,7 +255,7 @@ export async function updateLockfile(
 
     merged.schemaVersion = LOCK_SCHEMA_VERSION;
 
-    await Bun.write(lockPath, JSON.stringify(merged, null, 2));
+    await writeFile(lockPath, JSON.stringify(merged, null, 2));
     return true;
   });
 }
@@ -284,7 +282,12 @@ export async function lockfileExists(
   projectPath: string
 ): Promise<boolean> {
   const lockPath = getLockPath(logsDir, projectPath);
-  return await Bun.file(lockPath).exists();
+  try {
+    await access(lockPath);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function isProcessAlive(pid: number): boolean {
@@ -430,7 +433,7 @@ export async function removeAllLockfiles(logsDir: string = LOGS_DIR): Promise<vo
         await removeLockfileByPath(lockPath, { expectedSessionId: lockData.sessionId });
       } else {
         try {
-          await Bun.file(lockPath).delete();
+          await unlink(lockPath);
         } catch {
           // Ignore
         }

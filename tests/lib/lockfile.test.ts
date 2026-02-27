@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdir, rm } from "node:fs/promises";
+import { chmod, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -262,33 +262,8 @@ describe("lockfile", () => {
       const sessionId = lock?.sessionId ?? "";
       expect(sessionId).not.toBe("");
 
-      const lockPath = getLockPath(tempLogsDir, projectPath);
-      const originalBunFile = Bun.file;
-
-      Bun.file = ((...args: unknown[]) => {
-        const [path] = args;
-        const file = Reflect.apply(originalBunFile, Bun, args) as ReturnType<typeof Bun.file>;
-        if (path !== lockPath) {
-          return file;
-        }
-
-        return new Proxy(file, {
-          get(target, property) {
-            if (property === "delete") {
-              return async () => {
-                throw new Error("forced delete failure");
-              };
-            }
-
-            const value = Reflect.get(target, property, target);
-            if (typeof value === "function") {
-              return value.bind(target);
-            }
-
-            return value;
-          },
-        });
-      }) as typeof Bun.file;
+      // Remove write permission from directory so unlink fails
+      await chmod(tempLogsDir, 0o555);
 
       try {
         const removed = await removeLockfile(tempLogsDir, projectPath, {
@@ -296,7 +271,7 @@ describe("lockfile", () => {
         });
         expect(removed).toBe(false);
       } finally {
-        Bun.file = originalBunFile;
+        await chmod(tempLogsDir, 0o755);
       }
 
       expect(await readLockfile(tempLogsDir, projectPath)).not.toBeNull();
