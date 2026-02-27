@@ -1,5 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getCommandDef } from "@/cli";
@@ -1382,7 +1382,8 @@ describe("run command", () => {
 
   describe("lockfile functions from @/lib/lockfile", () => {
     async function withTempDir(testFn: (tempDir: string) => Promise<void>): Promise<void> {
-      const tempDir = await mkdtemp(join(tmpdir(), "ralph-run-test-"));
+      const tempDir = join(tmpdir(), `ralph-run-test-${Date.now()}-${crypto.randomUUID()}`);
+      await mkdir(tempDir, { recursive: true });
       try {
         await testFn(tempDir);
       } finally {
