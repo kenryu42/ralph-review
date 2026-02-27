@@ -284,12 +284,7 @@ export async function lockfileExists(
   projectPath: string
 ): Promise<boolean> {
   const lockPath = getLockPath(logsDir, projectPath);
-  try {
-    await Bun.file(lockPath).text();
-    return true;
-  } catch {
-    return false;
-  }
+  return await Bun.file(lockPath).exists();
 }
 
 export function isProcessAlive(pid: number): boolean {
