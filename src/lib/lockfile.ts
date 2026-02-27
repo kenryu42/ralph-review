@@ -117,10 +117,6 @@ function isLockState(value: unknown): value is LockState {
 async function readLockfileByPath(lockPath: string): Promise<LockData | null> {
   const file = Bun.file(lockPath);
 
-  if (!(await file.exists())) {
-    return null;
-  }
-
   try {
     const content = await file.text();
     const raw = JSON.parse(content) as LockData;
@@ -288,7 +284,12 @@ export async function lockfileExists(
   projectPath: string
 ): Promise<boolean> {
   const lockPath = getLockPath(logsDir, projectPath);
-  return await Bun.file(lockPath).exists();
+  try {
+    await Bun.file(lockPath).text();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function isProcessAlive(pid: number): boolean {
