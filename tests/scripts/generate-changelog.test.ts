@@ -59,9 +59,24 @@ describe("generate-changelog script", () => {
     ]);
   });
 
-  test("returns empty list when git log command fails", async () => {
+  test("falls back to full log when tag-based git log fails", async () => {
     const runner = createMockRunner([
       ['git log v1.2.3..HEAD --oneline --format="%h %s"', new Error()],
+      [
+        'git log HEAD --oneline --format="%h %s"',
+        ["a1b2c3d feat: add feature", "b2c3d4e chore: update docs"].join("\n"),
+      ],
+    ]);
+
+    const changelog = await generateChangelog("v1.2.3", runner);
+
+    expect(changelog).toEqual(["- a1b2c3d feat: add feature"]);
+  });
+
+  test("returns empty list when both git log commands fail", async () => {
+    const runner = createMockRunner([
+      ['git log v1.2.3..HEAD --oneline --format="%h %s"', new Error()],
+      ['git log HEAD --oneline --format="%h %s"', new Error()],
     ]);
 
     const changelog = await generateChangelog("v1.2.3", runner);

@@ -63,20 +63,21 @@ export async function generateChangelog(
   previousTag: string,
   runner: CommandRunner = DEFAULT_RUNNER
 ): Promise<string[]> {
-  const result: string[] = [];
-
+  let log: string;
   try {
-    const log = await runner`git log ${previousTag}..HEAD --oneline --format="%h %s"`.text();
-    const commits = log.split("\n").filter((line) => line && isIncludedCommit(line));
-
-    for (const commit of commits) {
-      result.push(`- ${commit}`);
-    }
+    log = await runner`git log ${previousTag}..HEAD --oneline --format="%h %s"`.text();
   } catch {
-    // No commits found
+    try {
+      log = await runner`git log HEAD --oneline --format="%h %s"`.text();
+    } catch {
+      return [];
+    }
   }
 
-  return result;
+  return log
+    .split("\n")
+    .filter((line) => line && isIncludedCommit(line))
+    .map((commit) => `- ${commit}`);
 }
 
 export async function getContributors(
