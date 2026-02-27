@@ -80,4 +80,25 @@ describe("config schema artifact", () => {
       expect(properties[key]).toBeDefined();
     }
   });
+
+  test("matches biome formatting output", async () => {
+    const schemaPath = "assets/ralph-review.schema.json";
+    const localBiomeExecutable = `${process.cwd()}/node_modules/.bin/biome`;
+    const biomeExecutable = (await Bun.file(localBiomeExecutable).exists())
+      ? localBiomeExecutable
+      : Bun.which("biome");
+
+    expect(biomeExecutable).toBeString();
+    if (!biomeExecutable) {
+      throw new Error("biome executable is required for schema formatting checks");
+    }
+
+    const formatResult = Bun.spawnSync({
+      cmd: [biomeExecutable, "ci", schemaPath],
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+
+    expect(formatResult.exitCode).toBe(0);
+  });
 });
