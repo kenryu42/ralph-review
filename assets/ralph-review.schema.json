@@ -29,20 +29,10 @@
             },
             "reasoning": {
               "type": "string",
-              "enum": [
-                "low",
-                "medium",
-                "high",
-                "xhigh",
-                "max"
-              ]
+              "enum": ["low", "medium", "high", "xhigh", "max"]
             }
           },
-          "required": [
-            "agent",
-            "provider",
-            "model"
-          ],
+          "required": ["agent", "provider", "model"],
           "additionalProperties": false
         },
         {
@@ -50,31 +40,17 @@
           "properties": {
             "agent": {
               "type": "string",
-              "enum": [
-                "codex",
-                "claude",
-                "opencode",
-                "droid",
-                "gemini"
-              ]
+              "enum": ["codex", "claude", "opencode", "droid", "gemini"]
             },
             "model": {
               "type": "string"
             },
             "reasoning": {
               "type": "string",
-              "enum": [
-                "low",
-                "medium",
-                "high",
-                "xhigh",
-                "max"
-              ]
+              "enum": ["low", "medium", "high", "xhigh", "max"]
             }
           },
-          "required": [
-            "agent"
-          ],
+          "required": ["agent"],
           "additionalProperties": false
         }
       ]
@@ -98,20 +74,10 @@
             },
             "reasoning": {
               "type": "string",
-              "enum": [
-                "low",
-                "medium",
-                "high",
-                "xhigh",
-                "max"
-              ]
+              "enum": ["low", "medium", "high", "xhigh", "max"]
             }
           },
-          "required": [
-            "agent",
-            "provider",
-            "model"
-          ],
+          "required": ["agent", "provider", "model"],
           "additionalProperties": false
         },
         {
@@ -119,31 +85,17 @@
           "properties": {
             "agent": {
               "type": "string",
-              "enum": [
-                "codex",
-                "claude",
-                "opencode",
-                "droid",
-                "gemini"
-              ]
+              "enum": ["codex", "claude", "opencode", "droid", "gemini"]
             },
             "model": {
               "type": "string"
             },
             "reasoning": {
               "type": "string",
-              "enum": [
-                "low",
-                "medium",
-                "high",
-                "xhigh",
-                "max"
-              ]
+              "enum": ["low", "medium", "high", "xhigh", "max"]
             }
           },
-          "required": [
-            "agent"
-          ],
+          "required": ["agent"],
           "additionalProperties": false
         }
       ]
@@ -167,20 +119,10 @@
             },
             "reasoning": {
               "type": "string",
-              "enum": [
-                "low",
-                "medium",
-                "high",
-                "xhigh",
-                "max"
-              ]
+              "enum": ["low", "medium", "high", "xhigh", "max"]
             }
           },
-          "required": [
-            "agent",
-            "provider",
-            "model"
-          ],
+          "required": ["agent", "provider", "model"],
           "additionalProperties": false
         },
         {
@@ -188,31 +130,17 @@
           "properties": {
             "agent": {
               "type": "string",
-              "enum": [
-                "codex",
-                "claude",
-                "opencode",
-                "droid",
-                "gemini"
-              ]
+              "enum": ["codex", "claude", "opencode", "droid", "gemini"]
             },
             "model": {
               "type": "string"
             },
             "reasoning": {
               "type": "string",
-              "enum": [
-                "low",
-                "medium",
-                "high",
-                "xhigh",
-                "max"
-              ]
+              "enum": ["low", "medium", "high", "xhigh", "max"]
             }
           },
-          "required": [
-            "agent"
-          ],
+          "required": ["agent"],
           "additionalProperties": false
         }
       ]
@@ -227,9 +155,7 @@
           "type": "boolean"
         }
       },
-      "required": [
-        "simplifier"
-      ],
+      "required": ["simplifier"],
       "additionalProperties": false
     },
     "maxIterations": {
@@ -261,11 +187,7 @@
           "maximum": 9007199254740991
         }
       },
-      "required": [
-        "maxRetries",
-        "baseDelayMs",
-        "maxDelayMs"
-      ],
+      "required": ["maxRetries", "baseDelayMs", "maxDelayMs"],
       "additionalProperties": false
     },
     "defaultReview": {
@@ -278,9 +200,7 @@
               "const": "uncommitted"
             }
           },
-          "required": [
-            "type"
-          ],
+          "required": ["type"],
           "additionalProperties": false
         },
         {
@@ -295,10 +215,7 @@
               "minLength": 1
             }
           },
-          "required": [
-            "type",
-            "branch"
-          ],
+          "required": ["type", "branch"],
           "additionalProperties": false
         }
       ]
@@ -313,15 +230,11 @@
               "type": "boolean"
             }
           },
-          "required": [
-            "enabled"
-          ],
+          "required": ["enabled"],
           "additionalProperties": false
         }
       },
-      "required": [
-        "sound"
-      ],
+      "required": ["sound"],
       "additionalProperties": false
     }
   },
