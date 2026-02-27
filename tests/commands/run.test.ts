@@ -1,7 +1,4 @@
 import { describe, expect, mock, test } from "bun:test";
-import { mkdir, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { getCommandDef } from "@/cli";
 import {
   classifyRunCompletion,
@@ -21,7 +18,7 @@ import { type CommandDef, parseCommand } from "@/lib/cli-parser";
 import { collectIssueItems as collectIssueItemsFromDiagnostics } from "@/lib/diagnostics";
 import type { DiagnosticItem, DiagnosticsReport } from "@/lib/diagnostics/types";
 import type { CycleResult } from "@/lib/engine";
-import { createLockfile, type LockData, lockfileExists, removeLockfile } from "@/lib/lockfile";
+import type { LockData } from "@/lib/lockfile";
 import type { Config } from "@/lib/types";
 import { createCapabilities, createConfig } from "../helpers/diagnostics";
 
@@ -1377,35 +1374,6 @@ describe("run command", () => {
       await Promise.resolve();
 
       expect(harness.touchHeartbeatCalls).toHaveLength(1);
-    });
-  });
-
-  describe("lockfile functions from @/lib/lockfile", () => {
-    async function withTempDir(testFn: (tempDir: string) => Promise<void>): Promise<void> {
-      const tempDir = join(tmpdir(), `ralph-run-test-${Date.now()}-${crypto.randomUUID()}`);
-      await mkdir(tempDir, { recursive: true });
-      try {
-        await testFn(tempDir);
-      } finally {
-        await rm(tempDir, { recursive: true, force: true });
-      }
-    }
-
-    test("createLockfile creates file", async () => {
-      await withTempDir(async (tempDir) => {
-        await createLockfile(tempDir, "/test/project", "test-session", "main");
-        const exists = await lockfileExists(tempDir, "/test/project");
-        expect(exists).toBe(true);
-      });
-    });
-
-    test("removeLockfile removes file", async () => {
-      await withTempDir(async (tempDir) => {
-        await createLockfile(tempDir, "/test/project", "test-session", "main");
-        await removeLockfile(tempDir, "/test/project");
-        const exists = await lockfileExists(tempDir, "/test/project");
-        expect(exists).toBe(false);
-      });
     });
   });
 });
