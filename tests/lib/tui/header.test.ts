@@ -23,7 +23,7 @@ describe("getHeaderAgentDisplays", () => {
     const displays = getHeaderAgentDisplays(config);
 
     expect(displays.simplifierDisplay).toContain("Droid");
-    expect(displays.simplifierDisplay).toContain("GPT-5.2 Codex");
+    expect(displays.simplifierDisplay).toContain("GPT-5.2-Codex");
   });
 
   test("falls back to reviewer when simplifier is enabled but code-simplifier is missing", () => {
