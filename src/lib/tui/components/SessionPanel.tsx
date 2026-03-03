@@ -1,5 +1,6 @@
 import { useTerminalDimensions } from "@opentui/react";
 import { useEffect, useMemo, useRef } from "react";
+import { formatReviewType } from "@/lib/format";
 import type { LockData } from "@/lib/lockfile";
 import { TUI_COLORS } from "@/lib/tui/colors";
 import type {
@@ -79,24 +80,6 @@ function getStatusDisplay(
 
 function toSingleLine(value: string): string {
   return value.replace(/\s+/g, " ").trim();
-}
-
-function formatReviewType(reviewOptions: ReviewOptions | undefined): string {
-  if (!reviewOptions) return "uncommitted changes";
-
-  if (reviewOptions.customInstructions) {
-    return `custom (${toSingleLine(reviewOptions.customInstructions)})`;
-  }
-
-  if (reviewOptions.commitSha) {
-    return `commit (${toSingleLine(reviewOptions.commitSha)})`;
-  }
-
-  if (reviewOptions.baseBranch) {
-    return `base (${toSingleLine(reviewOptions.baseBranch)})`;
-  }
-
-  return "uncommitted changes";
 }
 
 interface FixListProps {
@@ -566,7 +549,7 @@ export function SessionPanel({
       <box flexDirection="row" gap={1}>
         <text fg={TUI_COLORS.text.muted}>Review Type:</text>
         <text fg={TUI_COLORS.text.primary} wrapMode="none">
-          {formatReviewType(reviewOptions)}
+          {toSingleLine(formatReviewType(reviewOptions))}
         </text>
       </box>
 
