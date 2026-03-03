@@ -422,6 +422,247 @@ describe("diagnostics checks", () => {
     expect(gitItem?.remediation).toContain("Run: git status");
   });
 
+  test("skips uncommitted checks when custom instructions are provided", async () => {
+    let uncommittedChecks = 0;
+
+    const report = await runDiagnostics("run", {
+      customInstructions: "focus on security",
+      capabilitiesByAgent: createCapabilities(),
+      dependencies: {
+        configExists: async () => true,
+        loadConfig: async () => createConfig(),
+        isGitRepository: async () => true,
+        hasUncommittedChanges: async () => {
+          uncommittedChecks += 1;
+          return false;
+        },
+        cleanupStaleLockfile: async () => false,
+        hasActiveLockfile: async () => false,
+        isTmuxInstalled: () => true,
+      },
+    });
+
+    expect(uncommittedChecks).toBe(0);
+    expect(report.items.find((item) => item.id === "git-uncommitted")).toBeUndefined();
+    expect(report.hasErrors).toBe(false);
+  });
+
+  test("reports existing base ref as ok and skips uncommitted checks", async () => {
+    let uncommittedChecks = 0;
+    const checkedRefs: string[] = [];
+
+    const report = await runDiagnostics("run", {
+      baseBranch: "origin/main",
+      capabilitiesByAgent: createCapabilities(),
+      dependencies: {
+        configExists: async () => true,
+        loadConfig: async () => createConfig(),
+        isGitRepository: async () => true,
+        gitRefExists: async (_path, ref) => {
+          checkedRefs.push(ref);
+          return true;
+        },
+        hasUncommittedChanges: async () => {
+          uncommittedChecks += 1;
+          return true;
+        },
+        cleanupStaleLockfile: async () => false,
+        hasActiveLockfile: async () => false,
+        isTmuxInstalled: () => true,
+      },
+    });
+
+    const baseRefItem = report.items.find((item) => item.id === "git-base-ref");
+    expect(baseRefItem?.severity).toBe("ok");
+    expect(baseRefItem?.summary).toContain("origin/main");
+    expect(checkedRefs).toEqual(["origin/main"]);
+    expect(uncommittedChecks).toBe(0);
+    expect(report.items.find((item) => item.id === "git-uncommitted")).toBeUndefined();
+  });
+
+  test("reports missing base ref as error", async () => {
+    const report = await runDiagnostics("run", {
+      baseBranch: "mian",
+      capabilitiesByAgent: createCapabilities(),
+      dependencies: {
+        configExists: async () => true,
+        loadConfig: async () => createConfig(),
+        isGitRepository: async () => true,
+        gitRefExists: async () => false,
+        cleanupStaleLockfile: async () => false,
+        hasActiveLockfile: async () => false,
+        isTmuxInstalled: () => true,
+      },
+    });
+
+    const baseRefItem = report.items.find((item) => item.id === "git-base-ref");
+    expect(baseRefItem?.severity).toBe("error");
+    expect(baseRefItem?.summary).toContain("mian");
+    expect(report.hasErrors).toBe(true);
+  });
+
+  test("reports blank base ref as missing using default git ref validation", async () => {
+    const repoPath = await mkdtemp(join(tmpdir(), "diagnostics-checks-git-base-blank-"));
+    try {
+      runGitIn(repoPath, ["init"]);
+
+      const report = await runDiagnostics("run", {
+        baseBranch: "   ",
+        capabilitiesByAgent: createCapabilities(),
+        projectPath: repoPath,
+        dependencies: {
+          configExists: async () => true,
+          loadConfig: async () => createConfig(),
+          cleanupStaleLockfile: async () => false,
+          hasActiveLockfile: async () => false,
+          isTmuxInstalled: () => true,
+        },
+      });
+
+      const baseRefItem = report.items.find((item) => item.id === "git-base-ref");
+      expect(baseRefItem?.severity).toBe("error");
+      expect(baseRefItem?.summary).toContain("was not found");
+    } finally {
+      await rm(repoPath, { recursive: true, force: true });
+    }
+  });
+
+  test("reports existing base ref as ok using default git ref validation", async () => {
+    const repoPath = await mkdtemp(join(tmpdir(), "diagnostics-checks-git-base-head-"));
+    try {
+      runGitIn(repoPath, ["init"]);
+      runGitIn(repoPath, ["config", "user.email", "ralph-review@example.com"]);
+      runGitIn(repoPath, ["config", "user.name", "Ralph Review"]);
+      await Bun.write(join(repoPath, "README.md"), "# test repo\n");
+      runGitIn(repoPath, ["add", "README.md"]);
+      runGitIn(repoPath, ["commit", "-m", "initial commit"]);
+
+      const report = await runDiagnostics("run", {
+        baseBranch: "HEAD",
+        capabilitiesByAgent: createCapabilities(),
+        projectPath: repoPath,
+        dependencies: {
+          configExists: async () => true,
+          loadConfig: async () => createConfig(),
+          cleanupStaleLockfile: async () => false,
+          hasActiveLockfile: async () => false,
+          isTmuxInstalled: () => true,
+        },
+      });
+
+      const baseRefItem = report.items.find((item) => item.id === "git-base-ref");
+      expect(baseRefItem?.severity).toBe("ok");
+      expect(baseRefItem?.summary).toContain("HEAD");
+      expect(baseRefItem?.summary).toContain("exists");
+    } finally {
+      await rm(repoPath, { recursive: true, force: true });
+    }
+  });
+
+  test("reports base ref validation errors explicitly", async () => {
+    const report = await runDiagnostics("run", {
+      baseBranch: "origin/main",
+      capabilitiesByAgent: createCapabilities(),
+      dependencies: {
+        configExists: async () => true,
+        loadConfig: async () => createConfig(),
+        isGitRepository: async () => true,
+        gitRefExists: async () => {
+          throw new Error("base ref check failed");
+        },
+        cleanupStaleLockfile: async () => false,
+        hasActiveLockfile: async () => false,
+        isTmuxInstalled: () => true,
+      },
+    });
+
+    const baseRefItem = report.items.find((item) => item.id === "git-base-ref");
+    expect(baseRefItem?.severity).toBe("error");
+    expect(baseRefItem?.summary).toContain("Unable to validate base ref");
+    expect(baseRefItem?.details).toContain("base ref check failed");
+    expect(baseRefItem?.remediation).toContain("Run: git branch --all");
+    expect(baseRefItem?.remediation).toContain("Then run: rr run --base <existing-ref>");
+  });
+
+  test("reports existing commit ref as ok and skips uncommitted checks", async () => {
+    let uncommittedChecks = 0;
+    const checkedRefs: string[] = [];
+
+    const report = await runDiagnostics("run", {
+      commitSha: "abc123",
+      capabilitiesByAgent: createCapabilities(),
+      dependencies: {
+        configExists: async () => true,
+        loadConfig: async () => createConfig(),
+        isGitRepository: async () => true,
+        gitRefExists: async (_path, ref) => {
+          checkedRefs.push(ref);
+          return true;
+        },
+        hasUncommittedChanges: async () => {
+          uncommittedChecks += 1;
+          return true;
+        },
+        cleanupStaleLockfile: async () => false,
+        hasActiveLockfile: async () => false,
+        isTmuxInstalled: () => true,
+      },
+    });
+
+    const commitRefItem = report.items.find((item) => item.id === "git-commit-ref");
+    expect(commitRefItem?.severity).toBe("ok");
+    expect(commitRefItem?.summary).toContain("abc123");
+    expect(checkedRefs).toEqual(["abc123"]);
+    expect(uncommittedChecks).toBe(0);
+    expect(report.items.find((item) => item.id === "git-uncommitted")).toBeUndefined();
+  });
+
+  test("reports missing commit ref as error", async () => {
+    const report = await runDiagnostics("run", {
+      commitSha: "does-not-exist",
+      capabilitiesByAgent: createCapabilities(),
+      dependencies: {
+        configExists: async () => true,
+        loadConfig: async () => createConfig(),
+        isGitRepository: async () => true,
+        gitRefExists: async () => false,
+        cleanupStaleLockfile: async () => false,
+        hasActiveLockfile: async () => false,
+        isTmuxInstalled: () => true,
+      },
+    });
+
+    const commitRefItem = report.items.find((item) => item.id === "git-commit-ref");
+    expect(commitRefItem?.severity).toBe("error");
+    expect(commitRefItem?.summary).toContain("does-not-exist");
+    expect(report.hasErrors).toBe(true);
+  });
+
+  test("reports commit ref validation errors explicitly", async () => {
+    const report = await runDiagnostics("run", {
+      commitSha: "deadbeef",
+      capabilitiesByAgent: createCapabilities(),
+      dependencies: {
+        configExists: async () => true,
+        loadConfig: async () => createConfig(),
+        isGitRepository: async () => true,
+        gitRefExists: async () => {
+          throw new Error("commit ref check failed");
+        },
+        cleanupStaleLockfile: async () => false,
+        hasActiveLockfile: async () => false,
+        isTmuxInstalled: () => true,
+      },
+    });
+
+    const commitRefItem = report.items.find((item) => item.id === "git-commit-ref");
+    expect(commitRefItem?.severity).toBe("error");
+    expect(commitRefItem?.summary).toContain("Unable to validate commit ref");
+    expect(commitRefItem?.details).toContain("commit ref check failed");
+    expect(commitRefItem?.remediation).toContain("Run: git rev-parse --verify <commit>");
+    expect(commitRefItem?.remediation).toContain("Then run: rr run --commit <sha>");
+  });
+
   test("uses default git checks to detect uncommitted changes", async () => {
     const repoPath = await mkdtemp(join(tmpdir(), "diagnostics-checks-git-"));
     try {

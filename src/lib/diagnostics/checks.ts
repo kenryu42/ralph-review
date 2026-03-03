@@ -20,6 +20,7 @@ interface RunDiagnosticsDependencies {
   ) => Promise<AgentCapabilitiesMap>;
   isGitRepository?: (path: string) => Promise<boolean>;
   hasUncommittedChanges?: (path: string) => Promise<boolean>;
+  gitRefExists?: (path: string, ref: string) => Promise<boolean>;
   cleanupStaleLockfile?: typeof cleanupStaleLockfile;
   hasActiveLockfile?: typeof hasActiveLockfile;
   isTmuxInstalled?: () => boolean;
@@ -34,6 +35,7 @@ export interface RunDiagnosticsOptions {
   projectPath?: string;
   baseBranch?: string;
   commitSha?: string;
+  customInstructions?: string;
   capabilitiesByAgent?: AgentCapabilitiesMap;
   capabilityDiscoveryOptions?: CapabilityDiscoveryOptions;
   dependencies?: RunDiagnosticsDependencies;
@@ -136,6 +138,15 @@ async function hasGitUncommittedChanges(path: string): Promise<boolean> {
   return result.stdout.trim().length > 0;
 }
 
+async function hasGitRef(path: string, ref: string): Promise<boolean> {
+  if (ref.trim().length === 0) {
+    return false;
+  }
+
+  const result = await runGitInPath(path, ["rev-parse", "--verify", ref]);
+  return result.exitCode === 0;
+}
+
 function buildReport(
   context: DiagnosticContext,
   items: DiagnosticItem[],
@@ -165,6 +176,7 @@ export async function runDiagnostics(
   const resolveCapabilityDiscovery = deps.discoverAgentCapabilities ?? discoverAgentCapabilities;
   const resolveIsGitRepo = deps.isGitRepository ?? isGitRepository;
   const resolveHasChanges = deps.hasUncommittedChanges ?? hasGitUncommittedChanges;
+  const resolveGitRefExists = deps.gitRefExists ?? hasGitRef;
   const resolveCleanupStaleLockfile = deps.cleanupStaleLockfile ?? cleanupStaleLockfile;
   const resolveHasActiveLockfile = deps.hasActiveLockfile ?? hasActiveLockfile;
   const resolveIsTmuxInstalled = deps.isTmuxInstalled ?? isTmuxInstalled;
@@ -423,7 +435,86 @@ export async function runDiagnostics(
     }
 
     if (context === "run") {
-      if (!options.baseBranch && !options.commitSha && insideGitRepo && !gitRepoError) {
+      if (insideGitRepo && !gitRepoError && options.baseBranch) {
+        let baseRefExists = false;
+        let baseRefError: string | null = null;
+        try {
+          baseRefExists = await resolveGitRefExists(projectPath, options.baseBranch);
+        } catch (error) {
+          baseRefError = `${error}`;
+        }
+
+        if (baseRefError) {
+          items.push({
+            id: "git-base-ref",
+            category: "git",
+            title: "Base ref",
+            severity: "error",
+            summary: `Unable to validate base ref '${options.baseBranch}'.`,
+            details: baseRefError,
+            remediation: [runStep("git branch --all"), thenStep("rr run --base <existing-ref>")],
+          });
+        } else {
+          items.push({
+            id: "git-base-ref",
+            category: "git",
+            title: "Base ref",
+            severity: baseRefExists ? "ok" : "error",
+            summary: baseRefExists
+              ? `Base ref '${options.baseBranch}' exists.`
+              : `Base ref '${options.baseBranch}' was not found.`,
+            remediation: baseRefExists
+              ? []
+              : [runStep("git branch --all"), thenStep("rr run --base <existing-ref>")],
+          });
+        }
+      }
+
+      if (insideGitRepo && !gitRepoError && options.commitSha) {
+        let commitRefExists = false;
+        let commitRefError: string | null = null;
+        try {
+          commitRefExists = await resolveGitRefExists(projectPath, options.commitSha);
+        } catch (error) {
+          commitRefError = `${error}`;
+        }
+
+        if (commitRefError) {
+          items.push({
+            id: "git-commit-ref",
+            category: "git",
+            title: "Commit ref",
+            severity: "error",
+            summary: `Unable to validate commit ref '${options.commitSha}'.`,
+            details: commitRefError,
+            remediation: [
+              runStep("git rev-parse --verify <commit>"),
+              thenStep("rr run --commit <sha>"),
+            ],
+          });
+        } else {
+          items.push({
+            id: "git-commit-ref",
+            category: "git",
+            title: "Commit ref",
+            severity: commitRefExists ? "ok" : "error",
+            summary: commitRefExists
+              ? `Commit ref '${options.commitSha}' exists.`
+              : `Commit ref '${options.commitSha}' was not found.`,
+            remediation: commitRefExists
+              ? []
+              : [runStep("git log --oneline -n 20"), thenStep("rr run --commit <existing-sha>")],
+          });
+        }
+      }
+
+      if (
+        !options.baseBranch &&
+        !options.commitSha &&
+        !options.customInstructions &&
+        insideGitRepo &&
+        !gitRepoError
+      ) {
         let hasChanges = false;
         let hasChangesError: string | null = null;
         try {
