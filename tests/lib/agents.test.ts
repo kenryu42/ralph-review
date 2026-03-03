@@ -82,30 +82,28 @@ describe("agents", () => {
       expect(args.some((a: string) => a.includes("review"))).toBe(true);
     });
 
-    test("commitSha takes precedence over customInstructions", () => {
+    test("uses exec mode when customInstructions is combined with commitSha", () => {
       const reviewOptions: ReviewOptions = {
         commitSha: "abc123",
         customInstructions: "check security",
       };
       const args = AGENTS.codex.config.buildArgs("reviewer", "ignored", undefined, reviewOptions);
-      expect(args).toContain("review");
-      expect(args).toContain("--commit");
-      expect(args).toContain("abc123");
-      expect(args).not.toContain("--full-auto");
+      expect(args).toContain("exec");
+      expect(args).toContain("--full-auto");
+      expect(args.some((a: string) => a.includes("review"))).toBe(true);
       expect(args).not.toContain("--base");
       expect(args).not.toContain("--uncommitted");
     });
 
-    test("baseBranch takes precedence over customInstructions", () => {
+    test("uses exec mode when customInstructions is combined with baseBranch", () => {
       const reviewOptions: ReviewOptions = {
         baseBranch: "main",
         customInstructions: "check security",
       };
       const args = AGENTS.codex.config.buildArgs("reviewer", "ignored", undefined, reviewOptions);
-      expect(args).toContain("review");
-      expect(args).toContain("--base");
-      expect(args).toContain("main");
-      expect(args).not.toContain("--full-auto");
+      expect(args).toContain("exec");
+      expect(args).toContain("--full-auto");
+      expect(args.some((a: string) => a.includes("review"))).toBe(true);
       expect(args).not.toContain("--commit");
       expect(args).not.toContain("--uncommitted");
     });

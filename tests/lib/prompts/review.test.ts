@@ -25,7 +25,7 @@ function expectStructuredOutputProtocol(prompt: string): void {
 }
 
 describe("createReviewerPrompt", () => {
-  test("prioritizes commit over base branch and custom instructions", () => {
+  test("combines commit instructions with custom focus when both are provided", () => {
     const prompt = createReviewerPrompt({
       repoPath: REPO_PATH,
       commitSha: "abc1234",
@@ -34,11 +34,12 @@ describe("createReviewerPrompt", () => {
     });
 
     expect(prompt).toContain("Review the code changes for the commit abc1234");
-    expect(prompt).not.toContain("custom reviewer instructions");
+    expect(prompt).toContain("custom reviewer instructions");
+    expect(prompt).not.toContain("Review the code changes against the base branch");
     expectStructuredOutputProtocol(prompt);
   });
 
-  test("uses merge-base base branch instructions when merge base resolves", () => {
+  test("combines merge-base base branch instructions with custom focus", () => {
     const prompt = createReviewerPrompt({
       repoPath: REPO_PATH,
       baseBranch: resolveCurrentRef(REPO_PATH),
@@ -48,7 +49,7 @@ describe("createReviewerPrompt", () => {
     expect(prompt).toContain("The merge base commit for this comparison is");
     expect(prompt).toContain("Run `git diff");
     expect(prompt).toContain("Provide prioritized, actionable findings.");
-    expect(prompt).not.toContain("custom reviewer instructions");
+    expect(prompt).toContain("custom reviewer instructions");
     expect(prompt).not.toContain("Start by finding the merge diff between the current branch");
     expectStructuredOutputProtocol(prompt);
   });

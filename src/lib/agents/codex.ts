@@ -52,18 +52,18 @@ export const codexConfig: AgentConfig = {
 
     const baseReviewArgs = withReasoningEffort(["exec", "--json"], reasoning);
 
+    if (reviewOptions?.customInstructions) {
+      const fullPrompt = prompt ? `review ${prompt}` : "review";
+      const customArgs = withReasoningEffort(["exec", "--full-auto", "--json"], reasoning);
+      return withModel([...customArgs, fullPrompt], model);
+    }
+
     if (reviewOptions?.commitSha) {
       return withModel([...baseReviewArgs, "review", "--commit", reviewOptions.commitSha], model);
     }
 
     if (reviewOptions?.baseBranch) {
       return withModel([...baseReviewArgs, "review", "--base", reviewOptions.baseBranch], model);
-    }
-
-    if (reviewOptions?.customInstructions) {
-      const fullPrompt = prompt ? `review ${prompt}` : "review";
-      const customArgs = withReasoningEffort(["exec", "--full-auto", "--json"], reasoning);
-      return withModel([...customArgs, fullPrompt], model);
     }
 
     return withModel([...baseReviewArgs, "review", "--uncommitted"], model);

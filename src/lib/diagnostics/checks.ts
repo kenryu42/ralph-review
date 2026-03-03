@@ -508,13 +508,7 @@ export async function runDiagnostics(
         }
       }
 
-      if (
-        !options.baseBranch &&
-        !options.commitSha &&
-        !options.customInstructions &&
-        insideGitRepo &&
-        !gitRepoError
-      ) {
+      if (!options.baseBranch && !options.commitSha && insideGitRepo && !gitRepoError) {
         let hasChanges = false;
         let hasChangesError: string | null = null;
         try {

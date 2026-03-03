@@ -985,6 +985,38 @@ describe("run command", () => {
       expect(harness.diagnosticsCalls[0]?.options.customInstructions).toBe("focus on security");
     });
 
+    test("allows base and custom options together", async () => {
+      const harness = createRunHarness({
+        runValues: {
+          base: "main",
+          custom: "focus on security",
+        },
+      });
+
+      await startReview([], harness.overrides);
+
+      expect(harness.diagnosticsCalls).toHaveLength(1);
+      expect(harness.diagnosticsCalls[0]?.options.baseBranch).toBe("main");
+      expect(harness.diagnosticsCalls[0]?.options.customInstructions).toBe("focus on security");
+      expect(harness.createSessionCalls).toHaveLength(1);
+    });
+
+    test("allows commit and custom options together", async () => {
+      const harness = createRunHarness({
+        runValues: {
+          commit: "abc123",
+          custom: "focus on security",
+        },
+      });
+
+      await startReview([], harness.overrides);
+
+      expect(harness.diagnosticsCalls).toHaveLength(1);
+      expect(harness.diagnosticsCalls[0]?.options.commitSha).toBe("abc123");
+      expect(harness.diagnosticsCalls[0]?.options.customInstructions).toBe("focus on security");
+      expect(harness.createSessionCalls).toHaveLength(1);
+    });
+
     test("exits when base branch is an empty string", async () => {
       const harness = createRunHarness({
         runValues: {
@@ -1069,6 +1101,54 @@ describe("run command", () => {
 
       expect(exitCode).toBe(1);
       expect(harness.errors[0]).toContain("Cannot use --base and --commit together");
+    });
+
+    test("exits when --uncommitted and --custom are combined", async () => {
+      const harness = createRunHarness({
+        runValues: {
+          uncommitted: true,
+          custom: "focus on security",
+        },
+      });
+
+      const exitCode = await captureExitCode(async () => {
+        await startReview([], harness.overrides);
+      });
+
+      expect(exitCode).toBe(1);
+      expect(harness.errors[0]).toContain("Cannot use --uncommitted and --custom together");
+    });
+
+    test("exits when --uncommitted and --base are combined", async () => {
+      const harness = createRunHarness({
+        runValues: {
+          uncommitted: true,
+          base: "main",
+        },
+      });
+
+      const exitCode = await captureExitCode(async () => {
+        await startReview([], harness.overrides);
+      });
+
+      expect(exitCode).toBe(1);
+      expect(harness.errors[0]).toContain("Cannot use --uncommitted and --base together");
+    });
+
+    test("exits when --uncommitted and --commit are combined", async () => {
+      const harness = createRunHarness({
+        runValues: {
+          uncommitted: true,
+          commit: "abc123",
+        },
+      });
+
+      const exitCode = await captureExitCode(async () => {
+        await startReview([], harness.overrides);
+      });
+
+      expect(exitCode).toBe(1);
+      expect(harness.errors[0]).toContain("Cannot use --uncommitted and --commit together");
     });
 
     test("prints diagnostic errors and remediation and exits", async () => {

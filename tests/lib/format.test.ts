@@ -36,13 +36,20 @@ describe("formatReviewType", () => {
     expect(formatReviewType({ customInstructions: instruction })).toBe(`custom (${instruction})`);
   });
 
-  test("custom instructions take priority over other options", () => {
+  test("returns commit + custom format when both are provided", () => {
+    const options: ReviewOptions = {
+      customInstructions: "check stuff",
+      commitSha: "abc1234567890",
+    };
+    expect(formatReviewType(options)).toBe("commit (abc1234) + custom (check stuff)");
+  });
+
+  test("returns base + custom format when both are provided", () => {
     const options: ReviewOptions = {
       customInstructions: "check stuff",
       baseBranch: "main",
-      commitSha: "abc1234",
     };
-    expect(formatReviewType(options)).toBe("custom (check stuff)");
+    expect(formatReviewType(options)).toBe("base (main) + custom (check stuff)");
   });
 
   test("commitSha takes priority over baseBranch", () => {

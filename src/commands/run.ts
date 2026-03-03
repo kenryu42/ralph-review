@@ -618,15 +618,26 @@ export async function startReview(
     }
   }
 
-  const modeOptions = [
-    options.base !== undefined && "--base",
-    options.uncommitted && "--uncommitted",
-    options.commit !== undefined && "--commit",
-    options.custom !== undefined && "--custom",
-  ].filter(Boolean);
+  if (options.base !== undefined && options.commit !== undefined) {
+    runtime.prompt.log.error("Cannot use --base and --commit together");
+    runtime.process.exit(1);
+    return;
+  }
 
-  if (modeOptions.length > 1) {
-    runtime.prompt.log.error(`Cannot use ${modeOptions.join(" and ")} together`);
+  if (options.uncommitted && options.base !== undefined) {
+    runtime.prompt.log.error("Cannot use --uncommitted and --base together");
+    runtime.process.exit(1);
+    return;
+  }
+
+  if (options.uncommitted && options.commit !== undefined) {
+    runtime.prompt.log.error("Cannot use --uncommitted and --commit together");
+    runtime.process.exit(1);
+    return;
+  }
+
+  if (options.uncommitted && options.custom !== undefined) {
+    runtime.prompt.log.error("Cannot use --uncommitted and --custom together");
     runtime.process.exit(1);
     return;
   }

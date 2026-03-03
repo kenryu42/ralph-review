@@ -422,7 +422,7 @@ describe("diagnostics checks", () => {
     expect(gitItem?.remediation).toContain("Run: git status");
   });
 
-  test("skips uncommitted checks when custom instructions are provided", async () => {
+  test("runs uncommitted checks when custom instructions are provided", async () => {
     let uncommittedChecks = 0;
 
     const report = await runDiagnostics("run", {
@@ -442,9 +442,11 @@ describe("diagnostics checks", () => {
       },
     });
 
-    expect(uncommittedChecks).toBe(0);
-    expect(report.items.find((item) => item.id === "git-uncommitted")).toBeUndefined();
-    expect(report.hasErrors).toBe(false);
+    expect(uncommittedChecks).toBe(1);
+    const uncommittedItem = report.items.find((item) => item.id === "git-uncommitted");
+    expect(uncommittedItem?.severity).toBe("error");
+    expect(uncommittedItem?.summary).toBe("No uncommitted changes to review.");
+    expect(report.hasErrors).toBe(true);
   });
 
   test("reports existing base ref as ok and skips uncommitted checks", async () => {

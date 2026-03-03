@@ -19,6 +19,16 @@ const BASE_BRANCH_PROMPT_BACKUP = (branch: string) =>
 const COMMIT_PROMPT = (commitHash: string) =>
   `Review the code changes for the commit ${commitHash}. Provide prioritized, actionable findings.`;
 
+const CUSTOM_FOCUS_PROMPT = (customInstructions: string) =>
+  `Additional review focus from user instructions:\n${customInstructions}`;
+
+function withCustomFocus(instruction: string, customInstructions?: string): string {
+  if (!customInstructions) {
+    return instruction;
+  }
+  return `${instruction}\n\n${CUSTOM_FOCUS_PROMPT(customInstructions)}`;
+}
+
 export interface ReviewerPromptOptions {
   repoPath: string;
   baseBranch?: string;
@@ -26,19 +36,20 @@ export interface ReviewerPromptOptions {
   customInstructions?: string;
 }
 
-/** Priority: commitSha > baseBranch > customInstructions > uncommitted (default) */
+/** Target priority: commitSha > baseBranch > uncommitted (default), with custom focus overlay. */
 export function createReviewerPrompt(options: ReviewerPromptOptions): string {
   const { repoPath, baseBranch, commitSha, customInstructions } = options;
 
   let instruction: string;
 
   if (commitSha) {
-    instruction = COMMIT_PROMPT(commitSha);
+    instruction = withCustomFocus(COMMIT_PROMPT(commitSha), customInstructions);
   } else if (baseBranch) {
     const mergeBaseSha = mergeBaseWithHead(repoPath, baseBranch);
-    instruction = mergeBaseSha
+    const baseInstruction = mergeBaseSha
       ? BASE_BRANCH_PROMPT(baseBranch, mergeBaseSha)
       : BASE_BRANCH_PROMPT_BACKUP(baseBranch);
+    instruction = withCustomFocus(baseInstruction, customInstructions);
   } else if (customInstructions) {
     instruction = customInstructions;
   } else {
