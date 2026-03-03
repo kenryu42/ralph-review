@@ -582,7 +582,26 @@ export async function startReview(
 
   const loadedConfig = await runtime.loadConfig();
 
-  const hasExplicitMode = options.base || options.uncommitted || options.commit || options.custom;
+  if (options.custom !== undefined && options.custom.trim().length === 0) {
+    runtime.prompt.log.error("--custom cannot be empty");
+    runtime.process.exit(1);
+    return;
+  }
+
+  if (options.commit !== undefined) {
+    options.commit = options.commit.trim();
+    if (options.commit.length === 0) {
+      runtime.prompt.log.error("--commit cannot be empty");
+      runtime.process.exit(1);
+      return;
+    }
+  }
+
+  const hasExplicitMode =
+    options.base !== undefined ||
+    options.uncommitted === true ||
+    options.commit !== undefined ||
+    options.custom !== undefined;
   if (!hasExplicitMode) {
     if (loadedConfig?.defaultReview?.type === "base") {
       options.base = loadedConfig.defaultReview.branch;
@@ -590,11 +609,20 @@ export async function startReview(
     // else: defaults to uncommitted behavior (no base flag)
   }
 
+  if (options.base !== undefined) {
+    options.base = options.base.trim();
+    if (options.base.length === 0) {
+      runtime.prompt.log.error("--base cannot be empty");
+      runtime.process.exit(1);
+      return;
+    }
+  }
+
   const modeOptions = [
-    options.base && "--base",
+    options.base !== undefined && "--base",
     options.uncommitted && "--uncommitted",
-    options.commit && "--commit",
-    options.custom && "--custom",
+    options.commit !== undefined && "--commit",
+    options.custom !== undefined && "--custom",
   ].filter(Boolean);
 
   if (modeOptions.length > 1) {
@@ -611,6 +639,7 @@ export async function startReview(
       projectPath: runtime.process.cwd(),
       baseBranch: options.base,
       commitSha: options.commit,
+      customInstructions: options.custom,
       capabilityDiscoveryOptions: {
         probeAgents: getDynamicProbeAgents(loadedConfig),
       },

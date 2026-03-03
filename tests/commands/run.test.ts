@@ -955,6 +955,106 @@ describe("run command", () => {
       expect(harness.createSessionCalls).toHaveLength(1);
     });
 
+    test("trims base branch from defaultReview before diagnostics", async () => {
+      const config = createConfig();
+      config.defaultReview = {
+        type: "base",
+        branch: " origin/main ",
+      };
+      const harness = createRunHarness({
+        runValues: {},
+        loadConfigResults: [config],
+      });
+
+      await startReview([], harness.overrides);
+
+      expect(harness.diagnosticsCalls).toHaveLength(1);
+      expect(harness.diagnosticsCalls[0]?.options.baseBranch).toBe("origin/main");
+    });
+
+    test("passes custom instructions to diagnostics when custom mode is selected", async () => {
+      const harness = createRunHarness({
+        runValues: {
+          custom: "focus on security",
+        },
+      });
+
+      await startReview([], harness.overrides);
+
+      expect(harness.diagnosticsCalls).toHaveLength(1);
+      expect(harness.diagnosticsCalls[0]?.options.customInstructions).toBe("focus on security");
+    });
+
+    test("exits when base branch is an empty string", async () => {
+      const harness = createRunHarness({
+        runValues: {
+          base: "",
+        },
+      });
+
+      const exitCode = await captureExitCode(async () => {
+        await startReview([], harness.overrides);
+      });
+
+      expect(exitCode).toBe(1);
+      expect(harness.errors).toContain("--base cannot be empty");
+      expect(harness.diagnosticsCalls).toHaveLength(0);
+    });
+
+    test("does not fallback to defaultReview when base is explicitly empty", async () => {
+      const config = createConfig();
+      config.defaultReview = {
+        type: "base",
+        branch: "origin/main",
+      };
+      const harness = createRunHarness({
+        runValues: {
+          base: "",
+        },
+        loadConfigResults: [config],
+      });
+
+      const exitCode = await captureExitCode(async () => {
+        await startReview([], harness.overrides);
+      });
+
+      expect(exitCode).toBe(1);
+      expect(harness.errors).toContain("--base cannot be empty");
+      expect(harness.diagnosticsCalls).toHaveLength(0);
+    });
+
+    test("exits when commit sha is an empty string", async () => {
+      const harness = createRunHarness({
+        runValues: {
+          commit: "",
+        },
+      });
+
+      const exitCode = await captureExitCode(async () => {
+        await startReview([], harness.overrides);
+      });
+
+      expect(exitCode).toBe(1);
+      expect(harness.errors).toContain("--commit cannot be empty");
+      expect(harness.diagnosticsCalls).toHaveLength(0);
+    });
+
+    test("exits when custom instructions are an empty string", async () => {
+      const harness = createRunHarness({
+        runValues: {
+          custom: "",
+        },
+      });
+
+      const exitCode = await captureExitCode(async () => {
+        await startReview([], harness.overrides);
+      });
+
+      expect(exitCode).toBe(1);
+      expect(harness.errors).toContain("--custom cannot be empty");
+      expect(harness.diagnosticsCalls).toHaveLength(0);
+    });
+
     test("exits when mutually exclusive review mode options are combined", async () => {
       const harness = createRunHarness({
         runValues: {
