@@ -782,7 +782,7 @@ describe("init command", () => {
           },
         }),
         selectResponses: ["auto"],
-        confirmResponses: [true, true, true],
+        confirmResponses: [true],
       });
 
       await runInitWithRuntime(harness.overrides);
@@ -795,6 +795,8 @@ describe("init command", () => {
       );
       expect(harness.spinnerStops).toContain("Automatic configuration ready");
       expect(harness.savedConfigs).toHaveLength(1);
+      expect(harness.savedConfigs[0]?.run?.watch).toBe(true);
+      expect(harness.savedConfigs[0]?.notifications.sound.enabled).toBe(true);
       expect(harness.ensureConfigDirCalls).toBe(1);
       expect(harness.successes[0]).toContain("Configuration saved to");
       expect(harness.outros).toEqual(["You can now run: rr run"]);
@@ -1120,7 +1122,7 @@ describe("init command", () => {
         availability: createAvailability({ codex: true }),
         capabilities: createCapabilities(),
         selectResponses: ["auto"],
-        confirmResponses: [true, true, false],
+        confirmResponses: [false],
       });
 
       await runInitWithRuntime(harness.overrides);

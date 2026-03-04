@@ -754,8 +754,8 @@ export async function buildAutoInitInput(
       iterationTimeoutMinutes,
       defaultReviewType: "uncommitted",
       runSimplifierByDefault: false,
-      runWatchByDefault: DEFAULT_CONFIG.run?.watch ?? true,
-      soundNotificationsEnabled: DEFAULT_CONFIG.notifications?.sound.enabled ?? true,
+      runWatchByDefault: true,
+      soundNotificationsEnabled: true,
     },
     skippedAgents,
   };
@@ -1043,14 +1043,21 @@ export async function runInitWithRuntime(
   }
 
   const resolvedInput = requireInitInput(runtime, input);
-  const inputWithPreferences: InitInput = {
-    ...resolvedInput,
-    runWatchByDefault: await promptForRunWatch(runtime, resolvedInput.runWatchByDefault),
-    soundNotificationsEnabled: await promptForSoundNotifications(
-      runtime,
-      resolvedInput.soundNotificationsEnabled
-    ),
-  };
+  const inputWithPreferences: InitInput =
+    setupMode === "auto"
+      ? {
+          ...resolvedInput,
+          runWatchByDefault: true,
+          soundNotificationsEnabled: true,
+        }
+      : {
+          ...resolvedInput,
+          runWatchByDefault: await promptForRunWatch(runtime, resolvedInput.runWatchByDefault),
+          soundNotificationsEnabled: await promptForSoundNotifications(
+            runtime,
+            resolvedInput.soundNotificationsEnabled
+          ),
+        };
 
   const config = buildConfig(inputWithPreferences);
   runtime.prompt.log.info(`Proposed configuration:\n${formatConfigDisplay(config)}`);
