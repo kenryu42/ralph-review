@@ -151,6 +151,107 @@ describe("html", () => {
       expect(html).toContain("Minor style issue");
     });
 
+    test("renders diff-style fix range and file fallback from code_location", () => {
+      const iterEntry: IterationEntry = {
+        type: "iteration",
+        timestamp: Date.now(),
+        iteration: 1,
+        duration: 5000,
+        fixes: buildFixSummary({
+          decision: "APPLY_SELECTIVELY",
+          fixes: [
+            {
+              id: 1,
+              title: "Fix null check",
+              priority: "P0",
+              file: null,
+              claim: "Missing null check",
+              evidence: "auth.ts:42",
+              fix: "Added null check",
+              code_location: {
+                absolute_file_path: "/tmp/src/auth.ts",
+                line_range: {
+                  start: 42,
+                  end: 45,
+                },
+              },
+            },
+          ],
+        }),
+      };
+
+      const html = generateLogHtml([iterEntry]);
+      expect(html).toContain("/tmp/src/auth.ts");
+      expect(html).toContain("@@ -42,4 +42,4 @@");
+    });
+
+    test("uses code_location absolute file path when file is missing", () => {
+      const iterEntry: IterationEntry = {
+        type: "iteration",
+        timestamp: Date.now(),
+        iteration: 1,
+        duration: 5000,
+        fixes: buildFixSummary({
+          decision: "APPLY_SELECTIVELY",
+          fixes: [
+            {
+              id: 1,
+              title: "Fix path fallback",
+              priority: "P1",
+              claim: "Claim",
+              evidence: "Evidence",
+              fix: "Fix",
+              code_location: {
+                absolute_file_path: "/tmp/src/fallback.ts",
+                line_range: {
+                  start: 7,
+                  end: 7,
+                },
+              },
+            },
+          ],
+        }),
+      };
+
+      const html = generateLogHtml([iterEntry]);
+      expect(html).toContain("/tmp/src/fallback.ts");
+      expect(html).toContain("@@ -7 +7 @@");
+    });
+
+    test("does not render fallback file or range for malformed code_location line range", () => {
+      const iterEntry = {
+        type: "iteration",
+        timestamp: Date.now(),
+        iteration: 1,
+        duration: 5000,
+        // Deliberately malformed runtime payload to cover validation fallbacks.
+        fixes: {
+          decision: "APPLY_SELECTIVELY",
+          stop_iteration: false,
+          fixes: [
+            {
+              id: 1,
+              title: "Fix malformed location",
+              priority: "P1",
+              file: null,
+              claim: "Claim",
+              evidence: "Evidence",
+              fix: "Fix",
+              code_location: {
+                absolute_file_path: "/tmp/src/invalid-line-range.ts",
+                line_range: null,
+              },
+            },
+          ],
+          skipped: [],
+        },
+      } as unknown as IterationEntry;
+
+      const html = generateLogHtml([iterEntry]);
+      expect(html).not.toContain("/tmp/src/invalid-line-range.ts");
+      expect(html).not.toContain("fix-range mono");
+    });
+
     test("renders iteration entry with error", () => {
       const iterEntry: IterationEntry = {
         type: "iteration",

@@ -136,6 +136,105 @@ describe("buildDashboardViewModel", () => {
     expect(sessionVm.fixerDisplay).toBe("Codex (GPT-5, medium)");
   });
 
+  test("preserves fix code_location metadata in sorted fixes", () => {
+    const fixWithLocation: FixEntry = {
+      id: 1,
+      title: "Fix location-aware rendering",
+      priority: "P1",
+      file: null,
+      claim: "claim",
+      evidence: "evidence",
+      fix: "fix",
+      code_location: {
+        absolute_file_path: "/repo/src/example.ts",
+        line_range: {
+          start: 10,
+          end: 12,
+        },
+      },
+    };
+
+    const session = createSession({
+      totalFixes: 1,
+      entries: [
+        createSystemEntry(),
+        {
+          type: "iteration",
+          timestamp: 2,
+          iteration: 1,
+          fixes: buildFixSummary({
+            fixes: [fixWithLocation],
+          }),
+        },
+      ],
+    });
+
+    const viewModel = buildDashboardViewModel(createDashboardData([[session]]));
+    const sessionVm = viewModel.sessionsByPath[session.sessionPath];
+    expect(sessionVm).toBeDefined();
+    if (!sessionVm) throw new Error("expected session view model to exist");
+
+    expect(sessionVm.sortedFixes).toEqual([
+      {
+        priority: "P1",
+        title: "Fix location-aware rendering",
+        file: "",
+        codeLocation: {
+          absoluteFilePath: "/repo/src/example.ts",
+          lineStart: 10,
+          lineEnd: 12,
+        },
+      },
+    ]);
+  });
+
+  test("omits code location metadata when line range is invalid", () => {
+    const fixWithInvalidLocation: FixEntry = {
+      id: 1,
+      title: "Fix with invalid location",
+      priority: "P1",
+      file: null,
+      claim: "claim",
+      evidence: "evidence",
+      fix: "fix",
+      code_location: {
+        absolute_file_path: "/repo/src/example.ts",
+        line_range: {
+          start: 12,
+          end: 10,
+        },
+      },
+    };
+
+    const session = createSession({
+      totalFixes: 1,
+      entries: [
+        createSystemEntry(),
+        {
+          type: "iteration",
+          timestamp: 2,
+          iteration: 1,
+          fixes: buildFixSummary({
+            fixes: [fixWithInvalidLocation],
+          }),
+        },
+      ],
+    });
+
+    const viewModel = buildDashboardViewModel(createDashboardData([[session]]));
+    const sessionVm = viewModel.sessionsByPath[session.sessionPath];
+    expect(sessionVm).toBeDefined();
+    if (!sessionVm) throw new Error("expected session view model to exist");
+
+    expect(sessionVm.sortedFixes).toEqual([
+      {
+        priority: "P1",
+        title: "Fix with invalid location",
+        file: "",
+      },
+    ]);
+  });
+
   test("uses running badge when session status is not completed", () => {
     const session = createSession({
       status: "running",

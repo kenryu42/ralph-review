@@ -359,6 +359,11 @@ export const DASHBOARD_CSS = `
   .fix-pill-default { background: var(--accent); }
   .fix-title, .skip-title { font-weight: 600; font-size: 13px; }
   .fix-meta, .skip-reason { font-size: 11px; margin-top: 4px; }
+  .fix-range {
+    margin-top: 6px;
+    color: rgba(237, 242, 255, 0.84);
+    font-size: 11px;
+  }
   .muted { color: var(--muted); }
   .empty { padding: 24px; text-align: center; color: var(--muted); border: 1px dashed var(--border); border-radius: 16px; background: rgba(9, 14, 23, 0.6); }
   .empty.tiny { padding: 12px; font-size: 12px; }

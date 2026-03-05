@@ -163,6 +163,48 @@ const DASHBOARD_SCRIPT_TEMPLATE = `
   const sortByPriority = (fixes) =>
     [...fixes].sort((a, b) => getPriorityRank(a.priority) - getPriorityRank(b.priority));
 
+  const formatFixRangeHunk = (lineStart, lineEnd) => {
+    const count = lineEnd - lineStart + 1;
+    if (count <= 1) {
+      return \`@@ -\${lineStart} +\${lineStart} @@\`;
+    }
+    return \`@@ -\${lineStart},\${count} +\${lineStart},\${count} @@\`;
+  };
+
+  const normalizeFixCodeLocation = (fix) => {
+    const vmLocation = fix?.codeLocation;
+    if (
+      vmLocation &&
+      typeof vmLocation.absoluteFilePath === "string" &&
+      Number.isInteger(vmLocation.lineStart) &&
+      Number.isInteger(vmLocation.lineEnd) &&
+      vmLocation.lineStart > 0 &&
+      vmLocation.lineEnd >= vmLocation.lineStart
+    ) {
+      return vmLocation;
+    }
+
+    const rawLocation = fix?.code_location;
+    const start = rawLocation?.line_range?.start;
+    const end = rawLocation?.line_range?.end;
+    if (
+      rawLocation &&
+      typeof rawLocation.absolute_file_path === "string" &&
+      Number.isInteger(start) &&
+      Number.isInteger(end) &&
+      start > 0 &&
+      end >= start
+    ) {
+      return {
+        absoluteFilePath: rawLocation.absolute_file_path,
+        lineStart: start,
+        lineEnd: end,
+      };
+    }
+
+    return null;
+  };
+
   const extractFixes = (entries) => {
     const fixes = [];
     const skipped = [];
@@ -298,15 +340,24 @@ const DASHBOARD_SCRIPT_TEMPLATE = `
           <div class="panel-title">Fixes Applied</div>
           \${fixes.length
             ? \`<ul class="fix-list">\${fixes
-                .map((fix) => \`
+                .map((fix) => {
+                  const location = normalizeFixCodeLocation(fix);
+                  const filePath = fix.file || location?.absoluteFilePath || "";
+                  const range = location
+                    ? \`<div class="fix-range mono">\${escapeHtml(formatFixRangeHunk(location.lineStart, location.lineEnd))}</div>\`
+                    : "";
+
+                  return \`
                   <li class="fix-item">
                     <div class="fix-pill \${getPriorityPillClass(fix.priority)}">\${escapeHtml(fix.priority)}</div>
                     <div>
                       <div class="fix-title">\${escapeHtml(fix.title)}</div>
-                      <div class="fix-meta muted">\${escapeHtml(fix.file || "")}</div>
+                      <div class="fix-meta muted">\${escapeHtml(filePath)}</div>
+                      \${range}
                     </div>
                   </li>
-                \`)
+                \`;
+                })
                 .join("")}</ul>\`
             : '<div class="muted">No fixes recorded for this session.</div>'}
         </div>

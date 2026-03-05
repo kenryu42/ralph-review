@@ -3,8 +3,10 @@ import { getPriorityPillClass } from "@/lib/html/priority";
 import { escapeHtml, formatDate, formatDuration } from "@/lib/html/shared";
 import type {
   AgentSettings,
+  CodeLocation,
   FixEntry,
   IterationEntry,
+  LineRange,
   LogEntry,
   SkippedEntry,
   SystemEntry,
@@ -20,8 +22,64 @@ function isCodeSimplified(systemEntry: SystemEntry | undefined): boolean {
   return Boolean(systemEntry.codeSimplifier || systemEntry.reviewOptions?.simplifier);
 }
 
+function isValidLineRange(lineRange: LineRange | undefined): lineRange is LineRange {
+  if (!lineRange) {
+    return false;
+  }
+
+  return (
+    Number.isInteger(lineRange.start) &&
+    Number.isInteger(lineRange.end) &&
+    lineRange.start > 0 &&
+    lineRange.end >= lineRange.start
+  );
+}
+
+function isValidCodeLocation(location: CodeLocation | null | undefined): location is CodeLocation {
+  if (!location || typeof location.absolute_file_path !== "string") {
+    return false;
+  }
+
+  return isValidLineRange(location.line_range);
+}
+
+function getFixDisplayFile(fix: FixEntry): string {
+  if (fix.file) {
+    return fix.file;
+  }
+
+  const location = fix.code_location;
+  if (isValidCodeLocation(location)) {
+    return location.absolute_file_path;
+  }
+
+  return "";
+}
+
+function formatFixRangeHunk(start: number, end: number): string {
+  const count = end - start + 1;
+  if (count <= 1) {
+    return `@@ -${start} +${start} @@`;
+  }
+  return `@@ -${start},${count} +${start},${count} @@`;
+}
+
+function renderFixRange(fix: FixEntry): string {
+  const location = fix.code_location;
+  if (!isValidCodeLocation(location)) {
+    return "";
+  }
+
+  const lineStart = location.line_range.start;
+  const lineEnd = location.line_range.end;
+
+  return `<div class="fix-range mono">${escapeHtml(formatFixRangeHunk(lineStart, lineEnd))}</div>`;
+}
+
 function renderFixEntry(fix: FixEntry): string {
-  const file = fix.file ? `<span class="muted">${escapeHtml(fix.file)}</span>` : "";
+  const filePath = getFixDisplayFile(fix);
+  const file = filePath ? `<span class="muted">${escapeHtml(filePath)}</span>` : "";
+  const range = renderFixRange(fix);
   const pillClass = getPriorityPillClass(fix.priority);
   return `
     <li class="fix-item">
@@ -29,6 +87,7 @@ function renderFixEntry(fix: FixEntry): string {
       <div>
         <div class="fix-title">${escapeHtml(fix.title)}</div>
         <div class="fix-meta">${file}</div>
+        ${range}
       </div>
     </li>
   `;

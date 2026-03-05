@@ -84,9 +84,15 @@ export const LOG_CSS = `
   .fix-pill-default { background: var(--accent); }
   .fix-title { font-weight: 600; }
   .fix-meta { font-size: 12px; margin-top: 4px; }
+  .fix-range {
+    margin-top: 6px;
+    color: rgba(237, 242, 255, 0.85);
+    font-size: 12px;
+  }
   .skip-title { font-weight: 600; }
   .skip-reason { font-size: 12px; }
   .muted { color: var(--muted); }
+  .mono { font-family: "Space Grotesk", monospace; }
   .callout {
     margin-top: 12px;
     padding: 12px 16px;

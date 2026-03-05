@@ -17,6 +17,11 @@ interface FixViewModel {
   priority: FixEntry["priority"];
   title: string;
   file: string;
+  codeLocation?: {
+    absoluteFilePath: string;
+    lineStart: number;
+    lineEnd: number;
+  };
 }
 
 interface SkippedViewModel {
@@ -99,16 +104,45 @@ function formatRoleDisplay(name: string, model: string, reasoning: string): stri
   return `${name} (${details.join(", ")})`;
 }
 
+function toCodeLocationViewModel(fix: FixEntry): FixViewModel["codeLocation"] {
+  const location = fix.code_location;
+  if (!location) {
+    return undefined;
+  }
+
+  const lineStart = location.line_range?.start;
+  const lineEnd = location.line_range?.end;
+  if (
+    typeof location.absolute_file_path !== "string" ||
+    !Number.isInteger(lineStart) ||
+    !Number.isInteger(lineEnd) ||
+    lineStart < 1 ||
+    lineEnd < lineStart
+  ) {
+    return undefined;
+  }
+
+  return {
+    absoluteFilePath: location.absolute_file_path,
+    lineStart,
+    lineEnd,
+  };
+}
+
 function buildSessionViewModel(session: SessionStats): SessionViewModel {
   const { fixes, skipped } = extractFixes(session.entries ?? []);
   const priorities = new Set(fixes.map((fix) => fix.priority));
   const sortedFixes = [...fixes]
     .sort((a, b) => getPriorityRank(a.priority) - getPriorityRank(b.priority))
-    .map((fix) => ({
-      priority: fix.priority,
-      title: fix.title,
-      file: fix.file ?? "",
-    }));
+    .map((fix) => {
+      const codeLocation = toCodeLocationViewModel(fix);
+      return {
+        priority: fix.priority,
+        title: fix.title,
+        file: fix.file ?? "",
+        ...(codeLocation ? { codeLocation } : {}),
+      };
+    });
 
   const sortedSkipped = [...skipped]
     .sort((a, b) => getPriorityRank(a.priority) - getPriorityRank(b.priority))
