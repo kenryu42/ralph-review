@@ -77,6 +77,15 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_CONFIG_PROVENANCE: true
 
+      - name: Get published version
+        id: version
+        run: echo "version=$(jq -r .version package.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Update Homebrew tap
+        run: bun run scripts/update-homebrew.ts "${{ steps.version.outputs.version }}"
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+
       - name: Delete draft release
         run: gh release delete next --yes 2>/dev/null || echo "No draft release to delete"
         env:
