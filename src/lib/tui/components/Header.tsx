@@ -80,18 +80,21 @@ export function Header({ branch, elapsed, session, projectPath, config }: Header
       flexShrink={0}
     >
       <box flexDirection="row">
-        <box flexDirection="column" width={12}>
+        <box flexDirection="column" width={20}>
           <text>
-            <span fg={TUI_COLORS.brand.logo}> {"   "}║ </span>
+            <span fg={TUI_COLORS.brand.title}>{" ██████╗ ██████╗ "}</span>
           </text>
           <text>
-            <span fg={TUI_COLORS.brand.logo}> ███████ </span>
+            <span fg={TUI_COLORS.brand.title}>{" ██╔══██╗██╔══██╗"}</span>
           </text>
           <text>
-            <span fg={TUI_COLORS.brand.logo}>▐██▃█▃██▌</span>
+            <span fg={TUI_COLORS.brand.title}>{" ██████╔╝██████╔╝"}</span>
           </text>
           <text>
-            <span fg={TUI_COLORS.brand.logo}> ██▅▅▅██ </span>
+            <span fg={TUI_COLORS.brand.title}>{" ██║  ██║██║  ██║"}</span>
+          </text>
+          <text>
+            <span fg={TUI_COLORS.brand.title}>{" ╚═╝  ╚═╝╚═╝  ╚═╝"}</span>
           </text>
         </box>
 
