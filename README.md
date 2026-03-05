@@ -131,6 +131,10 @@ Treats review findings as untrusted input — verifies every claim against actua
 ## Installation
 
 ```bash
+# Homebrew
+brew install kenryu42/tap/ralph-review
+
+# npm
 npm install -g ralph-review
 ```
 
