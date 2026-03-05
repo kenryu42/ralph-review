@@ -1,12 +1,12 @@
 import type { OverallCorrectness } from "./domain";
 import { VALID_OVERALL_CORRECTNESS } from "./domain";
 
-interface LineRange {
+export interface LineRange {
   start: number;
   end: number;
 }
 
-interface CodeLocation {
+export interface CodeLocation {
   absolute_file_path: string;
   line_range: LineRange;
 }

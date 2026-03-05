@@ -36,6 +36,7 @@ ${reviewOutput}
    - Prefer one aggregate command; otherwise run available lint -> typecheck -> test -> build.
    - Treat warnings as blocking.
    - Iterate fix + rerun until clean.
+6) For each APPLY item, include the applied code location when available (absolute path + line range).
 
 ## Special rule: tracking-status claims
 Claims like "file is untracked/not committed/missing from git" are SKIP in this pre-commit workflow.
@@ -69,6 +70,10 @@ ${FIX_SUMMARY_START_TOKEN}
       "title": "<one-line title>",
       "priority": "<P0 | P1 | P2 | P3>",
       "file": "<path or null>",
+      "code_location": {
+        "absolute_file_path": "<absolute path>",
+        "line_range": {"start": <int>, "end": <int>}
+      },
       "claim": "<issue claim>",
       "evidence": "<file:line / behavior>",
       "fix": "<what changed>"
@@ -95,6 +100,7 @@ JSON rules:
   - fixes MUST be []
   - skipped MUST contain only SKIP items
 - Include all APPLY items in fixes.
+- For each APPLY item, include code_location when available; otherwise set code_location to null or omit it.
 - Include all SKIP items in skipped with required reason prefix.
 - Use [] when empty.
 - Priority must be exactly P0/P1/P2/P3.

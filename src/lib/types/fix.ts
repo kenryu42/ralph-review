@@ -1,11 +1,13 @@
 import type { FixDecision, Priority } from "./domain";
 import { VALID_FIX_DECISIONS, VALID_PRIORITIES } from "./domain";
+import type { CodeLocation } from "./review";
 
 export interface FixEntry {
   id: number;
   title: string;
   priority: Priority;
   file?: string | null;
+  code_location?: CodeLocation | null;
   claim: string;
   evidence: string;
   fix: string;
@@ -25,6 +27,37 @@ export interface FixSummary {
   skipped: SkippedEntry[];
 }
 
+function isLineRange(value: unknown): value is CodeLocation["line_range"] {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  const obj = value as Record<string, unknown>;
+
+  return (
+    typeof obj.start === "number" &&
+    Number.isInteger(obj.start) &&
+    obj.start > 0 &&
+    typeof obj.end === "number" &&
+    Number.isInteger(obj.end) &&
+    obj.end >= obj.start
+  );
+}
+
+function isCodeLocation(value: unknown): value is CodeLocation {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  const obj = value as Record<string, unknown>;
+
+  if (typeof obj.absolute_file_path !== "string") {
+    return false;
+  }
+
+  return isLineRange(obj.line_range);
+}
+
 function isFixEntry(value: unknown): value is FixEntry {
   if (typeof value !== "object" || value === null) {
     return false;
@@ -38,6 +71,9 @@ function isFixEntry(value: unknown): value is FixEntry {
     typeof obj.priority === "string" &&
     VALID_PRIORITIES.includes(obj.priority as Priority) &&
     (obj.file === undefined || obj.file === null || typeof obj.file === "string") &&
+    (obj.code_location === undefined ||
+      obj.code_location === null ||
+      isCodeLocation(obj.code_location)) &&
     typeof obj.claim === "string" &&
     typeof obj.evidence === "string" &&
     typeof obj.fix === "string"

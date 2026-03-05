@@ -31,9 +31,11 @@ export type {
   SystemEntry,
 } from "./log";
 export {
+  type CodeLocation,
   type CodexReviewSummary,
   type Finding,
   isReviewSummary,
+  type LineRange,
   parseCodexReviewText,
   type ReviewSummary,
 } from "./review";
