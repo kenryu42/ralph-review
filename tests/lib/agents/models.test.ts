@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  codexModelOptions,
   droidModelOptions,
   getDroidReasoningOptions,
   getReasoningOptions,
@@ -77,6 +78,12 @@ describe("agent model metadata", () => {
     });
   });
 
+  describe("codex model catalog", () => {
+    test("includes gpt-5.4 in the static codex model list", () => {
+      expect(codexModelOptions).toContainEqual({ value: "gpt-5.4", label: "GPT-5.4" });
+    });
+  });
+
   describe("droid model catalog", () => {
     test("matches the expected static droid model list", () => {
       expect(droidModelOptions).toEqual([
@@ -92,6 +99,7 @@ describe("agent model metadata", () => {
         { value: "gpt-5.2", label: "GPT-5.2" },
         { value: "gpt-5.2-codex", label: "GPT-5.2-Codex" },
         { value: "gpt-5.3-codex", label: "GPT-5.3-Codex" },
+        { value: "gpt-5.4", label: "GPT-5.4" },
         { value: "gemini-3-pro-preview", label: "Gemini 3 Pro" },
         { value: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro" },
         { value: "gemini-3-flash-preview", label: "Gemini 3 Flash" },
