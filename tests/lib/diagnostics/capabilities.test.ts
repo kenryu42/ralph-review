@@ -93,12 +93,12 @@ describe("diagnostics capabilities", () => {
     expect(capabilities.opencode.probeWarnings.length).toBeGreaterThan(0);
   });
 
-  test("falls back to static catalog for non-dynamic agents", async () => {
+  test("falls back to static catalogs for codex and droid", async () => {
     const capabilities = await discoverAgentCapabilities({
       availabilityOverride: {
         codex: true,
+        droid: true,
         claude: false,
-        droid: false,
         gemini: false,
         opencode: false,
         pi: false,
@@ -106,7 +106,9 @@ describe("diagnostics capabilities", () => {
     });
 
     expect(capabilities.codex.modelCatalogSource).toBe("static");
-    expect(capabilities.codex.models.some((entry) => entry.model === "gpt-5.3-codex")).toBe(true);
+    expect(capabilities.codex.models.some((entry) => entry.model === "gpt-5.4")).toBe(true);
+    expect(capabilities.droid.modelCatalogSource).toBe("static");
+    expect(capabilities.droid.models.some((entry) => entry.model === "gpt-5.4")).toBe(true);
   });
 
   test("reuses in-memory cache between calls", async () => {
