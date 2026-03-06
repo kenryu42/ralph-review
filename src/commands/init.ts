@@ -216,6 +216,7 @@ const SIMPLIFIER_AGENT_PRIORITY: readonly AgentType[] = ["claude", "codex", "dro
 
 const MODEL_PRIORITY_MATCHERS: Record<ConfiguredRole, readonly ((model: string) => boolean)[]> = {
   reviewer: [
+    (model) => matchesModelId(model, "gpt-5.4"),
     (model) => matchesModelId(model, "gpt-5.3-codex"),
     (model) => matchesModelId(model, "gpt-5.2"),
     (model) => matchesModelId(model, "gpt-5.2-codex"),
@@ -223,12 +224,14 @@ const MODEL_PRIORITY_MATCHERS: Record<ConfiguredRole, readonly ((model: string) 
     (model) => matchesModelId(model, "gemini-3-pro-preview"),
   ],
   fixer: [
-    (model) => matchesModelId(model, "claude-opus-4-6"),
+    (model) => matchesModelId(model, "gpt-5.4"),
     (model) => matchesModelId(model, "gpt-5.3-codex"),
+    (model) => matchesModelId(model, "claude-opus-4-6"),
     (model) => matchesModelId(model, "gemini-3-pro-preview"),
   ],
   "code-simplifier": [
     (model) => matchesModelId(model, "claude-opus-4-6"),
+    (model) => matchesModelId(model, "gpt-5.4"),
     (model) => matchesModelId(model, "gpt-5.3-codex"),
     (model) => isClaudeOpus45Model(model),
     (model) => matchesModelId(model, "gpt-5.2-codex"),
