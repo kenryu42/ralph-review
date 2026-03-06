@@ -211,8 +211,8 @@ const DEFAULT_MAX_ITERATIONS = 5;
 const DEFAULT_ITERATION_TIMEOUT_MINUTES = 30;
 
 const REVIEWER_AGENT_PRIORITY: readonly AgentType[] = ["codex", "droid", "claude", "gemini"];
-const FIXER_AGENT_PRIORITY: readonly AgentType[] = ["claude", "codex", "droid", "gemini"];
-const SIMPLIFIER_AGENT_PRIORITY: readonly AgentType[] = ["claude", "codex", "droid", "gemini"];
+const FIXER_AGENT_PRIORITY: readonly AgentType[] = ["codex", "claude", "droid", "gemini"];
+const SIMPLIFIER_AGENT_PRIORITY: readonly AgentType[] = ["codex", "claude", "droid", "gemini"];
 
 const MODEL_PRIORITY_MATCHERS: Record<ConfiguredRole, readonly ((model: string) => boolean)[]> = {
   reviewer: [
@@ -230,8 +230,8 @@ const MODEL_PRIORITY_MATCHERS: Record<ConfiguredRole, readonly ((model: string) 
     (model) => matchesModelId(model, "gemini-3-pro-preview"),
   ],
   "code-simplifier": [
-    (model) => matchesModelId(model, "claude-opus-4-6"),
     (model) => matchesModelId(model, "gpt-5.4"),
+    (model) => matchesModelId(model, "claude-opus-4-6"),
     (model) => matchesModelId(model, "gpt-5.3-codex"),
     (model) => isClaudeOpus45Model(model),
     (model) => matchesModelId(model, "gpt-5.2-codex"),

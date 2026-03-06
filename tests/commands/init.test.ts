@@ -479,17 +479,17 @@ describe("init command", () => {
       expect(rank52).toBeLessThan(rank52Codex);
     });
 
-    test("fixer model priority matches claude, GPT-5.4, codex, and gemini in order", () => {
-      expect(getRoleModelPriorityRank("fixer", "claude-opus-4-6")).toBe(0);
-      expect(getRoleModelPriorityRank("fixer", "provider/gpt-5.4")).toBe(1);
-      expect(getRoleModelPriorityRank("fixer", "provider/gpt-5.3-codex")).toBe(2);
+    test("fixer model priority matches GPT-5.4, codex, claude, and gemini in order", () => {
+      expect(getRoleModelPriorityRank("fixer", "provider/gpt-5.4")).toBe(0);
+      expect(getRoleModelPriorityRank("fixer", "provider/gpt-5.3-codex")).toBe(1);
+      expect(getRoleModelPriorityRank("fixer", "claude-opus-4-6")).toBe(2);
       expect(getRoleModelPriorityRank("fixer", "gemini-3-pro-preview")).toBe(3);
       expect(getRoleModelPriorityRank("fixer", "unknown-model")).toBe(4);
     });
 
-    test("simplifier model priority matches opus 4.6, GPT-5.4, codex, opus 4.5 family, then gpt-5.2 codex", () => {
-      expect(getRoleModelPriorityRank("code-simplifier", "claude-opus-4-6")).toBe(0);
-      expect(getRoleModelPriorityRank("code-simplifier", "gpt-5.4")).toBe(1);
+    test("simplifier model priority matches GPT-5.4, opus 4.6, codex, opus 4.5 family, then gpt-5.2 codex", () => {
+      expect(getRoleModelPriorityRank("code-simplifier", "gpt-5.4")).toBe(0);
+      expect(getRoleModelPriorityRank("code-simplifier", "claude-opus-4-6")).toBe(1);
       expect(getRoleModelPriorityRank("code-simplifier", "gpt-5.3-codex")).toBe(2);
       expect(getRoleModelPriorityRank("code-simplifier", "claude-opus-4-5-20251101")).toBe(3);
       expect(getRoleModelPriorityRank("code-simplifier", "gpt-5.2-codex")).toBe(4);
