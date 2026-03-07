@@ -352,7 +352,7 @@ describe("runStop", () => {
     expect(result.infos).toEqual(["No active review session for current working directory."]);
     expect(result.messages).toEqual([
       "\nThere are 1 other session(s) running.",
-      'Use "rr stop --all" to stop all running review sessions, or "rr status" to see details.',
+      'Use "rr stop --all" to stop all running review sessions, or "rr" to see details.',
     ]);
     expect(result.sendInterruptCalls).toEqual([]);
     expect(result.killSessionCalls).toEqual([]);

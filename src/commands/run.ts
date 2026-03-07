@@ -377,7 +377,7 @@ async function runInBackground(
     runtime.prompt.log.success(`Review started in background session: ${sessionName}`);
     const reviewOptions: ReviewOptions = { baseBranch, commitSha, customInstructions, simplifier };
     runtime.prompt.note(formatRunAgentsNote(config, reviewOptions), "Agents");
-    runtime.prompt.note("rr status  - Check status\n" + "rr stop    - Stop the review", "Commands");
+    runtime.prompt.note("rr         - Check status\n" + "rr stop    - Stop the review", "Commands");
   } catch (error) {
     await runtime.lockfile.removeLockfile(undefined, projectPath, { expectedSessionId: sessionId });
     runtime.prompt.log.error(`Failed to start background session: ${error}`);
@@ -387,7 +387,7 @@ async function runInBackground(
 
 function logWatchReconnectHint(runtime: RunRuntime): void {
   runtime.prompt.log.message("Session Panel closed.");
-  runtime.prompt.log.message("Re-open panel: rr status");
+  runtime.prompt.log.message("Re-open panel: rr");
   runtime.prompt.log.message("Stop session:   rr stop");
 }
 

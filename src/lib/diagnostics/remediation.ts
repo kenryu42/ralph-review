@@ -143,7 +143,7 @@ async function fixConfig(id: string, deps: RemediationDependencies): Promise<Fix
   }
 }
 
-const LOCKFILE_FIX_NEXT_ACTIONS = ["Run: rr status", "Run: rr stop", "Then run: rr run"];
+const LOCKFILE_FIX_NEXT_ACTIONS = ["Run: rr", "Run: rr stop", "Then run: rr run"];
 
 async function fixLockfile(deps: RemediationDependencies): Promise<FixResult> {
   try {

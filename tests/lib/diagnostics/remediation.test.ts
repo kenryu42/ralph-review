@@ -264,7 +264,7 @@ describe("applyFix", () => {
 
     expect(result.success).toBe(false);
     expect(result.message).toContain("still active");
-    expect(result.nextActions).toContain("Run: rr status");
+    expect(result.nextActions).toContain("Run: rr");
     expect(result.nextActions).toContain("Then run: rr run");
   });
 
@@ -280,7 +280,7 @@ describe("applyFix", () => {
     expect(result.success).toBe(false);
     expect(result.category).toBe("manual-needed");
     expect(result.message).toContain("Failed to clean lockfile");
-    expect(result.nextActions).toContain("Run: rr status");
+    expect(result.nextActions).toContain("Run: rr");
     expect(result.nextActions).toContain("Then run: rr run");
   });
 

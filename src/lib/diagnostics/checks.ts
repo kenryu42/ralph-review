@@ -558,7 +558,7 @@ export async function runDiagnostics(
           ? "A review is already running for this project."
           : "No running review lock detected.",
         remediation: hasRunningReview
-          ? [runStep("rr status"), runStep("rr stop"), thenStep("rr run")]
+          ? [runStep("rr"), runStep("rr stop"), thenStep("rr run")]
           : [],
         fixable: hasRunningReview && isFixable("run-lockfile"),
       });

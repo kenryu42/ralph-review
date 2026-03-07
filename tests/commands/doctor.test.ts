@@ -404,7 +404,7 @@ describe("doctor --fix", () => {
         title: "Review lock",
         severity: "error",
         summary: "A review is already running for this project.",
-        remediation: ["Run: rr status", "Run: rr stop", "Then run: rr run"],
+        remediation: ["Run: rr", "Run: rr stop", "Then run: rr run"],
       },
     ]);
 
@@ -419,7 +419,7 @@ describe("doctor --fix", () => {
         id: "run-lockfile",
         success: false,
         message: "Lockfile is not stale.",
-        nextActions: ["Run: rr status", "Run: rr stop", "Then run: rr run"],
+        nextActions: ["Run: rr", "Run: rr stop", "Then run: rr run"],
       },
     ];
 

@@ -882,7 +882,7 @@ describe("run command", () => {
         },
       ]);
       expect(harness.messages).toContain("Session Panel closed.");
-      expect(harness.messages).toContain("Re-open panel: rr status");
+      expect(harness.messages).toContain("Re-open panel: rr");
       expect(harness.messages).toContain("Stop session:   rr stop");
     });
 
@@ -934,7 +934,7 @@ describe("run command", () => {
       await startReview([], harness.overrides);
 
       expect(harness.warnings).toContain("Could not open Session Panel: Error: tui unavailable");
-      expect(harness.messages).toContain("Re-open panel: rr status");
+      expect(harness.messages).toContain("Re-open panel: rr");
     });
 
     test("fills base branch from defaultReview when no explicit mode is provided", async () => {
@@ -1158,7 +1158,7 @@ describe("run command", () => {
         title: "Review lock",
         severity: "error",
         summary: "A review is already running for this project.",
-        remediation: ["Run rr status", "Run rr stop"],
+        remediation: ["Run rr", "Run rr stop"],
       };
       const harness = createRunHarness({
         diagnostics: createDiagnosticsReport([errorItem], createConfig()),
@@ -1171,7 +1171,7 @@ describe("run command", () => {
       expect(exitCode).toBe(1);
       expect(harness.errors).toContain("Cannot run review:");
       expect(harness.messages).toContain("  A review is already running for this project.");
-      expect(harness.messages).toContain("    -> Run rr status");
+      expect(harness.messages).toContain("    -> Run rr");
       expect(harness.messages).toContain("    -> Run rr stop");
     });
 
