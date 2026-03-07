@@ -15,6 +15,10 @@ interface UpdateRuntime extends SelfUpdateDependencies {
   getCommandDef: (name: string) => CommandDef | undefined;
   parseCommand: typeof parseCommand;
   performSelfUpdate: typeof performSelfUpdate;
+  spinner: () => {
+    start: (message: string) => void;
+    stop: (message: string) => void;
+  };
   log: {
     error: (message: string) => void;
     info: (message: string) => void;
@@ -37,6 +41,7 @@ function createUpdateRuntime(overrides: UpdateRuntimeOverrides = {}): UpdateRunt
     getCommandDef: overrides.getCommandDef ?? getCommandDef,
     parseCommand: overrides.parseCommand ?? parseCommand,
     performSelfUpdate: overrides.performSelfUpdate ?? performSelfUpdate,
+    spinner: overrides.spinner ?? p.spinner,
     log: {
       error: overrides.log?.error ?? p.log.error,
       info: overrides.log?.info ?? p.log.info,
@@ -106,11 +111,14 @@ export async function runUpdate(
     manager: managerValue,
   };
 
+  const spinner = runtime.spinner();
+  spinner.start("Checking for updates...");
   try {
     const result = await runtime.performSelfUpdate(options, runtime);
-
+    spinner.stop("Done.");
     renderSelfUpdateResult(result, runtime);
   } catch (error) {
+    spinner.stop("Update failed.");
     if (error instanceof SelfUpdateError) {
       runtime.log.error(error.message);
       for (const note of error.notes) {

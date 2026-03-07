@@ -11,6 +11,8 @@ interface UpdateHarness {
   successes: string[];
   exits: number[];
   performCalls: Array<{ checkOnly: boolean; manager?: "npm" | "brew" }>;
+  spinnerStarts: string[];
+  spinnerStops: string[];
 }
 
 function createUpdateHarness(
@@ -33,6 +35,8 @@ function createUpdateHarness(
   const successes: string[] = [];
   const exits: number[] = [];
   const performCalls: Array<{ checkOnly: boolean; manager?: "npm" | "brew" }> = [];
+  const spinnerStarts: string[] = [];
+  const spinnerStops: string[] = [];
 
   const updateDef: CommandDef = {
     name: "update",
@@ -53,6 +57,10 @@ function createUpdateHarness(
         }
         return result;
       },
+      spinner: () => ({
+        start: (message: string) => spinnerStarts.push(message),
+        stop: (message: string) => spinnerStops.push(message),
+      }),
       log: {
         error: (message: string) => errors.push(message),
         info: (message: string) => infos.push(message),
@@ -76,6 +84,8 @@ function createUpdateHarness(
     successes,
     exits,
     performCalls,
+    spinnerStarts,
+    spinnerStops,
   };
 }
 
@@ -119,6 +129,8 @@ describe("update command", () => {
 
     expect(harness.successes).toEqual(["ralph-review is already up to date via npm (0.1.6)."]);
     expect(harness.exits).toEqual([]);
+    expect(harness.spinnerStarts).toEqual(["Checking for updates..."]);
+    expect(harness.spinnerStops).toEqual(["Done."]);
   });
 
   test("prints npm check-mode availability with both versions", async () => {
@@ -197,6 +209,8 @@ describe("update command", () => {
     await runUpdate([], harness.overrides);
 
     expect(harness.successes).toEqual(["Updated ralph-review via Homebrew: 0.1.6 -> 0.1.7"]);
+    expect(harness.spinnerStarts).toEqual(["Checking for updates..."]);
+    expect(harness.spinnerStops).toEqual(["Done."]);
   });
 
   test("renders self-update guidance on failure and exits", async () => {
@@ -215,5 +229,7 @@ describe("update command", () => {
       "Run: rr update --manager brew",
     ]);
     expect(harness.exits).toEqual([1]);
+    expect(harness.spinnerStarts).toEqual(["Checking for updates..."]);
+    expect(harness.spinnerStops).toEqual(["Update failed."]);
   });
 });
