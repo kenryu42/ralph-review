@@ -136,6 +136,9 @@ brew install kenryu42/tap/ralph-review
 
 # npm (install or update)
 npm install -g ralph-review
+
+# Or let ralph-review detect the install method and update itself
+rr update
 ```
 
 ---
@@ -174,8 +177,13 @@ rrr
 | `rr log` | View review logs (`-n 5` for last 5, `--json` for JSON output) |
 | `rr dashboard` | Open review dashboard in browser |
 | `rr doctor` | Run environment and configuration diagnostics (`--fix` to auto-resolve) |
+| `rr update` | Check for and install a newer `ralph-review` version |
 
 The `rrr` command is a shorthand alias for `rr run` -- all flags work the same.
+
+For update checks without installing, run `rr update --check`. If install-source detection is
+ambiguous, force the package manager with `rr update --manager npm` or
+`rr update --manager brew`.
 
 ---
 
