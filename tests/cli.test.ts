@@ -7,6 +7,7 @@ import {
   printCommandHelp,
   printUsage,
 } from "@/cli";
+import { stripAnsi } from "@/terminal/theme";
 
 describe("cli", () => {
   describe("parseArgs", () => {
@@ -55,11 +56,11 @@ describe("cli", () => {
     test("returns usage string with all public commands", () => {
       const usage = printUsage();
       expect(usage).toContain("ralph-review");
+      expect(usage).toContain("Open Session Panel");
       expect(usage).toContain("init");
       expect(usage).toContain("config");
       expect(usage).toContain("run");
       expect(usage).toContain("list");
-      expect(usage).toContain("status");
       expect(usage).toContain("stop");
       expect(usage).toContain("log");
       expect(usage).toContain("dashboard");
@@ -77,6 +78,19 @@ describe("cli", () => {
       const version = getVersion();
       expect(usage).toContain(version);
     });
+
+    test("aligns usage descriptions for bare rr and rrr", () => {
+      const usage = stripAnsi(printUsage());
+      const lines = usage.split("\n");
+      const bareRrLine = lines.find((line) => line.includes("Open Session Panel"));
+      const rrrLine = lines.find((line) => line.includes("Quick alias for 'rr run'"));
+
+      expect(bareRrLine).toBeDefined();
+      expect(rrrLine).toBeDefined();
+      expect(bareRrLine?.indexOf("Open Session Panel")).toBe(
+        rrrLine?.indexOf("Quick alias for 'rr run'")
+      );
+    });
   });
 
   describe("COMMANDS", () => {
@@ -86,7 +100,6 @@ describe("cli", () => {
       expect(names).toContain("config");
       expect(names).toContain("run");
       expect(names).toContain("list");
-      expect(names).toContain("status");
       expect(names).toContain("stop");
       expect(names).toContain("log");
       expect(names).toContain("dashboard");
@@ -156,6 +169,13 @@ describe("cli", () => {
     test("returns undefined for invalid command", () => {
       const def = getCommandDef("nonexistent");
       expect(def).toBeUndefined();
+    });
+
+    test("returns hidden command definition for status alias", () => {
+      const def = getCommandDef("status");
+      expect(def).toBeDefined();
+      expect(def?.name).toBe("status");
+      expect(def?.hidden).toBe(true);
     });
   });
 
