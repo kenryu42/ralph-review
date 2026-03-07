@@ -12,6 +12,40 @@ interface CliHarness {
   calls: string[];
 }
 
+async function withTerminalState(
+  stdinIsTTY: boolean,
+  stdoutIsTTY: boolean,
+  run: () => Promise<void>
+): Promise<void> {
+  const originalStdinIsTTYDescriptor = Object.getOwnPropertyDescriptor(process.stdin, "isTTY");
+  const originalStdoutIsTTYDescriptor = Object.getOwnPropertyDescriptor(process.stdout, "isTTY");
+
+  Object.defineProperty(process.stdin, "isTTY", {
+    configurable: true,
+    value: stdinIsTTY,
+  });
+  Object.defineProperty(process.stdout, "isTTY", {
+    configurable: true,
+    value: stdoutIsTTY,
+  });
+
+  try {
+    await run();
+  } finally {
+    if (originalStdinIsTTYDescriptor) {
+      Object.defineProperty(process.stdin, "isTTY", originalStdinIsTTYDescriptor);
+    } else {
+      delete (process.stdin as { isTTY?: boolean }).isTTY;
+    }
+
+    if (originalStdoutIsTTYDescriptor) {
+      Object.defineProperty(process.stdout, "isTTY", originalStdoutIsTTYDescriptor);
+    } else {
+      delete (process.stdout as { isTTY?: boolean }).isTTY;
+    }
+  }
+}
+
 function createCommandDef(name: string, aliases?: string[]): CommandDef {
   return { name, aliases, description: `${name} command` };
 }
@@ -112,15 +146,86 @@ describe("cli entrypoints", () => {
     expect(harness.exits).toEqual([]);
   });
 
-  test("prints usage when no command is provided", async () => {
+  test("opens the session panel when no command is provided", async () => {
     const harness = createCliHarness({
       parseArgs: () => ({ command: "", args: [], showHelp: false, showVersion: false }),
+      isInteractiveTerminal: () => true,
+      printUsage: () => "USAGE",
+    });
+
+    await runCli([], harness.deps);
+
+    expect(harness.calls).toEqual(["status"]);
+    expect(harness.exits).toEqual([]);
+  });
+
+  test("prints usage instead of opening the session panel without an interactive terminal", async () => {
+    const harness = createCliHarness({
+      parseArgs: () => ({ command: "", args: [], showHelp: false, showVersion: false }),
+      printUsage: () => "USAGE",
+    });
+
+    await withTerminalState(false, false, async () => {
+      await runCli([], harness.deps);
+    });
+
+    expect(harness.logs).toEqual(["USAGE"]);
+    expect(harness.calls).toEqual([]);
+    expect(harness.exits).toEqual([]);
+  });
+
+  test("prints usage when stdin is redirected even if stdout is still a tty", async () => {
+    const harness = createCliHarness({
+      parseArgs: () => ({ command: "", args: [], showHelp: false, showVersion: false }),
+    });
+
+    await withTerminalState(false, true, async () => {
+      await runCli([], harness.deps);
+    });
+
+    expect(harness.logs).toEqual(["USAGE"]);
+    expect(harness.calls).toEqual([]);
+    expect(harness.exits).toEqual([]);
+  });
+
+  test("reports bare rr session panel failures and exits", async () => {
+    const harness = createCliHarness({
+      parseArgs: () => ({ command: "", args: [], showHelp: false, showVersion: false }),
+      isInteractiveTerminal: () => true,
+      runStatus: async () => {
+        throw new Error("panel failed");
+      },
+    });
+
+    await runCli([], harness.deps);
+
+    expect(harness.errors).toEqual(["Error: Error: panel failed"]);
+    expect(harness.exits).toEqual([1]);
+  });
+
+  test("prints usage when help is requested without a command", async () => {
+    const harness = createCliHarness({
+      parseArgs: () => ({ command: "", args: [], showHelp: true, showVersion: false }),
       printUsage: () => "USAGE",
     });
 
     await runCli([], harness.deps);
 
     expect(harness.logs).toEqual(["USAGE"]);
+    expect(harness.calls).toEqual([]);
+    expect(harness.exits).toEqual([]);
+  });
+
+  test("prints usage when no command is provided with leftover args", async () => {
+    const harness = createCliHarness({
+      parseArgs: () => ({ command: "", args: ["--mystery"], showHelp: false, showVersion: false }),
+      printUsage: () => "USAGE",
+    });
+
+    await runCli([], harness.deps);
+
+    expect(harness.logs).toEqual(["USAGE"]);
+    expect(harness.calls).toEqual([]);
     expect(harness.exits).toEqual([]);
   });
 
@@ -170,7 +275,6 @@ describe("cli entrypoints", () => {
     const scenarios = [
       { command: "init", args: [], expectedCall: "init" },
       { command: "_run-foreground", args: ["--max", "1"], expectedCall: "_run-foreground:--max,1" },
-      { command: "status", args: [], expectedCall: "status" },
       { command: "stop", args: ["--all"], expectedCall: "stop:--all" },
       { command: "log", args: ["--json"], expectedCall: "log:--json" },
       {
@@ -288,6 +392,19 @@ describe("cli entrypoints", () => {
     expect(harness.errors).toEqual(["Unknown command: logs"]);
     expect(harness.logs).toEqual(["\nUSAGE"]);
     expect(harness.exits).toEqual([1]);
+  });
+
+  test("dispatches status command as a backward-compatible alias", async () => {
+    const harness = createCliHarness({
+      parseArgs: () => ({ command: "status", args: [], showHelp: false, showVersion: false }),
+      getCommandDef: (name) => (name === "status" ? createCommandDef("status") : undefined),
+    });
+
+    await runCli([], harness.deps);
+
+    expect(harness.errors).toEqual([]);
+    expect(harness.calls).toEqual(["status"]);
+    expect(harness.exits).toEqual([]);
   });
 
   test("reports command execution failures and exits", async () => {

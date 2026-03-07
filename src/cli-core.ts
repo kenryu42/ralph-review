@@ -104,6 +104,7 @@ export const COMMANDS: CommandDef[] = [
     name: "status",
     description: "Show review status",
     examples: ["rr status"],
+    hidden: true,
   },
   {
     name: "stop",

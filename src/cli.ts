@@ -43,6 +43,7 @@ export interface CliDeps {
   runDoctor: typeof runDoctor;
   runList: typeof runList;
   runUpdate: typeof runUpdate;
+  isInteractiveTerminal: () => boolean;
   log: (message: string) => void;
   logError: (message: string) => void;
   logMessage: (message: string) => void;
@@ -53,6 +54,8 @@ const CONSOLE_LOG = console.log.bind(console) as (message: string) => void;
 const CLACK_ERROR = p.log.error.bind(p.log) as (message: string) => void;
 const CLACK_MESSAGE = p.log.message.bind(p.log) as (message: string) => void;
 const PROCESS_EXIT = process.exit.bind(process) as (code: number) => void;
+const IS_INTERACTIVE_TERMINAL = (): boolean =>
+  process.stdin.isTTY === true && process.stdout.isTTY === true;
 
 const DEFAULT_CLI_DEPS: CliDeps = {
   parseArgs,
@@ -72,6 +75,7 @@ const DEFAULT_CLI_DEPS: CliDeps = {
   runDoctor,
   runList,
   runUpdate,
+  isInteractiveTerminal: IS_INTERACTIVE_TERMINAL,
   log: CONSOLE_LOG,
   logError: CLACK_ERROR,
   logMessage: CLACK_MESSAGE,
@@ -80,6 +84,11 @@ const DEFAULT_CLI_DEPS: CliDeps = {
 
 function buildCliDeps(overrides: Partial<CliDeps>): CliDeps {
   return { ...DEFAULT_CLI_DEPS, ...overrides };
+}
+
+function reportCliError(cliDeps: CliDeps, error: unknown): void {
+  cliDeps.logError(`Error: ${error}`);
+  cliDeps.exit(1);
 }
 
 export async function runCli(
@@ -94,8 +103,22 @@ export async function runCli(
     return;
   }
 
-  if (!command) {
+  if (showHelp && !command) {
     cliDeps.log(cliDeps.printUsage());
+    return;
+  }
+
+  if (!command) {
+    if (commandArgs.length > 0 || !cliDeps.isInteractiveTerminal()) {
+      cliDeps.log(cliDeps.printUsage());
+      return;
+    }
+
+    try {
+      await cliDeps.runStatus();
+    } catch (error) {
+      reportCliError(cliDeps, error);
+    }
     return;
   }
 
@@ -183,8 +206,7 @@ export async function runCli(
         return;
     }
   } catch (error) {
-    cliDeps.logError(`Error: ${error}`);
-    cliDeps.exit(1);
+    reportCliError(cliDeps, error);
   }
 }
 
