@@ -79,7 +79,8 @@ Commands in `src/commands/` map 1:1 to CLI subcommands:
 - `init.ts` — Configure reviewer/fixer agents interactively
 - `run.ts` — Start review cycle (spawns tmux, then `_run-foreground`)
 - `list.ts` — List active review sessions (`rr list` / `rr ls`)
-- `status.ts`, `stop.ts` — Session management
+- `status.ts` — Session Panel launcher for bare `rr`
+- `stop.ts` — Stop running sessions
 - `logs.ts` — View review logs (terminal or JSON)
 - `dashboard.ts` — Open HTML dashboard in browser
 

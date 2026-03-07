@@ -162,6 +162,7 @@ rrr
 
 | Command | Description |
 |---------|-------------|
+| `rr` | Open Session Panel |
 | `rr init` | Configure reviewer, fixer, and simplifier agents (auto-detects installed CLIs) |
 | `rr run` | Start review cycle in a tmux session |
 | `rr run --base main` | Review changes against a base branch |
@@ -172,7 +173,6 @@ rrr
 | `rr config show` | Print full configuration |
 | `rr config set KEY VAL` | Update a config value (e.g. `rr config set maxIterations 8`) |
 | `rr list` | List active review sessions |
-| `rr status` | Show current review status |
 | `rr stop` | Stop running review session (`--all` to stop all) |
 | `rr log` | View review logs (`-n 5` for last 5, `--json` for JSON output) |
 | `rr dashboard` | Open review dashboard in browser |
