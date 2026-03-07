@@ -108,6 +108,11 @@ export interface ParseResult<T = Record<string, unknown>> {
   positional: string[];
 }
 
+interface UsageEntry {
+  command: string;
+  description: string;
+}
+
 function buildOptionMaps(options: OptionDef[]): {
   byName: Map<string, OptionDef>;
   byAlias: Map<string, OptionDef>;
@@ -359,31 +364,46 @@ export function formatCommandHelp(def: CommandDef): string {
   return lines.join("\n");
 }
 
+function getCommandDisplayName(command: CommandDef): string {
+  if (command.aliases?.length) {
+    return `${command.name} (${command.aliases.join(", ")})`;
+  }
+
+  return command.name;
+}
+
 export function formatMainHelp(commands: CommandDef[], version: string): string {
   const lines: string[] = [];
+  const usageEntries: UsageEntry[] = [
+    { command: "rr", description: "Open Session Panel" },
+    { command: "rr", description: "<command> [options]" },
+    { command: "rrr", description: "Quick alias for 'rr run'" },
+  ];
 
   lines.push(
     `${theme.accent("ralph-review")} v${theme.muted(version)} - ${theme.info("Ralph Wiggum Code Review Orchestrator")}`
   );
   lines.push("");
   lines.push(`${theme.heading("USAGE:")}`);
-  lines.push(`  ${theme.command("rr")} <command> [options]`);
-  lines.push(`  ${theme.command("rrr")}           Quick alias for 'rr run'`);
+  const maxUsageCommandLen = Math.max(...usageEntries.map((entry) => entry.command.length));
+  for (const entry of usageEntries) {
+    const padding = " ".repeat(maxUsageCommandLen - entry.command.length + 2);
+    lines.push(`  ${theme.command(entry.command)}${padding}${entry.description}`);
+  }
   lines.push("");
   lines.push(`${theme.heading("COMMANDS:")}`);
 
   const publicCommands = commands.filter((c) => !c.hidden);
 
-  // Calculate max display name length (including aliases like "list (ls)")
-  const getDisplayName = (cmd: CommandDef): string =>
-    cmd.aliases?.length ? `${cmd.name} (${cmd.aliases.join(", ")})` : cmd.name;
-  const maxNameLen = Math.max(...publicCommands.map((c) => getDisplayName(c).length));
+  const maxNameLen = Math.max(
+    ...publicCommands.map((command) => getCommandDisplayName(command).length)
+  );
 
-  for (const cmd of publicCommands) {
-    const displayName = getDisplayName(cmd);
+  for (const command of publicCommands) {
+    const displayName = getCommandDisplayName(command);
     const coloredName = theme.command(displayName);
     const paddedName = coloredName + " ".repeat(maxNameLen - displayName.length + 2);
-    lines.push(`  ${paddedName}${cmd.description}`);
+    lines.push(`  ${paddedName}${command.description}`);
   }
 
   lines.push("");
