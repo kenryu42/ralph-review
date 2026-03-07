@@ -151,6 +151,29 @@ export const COMMANDS: CommandDef[] = [
     examples: ["rr doctor", "rr doctor --fix"],
   },
   {
+    name: "update",
+    description: "Check for and install a newer ralph-review version",
+    options: [
+      {
+        name: "check",
+        type: "boolean",
+        description: "Check for an update without installing it",
+      },
+      {
+        name: "manager",
+        type: "string",
+        placeholder: "npm|brew",
+        description: "Override install-source detection",
+      },
+    ],
+    examples: [
+      "rr update",
+      "rr update --check",
+      "rr update --manager npm",
+      "rr update --manager brew",
+    ],
+  },
+  {
     name: "_run-foreground",
     description: "Internal: run review cycle in tmux foreground",
     hidden: true,

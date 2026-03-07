@@ -64,6 +64,7 @@ describe("cli", () => {
       expect(usage).toContain("log");
       expect(usage).toContain("dashboard");
       expect(usage).toContain("doctor");
+      expect(usage).toContain("update");
     });
 
     test("excludes hidden commands from main help", () => {
@@ -90,6 +91,7 @@ describe("cli", () => {
       expect(names).toContain("log");
       expect(names).toContain("dashboard");
       expect(names).toContain("doctor");
+      expect(names).toContain("update");
       expect(names).toContain("_run-foreground");
     });
 
@@ -115,6 +117,14 @@ describe("cli", () => {
       const listCmd = COMMANDS.find((c) => c.name === "list");
       expect(listCmd).toBeDefined();
       expect(listCmd?.aliases).toContain("ls");
+    });
+
+    test("update command has check and manager options", () => {
+      const updateCmd = COMMANDS.find((c) => c.name === "update");
+      expect(updateCmd).toBeDefined();
+      const optionNames = updateCmd?.options?.map((o) => o.name) ?? [];
+      expect(optionNames).toContain("check");
+      expect(optionNames).toContain("manager");
     });
 
     test("only config command defines positional args", () => {
@@ -174,6 +184,14 @@ describe("cli", () => {
       expect(help).toBeDefined();
       expect(help).toContain("rr list");
       expect(help).toContain("rr ls");
+    });
+
+    test("returns help for update command", () => {
+      const help = printCommandHelp("update");
+      expect(help).toBeDefined();
+      expect(help).toContain("rr update");
+      expect(help).toContain("--check");
+      expect(help).toContain("--manager");
     });
 
     test("returns help when given alias (ls -> list)", () => {

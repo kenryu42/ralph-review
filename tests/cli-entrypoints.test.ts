@@ -66,6 +66,9 @@ function createCliHarness(overrides: Partial<CliDeps> = {}): CliHarness {
     runDoctor: async (argv) => {
       calls.push(`doctor:${argv?.join(",") ?? ""}`);
     },
+    runUpdate: async (argv) => {
+      calls.push(`update:${argv?.join(",") ?? ""}`);
+    },
     runList: async () => {
       calls.push("list");
     },
@@ -176,6 +179,7 @@ describe("cli entrypoints", () => {
         expectedCall: "dashboard:--host,127.0.0.1",
       },
       { command: "doctor", args: ["--fix"], expectedCall: "doctor:--fix" },
+      { command: "update", args: ["--check"], expectedCall: "update:--check" },
     ] as const;
 
     const defs = new Map<string, CommandDef>(
