@@ -56,7 +56,7 @@ describe("cli", () => {
     test("returns usage string with all public commands", () => {
       const usage = printUsage();
       expect(usage).toContain("ralph-review");
-      expect(usage).toContain("Open Session Panel");
+      expect(usage).toContain("Launch Interactive Mode");
       expect(usage).toContain("init");
       expect(usage).toContain("config");
       expect(usage).toContain("run");
@@ -82,12 +82,12 @@ describe("cli", () => {
     test("aligns usage descriptions for bare rr and rrr", () => {
       const usage = stripAnsi(printUsage());
       const lines = usage.split("\n");
-      const bareRrLine = lines.find((line) => line.includes("Open Session Panel"));
+      const bareRrLine = lines.find((line) => line.includes("Launch Interactive Mode"));
       const rrrLine = lines.find((line) => line.includes("Quick alias for 'rr run'"));
 
       expect(bareRrLine).toBeDefined();
       expect(rrrLine).toBeDefined();
-      expect(bareRrLine?.indexOf("Open Session Panel")).toBe(
+      expect(bareRrLine?.indexOf("Launch Interactive Mode")).toBe(
         rrrLine?.indexOf("Quick alias for 'rr run'")
       );
     });
@@ -121,8 +121,8 @@ describe("cli", () => {
       expect(optionNames).toContain("simplifier");
       expect(optionNames).toContain("sound");
       expect(optionNames).toContain("no-sound");
-      expect(optionNames).toContain("watch");
-      expect(optionNames).toContain("no-watch");
+      expect(optionNames).toContain("interactive");
+      expect(optionNames).toContain("no-interactive");
       expect(optionNames).not.toContain("list");
     });
 

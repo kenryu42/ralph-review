@@ -162,7 +162,7 @@ rrr
 
 | Command | Description |
 |---------|-------------|
-| `rr` | Open Session Panel |
+| `rr` | Interactive Mode |
 | `rr init` | Configure reviewer, fixer, and simplifier agents (auto-detects installed CLIs) |
 | `rr run` | Start review cycle in a tmux session |
 | `rr run --base main` | Review changes against a base branch |

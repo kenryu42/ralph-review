@@ -81,18 +81,18 @@ export const COMMANDS: CommandDef[] = [
         description: "Disable finish sound for this run (override config)",
       },
       {
-        name: "watch",
+        name: "interactive",
         type: "boolean",
-        description: "Open Session Panel after starting the run (override config)",
+        description: "Launch Interactive Mode after starting the run (override config)",
       },
       {
-        name: "no-watch",
+        name: "no-interactive",
         type: "boolean",
-        description: "Start run without opening Session Panel (override config)",
+        description: "Start run without launching Interactive Mode (override config)",
       },
       SIMPLIFIER_OPTION,
     ],
-    examples: ["rr run", "rr run --base main", "rr run --no-watch"],
+    examples: ["rr run", "rr run --base main", "rr run --no-interactive"],
   },
   {
     name: "list",

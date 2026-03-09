@@ -38,7 +38,7 @@ describe("config schema artifact", () => {
     expect(required).toContain("defaultReview");
   });
 
-  test("defines run shape with required simplifier and optional watch booleans", async () => {
+  test("defines run shape with required simplifier and optional interactive booleans", async () => {
     const schemaText = await Bun.file("assets/ralph-review.schema.json").text();
     const schema = JSON.parse(schemaText) as JsonSchema;
     const properties = schema.properties ?? {};
@@ -47,13 +47,13 @@ describe("config schema artifact", () => {
       | undefined;
     const runProperties = runProperty?.properties ?? {};
     const simplifierProperty = runProperties.simplifier as Record<string, unknown> | undefined;
-    const watchProperty = runProperties.watch as Record<string, unknown> | undefined;
+    const interactiveProperty = runProperties.interactive as Record<string, unknown> | undefined;
     const required = Array.isArray(runProperty?.required) ? runProperty.required : [];
 
     expect(simplifierProperty?.type).toBe("boolean");
-    expect(watchProperty?.type).toBe("boolean");
+    expect(interactiveProperty?.type).toBe("boolean");
     expect(required).toContain("simplifier");
-    expect(required).not.toContain("watch");
+    expect(required).not.toContain("interactive");
   });
 
   test("includes every top-level key emitted by parseConfig", async () => {
@@ -61,7 +61,7 @@ describe("config schema artifact", () => {
       reviewer: { agent: "codex", model: "gpt-5.2-codex", reasoning: "medium" },
       fixer: { agent: "claude", model: "sonnet", reasoning: "high" },
       "code-simplifier": { agent: "gemini", model: "gemini-2.5-pro", reasoning: "low" },
-      run: { simplifier: true, watch: false },
+      run: { simplifier: true, interactive: false },
       maxIterations: 5,
       iterationTimeout: 1800000,
       retry: { maxRetries: 3, baseDelayMs: 1000, maxDelayMs: 30000 },

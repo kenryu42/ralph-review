@@ -44,7 +44,7 @@ export interface NotificationsConfig {
 
 export interface RunConfig {
   simplifier: boolean;
-  watch: boolean;
+  interactive: boolean;
 }
 
 export const CONFIG_SCHEMA_URI =

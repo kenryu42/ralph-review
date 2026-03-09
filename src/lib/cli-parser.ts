@@ -375,7 +375,7 @@ function getCommandDisplayName(command: CommandDef): string {
 export function formatMainHelp(commands: CommandDef[], version: string): string {
   const lines: string[] = [];
   const usageEntries: UsageEntry[] = [
-    { command: "rr", description: "Open Session Panel" },
+    { command: "rr", description: "Launch Interactive Mode" },
     { command: "rr", description: "<command> [options]" },
     { command: "rrr", description: "Quick alias for 'rr run'" },
   ];

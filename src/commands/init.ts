@@ -53,7 +53,7 @@ interface InitInput {
   defaultReviewType: "uncommitted" | "base";
   defaultReviewBranch?: string;
   runSimplifierByDefault: boolean;
-  runWatchByDefault: boolean;
+  runInteractiveByDefault: boolean;
   soundNotificationsEnabled: boolean;
 }
 
@@ -319,7 +319,7 @@ export function buildConfig(input: InitInput): Config {
     ),
     run: {
       simplifier: input.runSimplifierByDefault,
-      watch: input.runWatchByDefault,
+      interactive: input.runInteractiveByDefault,
     },
     maxIterations: input.maxIterations,
     iterationTimeout: input.iterationTimeoutMinutes * 60 * 1000,
@@ -537,7 +537,7 @@ function formatConfigDisplay(config: Config): string {
     `  Iteration timeout:   ${config.iterationTimeout / 1000 / 60} minutes`,
     `  Default review:      ${defaultReviewDisplay}`,
     `  Run simplifier:      ${config.run?.simplifier ? "enabled" : "disabled"}`,
-    `  Run watch panel:     ${(config.run?.watch ?? true) ? "enabled" : "disabled"}`,
+    `  Interactive Mode:    ${(config.run?.interactive ?? true) ? "enabled" : "disabled"}`,
     `  Sound notify:        ${config.notifications.sound.enabled ? "enabled" : "disabled"}`,
   ].join("\n");
 }
@@ -757,7 +757,7 @@ export async function buildAutoInitInput(
       iterationTimeoutMinutes,
       defaultReviewType: "uncommitted",
       runSimplifierByDefault: false,
-      runWatchByDefault: true,
+      runInteractiveByDefault: true,
       soundNotificationsEnabled: true,
     },
     skippedAgents,
@@ -919,14 +919,17 @@ async function promptForCustomInitInput(
     defaultReviewType: defaultReviewType as "uncommitted" | "base",
     defaultReviewBranch: defaultReviewBranch as string | undefined,
     runSimplifierByDefault: runSimplifierByDefault as boolean,
-    runWatchByDefault: DEFAULT_CONFIG.run?.watch ?? true,
+    runInteractiveByDefault: DEFAULT_CONFIG.run?.interactive ?? true,
     soundNotificationsEnabled: DEFAULT_CONFIG.notifications?.sound.enabled ?? true,
   } satisfies InitInput;
 }
 
-async function promptForRunWatch(runtime: InitRuntime, defaultValue: boolean): Promise<boolean> {
+async function promptForRunInteractive(
+  runtime: InitRuntime,
+  defaultValue: boolean
+): Promise<boolean> {
   const shouldEnable = await runtime.prompt.confirm({
-    message: "Open Session Panel automatically after 'rr run'?",
+    message: "Launch Interactive Mode automatically after 'rr run'?",
     initialValue: defaultValue,
   });
   handleCancel(runtime, shouldEnable);
@@ -1050,12 +1053,15 @@ export async function runInitWithRuntime(
     setupMode === "auto"
       ? {
           ...resolvedInput,
-          runWatchByDefault: true,
+          runInteractiveByDefault: true,
           soundNotificationsEnabled: true,
         }
       : {
           ...resolvedInput,
-          runWatchByDefault: await promptForRunWatch(runtime, resolvedInput.runWatchByDefault),
+          runInteractiveByDefault: await promptForRunInteractive(
+            runtime,
+            resolvedInput.runInteractiveByDefault
+          ),
           soundNotificationsEnabled: await promptForSoundNotifications(
             runtime,
             resolvedInput.soundNotificationsEnabled

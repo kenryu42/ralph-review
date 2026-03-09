@@ -33,8 +33,8 @@ export interface RunOptions {
   commit?: string;
   custom?: string;
   simplifier?: boolean;
-  watch?: boolean;
-  "no-watch"?: boolean;
+  interactive?: boolean;
+  "no-interactive"?: boolean;
   sound?: boolean;
   "no-sound"?: boolean;
 }
@@ -82,20 +82,20 @@ export function resolveRunSimplifierEnabled(options: RunOptions, config: Config 
   return options.simplifier === true || config?.run?.simplifier === true;
 }
 
-export function resolveRunWatchEnabled(options: RunOptions, config: Config | null): boolean {
-  if (options.watch && options["no-watch"]) {
-    throw new Error("Cannot use --watch and --no-watch together");
+export function resolveRunInteractiveEnabled(options: RunOptions, config: Config | null): boolean {
+  if (options.interactive && options["no-interactive"]) {
+    throw new Error("Cannot use --interactive and --no-interactive together");
   }
 
-  if (options.watch) {
+  if (options.interactive) {
     return true;
   }
 
-  if (options["no-watch"]) {
+  if (options["no-interactive"]) {
     return false;
   }
 
-  return config?.run?.watch ?? true;
+  return config?.run?.interactive ?? true;
 }
 
 export function formatRunAgentsNote(config: Config, reviewOptions: ReviewOptions): string {
@@ -385,9 +385,9 @@ async function runInBackground(
   }
 }
 
-function logWatchReconnectHint(runtime: RunRuntime): void {
-  runtime.prompt.log.message("Session Panel closed.");
-  runtime.prompt.log.message("Re-open panel: rr");
+function logInteractiveReconnectHint(runtime: RunRuntime): void {
+  runtime.prompt.log.message("Interactive Mode closed.");
+  runtime.prompt.log.message("Launch Interactive Mode: rr");
   runtime.prompt.log.message("Stop session:   rr stop");
 }
 
@@ -692,17 +692,17 @@ export async function startReview(
   }
 
   const runSimplifier = resolveRunSimplifierEnabled(options, config);
-  let runWatch: boolean;
+  let runInteractive: boolean;
   try {
-    runWatch = resolveRunWatchEnabled(options, config);
+    runInteractive = resolveRunInteractiveEnabled(options, config);
   } catch (error) {
     runtime.prompt.log.error(`${error}`);
     runtime.process.exit(1);
     return;
   }
-  if (runWatch && !runtime.process.stdoutIsTTY) {
-    runtime.prompt.log.warn("Watch mode is disabled because stdout is not a TTY.");
-    runWatch = false;
+  if (runInteractive && !runtime.process.stdoutIsTTY) {
+    runtime.prompt.log.warn("Interactive Mode is disabled because stdout is not a TTY.");
+    runInteractive = false;
   }
 
   // Check if inside tmux - warn about nesting
@@ -722,7 +722,7 @@ export async function startReview(
     soundOverride
   );
 
-  if (!runWatch) {
+  if (!runInteractive) {
     return;
   }
 
@@ -731,8 +731,8 @@ export async function startReview(
     const branch = await runtime.getGitBranch(projectPath);
     await runtime.openSessionPanel(projectPath, branch ?? undefined);
   } catch (error) {
-    runtime.prompt.log.warn(`Could not open Session Panel: ${error}`);
+    runtime.prompt.log.warn(`Could not launch Interactive Mode: ${error}`);
   }
 
-  logWatchReconnectHint(runtime);
+  logInteractiveReconnectHint(runtime);
 }

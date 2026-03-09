@@ -17,7 +17,7 @@ describe("getHeaderAgentDisplays", () => {
   test("includes simplifier when run.simplifier is enabled", () => {
     const config = {
       ...createConfig(),
-      run: { simplifier: true, watch: true },
+      run: { simplifier: true, interactive: true },
     };
 
     const displays = getHeaderAgentDisplays(config);
@@ -29,7 +29,7 @@ describe("getHeaderAgentDisplays", () => {
   test("falls back to reviewer when simplifier is enabled but code-simplifier is missing", () => {
     const config = {
       ...createConfig(),
-      run: { simplifier: true, watch: true },
+      run: { simplifier: true, interactive: true },
     };
     delete config["code-simplifier"];
 
@@ -42,7 +42,7 @@ describe("getHeaderAgentDisplays", () => {
   test("omits simplifier when run.simplifier is disabled", () => {
     const config = {
       ...createConfig(),
-      run: { simplifier: false, watch: true },
+      run: { simplifier: false, interactive: true },
     };
 
     const displays = getHeaderAgentDisplays(config);
@@ -172,7 +172,7 @@ describe("Header", () => {
     const frame = await renderFrame({
       config: {
         ...createConfig(),
-        run: { simplifier: true, watch: true },
+        run: { simplifier: true, interactive: true },
       },
     });
     expect(frame).toContain("Simplifier:");
@@ -182,7 +182,7 @@ describe("Header", () => {
     const frame = await renderFrame({
       config: {
         ...createConfig(),
-        run: { simplifier: false, watch: true },
+        run: { simplifier: false, interactive: true },
       },
     });
     expect(frame).not.toContain("Simplifier:");

@@ -8,9 +8,9 @@ import {
   parseSoundOverride,
   type RunOptions,
   type RunRuntimeOverrides,
+  resolveRunInteractiveEnabled,
   resolveRunSimplifierEnabled,
   resolveRunSoundOverride,
-  resolveRunWatchEnabled,
   runForeground,
   startReview,
 } from "@/commands/run";
@@ -533,14 +533,14 @@ describe("run command", () => {
       expect(values["no-sound"]).toBe(true);
     });
 
-    test("parses --watch option", () => {
-      const { values } = parseCommand<RunOptions>(runDef, ["--watch"]);
-      expect(values.watch).toBe(true);
+    test("parses --interactive option", () => {
+      const { values } = parseCommand<RunOptions>(runDef, ["--interactive"]);
+      expect(values.interactive).toBe(true);
     });
 
-    test("parses --no-watch option", () => {
-      const { values } = parseCommand<RunOptions>(runDef, ["--no-watch"]);
-      expect(values["no-watch"]).toBe(true);
+    test("parses --no-interactive option", () => {
+      const { values } = parseCommand<RunOptions>(runDef, ["--no-interactive"]);
+      expect(values["no-interactive"]).toBe(true);
     });
   });
 
@@ -675,7 +675,7 @@ describe("run command", () => {
     test("returns true when --simplifier is passed even if config is false", () => {
       const config = {
         ...createConfig(),
-        run: { simplifier: false, watch: true },
+        run: { simplifier: false, interactive: true },
       } satisfies Config;
       expect(resolveRunSimplifierEnabled({ simplifier: true }, config)).toBe(true);
     });
@@ -683,7 +683,7 @@ describe("run command", () => {
     test("uses config default when --simplifier is not passed", () => {
       const config = {
         ...createConfig(),
-        run: { simplifier: true, watch: true },
+        run: { simplifier: true, interactive: true },
       } satisfies Config;
       expect(resolveRunSimplifierEnabled({}, config)).toBe(true);
     });
@@ -699,35 +699,35 @@ describe("run command", () => {
     });
   });
 
-  describe("resolveRunWatchEnabled", () => {
-    test("returns true for --watch", () => {
-      expect(resolveRunWatchEnabled({ watch: true }, createConfig())).toBe(true);
+  describe("resolveRunInteractiveEnabled", () => {
+    test("returns true for --interactive", () => {
+      expect(resolveRunInteractiveEnabled({ interactive: true }, createConfig())).toBe(true);
     });
 
-    test("returns false for --no-watch", () => {
-      expect(resolveRunWatchEnabled({ "no-watch": true }, createConfig())).toBe(false);
+    test("returns false for --no-interactive", () => {
+      expect(resolveRunInteractiveEnabled({ "no-interactive": true }, createConfig())).toBe(false);
     });
 
-    test("uses config default when no watch override is passed", () => {
+    test("uses config default when no interactive override is passed", () => {
       const config = {
         ...createConfig(),
-        run: { simplifier: false, watch: false },
+        run: { simplifier: false, interactive: false },
       } satisfies Config;
-      expect(resolveRunWatchEnabled({}, config)).toBe(false);
+      expect(resolveRunInteractiveEnabled({}, config)).toBe(false);
     });
 
     test("defaults to true when config is missing run settings", () => {
       const config = createConfig();
       delete config.run;
 
-      expect(resolveRunWatchEnabled({}, config)).toBe(true);
-      expect(resolveRunWatchEnabled({}, null)).toBe(true);
+      expect(resolveRunInteractiveEnabled({}, config)).toBe(true);
+      expect(resolveRunInteractiveEnabled({}, null)).toBe(true);
     });
 
-    test("throws when both watch overrides are provided", () => {
+    test("throws when both interactive overrides are provided", () => {
       expect(() =>
-        resolveRunWatchEnabled({ watch: true, "no-watch": true }, createConfig())
-      ).toThrow("Cannot use --watch and --no-watch together");
+        resolveRunInteractiveEnabled({ interactive: true, "no-interactive": true }, createConfig())
+      ).toThrow("Cannot use --interactive and --no-interactive together");
     });
   });
 
@@ -854,11 +854,11 @@ describe("run command", () => {
       expect(harness.errors[0]).toContain("Cannot use --sound and --no-sound together");
     });
 
-    test("exits when watch flags conflict", async () => {
+    test("exits when interactive flags conflict", async () => {
       const harness = createRunHarness({
         runValues: {
-          watch: true,
-          "no-watch": true,
+          interactive: true,
+          "no-interactive": true,
         },
       });
 
@@ -867,10 +867,10 @@ describe("run command", () => {
       });
 
       expect(exitCode).toBe(1);
-      expect(harness.errors[0]).toContain("Cannot use --watch and --no-watch together");
+      expect(harness.errors[0]).toContain("Cannot use --interactive and --no-interactive together");
     });
 
-    test("opens Session Panel by default and prints reconnect hints when closed", async () => {
+    test("launches Interactive Mode by default and prints reconnect hints when closed", async () => {
       const harness = createRunHarness();
 
       await startReview([], harness.overrides);
@@ -881,15 +881,15 @@ describe("run command", () => {
           branch: "main",
         },
       ]);
-      expect(harness.messages).toContain("Session Panel closed.");
-      expect(harness.messages).toContain("Re-open panel: rr");
+      expect(harness.messages).toContain("Interactive Mode closed.");
+      expect(harness.messages).toContain("Launch Interactive Mode: rr");
       expect(harness.messages).toContain("Stop session:   rr stop");
     });
 
-    test("skips Session Panel when --no-watch is passed", async () => {
+    test("skips Interactive Mode when --no-interactive is passed", async () => {
       const harness = createRunHarness({
         runValues: {
-          "no-watch": true,
+          "no-interactive": true,
         },
       });
 
@@ -898,14 +898,14 @@ describe("run command", () => {
       expect(harness.openSessionPanelCalls).toHaveLength(0);
     });
 
-    test("opens Session Panel when --watch overrides disabled config", async () => {
+    test("launches Interactive Mode when --interactive overrides disabled config", async () => {
       const config = {
         ...createConfig(),
-        run: { simplifier: false, watch: false },
+        run: { simplifier: false, interactive: false },
       } satisfies Config;
       const harness = createRunHarness({
         runValues: {
-          watch: true,
+          interactive: true,
         },
         diagnostics: createDiagnosticsReport([], config),
       });
@@ -915,26 +915,30 @@ describe("run command", () => {
       expect(harness.openSessionPanelCalls).toHaveLength(1);
     });
 
-    test("disables watch mode in non-interactive terminals", async () => {
+    test("disables interactive mode in non-interactive terminals", async () => {
       const harness = createRunHarness({
         stdoutIsTTY: false,
       });
 
       await startReview([], harness.overrides);
 
-      expect(harness.warnings).toContain("Watch mode is disabled because stdout is not a TTY.");
+      expect(harness.warnings).toContain(
+        "Interactive Mode is disabled because stdout is not a TTY."
+      );
       expect(harness.openSessionPanelCalls).toHaveLength(0);
     });
 
-    test("warns when Session Panel cannot be opened", async () => {
+    test("warns when Interactive Mode cannot be launched", async () => {
       const harness = createRunHarness({
         openSessionPanelError: new Error("tui unavailable"),
       });
 
       await startReview([], harness.overrides);
 
-      expect(harness.warnings).toContain("Could not open Session Panel: Error: tui unavailable");
-      expect(harness.messages).toContain("Re-open panel: rr");
+      expect(harness.warnings).toContain(
+        "Could not launch Interactive Mode: Error: tui unavailable"
+      );
+      expect(harness.messages).toContain("Launch Interactive Mode: rr");
     });
 
     test("fills base branch from defaultReview when no explicit mode is provided", async () => {
