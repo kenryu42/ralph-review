@@ -49,7 +49,7 @@ const retrySchema = z
 const runSchema = z
   .object({
     simplifier: z.boolean(),
-    watch: z.boolean().optional(),
+    interactive: z.boolean().optional(),
   })
   .strict();
 
@@ -79,17 +79,56 @@ const configSchema = z
   })
   .strict();
 
+type SchemaWriter = (path: string, data: string) => Promise<unknown>;
+type SchemaSpawner = (options: { cmd: string[]; stdout: "pipe"; stderr: "pipe" }) => {
+  exitCode: number;
+  stderr: Uint8Array;
+};
+
+interface BuildSchemaDeps {
+  localBiomeExecutable: string;
+  fileExists(path: string): Promise<boolean>;
+  which(command: string): string | null | undefined;
+  mkdir: typeof mkdir;
+  write: SchemaWriter;
+  spawnSync: SchemaSpawner;
+  log(message: string): void;
+}
+
+interface BuildSchemaErrorDeps {
+  errorLog(message: string): void;
+  exit(code: number): void;
+}
+
+const DEFAULT_ERROR_DEPS: BuildSchemaErrorDeps = {
+  errorLog: console.error.bind(console),
+  exit: process.exit.bind(process),
+};
+
+const DEFAULT_DEPS: BuildSchemaDeps = {
+  localBiomeExecutable: resolve("node_modules/.bin/biome"),
+  fileExists: async (path) => await Bun.file(path).exists(),
+  which: (command) => Bun.which(command),
+  mkdir,
+  write: async (path, data) => {
+    await Bun.write(path, data);
+  },
+  spawnSync: (options) => Bun.spawnSync(options),
+  log: (message) => {
+    console.log(message);
+  },
+};
+
 function decodeOutput(output: Uint8Array): string {
   return new TextDecoder().decode(output).trim();
 }
 
-async function resolveBiomeExecutable(): Promise<string> {
-  const localBiomeExecutable = resolve("node_modules/.bin/biome");
-  if (await Bun.file(localBiomeExecutable).exists()) {
-    return localBiomeExecutable;
+async function resolveBiomeExecutable(deps: BuildSchemaDeps): Promise<string> {
+  if (await deps.fileExists(deps.localBiomeExecutable)) {
+    return deps.localBiomeExecutable;
   }
 
-  const biomeExecutable = Bun.which("biome");
+  const biomeExecutable = deps.which("biome");
   if (!biomeExecutable) {
     throw new Error("biome executable is required to format schema output");
   }
@@ -97,16 +136,23 @@ async function resolveBiomeExecutable(): Promise<string> {
   return biomeExecutable;
 }
 
-async function main(): Promise<void> {
-  const schema = z.toJSONSchema(configSchema);
-  const outputPath = resolve(SCHEMA_OUTPUT_PATH);
+export function buildConfigJsonSchema(): object {
+  return z.toJSONSchema(configSchema);
+}
+
+export async function runBuildSchema(
+  outputPath: string = resolve(SCHEMA_OUTPUT_PATH),
+  overrides: Partial<BuildSchemaDeps> = {}
+): Promise<void> {
+  const deps: BuildSchemaDeps = { ...DEFAULT_DEPS, ...overrides };
+  const schema = buildConfigJsonSchema();
   const schemaText = `${JSON.stringify(schema, null, 2)}\n`;
-  const biomeExecutable = await resolveBiomeExecutable();
+  const biomeExecutable = await resolveBiomeExecutable(deps);
 
-  await mkdir(dirname(outputPath), { recursive: true });
-  await Bun.write(outputPath, schemaText);
+  await deps.mkdir(dirname(outputPath), { recursive: true });
+  await deps.write(outputPath, schemaText);
 
-  const formatResult = Bun.spawnSync({
+  const formatResult = deps.spawnSync({
     cmd: [biomeExecutable, "format", "--write", outputPath],
     stdout: "pipe",
     stderr: "pipe",
@@ -120,10 +166,17 @@ async function main(): Promise<void> {
     );
   }
 
-  console.log(`Generated schema: ${outputPath}`);
+  deps.log(`Generated schema: ${outputPath}`);
 }
 
-main().catch((error) => {
-  console.error(`Failed to generate schema: ${error}`);
-  process.exit(1);
-});
+export function reportBuildSchemaError(
+  error: unknown,
+  deps: BuildSchemaErrorDeps = DEFAULT_ERROR_DEPS
+): void {
+  deps.errorLog(`Failed to generate schema: ${error}`);
+  deps.exit(1);
+}
+
+if (import.meta.main) {
+  runBuildSchema().catch(reportBuildSchemaError);
+}
