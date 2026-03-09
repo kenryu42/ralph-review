@@ -2,7 +2,15 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { configExists, ensureConfigDir, loadConfig, parseConfig, saveConfig } from "@/lib/config";
+import {
+  configExists,
+  ensureConfigDir,
+  loadConfig,
+  loadConfigWithDiagnostics,
+  parseConfig,
+  parseConfigWithDiagnostics,
+  saveConfig,
+} from "@/lib/config";
 import { type AgentSettings, CONFIG_SCHEMA_URI, CONFIG_VERSION, type Config } from "@/lib/types";
 
 describe("config", () => {
@@ -109,15 +117,15 @@ describe("config", () => {
       const configPath = join(tempDir, "config.json");
       const configWithRun = {
         ...testConfig,
-        run: { simplifier: true, watch: false },
+        run: { simplifier: true, interactive: false },
       };
 
       await Bun.write(configPath, JSON.stringify(configWithRun, null, 2));
       const loaded = await loadConfig(configPath);
-      expect(loaded?.run).toEqual({ simplifier: true, watch: false });
+      expect(loaded?.run).toEqual({ simplifier: true, interactive: false });
     });
 
-    test("loadConfig defaults run.watch to true when omitted from existing config", async () => {
+    test("loadConfig defaults run.interactive to true when omitted from existing config", async () => {
       const configPath = join(tempDir, "config.json");
       const configWithLegacyRun = {
         ...testConfig,
@@ -126,7 +134,19 @@ describe("config", () => {
 
       await Bun.write(configPath, JSON.stringify(configWithLegacyRun, null, 2));
       const loaded = await loadConfig(configPath);
-      expect(loaded?.run).toEqual({ simplifier: true, watch: true });
+      expect(loaded?.run).toEqual({ simplifier: true, interactive: true });
+    });
+
+    test("loadConfig rejects legacy run.watch settings", async () => {
+      const configPath = join(tempDir, "config.json");
+      const configWithLegacyRun = {
+        ...testConfig,
+        run: { simplifier: true, watch: false },
+      };
+
+      await Bun.write(configPath, JSON.stringify(configWithLegacyRun, null, 2));
+      const loaded = await loadConfig(configPath);
+      expect(loaded).toBeNull();
     });
 
     test("loadConfig rejects invalid code-simplifier settings", async () => {
@@ -148,12 +168,22 @@ describe("config", () => {
       const configPath = join(tempDir, "config.json");
       const configWithInvalidRun = {
         ...testConfig,
-        run: { simplifier: "yes", watch: true },
+        run: { simplifier: "yes", interactive: true },
       };
 
       await Bun.write(configPath, JSON.stringify(configWithInvalidRun, null, 2));
       const loaded = await loadConfig(configPath);
       expect(loaded).toBeNull();
+    });
+
+    test("loadConfigWithDiagnostics reports invalid JSON syntax", async () => {
+      const configPath = join(tempDir, "config.json");
+      await Bun.write(configPath, "{ invalid json");
+
+      const result = await loadConfigWithDiagnostics(configPath);
+      expect(result.exists).toBe(true);
+      expect(result.config).toBeNull();
+      expect(result.errors[0]).toContain("Invalid JSON syntax:");
     });
 
     test("parseConfig returns config for valid object", () => {
@@ -287,13 +317,57 @@ describe("config", () => {
       expect(parseConfig(withInvalidRun)).toBeNull();
     });
 
-    test("parseConfig rejects run when watch is not a boolean", () => {
+    test("parseConfig rejects run when interactive is not a boolean", () => {
       const withInvalidRun = {
         ...createValidConfigInput(),
-        run: { simplifier: true, watch: "yes" },
+        run: { simplifier: true, interactive: "yes" },
       };
 
       expect(parseConfig(withInvalidRun)).toBeNull();
+    });
+
+    test("parseConfig rejects run when legacy watch key is present", () => {
+      const withLegacyRun = {
+        ...createValidConfigInput(),
+        run: { simplifier: true, watch: false },
+      };
+
+      expect(parseConfig(withLegacyRun)).toBeNull();
+    });
+
+    test("parseConfigWithDiagnostics reports unsupported run.watch and available run settings", () => {
+      const withLegacyRun = {
+        ...createValidConfigInput(),
+        run: { simplifier: true, watch: false },
+      };
+
+      const result = parseConfigWithDiagnostics(withLegacyRun);
+      expect(result.config).toBeNull();
+      expect(result.errors).toContain(
+        "run.watch is not supported. Available settings: run.simplifier, run.interactive."
+      );
+    });
+
+    test("parseConfigWithDiagnostics reports multiple structural issues at once", () => {
+      const invalidConfig = {
+        ...createValidConfigInput(),
+        reviewer: { agent: "wizard" },
+        fixer: { agent: "claude", reasoning: "ultra" },
+        run: { simplifier: "yes", watch: false },
+      };
+
+      const result = parseConfigWithDiagnostics(invalidConfig);
+      expect(result.config).toBeNull();
+      expect(result.errors).toContain(
+        "reviewer.agent must be one of: codex, claude, opencode, droid, gemini, pi."
+      );
+      expect(result.errors).toContain(
+        "fixer.reasoning must be one of: low, medium, high, xhigh, max."
+      );
+      expect(result.errors).toContain("run.simplifier must be a boolean.");
+      expect(result.errors).toContain(
+        "run.watch is not supported. Available settings: run.simplifier, run.interactive."
+      );
     });
 
     test("parseConfig accepts defaultReview type base with a non-empty branch", () => {

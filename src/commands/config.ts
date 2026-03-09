@@ -4,7 +4,9 @@ import {
   configExists,
   ensureConfigDir,
   loadConfig,
+  loadConfigWithDiagnostics,
   parseConfig,
+  parseConfigWithDiagnostics,
   saveConfig,
 } from "@/lib/config";
 import {
@@ -41,7 +43,9 @@ export type ConfigCommandDeps = {
   configExists: typeof configExists;
   ensureConfigDir: typeof ensureConfigDir;
   loadConfig: typeof loadConfig;
+  loadConfigWithDiagnostics: typeof loadConfigWithDiagnostics;
   parseConfig: typeof parseConfig;
+  parseConfigWithDiagnostics: typeof parseConfigWithDiagnostics;
   saveConfig: typeof saveConfig;
   spawn: ConfigCommandSpawner;
   env: Record<string, string | undefined>;
@@ -68,7 +72,7 @@ const CONFIG_KEYS = [
   "defaultReview.type",
   "defaultReview.branch",
   "run.simplifier",
-  "run.watch",
+  "run.interactive",
   "retry.maxRetries",
   "retry.baseDelayMs",
   "retry.maxDelayMs",
@@ -251,7 +255,7 @@ export function parseConfigValue(key: ConfigKey, rawValue: string): ConfigValue 
       return rawValue;
 
     case "run.simplifier":
-    case "run.watch":
+    case "run.interactive":
       if (rawValue !== "true" && rawValue !== "false") {
         throw new Error(`Value for "${key}" must be "true" or "false".`);
       }
@@ -306,8 +310,8 @@ export function getConfigValue(config: Config, key: ConfigKey): unknown {
       return config.defaultReview.type === "base" ? config.defaultReview.branch : undefined;
     case "run.simplifier":
       return config.run?.simplifier;
-    case "run.watch":
-      return config.run?.watch;
+    case "run.interactive":
+      return config.run?.interactive;
     case "retry.maxRetries":
       return config.retry?.maxRetries;
     case "retry.baseDelayMs":
@@ -490,13 +494,13 @@ export function setConfigValue(config: Config, key: ConfigKey, value: ConfigValu
       if (typeof value !== "boolean") {
         throw new Error(`Value for "${key}" must be "true" or "false".`);
       }
-      next.run = { simplifier: value, watch: next.run?.watch ?? true };
+      next.run = { simplifier: value, interactive: next.run?.interactive ?? true };
       return next;
-    case "run.watch":
+    case "run.interactive":
       if (typeof value !== "boolean") {
         throw new Error(`Value for "${key}" must be "true" or "false".`);
       }
-      next.run = { simplifier: next.run?.simplifier ?? false, watch: value };
+      next.run = { simplifier: next.run?.simplifier ?? false, interactive: value };
       return next;
     case "retry.maxRetries":
       next.retry = next.retry ? { ...next.retry } : { ...DEFAULT_RETRY_CONFIG };
@@ -591,11 +595,31 @@ export function validateConfigInvariants(config: Config): string[] {
   if (config.run && typeof config.run.simplifier !== "boolean") {
     errors.push("run.simplifier must be a boolean.");
   }
-  if (config.run && typeof config.run.watch !== "boolean") {
-    errors.push("run.watch must be a boolean.");
+  if (config.run && typeof config.run.interactive !== "boolean") {
+    errors.push("run.interactive must be a boolean.");
   }
 
   return errors;
+}
+
+function formatConfigValidationMessage(header: string, errors: string[], footer?: string): string {
+  const uniqueErrors = [...new Set(errors)];
+  const lines = [header];
+  for (const error of uniqueErrors) {
+    lines.push(`- ${error}`);
+  }
+  if (footer) {
+    lines.push(footer);
+  }
+  return lines.join("\n");
+}
+
+function collectConfigValidationErrors(config: Config | null, errors: string[]): string[] {
+  const combined = [...errors];
+  if (config) {
+    combined.push(...validateConfigInvariants(config));
+  }
+  return [...new Set(combined)];
 }
 
 async function loadExistingConfig(deps: ConfigCommandDeps): Promise<Config> {
@@ -603,14 +627,23 @@ async function loadExistingConfig(deps: ConfigCommandDeps): Promise<Config> {
     throw new Error('Configuration not found. Run "rr init" first.');
   }
 
-  const config = await deps.loadConfig();
-  if (!config) {
+  const loaded = await deps.loadConfigWithDiagnostics();
+  if (!loaded.exists) {
+    throw new Error('Configuration not found. Run "rr init" first.');
+  }
+
+  const errors = collectConfigValidationErrors(loaded.config, loaded.errors);
+  if (!loaded.config || errors.length > 0) {
     throw new Error(
-      `Configuration exists but is invalid: ${deps.configPath}. Run "rr init" or fix the file manually.`
+      formatConfigValidationMessage(
+        `Invalid configuration: ${deps.configPath}`,
+        errors.length > 0 ? errors : ["Configuration format is invalid."],
+        'Run "rr init" to regenerate the file, or fix it manually.'
+      )
     );
   }
 
-  return config;
+  return loaded.config;
 }
 
 async function runShow(args: string[], deps: ConfigCommandDeps): Promise<void> {
@@ -650,17 +683,18 @@ async function runSet(args: string[], deps: ConfigCommandDeps): Promise<void> {
   const current = await loadExistingConfig(deps);
   const updated = setConfigValue(current, key, parsedValue);
 
-  const invariantErrors = validateConfigInvariants(updated);
-  if (invariantErrors.length > 0) {
-    throw new Error(invariantErrors.join("\n"));
+  const normalized = deps.parseConfigWithDiagnostics(updated as unknown);
+  const validationErrors = collectConfigValidationErrors(normalized.config, normalized.errors);
+  if (!normalized.config || validationErrors.length > 0) {
+    throw new Error(
+      formatConfigValidationMessage(
+        "Updated configuration is invalid.",
+        validationErrors.length > 0 ? validationErrors : ["Configuration format is invalid."]
+      )
+    );
   }
 
-  const normalized = deps.parseConfig(updated as unknown);
-  if (!normalized) {
-    throw new Error("Updated configuration is invalid.");
-  }
-
-  await deps.saveConfig(normalized);
+  await deps.saveConfig(normalized.config);
   deps.log.success(`Updated "${key}" to ${formatValue(parsedValue)}.`);
 }
 
@@ -695,15 +729,20 @@ async function runEdit(args: string[], deps: ConfigCommandDeps): Promise<void> {
     return;
   }
 
-  const config = await deps.loadConfig();
-  if (!config) {
+  const loaded = await deps.loadConfigWithDiagnostics();
+  const errors = collectConfigValidationErrors(loaded.config, loaded.errors);
+  if (!loaded.config || errors.length > 0) {
     deps.log.warn(
-      `Configuration exists but is invalid: ${deps.configPath}. Run "rr init" or fix it manually.`
+      formatConfigValidationMessage(
+        `Invalid configuration: ${deps.configPath}`,
+        errors.length > 0 ? errors : ["Configuration format is invalid."],
+        'Run "rr init" to regenerate the file, or fix it manually.'
+      )
     );
     return;
   }
 
-  await deps.saveConfig(config);
+  await deps.saveConfig(loaded.config);
 }
 
 const DEFAULT_CONFIG_COMMAND_DEPS: ConfigCommandDeps = {
@@ -711,7 +750,9 @@ const DEFAULT_CONFIG_COMMAND_DEPS: ConfigCommandDeps = {
   configExists,
   ensureConfigDir,
   loadConfig,
+  loadConfigWithDiagnostics,
   parseConfig,
+  parseConfigWithDiagnostics,
   saveConfig,
   spawn: Bun.spawn as unknown as ConfigCommandSpawner,
   env: process.env as Record<string, string | undefined>,
@@ -731,7 +772,7 @@ function resolveConfigCommandDeps(overrides?: Partial<ConfigCommandDeps>): Confi
     return DEFAULT_CONFIG_COMMAND_DEPS;
   }
 
-  return {
+  const deps: ConfigCommandDeps = {
     ...DEFAULT_CONFIG_COMMAND_DEPS,
     ...overrides,
     log: {
@@ -739,6 +780,30 @@ function resolveConfigCommandDeps(overrides?: Partial<ConfigCommandDeps>): Confi
       ...overrides.log,
     },
   };
+
+  const loadConfigOverride = overrides.loadConfig;
+  if (loadConfigOverride && !overrides.loadConfigWithDiagnostics) {
+    deps.loadConfigWithDiagnostics = async (path = deps.configPath) => {
+      const config = (await loadConfigOverride(path)) ?? null;
+      return {
+        exists: config !== null,
+        config,
+        errors: config ? [] : ["Configuration format is invalid."],
+      };
+    };
+  }
+
+  if (overrides.parseConfig && !overrides.parseConfigWithDiagnostics) {
+    deps.parseConfigWithDiagnostics = (value) => {
+      const config = overrides.parseConfig?.(value) ?? null;
+      return {
+        config,
+        errors: config ? [] : ["Configuration format is invalid."],
+      };
+    };
+  }
+
+  return deps;
 }
 
 export function createRunConfig(overrides?: Partial<ConfigCommandDeps>) {

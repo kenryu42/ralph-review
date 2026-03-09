@@ -18,6 +18,18 @@ import {
 const CONFIG_DIR = join(homedir(), ".config", "ralph-review");
 export const CONFIG_PATH = join(CONFIG_DIR, "config.json");
 export const LOGS_DIR = join(CONFIG_DIR, "logs");
+const VALID_AGENT_VALUES = ["codex", "claude", "opencode", "droid", "gemini", "pi"] as const;
+const VALID_REASONING_VALUES = ["low", "medium", "high", "xhigh", "max"] as const;
+const RUN_SETTING_KEYS = ["simplifier", "interactive"] as const;
+
+export interface ConfigParseDiagnostics {
+  config: Config | null;
+  errors: string[];
+}
+
+export interface LoadedConfigDiagnostics extends ConfigParseDiagnostics {
+  exists: boolean;
+}
 
 function withCanonicalMetadata(
   config: Omit<Config, "$schema" | "version"> & Partial<Pick<Config, "$schema" | "version">>
@@ -46,39 +58,66 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-function parseRetryConfig(value: unknown): RetryConfig | undefined {
+function parseRetryConfigWithDiagnostics(
+  value: unknown,
+  errors: string[]
+): RetryConfig | undefined {
   if (value === undefined) {
     return undefined;
   }
   if (!isRecord(value)) {
+    errors.push("retry must be an object.");
     return undefined;
   }
 
-  const maxRetries = value.maxRetries;
-  const baseDelayMs = value.baseDelayMs;
-  const maxDelayMs = value.maxDelayMs;
+  const maxRetries = typeof value.maxRetries === "number" ? value.maxRetries : undefined;
+  const baseDelayMs = typeof value.baseDelayMs === "number" ? value.baseDelayMs : undefined;
+  const maxDelayMs = typeof value.maxDelayMs === "number" ? value.maxDelayMs : undefined;
+  let hasError = false;
 
-  if (
-    typeof maxRetries !== "number" ||
-    typeof baseDelayMs !== "number" ||
-    typeof maxDelayMs !== "number"
-  ) {
+  if (maxRetries === undefined) {
+    errors.push("retry.maxRetries must be a number.");
+    hasError = true;
+  }
+  if (baseDelayMs === undefined) {
+    errors.push("retry.baseDelayMs must be a number.");
+    hasError = true;
+  }
+  if (maxDelayMs === undefined) {
+    errors.push("retry.maxDelayMs must be a number.");
+    hasError = true;
+  }
+
+  if (hasError) {
+    return undefined;
+  }
+
+  if (maxRetries === undefined || baseDelayMs === undefined || maxDelayMs === undefined) {
     return undefined;
   }
 
   return { maxRetries, baseDelayMs, maxDelayMs };
 }
 
-function parseNotificationsConfig(value: unknown): NotificationsConfig | undefined {
+function parseNotificationsConfigWithDiagnostics(
+  value: unknown,
+  errors: string[]
+): NotificationsConfig | undefined {
   if (value === undefined) {
     return undefined;
   }
   if (!isRecord(value)) {
+    errors.push("notifications must be an object.");
     return undefined;
   }
 
   const sound = value.sound;
-  if (!isRecord(sound) || typeof sound.enabled !== "boolean") {
+  if (!isRecord(sound)) {
+    errors.push("notifications.sound must be an object.");
+    return undefined;
+  }
+  if (typeof sound.enabled !== "boolean") {
+    errors.push("notifications.sound.enabled must be a boolean.");
     return undefined;
   }
 
@@ -89,29 +128,69 @@ function parseNotificationsConfig(value: unknown): NotificationsConfig | undefin
   };
 }
 
-function parseRunConfig(value: unknown): RunConfig | undefined {
+function formatRunSettingChoices(): string {
+  return RUN_SETTING_KEYS.map((key) => `run.${key}`).join(", ");
+}
+
+function parseRunConfigWithDiagnostics(value: unknown, errors: string[]): RunConfig | undefined {
   if (value === undefined) {
     return undefined;
   }
   if (!isRecord(value)) {
+    errors.push("run must be an object.");
     return undefined;
   }
 
-  if (typeof value.simplifier !== "boolean") {
+  const keys = Object.keys(value);
+  let hasError = false;
+  for (const key of keys) {
+    if (key === "simplifier" || key === "interactive") {
+      continue;
+    }
+
+    errors.push(`run.${key} is not supported. Available settings: ${formatRunSettingChoices()}.`);
+    hasError = true;
+  }
+
+  const simplifier = typeof value.simplifier === "boolean" ? value.simplifier : undefined;
+  const interactive =
+    value.interactive === undefined
+      ? true
+      : typeof value.interactive === "boolean"
+        ? value.interactive
+        : undefined;
+
+  if (simplifier === undefined) {
+    errors.push("run.simplifier must be a boolean.");
+    hasError = true;
+  }
+  if (value.interactive !== undefined && interactive === undefined) {
+    errors.push("run.interactive must be a boolean.");
+    hasError = true;
+  }
+
+  if (hasError) {
     return undefined;
   }
-  if (value.watch !== undefined && typeof value.watch !== "boolean") {
+
+  if (simplifier === undefined || interactive === undefined) {
     return undefined;
   }
 
   return {
-    simplifier: value.simplifier,
-    watch: value.watch === undefined ? true : value.watch,
+    simplifier,
+    interactive,
   };
 }
 
-function parseDefaultReview(value: unknown): DefaultReview | null {
-  if (!isRecord(value) || typeof value.type !== "string") {
+function parseDefaultReviewWithDiagnostics(value: unknown, errors: string[]): DefaultReview | null {
+  if (!isRecord(value)) {
+    errors.push('defaultReview must be an object with type "uncommitted" or "base".');
+    return null;
+  }
+
+  if (typeof value.type !== "string") {
+    errors.push('defaultReview.type must be "uncommitted" or "base".');
     return null;
   }
 
@@ -123,110 +202,201 @@ function parseDefaultReview(value: unknown): DefaultReview | null {
     return { type: "base", branch: value.branch };
   }
 
+  if (value.type === "base") {
+    errors.push(
+      'defaultReview.branch must be a non-empty string when defaultReview.type is "base".'
+    );
+    return null;
+  }
+
+  errors.push('defaultReview.type must be "uncommitted" or "base".');
   return null;
 }
 
-function parseAgentSettings(value: unknown): AgentSettings | null {
+function parseAgentSettingsWithDiagnostics(
+  value: unknown,
+  path: "reviewer" | "fixer" | "code-simplifier",
+  errors: string[]
+): AgentSettings | null {
   if (!isRecord(value)) {
+    errors.push(`${path} must be an object.`);
     return null;
   }
 
-  if (!isAgentType(value.agent)) {
-    return null;
+  const agent = isAgentType(value.agent) ? value.agent : undefined;
+  const reasoning =
+    value.reasoning === undefined
+      ? undefined
+      : isReasoningLevel(value.reasoning)
+        ? value.reasoning
+        : undefined;
+  let hasError = false;
+
+  if (!agent) {
+    errors.push(`${path}.agent must be one of: ${VALID_AGENT_VALUES.join(", ")}.`);
+    hasError = true;
+  }
+  if (value.reasoning !== undefined && !reasoning) {
+    errors.push(`${path}.reasoning must be one of: ${VALID_REASONING_VALUES.join(", ")}.`);
+    hasError = true;
   }
 
-  if (value.reasoning !== undefined && !isReasoningLevel(value.reasoning)) {
-    return null;
-  }
+  if (agent === "pi") {
+    const provider = typeof value.provider === "string" ? value.provider : undefined;
+    const model = typeof value.model === "string" ? value.model : undefined;
 
-  if (value.agent === "pi") {
-    if (typeof value.provider !== "string" || typeof value.model !== "string") {
+    if (provider === undefined) {
+      errors.push(`${path}.provider must be a string when ${path}.agent is "pi".`);
+      hasError = true;
+    }
+    if (model === undefined) {
+      errors.push(`${path}.model must be a string when ${path}.agent is "pi".`);
+      hasError = true;
+    }
+
+    if (hasError) {
+      return null;
+    }
+
+    if (provider === undefined || model === undefined) {
       return null;
     }
 
     return {
       agent: "pi",
-      provider: value.provider,
-      model: value.model,
-      reasoning: value.reasoning,
+      provider,
+      model,
+      reasoning,
     };
   }
 
-  if (value.provider !== undefined) {
-    return null;
+  if (agent && value.provider !== undefined) {
+    errors.push(`${path}.provider is only valid when ${path}.agent is "pi".`);
+    hasError = true;
   }
   if (value.model !== undefined && typeof value.model !== "string") {
+    errors.push(`${path}.model must be a string.`);
+    hasError = true;
+  }
+
+  if (!agent || hasError) {
     return null;
   }
 
   return {
-    agent: value.agent,
-    model: value.model,
-    reasoning: value.reasoning,
+    agent,
+    model: typeof value.model === "string" ? value.model : undefined,
+    reasoning,
+  };
+}
+
+function uniqueErrors(errors: string[]): string[] {
+  return [...new Set(errors)];
+}
+
+export function parseConfigWithDiagnostics(value: unknown): ConfigParseDiagnostics {
+  if (!isRecord(value)) {
+    return {
+      config: null,
+      errors: ["Configuration must be a JSON object."],
+    };
+  }
+
+  const errors: string[] = [];
+  const reviewer = parseAgentSettingsWithDiagnostics(value.reviewer, "reviewer", errors);
+  const fixer = parseAgentSettingsWithDiagnostics(value.fixer, "fixer", errors);
+  const codeSimplifier =
+    value["code-simplifier"] === undefined
+      ? undefined
+      : parseAgentSettingsWithDiagnostics(value["code-simplifier"], "code-simplifier", errors);
+  const defaultReview = parseDefaultReviewWithDiagnostics(value.defaultReview, errors);
+  const retry = parseRetryConfigWithDiagnostics(value.retry, errors);
+  const notifications = parseNotificationsConfigWithDiagnostics(value.notifications, errors);
+  const run = parseRunConfigWithDiagnostics(value.run, errors);
+  const maxIterations = typeof value.maxIterations === "number" ? value.maxIterations : undefined;
+  const iterationTimeout =
+    typeof value.iterationTimeout === "number" ? value.iterationTimeout : undefined;
+
+  if (maxIterations === undefined) {
+    errors.push("maxIterations must be a number.");
+  }
+  if (iterationTimeout === undefined) {
+    errors.push("iterationTimeout must be a number.");
+  }
+
+  if (
+    !reviewer ||
+    !fixer ||
+    !defaultReview ||
+    maxIterations === undefined ||
+    iterationTimeout === undefined ||
+    errors.length > 0 ||
+    (value["code-simplifier"] !== undefined && !codeSimplifier) ||
+    (value.retry !== undefined && !retry) ||
+    (value.notifications !== undefined && !notifications) ||
+    (value.run !== undefined && !run)
+  ) {
+    return {
+      config: null,
+      errors: uniqueErrors(errors),
+    };
+  }
+
+  return {
+    config: withCanonicalMetadata({
+      reviewer,
+      fixer,
+      ...(codeSimplifier ? { "code-simplifier": codeSimplifier } : {}),
+      ...(run ? { run } : {}),
+      maxIterations,
+      iterationTimeout,
+      ...(retry ? { retry } : {}),
+      defaultReview,
+      notifications: notifications ?? {
+        sound: { enabled: DEFAULT_NOTIFICATIONS_CONFIG.sound.enabled },
+      },
+    }),
+    errors: [],
   };
 }
 
 export function parseConfig(value: unknown): Config | null {
-  if (!isRecord(value)) {
-    return null;
-  }
-
-  const reviewer = parseAgentSettings(value.reviewer);
-  const fixer = parseAgentSettings(value.fixer);
-  const codeSimplifier = parseAgentSettings(value["code-simplifier"]);
-  const defaultReview = parseDefaultReview(value.defaultReview);
-  const retry = parseRetryConfig(value.retry);
-  const notifications = parseNotificationsConfig(value.notifications);
-  const run = parseRunConfig(value.run);
-
-  if (!reviewer || !fixer || !defaultReview) {
-    return null;
-  }
-  if (value["code-simplifier"] !== undefined && !codeSimplifier) {
-    return null;
-  }
-  if (value.retry !== undefined && !retry) {
-    return null;
-  }
-  if (value.notifications !== undefined && !notifications) {
-    return null;
-  }
-  if (value.run !== undefined && !run) {
-    return null;
-  }
-  if (typeof value.maxIterations !== "number" || typeof value.iterationTimeout !== "number") {
-    return null;
-  }
-
-  return withCanonicalMetadata({
-    reviewer,
-    fixer,
-    ...(codeSimplifier ? { "code-simplifier": codeSimplifier } : {}),
-    ...(run ? { run } : {}),
-    maxIterations: value.maxIterations,
-    iterationTimeout: value.iterationTimeout,
-    ...(retry ? { retry } : {}),
-    defaultReview,
-    notifications: notifications ?? {
-      sound: { enabled: DEFAULT_NOTIFICATIONS_CONFIG.sound.enabled },
-    },
-  });
+  return parseConfigWithDiagnostics(value).config;
 }
 
-export async function loadConfig(path: string = CONFIG_PATH): Promise<Config | null> {
+export async function loadConfigWithDiagnostics(
+  path: string = CONFIG_PATH
+): Promise<LoadedConfigDiagnostics> {
   const file = Bun.file(path);
 
   if (!(await file.exists())) {
-    return null;
+    return {
+      exists: false,
+      config: null,
+      errors: [],
+    };
   }
 
   try {
     const content = await file.text();
     const parsed = JSON.parse(content) as unknown;
-    return parseConfig(parsed);
-  } catch {
-    return null;
+    const result = parseConfigWithDiagnostics(parsed);
+    return {
+      exists: true,
+      ...result,
+    };
+  } catch (error) {
+    return {
+      exists: true,
+      config: null,
+      errors: [`Invalid JSON syntax: ${error instanceof Error ? error.message : String(error)}`],
+    };
   }
+}
+
+export async function loadConfig(path: string = CONFIG_PATH): Promise<Config | null> {
+  const loaded = await loadConfigWithDiagnostics(path);
+  return loaded.config;
 }
 
 export async function configExists(path: string = CONFIG_PATH): Promise<boolean> {
@@ -236,6 +406,6 @@ export async function configExists(path: string = CONFIG_PATH): Promise<boolean>
 export const DEFAULT_CONFIG: Partial<Config> = {
   maxIterations: 5,
   iterationTimeout: 1800000,
-  run: { simplifier: false, watch: true },
+  run: { simplifier: false, interactive: true },
   notifications: { sound: { enabled: DEFAULT_NOTIFICATIONS_CONFIG.sound.enabled } },
 };
