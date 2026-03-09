@@ -290,6 +290,18 @@ describe("config", () => {
       expect(parseConfig(withInvalidRetry)).toBeNull();
     });
 
+    test("parseConfigWithDiagnostics reports missing retry numeric fields", () => {
+      const withPartialRetry = {
+        ...createValidConfigInput(),
+        retry: { baseDelayMs: 500 },
+      };
+
+      const result = parseConfigWithDiagnostics(withPartialRetry);
+      expect(result.config).toBeNull();
+      expect(result.errors).toContain("retry.maxRetries must be a number.");
+      expect(result.errors).toContain("retry.maxDelayMs must be a number.");
+    });
+
     test("parseConfig rejects notifications when not an object", () => {
       const withInvalidNotifications = {
         ...createValidConfigInput(),
@@ -306,6 +318,17 @@ describe("config", () => {
       };
 
       expect(parseConfig(withInvalidNotifications)).toBeNull();
+    });
+
+    test("parseConfigWithDiagnostics reports notifications.sound when not an object", () => {
+      const withInvalidNotifications = {
+        ...createValidConfigInput(),
+        notifications: { sound: true },
+      };
+
+      const result = parseConfigWithDiagnostics(withInvalidNotifications);
+      expect(result.config).toBeNull();
+      expect(result.errors).toContain("notifications.sound must be an object.");
     });
 
     test("parseConfig rejects run when not an object", () => {
@@ -390,6 +413,32 @@ describe("config", () => {
       expect(parseConfig(withInvalidDefaultReview)).toBeNull();
     });
 
+    test("parseConfigWithDiagnostics reports defaultReview when not an object", () => {
+      const withInvalidDefaultReview = {
+        ...createValidConfigInput(),
+        defaultReview: true,
+      };
+
+      const result = parseConfigWithDiagnostics(withInvalidDefaultReview);
+      expect(result.config).toBeNull();
+      expect(result.errors).toContain(
+        'defaultReview must be an object with type "uncommitted" or "base".'
+      );
+    });
+
+    test("parseConfigWithDiagnostics reports base defaultReview with a blank branch", () => {
+      const withInvalidDefaultReview = {
+        ...createValidConfigInput(),
+        defaultReview: { type: "base", branch: "   " },
+      };
+
+      const result = parseConfigWithDiagnostics(withInvalidDefaultReview);
+      expect(result.config).toBeNull();
+      expect(result.errors).toContain(
+        'defaultReview.branch must be a non-empty string when defaultReview.type is "base".'
+      );
+    });
+
     test("parseConfig rejects defaultReview with unsupported type", () => {
       const withInvalidDefaultReview = {
         ...createValidConfigInput(),
@@ -406,6 +455,17 @@ describe("config", () => {
       };
 
       expect(parseConfig(withInvalidReviewer)).toBeNull();
+    });
+
+    test("parseConfigWithDiagnostics reports reviewer when not an object", () => {
+      const withInvalidReviewer = {
+        ...createValidConfigInput(),
+        reviewer: true,
+      };
+
+      const result = parseConfigWithDiagnostics(withInvalidReviewer);
+      expect(result.config).toBeNull();
+      expect(result.errors).toContain("reviewer must be an object.");
     });
 
     test("parseConfig rejects fixer with invalid reasoning level", () => {
@@ -442,6 +502,19 @@ describe("config", () => {
       };
 
       expect(parseConfig(withInvalidReviewer)).toBeNull();
+    });
+
+    test("parseConfigWithDiagnostics reports pi reviewer missing model", () => {
+      const withInvalidReviewer = {
+        ...createValidConfigInput(),
+        reviewer: { agent: "pi", provider: "google" },
+      };
+
+      const result = parseConfigWithDiagnostics(withInvalidReviewer);
+      expect(result.config).toBeNull();
+      expect(result.errors).toContain(
+        'reviewer.model must be a string when reviewer.agent is "pi".'
+      );
     });
 
     test("parseConfig accepts pi reviewer with provider and model", () => {

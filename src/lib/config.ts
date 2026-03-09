@@ -19,6 +19,7 @@ const CONFIG_DIR = join(homedir(), ".config", "ralph-review");
 export const CONFIG_PATH = join(CONFIG_DIR, "config.json");
 export const LOGS_DIR = join(CONFIG_DIR, "logs");
 const VALID_AGENT_VALUES = ["codex", "claude", "opencode", "droid", "gemini", "pi"] as const;
+const VALID_AGENT_CHOICES = VALID_AGENT_VALUES.join(", ");
 const VALID_REASONING_VALUES = ["low", "medium", "high", "xhigh", "max"] as const;
 const RUN_SETTING_KEYS = ["simplifier", "interactive"] as const;
 
@@ -70,33 +71,34 @@ function parseRetryConfigWithDiagnostics(
     return undefined;
   }
 
-  const maxRetries = typeof value.maxRetries === "number" ? value.maxRetries : undefined;
-  const baseDelayMs = typeof value.baseDelayMs === "number" ? value.baseDelayMs : undefined;
-  const maxDelayMs = typeof value.maxDelayMs === "number" ? value.maxDelayMs : undefined;
+  const maxRetries = value.maxRetries;
+  const baseDelayMs = value.baseDelayMs;
+  const maxDelayMs = value.maxDelayMs;
   let hasError = false;
 
-  if (maxRetries === undefined) {
+  if (typeof maxRetries !== "number") {
     errors.push("retry.maxRetries must be a number.");
     hasError = true;
   }
-  if (baseDelayMs === undefined) {
+  if (typeof baseDelayMs !== "number") {
     errors.push("retry.baseDelayMs must be a number.");
     hasError = true;
   }
-  if (maxDelayMs === undefined) {
+  if (typeof maxDelayMs !== "number") {
     errors.push("retry.maxDelayMs must be a number.");
     hasError = true;
   }
 
-  if (hasError) {
-    return undefined;
+  if (
+    !hasError &&
+    typeof maxRetries === "number" &&
+    typeof baseDelayMs === "number" &&
+    typeof maxDelayMs === "number"
+  ) {
+    return { maxRetries, baseDelayMs, maxDelayMs };
   }
 
-  if (maxRetries === undefined || baseDelayMs === undefined || maxDelayMs === undefined) {
-    return undefined;
-  }
-
-  return { maxRetries, baseDelayMs, maxDelayMs };
+  return undefined;
 }
 
 function parseNotificationsConfigWithDiagnostics(
@@ -152,35 +154,26 @@ function parseRunConfigWithDiagnostics(value: unknown, errors: string[]): RunCon
     hasError = true;
   }
 
-  const simplifier = typeof value.simplifier === "boolean" ? value.simplifier : undefined;
-  const interactive =
-    value.interactive === undefined
-      ? true
-      : typeof value.interactive === "boolean"
-        ? value.interactive
-        : undefined;
+  const simplifier = value.simplifier;
+  const interactive = value.interactive === undefined ? true : value.interactive;
 
-  if (simplifier === undefined) {
+  if (typeof simplifier !== "boolean") {
     errors.push("run.simplifier must be a boolean.");
     hasError = true;
   }
-  if (value.interactive !== undefined && interactive === undefined) {
+  if (typeof interactive !== "boolean") {
     errors.push("run.interactive must be a boolean.");
     hasError = true;
   }
 
-  if (hasError) {
-    return undefined;
+  if (!hasError && typeof simplifier === "boolean" && typeof interactive === "boolean") {
+    return {
+      simplifier,
+      interactive,
+    };
   }
 
-  if (simplifier === undefined || interactive === undefined) {
-    return undefined;
-  }
-
-  return {
-    simplifier,
-    interactive,
-  };
+  return undefined;
 }
 
 function parseDefaultReviewWithDiagnostics(value: unknown, errors: string[]): DefaultReview | null {
@@ -224,50 +217,44 @@ function parseAgentSettingsWithDiagnostics(
   }
 
   const agent = isAgentType(value.agent) ? value.agent : undefined;
-  const reasoning =
-    value.reasoning === undefined
-      ? undefined
-      : isReasoningLevel(value.reasoning)
-        ? value.reasoning
-        : undefined;
+  let reasoning: AgentSettings["reasoning"] | undefined;
+  if (value.reasoning !== undefined) {
+    reasoning = isReasoningLevel(value.reasoning) ? value.reasoning : undefined;
+  }
   let hasError = false;
 
   if (!agent) {
-    errors.push(`${path}.agent must be one of: ${VALID_AGENT_VALUES.join(", ")}.`);
     hasError = true;
+    errors.push(`${path}.agent must be one of: ${VALID_AGENT_CHOICES}.`);
   }
-  if (value.reasoning !== undefined && !reasoning) {
+  if (value.reasoning !== undefined && reasoning === undefined) {
     errors.push(`${path}.reasoning must be one of: ${VALID_REASONING_VALUES.join(", ")}.`);
     hasError = true;
   }
 
   if (agent === "pi") {
-    const provider = typeof value.provider === "string" ? value.provider : undefined;
-    const model = typeof value.model === "string" ? value.model : undefined;
+    const provider = value.provider;
+    const model = value.model;
 
-    if (provider === undefined) {
+    if (typeof provider !== "string") {
       errors.push(`${path}.provider must be a string when ${path}.agent is "pi".`);
       hasError = true;
     }
-    if (model === undefined) {
+    if (typeof model !== "string") {
       errors.push(`${path}.model must be a string when ${path}.agent is "pi".`);
       hasError = true;
     }
 
-    if (hasError) {
-      return null;
+    if (!hasError && typeof provider === "string" && typeof model === "string") {
+      return {
+        agent: "pi",
+        provider,
+        model,
+        reasoning,
+      };
     }
 
-    if (provider === undefined || model === undefined) {
-      return null;
-    }
-
-    return {
-      agent: "pi",
-      provider,
-      model,
-      reasoning,
-    };
+    return null;
   }
 
   if (agent && value.provider !== undefined) {
