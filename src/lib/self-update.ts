@@ -50,6 +50,7 @@ const BREW_INSTALLED_VERSION_ERROR =
   "Could not determine the installed Homebrew version for ralph-review.";
 const BREW_LATEST_VERSION_ERROR =
   "Could not determine the latest Homebrew version for ralph-review.";
+const BREW_UPDATE_ERROR = "Failed to refresh Homebrew metadata for ralph-review.";
 const NPM_INSTALLED_VERSION_ERROR =
   "Could not determine the installed npm version for ralph-review.";
 const VERSION_COMPARE_ERROR =
@@ -474,6 +475,10 @@ async function getBrewVersions(
   return parseBrewVersions(output);
 }
 
+async function refreshBrewMetadata(deps: SelfUpdateDependencies): Promise<void> {
+  await readTextOutput(deps, ["brew", "update", "--quiet"], BREW_UPDATE_ERROR);
+}
+
 async function performNpmSelfUpdate(
   options: SelfUpdateOptions,
   deps: SelfUpdateDependencies
@@ -521,6 +526,7 @@ async function performBrewSelfUpdate(
   deps: SelfUpdateDependencies
 ): Promise<SelfUpdateResult> {
   ensureManagerAvailable("brew", deps);
+  await refreshBrewMetadata(deps);
 
   const { currentVersion, latestVersion } = await getBrewVersions(deps);
   if (!hasNewerVersion(currentVersion, latestVersion)) {

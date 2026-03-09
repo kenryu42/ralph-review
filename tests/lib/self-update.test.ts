@@ -39,6 +39,11 @@ function createDependencies(
 } {
   const textCalls: string[][] = [];
   const interactiveCalls: string[][] = [];
+  const {
+    runInteractive: overrideRunInteractive,
+    runText: overrideRunText,
+    ...otherOverrides
+  } = overrides;
 
   return {
     deps: {
@@ -47,6 +52,10 @@ function createDependencies(
       which: (command: string) => `/usr/bin/${command}`,
       runText: async (command: string[]) => {
         textCalls.push(command);
+        if (overrideRunText) {
+          return overrideRunText(command);
+        }
+
         const key = command.join(" ");
         return (
           commandResults[key] ?? {
@@ -58,9 +67,13 @@ function createDependencies(
       },
       runInteractive: async (command: string[]) => {
         interactiveCalls.push(command);
+        if (overrideRunInteractive) {
+          return overrideRunInteractive(command);
+        }
+
         return 0;
       },
-      ...overrides,
+      ...otherOverrides,
     },
     textCalls,
     interactiveCalls,
@@ -648,7 +661,7 @@ describe("self-update", () => {
     });
 
     test("reports current brew version when no brew update is available", async () => {
-      const { deps, interactiveCalls } = createDependencies(
+      const { deps, interactiveCalls, textCalls } = createDependencies(
         {},
         {
           "brew info --json=v1 ralph-review": {
@@ -673,10 +686,14 @@ describe("self-update", () => {
         latestVersion: "0.1.6",
       });
       expect(interactiveCalls).toEqual([]);
+      expect(textCalls).toEqual([
+        ["brew", "update", "--quiet"],
+        ["brew", "info", "--json=v1", "ralph-review"],
+      ]);
     });
 
     test("reports a newer brew version when available", async () => {
-      const { deps, interactiveCalls } = createDependencies(
+      const { deps, interactiveCalls, textCalls } = createDependencies(
         {},
         {
           "brew info --json=v1 ralph-review": {
@@ -701,6 +718,10 @@ describe("self-update", () => {
         latestVersion: "0.1.7",
       });
       expect(interactiveCalls).toEqual([]);
+      expect(textCalls).toEqual([
+        ["brew", "update", "--quiet"],
+        ["brew", "info", "--json=v1", "ralph-review"],
+      ]);
     });
 
     test("prefers the linked Homebrew keg version when multiple kegs are installed", async () => {
@@ -819,9 +840,17 @@ describe("self-update", () => {
 
     test("runs brew install with tap-qualified name when an update is available", async () => {
       let infoCallCount = 0;
-      const { deps, interactiveCalls } = createDependencies({
+      const { deps, interactiveCalls, textCalls } = createDependencies({
         runText: async (command: string[]) => {
           const key = command.join(" ");
+          if (key === "brew update --quiet") {
+            return {
+              stdout: "",
+              stderr: "",
+              exitCode: 0,
+            };
+          }
+
           if (key === "brew info --json=v1 ralph-review") {
             infoCallCount += 1;
             return {
@@ -853,7 +882,35 @@ describe("self-update", () => {
         finalVersion: "0.1.7",
         latestVersion: "0.1.7",
       });
+      expect(textCalls).toEqual([
+        ["brew", "update", "--quiet"],
+        ["brew", "info", "--json=v1", "ralph-review"],
+        ["brew", "info", "--json=v1", "ralph-review"],
+      ]);
       expect(interactiveCalls).toEqual([["brew", "install", "kenryu42/tap/ralph-review"]]);
+    });
+
+    test("fails with Homebrew update guidance when refreshing metadata fails", async () => {
+      const { deps } = createDependencies(
+        {},
+        {
+          "brew update --quiet": {
+            stdout: "",
+            stderr: "fatal: could not read from remote repository",
+            exitCode: 1,
+          },
+        }
+      );
+
+      try {
+        await performSelfUpdate({ checkOnly: true, manager: "brew" }, deps);
+        throw new Error("expected performSelfUpdate to reject");
+      } catch (error) {
+        expect(error).toBeInstanceOf(SelfUpdateError);
+        const updateError = error as SelfUpdateError;
+        expect(updateError.message).toBe("Failed to refresh Homebrew metadata for ralph-review.");
+        expect(updateError.notes).toEqual(["fatal: could not read from remote repository"]);
+      }
     });
 
     test("returns actionable guidance when brew is unavailable", async () => {
