@@ -1,6 +1,6 @@
 {
   "name": "ralph-review",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "description": "Orchestrating coding agents for code review, verification and fixing via the ralph loop.",
   "license": "MIT",
   "type": "module",
