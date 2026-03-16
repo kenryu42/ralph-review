@@ -130,6 +130,24 @@ describe("computeSha256", () => {
   test("throws when the tarball cannot be downloaded", async () => {
     await expect(computeSha256(missingUrl)).rejects.toThrow("Failed to download tarball");
   });
+
+  test("wraps non-ok HTTP responses with a download error", async () => {
+    const server = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch() {
+        return new Response("download failed", { status: 500, statusText: "" });
+      },
+    });
+
+    try {
+      await expect(
+        computeSha256(`http://127.0.0.1:${server.port}/ralph-review.tar.gz`)
+      ).rejects.toThrow("Failed to download tarball: Internal Server Error");
+    } finally {
+      server.stop(true);
+    }
+  });
 });
 
 describe("runUpdateHomebrew", () => {
