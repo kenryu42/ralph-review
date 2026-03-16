@@ -39,6 +39,7 @@ function createBaseConfig(): Config {
 
 type CommandHarness = {
   deps: ConfigCommandDeps;
+  notes: Array<{ title: string; message: string }>;
   printed: string[];
   successes: string[];
   warnings: string[];
@@ -55,6 +56,7 @@ type CommandHarness = {
 };
 
 function createCommandHarness(overrides?: Partial<ConfigCommandDeps>): CommandHarness {
+  const notes: Array<{ title: string; message: string }> = [];
   const printed: string[] = [];
   const successes: string[] = [];
   const warnings: string[] = [];
@@ -125,6 +127,9 @@ function createCommandHarness(overrides?: Partial<ConfigCommandDeps>): CommandHa
       EDITOR: "vim",
       SHELL: "/bin/zsh",
     },
+    note: (message, title) => {
+      notes.push({ title, message });
+    },
     print: (value) => {
       printed.push(value);
     },
@@ -184,6 +189,7 @@ function createCommandHarness(overrides?: Partial<ConfigCommandDeps>): CommandHa
 
   return {
     deps,
+    notes,
     printed,
     successes,
     warnings,
@@ -819,12 +825,14 @@ describe("config command execution", () => {
 
     await runConfig(["show"]);
 
-    expect(harness.printed).toHaveLength(1);
-    expect(harness.printed[0]).toContain("Effective config");
-    expect(harness.printed[0]).toContain("Path: /tmp/ralph-test-config.json");
-    expect(harness.printed[0]).toContain("Agents");
-    expect(harness.printed[0]).toContain("Reviewer:");
-    expect(harness.printed[0]).not.toContain('"reviewer"');
+    expect(harness.printed).toHaveLength(0);
+    expect(harness.notes).toHaveLength(1);
+    expect(harness.notes[0]?.title).toBe("Configuration");
+    expect(harness.notes[0]?.message).toContain("Effective config");
+    expect(harness.notes[0]?.message).toContain("Path: /tmp/ralph-test-config.json");
+    expect(harness.notes[0]?.message).toContain("Agents");
+    expect(harness.notes[0]?.message).toContain("Reviewer:");
+    expect(harness.notes[0]?.message).not.toContain('"reviewer"');
     expect(harness.effectiveLoadCalls).toEqual(["/repo/project"]);
     expect(harness.exits).toEqual([]);
   });
@@ -863,8 +871,10 @@ describe("config command execution", () => {
 
     await runConfig(["show"]);
 
-    expect(harness.printed).toHaveLength(1);
-    const output = harness.printed[0] ?? "";
+    expect(harness.printed).toHaveLength(0);
+    expect(harness.notes).toHaveLength(1);
+    expect(harness.notes[0]?.title).toBe("Configuration");
+    const output = harness.notes[0]?.message ?? "";
     expect(output).toContain("Effective config");
     expect(output).toContain("Source: global + repo-local");
     expect(output).toContain("Repo-local overrides");
@@ -928,12 +938,14 @@ describe("config command execution", () => {
 
     await runConfig(["show", "--local"]);
 
-    expect(harness.printed).toHaveLength(1);
-    expect(harness.printed[0]).toContain("Repo-local overrides");
-    expect(harness.printed[0]).toContain("Path: /repo/.ralph-review/config.json");
-    expect(harness.printed[0]).toContain("Limits");
-    expect(harness.printed[0]).toContain("Run");
-    expect(harness.printed[0]).not.toContain('"maxIterations": 9');
+    expect(harness.printed).toHaveLength(0);
+    expect(harness.notes).toHaveLength(1);
+    expect(harness.notes[0]?.title).toBe("Configuration");
+    expect(harness.notes[0]?.message).toContain("Repo-local overrides");
+    expect(harness.notes[0]?.message).toContain("Path: /repo/.ralph-review/config.json");
+    expect(harness.notes[0]?.message).toContain("Limits");
+    expect(harness.notes[0]?.message).toContain("Run");
+    expect(harness.notes[0]?.message).not.toContain('"maxIterations": 9');
     expect(harness.effectiveLoadCalls).toEqual([]);
     expect(harness.exits).toEqual([]);
   });
@@ -964,11 +976,13 @@ describe("config command execution", () => {
 
     await runConfig(["show", "--global"]);
 
-    expect(harness.printed).toHaveLength(1);
-    expect(harness.printed[0]).toContain("Global config");
-    expect(harness.printed[0]).toContain("Agents");
-    expect(harness.printed[0]).toContain("Reviewer:");
-    expect(harness.printed[0]).not.toContain('"reviewer"');
+    expect(harness.printed).toHaveLength(0);
+    expect(harness.notes).toHaveLength(1);
+    expect(harness.notes[0]?.title).toBe("Configuration");
+    expect(harness.notes[0]?.message).toContain("Global config");
+    expect(harness.notes[0]?.message).toContain("Agents");
+    expect(harness.notes[0]?.message).toContain("Reviewer:");
+    expect(harness.notes[0]?.message).not.toContain('"reviewer"');
   });
 
   test("show --global --json prints raw global config JSON", async () => {
@@ -1087,10 +1101,12 @@ describe("config command execution", () => {
 
     await runConfig(["show"]);
 
-    expect(harness.printed).toHaveLength(1);
-    expect(harness.printed[0]).toContain("Effective config");
-    expect(harness.printed[0]).toContain("Source: repo-local only");
-    expect(harness.printed[0]).toContain("Max iterations: 8");
+    expect(harness.printed).toHaveLength(0);
+    expect(harness.notes).toHaveLength(1);
+    expect(harness.notes[0]?.title).toBe("Configuration");
+    expect(harness.notes[0]?.message).toContain("Effective config");
+    expect(harness.notes[0]?.message).toContain("Source: repo-local only");
+    expect(harness.notes[0]?.message).toContain("Max iterations: 8");
     expect(harness.errors).toEqual([]);
     expect(harness.exits).toEqual([]);
   });
@@ -1101,10 +1117,12 @@ describe("config command execution", () => {
 
     await runConfig(["show", "--verbose"]);
 
-    expect(harness.printed).toHaveLength(1);
-    expect(harness.printed[0]).toContain("Metadata");
-    expect(harness.printed[0]).toContain(CONFIG_SCHEMA_URI);
-    expect(harness.printed[0]).toContain(`${CONFIG_VERSION}`);
+    expect(harness.printed).toHaveLength(0);
+    expect(harness.notes).toHaveLength(1);
+    expect(harness.notes[0]?.title).toBe("Configuration");
+    expect(harness.notes[0]?.message).toContain("Metadata");
+    expect(harness.notes[0]?.message).toContain(CONFIG_SCHEMA_URI);
+    expect(harness.notes[0]?.message).toContain(`${CONFIG_VERSION}`);
   });
 
   test("get enforces usage and unknown keys", async () => {
