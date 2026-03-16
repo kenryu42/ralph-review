@@ -21,6 +21,7 @@ import {
   formatConfigRawLayersDisplay,
   formatReadableConfigSection,
 } from "@/lib/config-display";
+import { loadConfigDisplayLayers } from "@/lib/config-layers";
 import {
   type AgentOverrideSettings,
   type AgentSettings,
@@ -72,6 +73,7 @@ export type ConfigCommandDeps = {
   buildConfigOverride: typeof buildConfigOverride;
   spawn: ConfigCommandSpawner;
   env: Record<string, string | undefined>;
+  note(message: string, title: string): void;
   print(value: string): void;
   log: ConfigCommandLogger;
   exit(code: number): void;
@@ -942,7 +944,12 @@ async function loadExistingConfig(deps: ConfigCommandDeps): Promise<Config> {
 }
 
 async function loadDisplayLayers(deps: ConfigCommandDeps) {
-  const effective = await deps.loadEffectiveConfigWithDiagnostics(deps.cwd());
+  const layers = await loadConfigDisplayLayers(deps.cwd(), {
+    loadEffectiveConfigWithDiagnostics: deps.loadEffectiveConfigWithDiagnostics,
+    loadConfigWithDiagnostics: deps.loadConfigWithDiagnostics,
+    loadConfigOverrideWithDiagnostics: deps.loadConfigOverrideWithDiagnostics,
+  });
+  const { effective } = layers;
   if (!effective.exists) {
     throw new Error('Configuration not found. Run "rr init" first.');
   }
@@ -958,16 +965,7 @@ async function loadDisplayLayers(deps: ConfigCommandDeps) {
     );
   }
 
-  const globalConfig = await deps.loadConfigWithDiagnostics(effective.globalPath);
-  const localConfig = effective.localPath
-    ? await deps.loadConfigOverrideWithDiagnostics(effective.localPath)
-    : null;
-
-  return {
-    effective,
-    globalConfig,
-    localConfig,
-  };
+  return layers;
 }
 
 function readOverrideRoleSettings(
@@ -1160,12 +1158,18 @@ async function runShow(args: string[], deps: ConfigCommandDeps): Promise<void> {
 
   if (parsed.scope === "effective") {
     const layers = await loadDisplayLayers(deps);
-    deps.print(
-      parsed.json
-        ? formatConfigRawLayersDisplay(layers.effective, layers.globalConfig, layers.localConfig)
-        : formatConfigLayersDisplay(layers.effective, layers.globalConfig, layers.localConfig, {
-            showMetadata: parsed.verbose,
-          })
+    if (parsed.json) {
+      deps.print(
+        formatConfigRawLayersDisplay(layers.effective, layers.globalConfig, layers.localConfig)
+      );
+      return;
+    }
+
+    deps.note(
+      formatConfigLayersDisplay(layers.effective, layers.globalConfig, layers.localConfig, {
+        showMetadata: parsed.verbose,
+      }),
+      "Configuration"
     );
     return;
   }
@@ -1173,32 +1177,40 @@ async function runShow(args: string[], deps: ConfigCommandDeps): Promise<void> {
   if (parsed.scope === "global") {
     const path = deps.configPath;
     const config = await loadExistingRawConfig(path, deps);
-    deps.print(
-      parsed.json
-        ? JSON.stringify(config, null, 2)
-        : formatReadableConfigSection({
-            title: "Global config",
-            path,
-            config,
-            mode: "full",
-            showMetadata: parsed.verbose,
-          })
+    if (parsed.json) {
+      deps.print(JSON.stringify(config, null, 2));
+      return;
+    }
+
+    deps.note(
+      formatReadableConfigSection({
+        title: "Global config",
+        path,
+        config,
+        mode: "full",
+        showMetadata: parsed.verbose,
+      }),
+      "Configuration"
     );
     return;
   }
 
   const path = await resolveLocalConfigPathOrThrow(deps);
   const config = await loadExistingRawOverride(path, deps);
-  deps.print(
-    parsed.json
-      ? JSON.stringify(config, null, 2)
-      : formatReadableConfigSection({
-          title: "Repo-local overrides",
-          path,
-          config,
-          mode: "override",
-          showMetadata: parsed.verbose,
-        })
+  if (parsed.json) {
+    deps.print(JSON.stringify(config, null, 2));
+    return;
+  }
+
+  deps.note(
+    formatReadableConfigSection({
+      title: "Repo-local overrides",
+      path,
+      config,
+      mode: "override",
+      showMetadata: parsed.verbose,
+    }),
+    "Configuration"
   );
 }
 
@@ -1414,6 +1426,7 @@ const DEFAULT_CONFIG_COMMAND_DEPS: ConfigCommandDeps = {
   buildConfigOverride,
   spawn: Bun.spawn as unknown as ConfigCommandSpawner,
   env: process.env as Record<string, string | undefined>,
+  note: p.note,
   print: (value) => console.log(value),
   log: {
     success: (message) => p.log.success(message),
