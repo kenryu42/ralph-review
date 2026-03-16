@@ -51,6 +51,40 @@ describe("diagnostics checks", () => {
     expect(report.hasWarnings).toBe(true);
   });
 
+  test("reports both valid config locations when no config file exists in a git repo", async () => {
+    const report = await runDiagnostics("run", {
+      projectPath: "/repo/project",
+      capabilitiesByAgent: createCapabilities(),
+      dependencies: {
+        loadEffectiveConfigWithDiagnostics: async () => ({
+          exists: false,
+          config: null,
+          errors: [],
+          source: "none",
+          globalPath: "/Users/test/.config/ralph-review/config.json",
+          localPath: "/repo/.ralph-review/config.json",
+          repoRoot: "/repo",
+          globalExists: false,
+          localExists: false,
+          globalErrors: [],
+          localErrors: [],
+        }),
+        isGitRepository: async () => true,
+        hasUncommittedChanges: async () => true,
+        cleanupStaleLockfile: async () => false,
+        hasActiveLockfile: async () => false,
+        isTmuxInstalled: () => true,
+      },
+    });
+
+    const configItem = report.items.find((item) => item.id === "config-missing");
+    expect(configItem?.details).toContain("/repo/.ralph-review/config.json");
+    expect(configItem?.details).toContain("/Users/test/.config/ralph-review/config.json");
+    expect(configItem?.details).not.toBe(
+      "Expected /repo/.ralph-review/config.json in the project root."
+    );
+  });
+
   test("flags configured dynamic model that is not discovered", async () => {
     const capabilities = createCapabilities();
     capabilities.opencode.models = [{ model: "gpt-5.2-codex" }];
@@ -113,6 +147,194 @@ describe("diagnostics checks", () => {
     const configItem = report.items.find((item) => item.id === "config-invalid");
     expect(configItem?.severity).toBe("error");
     expect(report.hasErrors).toBe(true);
+  });
+
+  test("reports repo-local config failures with source-aware details", async () => {
+    const report = await runDiagnostics("run", {
+      projectPath: "/repo/project",
+      capabilitiesByAgent: createCapabilities(),
+      dependencies: {
+        loadEffectiveConfigWithDiagnostics: async () => ({
+          exists: true,
+          config: null,
+          errors: [
+            "Local config /repo/.ralph-review/config.json could not be parsed: Invalid JSON syntax: Unexpected token",
+          ],
+          source: "local",
+          globalPath: "/Users/test/.config/ralph-review/config.json",
+          localPath: "/repo/.ralph-review/config.json",
+          repoRoot: "/repo",
+          globalExists: true,
+          localExists: true,
+          globalErrors: [],
+          localErrors: ["Invalid JSON syntax: Unexpected token"],
+        }),
+        isGitRepository: async () => true,
+        hasUncommittedChanges: async () => true,
+        cleanupStaleLockfile: async () => false,
+        hasActiveLockfile: async () => false,
+        isTmuxInstalled: () => true,
+      },
+    });
+
+    const configItem = report.items.find((item) => item.id === "config-invalid");
+    expect(configItem?.severity).toBe("error");
+    expect(configItem?.details).toContain("/repo/.ralph-review/config.json");
+    expect(configItem?.details).toContain("repo-local");
+  });
+
+  test("reports invalid global config as global even when a repo root is detected", async () => {
+    const report = await runDiagnostics("run", {
+      projectPath: "/repo/project",
+      capabilitiesByAgent: createCapabilities(),
+      dependencies: {
+        loadEffectiveConfigWithDiagnostics: async () => ({
+          exists: true,
+          config: null,
+          errors: [
+            "Invalid global config at /Users/test/.config/ralph-review/config.json",
+            "Invalid JSON syntax: Unexpected token",
+          ],
+          source: "global",
+          globalPath: "/Users/test/.config/ralph-review/config.json",
+          localPath: "/repo/.ralph-review/config.json",
+          repoRoot: "/repo",
+          globalExists: true,
+          localExists: false,
+          globalErrors: ["Invalid JSON syntax: Unexpected token"],
+          localErrors: [],
+        }),
+        isGitRepository: async () => true,
+        hasUncommittedChanges: async () => true,
+        cleanupStaleLockfile: async () => false,
+        hasActiveLockfile: async () => false,
+        isTmuxInstalled: () => true,
+      },
+    });
+
+    const configItem = report.items.find((item) => item.id === "config-invalid");
+    expect(configItem?.severity).toBe("error");
+    expect(configItem?.details).toContain("global config issue");
+    expect(configItem?.details).not.toContain("repo-local config issue");
+    expect(configItem?.context).toEqual({ configScope: "global" });
+    expect(configItem?.remediation).toEqual(["Run: rr init --global", "Then run: rr doctor --fix"]);
+  });
+
+  test("reports merged failures caused only by the global config as global", async () => {
+    const report = await runDiagnostics("run", {
+      projectPath: "/repo/project",
+      capabilitiesByAgent: createCapabilities(),
+      dependencies: {
+        loadEffectiveConfigWithDiagnostics: async () => ({
+          exists: true,
+          config: null,
+          errors: [
+            "Effective configuration is invalid.",
+            "Global config /Users/test/.config/ralph-review/config.json: Invalid JSON syntax: Unexpected token",
+            "reviewer must be an object.",
+          ],
+          source: "merged",
+          globalPath: "/Users/test/.config/ralph-review/config.json",
+          localPath: "/repo/.ralph-review/config.json",
+          repoRoot: "/repo",
+          globalExists: true,
+          localExists: true,
+          globalErrors: ["Invalid JSON syntax: Unexpected token"],
+          localErrors: [],
+        }),
+        isGitRepository: async () => true,
+        hasUncommittedChanges: async () => true,
+        cleanupStaleLockfile: async () => false,
+        hasActiveLockfile: async () => false,
+        isTmuxInstalled: () => true,
+      },
+    });
+
+    const configItem = report.items.find((item) => item.id === "config-invalid");
+    expect(configItem?.severity).toBe("error");
+    expect(configItem?.details).toContain("global config issue");
+    expect(configItem?.details).not.toContain("repo-local config issue");
+    expect(configItem?.context).toEqual({ configScope: "global" });
+  });
+
+  test("downgrades hidden global config parse errors to a warning when an effective config is available", async () => {
+    const report = await runDiagnostics("run", {
+      projectPath: "/repo/project",
+      capabilitiesByAgent: createCapabilities(),
+      dependencies: {
+        loadEffectiveConfigWithDiagnostics: async () => ({
+          exists: true,
+          config: createConfig(),
+          errors: [
+            "Invalid global config at /Users/test/.config/ralph-review/config.json: Invalid JSON syntax: Unexpected token",
+          ],
+          source: "local",
+          globalPath: "/Users/test/.config/ralph-review/config.json",
+          localPath: "/repo/.ralph-review/config.json",
+          repoRoot: "/repo",
+          globalExists: true,
+          localExists: true,
+          globalErrors: ["Invalid JSON syntax: Unexpected token"],
+          localErrors: [],
+        }),
+        isGitRepository: async () => true,
+        hasUncommittedChanges: async () => true,
+        cleanupStaleLockfile: async () => false,
+        hasActiveLockfile: async () => false,
+        isTmuxInstalled: () => true,
+      },
+    });
+
+    const configItem = report.items.find((item) => item.id === "config-invalid");
+    expect(configItem?.severity).toBe("warning");
+    expect(configItem?.summary).toBe(
+      "Global configuration is invalid, but repo-local config loaded successfully."
+    );
+    expect(configItem?.details).toContain("global config issue");
+    expect(configItem?.context).toEqual({ configScope: "global" });
+    expect(report.items.some((item) => item.id === "config-valid")).toBe(false);
+    expect(report.hasErrors).toBe(false);
+    expect(report.hasWarnings).toBe(true);
+  });
+
+  test("reports mixed global and repo-local config failures together", async () => {
+    const report = await runDiagnostics("run", {
+      projectPath: "/repo/project",
+      capabilitiesByAgent: createCapabilities(),
+      dependencies: {
+        loadEffectiveConfigWithDiagnostics: async () => ({
+          exists: true,
+          config: null,
+          errors: [
+            "Invalid repo-local config at /repo/.ralph-review/config.json: Invalid JSON syntax: Unexpected token",
+            "Invalid global config at /Users/test/.config/ralph-review/config.json: Invalid JSON syntax: Unexpected token",
+          ],
+          source: "local",
+          globalPath: "/Users/test/.config/ralph-review/config.json",
+          localPath: "/repo/.ralph-review/config.json",
+          repoRoot: "/repo",
+          globalExists: true,
+          localExists: true,
+          globalErrors: ["Invalid JSON syntax: Unexpected token"],
+          localErrors: ["Invalid JSON syntax: Unexpected token"],
+        }),
+        isGitRepository: async () => true,
+        hasUncommittedChanges: async () => true,
+        cleanupStaleLockfile: async () => false,
+        hasActiveLockfile: async () => false,
+        isTmuxInstalled: () => true,
+      },
+    });
+
+    const configItem = report.items.find((item) => item.id === "config-invalid");
+    expect(configItem?.severity).toBe("error");
+    expect(configItem?.details).toContain("global and repo-local config issues");
+    expect(configItem?.context).toEqual({ configScope: "mixed" });
+    expect(configItem?.remediation).toEqual([
+      "Run: rr init --global",
+      "Run: rr init --local",
+      "Then run: rr doctor --fix",
+    ]);
   });
 
   test("downgrades role validation errors to warnings for init context", async () => {

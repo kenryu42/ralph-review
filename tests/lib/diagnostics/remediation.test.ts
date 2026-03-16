@@ -3,7 +3,11 @@ import type { RemediationDependencies } from "@/lib/diagnostics/remediation";
 import { applyFix, applyFixes, isFixable } from "@/lib/diagnostics/remediation";
 import type { DiagnosticItem } from "@/lib/diagnostics/types";
 
-function makeItem(id: string, severity: "ok" | "warning" | "error" = "error"): DiagnosticItem {
+function makeItem(
+  id: string,
+  severity: "ok" | "warning" | "error" = "error",
+  context?: Record<string, string | boolean>
+): DiagnosticItem {
   return {
     id,
     category: "config",
@@ -11,6 +15,7 @@ function makeItem(id: string, severity: "ok" | "warning" | "error" = "error"): D
     severity,
     summary: `Issue: ${id}`,
     remediation: [],
+    ...(context ? { context } : {}),
   };
 }
 
@@ -192,6 +197,67 @@ describe("applyFix", () => {
 
     expect(result.success).toBe(true);
     expect(result.id).toBe("config-invalid");
+  });
+
+  test("uses rr init for repo-local config issues", async () => {
+    let spawnedArgs: string[] = [];
+    const deps = mockDeps({
+      spawn: ((args: string[]) => {
+        spawnedArgs = args;
+        return { exited: Promise.resolve(0) };
+      }) as unknown as typeof Bun.spawn,
+    });
+
+    const result = await applyFix(
+      makeItem("config-invalid", "error", { configScope: "local" }),
+      deps
+    );
+
+    expect(result.success).toBe(true);
+    expect(spawnedArgs).toEqual(["/usr/bin/bun", "/path/to/cli.ts", "init", "--local"]);
+  });
+
+  test("uses rr init --global for global config issues", async () => {
+    let spawnedArgs: string[] = [];
+    const deps = mockDeps({
+      spawn: ((args: string[]) => {
+        spawnedArgs = args;
+        return { exited: Promise.resolve(0) };
+      }) as unknown as typeof Bun.spawn,
+    });
+
+    const result = await applyFix(
+      makeItem("config-invalid", "error", { configScope: "global" }),
+      deps
+    );
+
+    expect(result.success).toBe(true);
+    expect(spawnedArgs).toEqual(["/usr/bin/bun", "/path/to/cli.ts", "init", "--global"]);
+  });
+
+  test("does not report mixed config repairs as auto-fixed", async () => {
+    let spawnCalls = 0;
+    const deps = mockDeps({
+      spawn: ((_args: string[]) => {
+        spawnCalls++;
+        return { exited: Promise.resolve(0) };
+      }) as unknown as typeof Bun.spawn,
+    });
+
+    const result = await applyFix(
+      makeItem("config-invalid", "error", { configScope: "mixed" }),
+      deps
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.category).toBe("manual-needed");
+    expect(result.message).toContain("both the global and repo-local config");
+    expect(result.nextActions).toEqual([
+      "Run: rr init --global",
+      "Run: rr init --local",
+      "Then run: rr doctor --fix",
+    ]);
+    expect(spawnCalls).toBe(0);
   });
 
   test("reports failure when rr init exits non-zero", async () => {

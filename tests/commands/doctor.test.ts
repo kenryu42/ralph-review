@@ -144,7 +144,7 @@ describe("doctor command", () => {
         title: "Configuration file",
         severity: "error",
         summary: "Configuration file was not found.",
-        details: "Expected .ralph.json in the project root.",
+        details: "Expected .ralph-review/config.json in the project root.",
         remediation: ["Run rr init before running rr run."],
       },
     ]);
@@ -153,7 +153,7 @@ describe("doctor command", () => {
     await runDoctor([], runtime.overrides);
 
     const configNote = runtime.notes.find((entry) => entry.title === "⚙️ Config");
-    expect(configNote?.body).toContain("Expected .ralph.json in the project root.");
+    expect(configNote?.body).toContain("Expected .ralph-review/config.json in the project root.");
   });
 
   test("uses structured context metadata to render agent installation status", async () => {
