@@ -287,9 +287,6 @@ function parseRetryConfigOverrideWithDiagnostics(
   value: unknown,
   errors: string[]
 ): RetryOverrideConfig | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
   if (!isRecord(value)) {
     errors.push("retry must be an object.");
     return undefined;
@@ -388,9 +385,6 @@ function parseRunConfigOverrideWithDiagnostics(
   value: unknown,
   errors: string[]
 ): RunOverrideConfig | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
   if (!isRecord(value)) {
     errors.push("run must be an object.");
     return undefined;
@@ -926,17 +920,13 @@ function mergeNotificationsSection(
 
 function mergeAgentSection(
   base: AgentSettings | undefined,
-  override: AgentOverrideSettings | undefined
+  override: AgentOverrideSettings
 ): Record<string, unknown> | undefined {
-  if (!base && !override) {
-    return undefined;
-  }
-
   const merged: Record<string, unknown> = base
     ? (structuredClone(base) as unknown as Record<string, unknown>)
     : {};
 
-  if (!override) {
+  if (isObjectEmpty(override as Record<string, unknown>)) {
     return isObjectEmpty(merged) ? undefined : merged;
   }
 
@@ -976,81 +966,72 @@ function mergeAgentSection(
 
 function mergeConfigWithOverride(
   base: Config | null,
-  override: ConfigOverride | null
+  override: ConfigOverride
 ): ConfigParseDiagnostics {
-  if (!base && !override) {
-    return {
-      config: null,
-      errors: [],
-    };
-  }
-
   const candidate: Record<string, unknown> = base
     ? (structuredClone(base) as unknown as Record<string, unknown>)
     : {};
 
-  if (override) {
-    if (override.reviewer !== undefined) {
-      const reviewer = mergeAgentSection(base?.reviewer, override.reviewer);
-      if (reviewer) {
-        candidate.reviewer = reviewer;
-      } else {
-        delete candidate.reviewer;
-      }
+  if (override.reviewer !== undefined) {
+    const reviewer = mergeAgentSection(base?.reviewer, override.reviewer);
+    if (reviewer) {
+      candidate.reviewer = reviewer;
+    } else {
+      delete candidate.reviewer;
     }
-    if (override.fixer !== undefined) {
-      const fixer = mergeAgentSection(base?.fixer, override.fixer);
-      if (fixer) {
-        candidate.fixer = fixer;
-      } else {
-        delete candidate.fixer;
-      }
+  }
+  if (override.fixer !== undefined) {
+    const fixer = mergeAgentSection(base?.fixer, override.fixer);
+    if (fixer) {
+      candidate.fixer = fixer;
+    } else {
+      delete candidate.fixer;
     }
-    if (hasOwnKey(override as Record<string, unknown>, "code-simplifier")) {
-      if (override["code-simplifier"] === null) {
+  }
+  if (hasOwnKey(override as Record<string, unknown>, "code-simplifier")) {
+    if (override["code-simplifier"] === null) {
+      delete candidate["code-simplifier"];
+    } else {
+      const codeSimplifier = mergeAgentSection(
+        base?.["code-simplifier"],
+        override["code-simplifier"] ?? {}
+      );
+      if (codeSimplifier) {
+        candidate["code-simplifier"] = codeSimplifier;
+      } else {
         delete candidate["code-simplifier"];
-      } else {
-        const codeSimplifier = mergeAgentSection(
-          base?.["code-simplifier"],
-          override["code-simplifier"]
-        );
-        if (codeSimplifier) {
-          candidate["code-simplifier"] = codeSimplifier;
-        } else {
-          delete candidate["code-simplifier"];
-        }
       }
     }
-    if (override.defaultReview !== undefined) {
-      candidate.defaultReview = structuredClone(override.defaultReview);
-    }
-    if (override.maxIterations !== undefined) {
-      candidate.maxIterations = override.maxIterations;
-    }
-    if (override.iterationTimeout !== undefined) {
-      candidate.iterationTimeout = override.iterationTimeout;
-    }
+  }
+  if (override.defaultReview !== undefined) {
+    candidate.defaultReview = structuredClone(override.defaultReview);
+  }
+  if (override.maxIterations !== undefined) {
+    candidate.maxIterations = override.maxIterations;
+  }
+  if (override.iterationTimeout !== undefined) {
+    candidate.iterationTimeout = override.iterationTimeout;
+  }
 
-    const run = mergeRunSection(base?.run, override.run);
-    if (run) {
-      candidate.run = run;
-    } else {
-      delete candidate.run;
-    }
+  const run = mergeRunSection(base?.run, override.run);
+  if (run) {
+    candidate.run = run;
+  } else {
+    delete candidate.run;
+  }
 
-    const retry = mergeRetrySection(base?.retry, override.retry);
-    if (retry) {
-      candidate.retry = retry;
-    } else {
-      delete candidate.retry;
-    }
+  const retry = mergeRetrySection(base?.retry, override.retry);
+  if (retry) {
+    candidate.retry = retry;
+  } else {
+    delete candidate.retry;
+  }
 
-    const notifications = mergeNotificationsSection(base?.notifications, override.notifications);
-    if (notifications) {
-      candidate.notifications = notifications;
-    } else {
-      delete candidate.notifications;
-    }
+  const notifications = mergeNotificationsSection(base?.notifications, override.notifications);
+  if (notifications) {
+    candidate.notifications = notifications;
+  } else {
+    delete candidate.notifications;
   }
 
   return parseConfigWithDiagnostics(candidate);
@@ -1062,12 +1043,8 @@ function areConfigValuesEqual(left: unknown, right: unknown): boolean {
 
 function buildAgentOverride(
   base: AgentSettings | undefined,
-  config: AgentSettings | undefined
+  config: AgentSettings
 ): AgentOverrideSettings | undefined {
-  if (!config) {
-    return undefined;
-  }
-
   if (!base) {
     return structuredClone(config) as AgentOverrideSettings;
   }
