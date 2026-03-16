@@ -67,6 +67,10 @@ function resolveRepositoryRoot(path: string): string | undefined {
   return runGitForStdout(path, ["rev-parse", "--show-toplevel"]);
 }
 
+export async function resolveRepositoryRootAsync(path: string): Promise<string | undefined> {
+  return await runGitForStdoutAsync(path, ["rev-parse", "--show-toplevel"]);
+}
+
 function resolveHead(repoRoot: string): string | undefined {
   return runGitForStdout(repoRoot, ["rev-parse", "--verify", "HEAD"]);
 }
