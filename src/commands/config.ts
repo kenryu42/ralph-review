@@ -30,9 +30,12 @@ import {
   DEFAULT_RETRY_CONFIG,
   isAgentType,
   isReasoningLevel,
+  type ReasoningLevel,
 } from "@/lib/types";
 
 type ConfigRole = "reviewer" | "fixer" | "code-simplifier";
+type ConfigRoleField = "agent" | "model" | "provider" | "reasoning";
+type RoleConfigKey = `${ConfigRole}.${ConfigRoleField}`;
 type ConfigSubcommand = "show" | "get" | "set" | "edit";
 
 type ConfigCommandLogger = {
@@ -102,6 +105,43 @@ const CONFIG_KEYS = [
 export type ConfigKey = (typeof CONFIG_KEYS)[number];
 export type ConfigValue = string | number | boolean | null;
 type ConfigScope = "global" | "local";
+type ParsedRoleConfigUpdate =
+  | {
+      key: RoleConfigKey;
+      role: ConfigRole;
+      field: "agent";
+      value: AgentType;
+    }
+  | {
+      key: RoleConfigKey;
+      role: ConfigRole;
+      field: "model";
+      value: string | null;
+    }
+  | {
+      key: RoleConfigKey;
+      role: ConfigRole;
+      field: "provider";
+      value: string | null;
+    }
+  | {
+      key: RoleConfigKey;
+      role: ConfigRole;
+      field: "reasoning";
+      value: ReasoningLevel | null;
+    };
+type ParsedScalarConfigUpdate =
+  | { key: "maxIterations"; value: number }
+  | { key: "iterationTimeout"; value: number }
+  | { key: "defaultReview.type"; value: "uncommitted" | "base" }
+  | { key: "defaultReview.branch"; value: string | null }
+  | { key: "run.simplifier"; value: boolean }
+  | { key: "run.interactive"; value: boolean }
+  | { key: "retry.maxRetries"; value: number }
+  | { key: "retry.baseDelayMs"; value: number }
+  | { key: "retry.maxDelayMs"; value: number }
+  | { key: "notifications.sound.enabled"; value: boolean };
+type ParsedConfigUpdate = ParsedRoleConfigUpdate | ParsedScalarConfigUpdate;
 
 function getEffectiveConfigErrorHeader(loaded: EffectiveConfigDiagnostics): string {
   const hasLocalErrors = loaded.localErrors.length > 0;
@@ -143,9 +183,7 @@ function writeRoleSettings(role: ConfigRole, config: Config, settings: AgentSett
   config[role] = settings;
 }
 
-function resolveRoleAndField(
-  key: ConfigKey
-): { role: ConfigRole; field: "agent" | "model" | "provider" | "reasoning" } | null {
+function resolveRoleAndField(key: ConfigKey): { role: ConfigRole; field: ConfigRoleField } | null {
   const match = key.match(/^(reviewer|fixer|code-simplifier)\.(agent|model|provider|reasoning)$/);
   if (!match) {
     return null;
@@ -173,6 +211,14 @@ function parseInteger(value: string, key: ConfigKey): number {
     throw new Error(`Value for "${key}" must be an integer.`);
   }
   return parsed;
+}
+
+function requireNonNullRawValue(key: ConfigKey, rawValue: string): string {
+  if (rawValue === "null") {
+    throw new Error(`Value "null" is not allowed for "${key}".`);
+  }
+
+  return rawValue;
 }
 
 function formatValidKeys(): string {
@@ -215,105 +261,145 @@ export function parseConfigKey(value: string): ConfigKey {
   throw new Error(`Unknown config key "${value}". Valid keys: ${formatValidKeys()}`);
 }
 
-export function parseConfigValue(key: ConfigKey, rawValue: string): ConfigValue {
-  const allowNull = [
-    "reviewer.model",
-    "reviewer.provider",
-    "reviewer.reasoning",
-    "fixer.model",
-    "fixer.provider",
-    "fixer.reasoning",
-    "code-simplifier.model",
-    "code-simplifier.provider",
-    "code-simplifier.reasoning",
-    "defaultReview.branch",
-  ] as const;
+function createRoleAgentUpdate(key: RoleConfigKey, value: AgentType): ParsedRoleConfigUpdate {
+  const { role } = resolveRoleAndField(key) as { role: ConfigRole; field: ConfigRoleField };
 
-  if (rawValue === "null") {
-    if ((allowNull as readonly string[]).includes(key)) {
-      return null;
-    }
-    throw new Error(`Value "null" is not allowed for "${key}".`);
+  return { key, role, field: "agent", value };
+}
+
+function createRoleStringUpdate(
+  key: RoleConfigKey,
+  field: "model" | "provider",
+  value: string | null
+): ParsedRoleConfigUpdate {
+  const { role } = resolveRoleAndField(key) as { role: ConfigRole; field: ConfigRoleField };
+
+  if (field === "model") {
+    return { key, role, field: "model", value };
   }
 
+  return { key, role, field: "provider", value };
+}
+
+function createRoleReasoningUpdate(
+  key: RoleConfigKey,
+  value: ReasoningLevel | null
+): ParsedRoleConfigUpdate {
+  const { role } = resolveRoleAndField(key) as { role: ConfigRole; field: ConfigRoleField };
+
+  return { key, role, field: "reasoning", value };
+}
+
+function parseConfigUpdate(key: ConfigKey, rawValue: string): ParsedConfigUpdate {
   switch (key) {
     case "reviewer.agent":
     case "fixer.agent":
     case "code-simplifier.agent":
+      rawValue = requireNonNullRawValue(key, rawValue);
       if (!isAgentType(rawValue)) {
         throw new Error(`Value for "${key}" must be a valid agent.`);
       }
-      return rawValue;
+
+      return createRoleAgentUpdate(key, rawValue);
+
+    case "reviewer.model":
+    case "fixer.model":
+    case "code-simplifier.model":
+      if (rawValue === "null") {
+        return createRoleStringUpdate(key, "model", null);
+      }
+
+      return createRoleStringUpdate(key, "model", rawValue);
+
+    case "reviewer.provider":
+    case "fixer.provider":
+    case "code-simplifier.provider":
+      if (rawValue === "null") {
+        return createRoleStringUpdate(key, "provider", null);
+      }
+
+      return createRoleStringUpdate(key, "provider", rawValue);
 
     case "reviewer.reasoning":
     case "fixer.reasoning":
     case "code-simplifier.reasoning":
+      if (rawValue === "null") {
+        return createRoleReasoningUpdate(key, null);
+      }
+
       if (!isReasoningLevel(rawValue)) {
         throw new Error(`Value for "${key}" must be one of: low, medium, high, xhigh, max.`);
       }
-      return rawValue;
+
+      return createRoleReasoningUpdate(key, rawValue);
 
     case "maxIterations": {
-      const parsed = parseInteger(rawValue, key);
+      const parsed = parseInteger(requireNonNullRawValue(key, rawValue), key);
       if (parsed <= 0) {
         throw new Error(`Value for "${key}" must be greater than 0.`);
       }
-      return parsed;
+      return { key, value: parsed };
     }
 
     case "iterationTimeout": {
-      const parsed = parseInteger(rawValue, key);
+      const parsed = parseInteger(requireNonNullRawValue(key, rawValue), key);
       if (parsed <= 0) {
         throw new Error(`Value for "${key}" must be greater than 0.`);
       }
-      return parsed;
+      return { key, value: parsed };
     }
 
     case "retry.maxRetries": {
-      const parsed = parseInteger(rawValue, key);
+      const parsed = parseInteger(requireNonNullRawValue(key, rawValue), key);
       if (parsed < 0) {
         throw new Error(`Value for "${key}" must be greater than or equal to 0.`);
       }
-      return parsed;
+      return { key, value: parsed };
     }
 
     case "retry.baseDelayMs":
     case "retry.maxDelayMs": {
-      const parsed = parseInteger(rawValue, key);
+      const parsed = parseInteger(requireNonNullRawValue(key, rawValue), key);
       if (parsed <= 0) {
         throw new Error(`Value for "${key}" must be greater than 0.`);
       }
-      return parsed;
+      return { key, value: parsed };
     }
 
     case "defaultReview.type":
+      rawValue = requireNonNullRawValue(key, rawValue);
       if (rawValue !== "uncommitted" && rawValue !== "base") {
         throw new Error(`Value for "${key}" must be "uncommitted" or "base".`);
       }
-      return rawValue;
+      return { key, value: rawValue };
 
     case "defaultReview.branch":
+      if (rawValue === "null") {
+        return { key, value: null };
+      }
+
       if (rawValue.trim() === "") {
         throw new Error(`Value for "${key}" must be a non-empty branch name or "null".`);
       }
-      return rawValue;
+      return { key, value: rawValue };
 
     case "run.simplifier":
     case "run.interactive":
-      if (rawValue !== "true" && rawValue !== "false") {
+      if (requireNonNullRawValue(key, rawValue) !== "true" && rawValue !== "false") {
         throw new Error(`Value for "${key}" must be "true" or "false".`);
       }
-      return rawValue === "true";
+      return { key, value: rawValue === "true" };
 
     case "notifications.sound.enabled":
-      if (rawValue !== "true" && rawValue !== "false") {
+      if (requireNonNullRawValue(key, rawValue) !== "true" && rawValue !== "false") {
         throw new Error(`Value for "${key}" must be "true" or "false".`);
       }
-      return rawValue === "true";
-
-    default:
-      return rawValue;
+      return { key, value: rawValue === "true" };
   }
+}
+
+export function parseConfigValue(key: ConfigKey, rawValue: string): ConfigValue {
+  return parseConfigUpdate(key, rawValue).value;
 }
 
 export function getConfigValue(config: Config | ConfigOverride, key: ConfigKey): unknown {
@@ -955,19 +1041,13 @@ function applyOverrideRoleAgentUpdate(
 
 function setConfigOverrideValue(
   config: ConfigOverride,
-  key: ConfigKey,
-  value: ConfigValue
+  update: ParsedConfigUpdate
 ): ConfigOverride {
   const next = structuredClone(config) as ConfigOverride;
 
-  const roleField = resolveRoleAndField(key);
-  if (roleField) {
-    const { role, field } = roleField;
-
+  if ("field" in update) {
+    const { role, field, value } = update;
     if (field === "agent") {
-      if (typeof value !== "string" || !isAgentType(value)) {
-        throw new Error(`Value for "${key}" must be a valid agent.`);
-      }
       return applyOverrideRoleAgentUpdate(next, role, value);
     }
 
@@ -981,9 +1061,6 @@ function setConfigOverrideValue(
         }
         throw new Error(`Cannot unset "${role}.provider" while "${role}.agent" is "pi".`);
       }
-      if (typeof value !== "string") {
-        throw new Error(`Value for "${key}" must be a string or null.`);
-      }
       if (settings.agent !== "pi") {
         throw new Error(`"${role}.provider" is only valid when "${role}.agent" is "pi".`);
       }
@@ -993,139 +1070,84 @@ function setConfigOverrideValue(
 
     if (field === "model") {
       if (settings.agent === "pi") {
-        if (value === null || typeof value !== "string") {
+        if (value === null) {
           throw new Error(`Cannot unset "${role}.model" while "${role}.agent" is "pi".`);
         }
         settings.model = value;
         return next;
       }
 
-      if (value === null) {
-        settings.model = null;
-      } else if (typeof value === "string") {
-        settings.model = value;
-      } else {
-        throw new Error(`Value for "${key}" must be a string or null.`);
-      }
+      settings.model = value;
       return next;
     }
 
-    if (settings.agent === "pi") {
-      if (value === null) {
-        settings.reasoning = null;
-      } else if (typeof value === "string" && isReasoningLevel(value)) {
-        settings.reasoning = value;
-      } else {
-        throw new Error(`Value for "${key}" must be one of: low, medium, high, xhigh, max.`);
-      }
-      return next;
-    }
-
-    if (value === null) {
-      settings.reasoning = null;
-    } else if (typeof value === "string" && isReasoningLevel(value)) {
-      settings.reasoning = value;
-    } else {
-      throw new Error(`Value for "${key}" must be one of: low, medium, high, xhigh, max.`);
-    }
-
+    settings.reasoning = value;
     return next;
   }
 
-  switch (key) {
+  switch (update.key) {
     case "maxIterations":
-      if (typeof value !== "number") {
-        throw new Error(`Value for "${key}" must be an integer greater than 0.`);
-      }
-      next.maxIterations = value;
+      next.maxIterations = update.value;
       return next;
     case "iterationTimeout":
-      if (typeof value !== "number") {
-        throw new Error(`Value for "${key}" must be an integer greater than 0.`);
-      }
-      next.iterationTimeout = value;
+      next.iterationTimeout = update.value;
       return next;
     case "defaultReview.type": {
-      if (value === "base") {
+      if (update.value === "base") {
         const branch = next.defaultReview?.type === "base" ? next.defaultReview.branch : "";
         next.defaultReview = { type: "base", branch };
-      } else if (value === "uncommitted") {
-        next.defaultReview = { type: "uncommitted" };
       } else {
-        throw new Error(`Value for "${key}" must be "uncommitted" or "base".`);
+        next.defaultReview = { type: "uncommitted" };
       }
       return next;
     }
     case "defaultReview.branch":
-      if (value === null) {
+      if (update.value === null) {
         if (next.defaultReview?.type === "base") {
           next.defaultReview = { type: "base", branch: "" };
         }
         return next;
       }
-      if (typeof value !== "string") {
-        throw new Error(`Value for "${key}" must be a non-empty branch name or "null".`);
-      }
-      next.defaultReview = { type: "base", branch: value };
+      next.defaultReview = { type: "base", branch: update.value };
       return next;
     case "run.simplifier":
-      if (typeof value !== "boolean") {
-        throw new Error(`Value for "${key}" must be "true" or "false".`);
-      }
       next.run = {
         ...(next.run && next.run !== null ? next.run : {}),
-        simplifier: value,
+        simplifier: update.value,
       };
       return next;
     case "run.interactive":
-      if (typeof value !== "boolean") {
-        throw new Error(`Value for "${key}" must be "true" or "false".`);
-      }
       next.run = {
         ...(next.run && next.run !== null ? next.run : {}),
-        interactive: value,
+        interactive: update.value,
       };
       return next;
     case "retry.maxRetries":
-      if (typeof value !== "number") {
-        throw new Error(`Value for "${key}" must be an integer greater than or equal to 0.`);
-      }
       next.retry = {
         ...(next.retry && next.retry !== null ? next.retry : {}),
-        maxRetries: value,
+        maxRetries: update.value,
       };
       return next;
     case "retry.baseDelayMs":
-      if (typeof value !== "number") {
-        throw new Error(`Value for "${key}" must be an integer greater than 0.`);
-      }
       next.retry = {
         ...(next.retry && next.retry !== null ? next.retry : {}),
-        baseDelayMs: value,
+        baseDelayMs: update.value,
       };
       return next;
     case "retry.maxDelayMs":
-      if (typeof value !== "number") {
-        throw new Error(`Value for "${key}" must be an integer greater than 0.`);
-      }
       next.retry = {
         ...(next.retry && next.retry !== null ? next.retry : {}),
-        maxDelayMs: value,
+        maxDelayMs: update.value,
       };
       return next;
     case "notifications.sound.enabled":
-      if (typeof value !== "boolean") {
-        throw new Error(`Value for "${key}" must be "true" or "false".`);
-      }
       next.notifications = {
         ...next.notifications,
         sound: {
           ...(next.notifications?.sound ?? {}),
-          enabled: value,
+          enabled: update.value,
         },
       };
-      return next;
-    default:
       return next;
   }
 }
@@ -1210,7 +1232,8 @@ async function runSet(args: string[], deps: ConfigCommandDeps): Promise<void> {
 
   const key = parseConfigKey(parsed.positional[0] as string);
   const rawValue = parsed.positional[1] as string;
-  const parsedValue = parseConfigValue(key, rawValue);
+  const parsedUpdate = parseConfigUpdate(key, rawValue);
+  const parsedValue = parsedUpdate.value;
   const localPath = parsed.scope === "local" ? await resolveLocalConfigPathOrThrow(deps) : null;
 
   if (localPath !== null) {
@@ -1219,7 +1242,7 @@ async function runSet(args: string[], deps: ConfigCommandDeps): Promise<void> {
       current = await loadExistingEffectiveConfig(deps);
     } catch {
       const currentOverride = await loadExistingRawOverride(localPath, deps);
-      const updatedOverride = setConfigOverrideValue(currentOverride, key, parsedValue);
+      const updatedOverride = setConfigOverrideValue(currentOverride, parsedUpdate);
       const normalizedOverride = parseConfigOverrideWithDiagnostics(updatedOverride as unknown);
       if (!normalizedOverride.config || normalizedOverride.errors.length > 0) {
         throw new Error(

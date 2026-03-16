@@ -1776,6 +1776,19 @@ describe("config command execution", () => {
     expect(harness.exits).toEqual([]);
   });
 
+  test("set --local rejects non-agent updates when the override role is absent", async () => {
+    const harness = createBrokenLocalOverrideHarness({});
+    const runConfig = createRunConfig(harness.deps);
+
+    await runConfig(["set", "--local", "reviewer.model", "gpt-5.3-codex"]);
+
+    expect(harness.errors[0]).toContain(
+      'Role "reviewer" is not configured in the repo-local override.'
+    );
+    expect(harness.savedOverrides).toHaveLength(0);
+    expect(harness.exits).toEqual([1]);
+  });
+
   test("set --local rejects switching to pi in a single-key update when the override role is absent", async () => {
     const harness = createBrokenLocalOverrideHarness({});
     const runConfig = createRunConfig(harness.deps);
