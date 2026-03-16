@@ -1,17 +1,22 @@
 export {
   type AgentConfig,
+  type AgentOverrideSettings,
   type AgentSettings,
   CONFIG_SCHEMA_URI,
   CONFIG_VERSION,
   type Config,
+  type ConfigOverride,
   DEFAULT_NOTIFICATIONS_CONFIG,
   DEFAULT_RETRY_CONFIG,
   type DefaultReview,
   isReasoningLevel,
   type NotificationsConfig,
+  type NotificationsOverrideConfig,
   type ReasoningLevel,
   type RetryConfig,
+  type RetryOverrideConfig,
   type RunConfig,
+  type RunOverrideConfig,
 } from "./config";
 export {
   type AgentRole,

@@ -27,6 +27,12 @@ interface NonPiAgentSettings {
 }
 
 export type AgentSettings = PiAgentSettings | NonPiAgentSettings;
+export interface AgentOverrideSettings {
+  agent?: AgentType;
+  model?: string | null;
+  reasoning?: ReasoningLevel | null;
+  provider?: string | null;
+}
 
 export interface RetryConfig {
   maxRetries: number;
@@ -45,6 +51,25 @@ export interface NotificationsConfig {
 export interface RunConfig {
   simplifier: boolean;
   interactive: boolean;
+}
+
+export interface RetryOverrideConfig {
+  maxRetries?: number;
+  baseDelayMs?: number;
+  maxDelayMs?: number;
+}
+
+export interface SoundNotificationOverrideConfig {
+  enabled?: boolean;
+}
+
+export interface NotificationsOverrideConfig {
+  sound?: SoundNotificationOverrideConfig;
+}
+
+export interface RunOverrideConfig {
+  simplifier?: boolean;
+  interactive?: boolean;
 }
 
 export const CONFIG_SCHEMA_URI =
@@ -78,6 +103,23 @@ export interface Config {
   retry?: RetryConfig; // Optional retry config, uses DEFAULT_RETRY_CONFIG if not set
   defaultReview: DefaultReview;
   notifications: NotificationsConfig;
+}
+
+/**
+ * Repo-local overrides stored in .ralph-review/config.json
+ */
+export interface ConfigOverride {
+  $schema?: typeof CONFIG_SCHEMA_URI;
+  version?: typeof CONFIG_VERSION;
+  reviewer?: AgentOverrideSettings;
+  fixer?: AgentOverrideSettings;
+  "code-simplifier"?: AgentOverrideSettings | null;
+  run?: RunOverrideConfig | null;
+  maxIterations?: number;
+  iterationTimeout?: number;
+  retry?: RetryOverrideConfig | null;
+  defaultReview?: DefaultReview;
+  notifications?: NotificationsOverrideConfig;
 }
 
 export interface AgentConfig {
