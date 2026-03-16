@@ -1,3 +1,5 @@
+import { homedir } from "node:os";
+import { relative } from "node:path";
 import * as p from "@clack/prompts";
 import { isAgentAvailable } from "@/lib/agents";
 import {
@@ -7,17 +9,24 @@ import {
   droidModelOptions,
   geminiModelOptions,
   getAgentDisplayName,
-  getModelDisplayName,
   getReasoningOptions,
 } from "@/lib/agents/models";
 import {
+  buildConfigOverride,
   CONFIG_PATH,
   configExists,
   DEFAULT_CONFIG,
   ensureConfigDir,
   loadConfig,
+  loadConfigOverrideWithDiagnostics,
+  loadConfigWithDiagnostics,
+  loadEffectiveConfig,
+  loadEffectiveConfigWithDiagnostics,
+  resolveRepoConfigPath,
   saveConfig,
+  saveConfigOverride,
 } from "@/lib/config";
+import { formatConfigSection, formatReadableConfigSection } from "@/lib/config-display";
 import { type AgentCapabilitiesMap, discoverAgentCapabilities } from "@/lib/diagnostics";
 import { getTmuxInstallHint } from "@/lib/diagnostics/tmux-install";
 import {
@@ -34,6 +43,7 @@ import {
 export type AgentAvailability = Record<AgentType, boolean>;
 
 type ConfiguredRole = "reviewer" | "fixer" | "code-simplifier";
+type InitScope = "global" | "local";
 
 interface InitInput {
   reviewerAgent: AgentType;
@@ -145,10 +155,18 @@ interface InitPromptRuntime {
 
 export interface InitRuntime {
   prompt: InitPromptRuntime;
+  cwd: () => string;
   configExists: typeof configExists;
+  resolveRepoConfigPath: typeof resolveRepoConfigPath;
   loadConfig: typeof loadConfig;
+  loadConfigWithDiagnostics: typeof loadConfigWithDiagnostics;
+  loadConfigOverrideWithDiagnostics: typeof loadConfigOverrideWithDiagnostics;
+  loadEffectiveConfig: typeof loadEffectiveConfig;
+  loadEffectiveConfigWithDiagnostics: typeof loadEffectiveConfigWithDiagnostics;
   ensureConfigDir: typeof ensureConfigDir;
   saveConfig: typeof saveConfig;
+  saveConfigOverride: typeof saveConfigOverride;
+  buildConfigOverride: typeof buildConfigOverride;
   discoverAgentCapabilities: typeof discoverAgentCapabilities;
   checkTmuxInstalled: typeof checkTmuxInstalled;
   checkAllAgents: typeof checkAllAgents;
@@ -195,16 +213,74 @@ export function createInitRuntime(overrides: InitRuntimeOverrides = {}): InitRun
         ...overrides.prompt?.log,
       },
     },
+    cwd: () => process.cwd(),
     configExists: overrides.configExists ?? configExists,
+    resolveRepoConfigPath: overrides.resolveRepoConfigPath ?? resolveRepoConfigPath,
     loadConfig: overrides.loadConfig ?? loadConfig,
+    loadConfigWithDiagnostics: overrides.loadConfigWithDiagnostics ?? loadConfigWithDiagnostics,
+    loadConfigOverrideWithDiagnostics:
+      overrides.loadConfigOverrideWithDiagnostics ?? loadConfigOverrideWithDiagnostics,
+    loadEffectiveConfig: overrides.loadEffectiveConfig ?? loadEffectiveConfig,
+    loadEffectiveConfigWithDiagnostics:
+      overrides.loadEffectiveConfigWithDiagnostics ?? loadEffectiveConfigWithDiagnostics,
     ensureConfigDir: overrides.ensureConfigDir ?? ensureConfigDir,
     saveConfig: overrides.saveConfig ?? saveConfig,
+    saveConfigOverride: overrides.saveConfigOverride ?? saveConfigOverride,
+    buildConfigOverride: overrides.buildConfigOverride ?? buildConfigOverride,
     discoverAgentCapabilities: overrides.discoverAgentCapabilities ?? discoverAgentCapabilities,
     checkTmuxInstalled: overrides.checkTmuxInstalled ?? checkTmuxInstalled,
     checkAllAgents: overrides.checkAllAgents ?? checkAllAgents,
     getTmuxInstallHint: overrides.getTmuxInstallHint ?? getTmuxInstallHint,
     exit: overrides.exit ?? PROCESS_EXIT,
   };
+}
+
+interface ParsedInitArgs {
+  scope?: InitScope;
+}
+
+function isEnabledScopeFlag(arg: string, flag: "--local" | "--global"): boolean {
+  if (arg === flag) {
+    return true;
+  }
+
+  const prefix = `${flag}=`;
+  if (!arg.startsWith(prefix)) {
+    return false;
+  }
+
+  const value = arg.slice(prefix.length);
+  if (value === "true") {
+    return true;
+  }
+
+  throw new Error(`Invalid value for "${flag}": expected "true".`);
+}
+
+function parseInitArgs(args: string[]): ParsedInitArgs {
+  let scope: InitScope | undefined;
+
+  for (const arg of args) {
+    if (isEnabledScopeFlag(arg, "--local")) {
+      if (scope === "global") {
+        throw new Error('Cannot use "--local" and "--global" together.');
+      }
+      scope = "local";
+      continue;
+    }
+
+    if (isEnabledScopeFlag(arg, "--global")) {
+      if (scope === "local") {
+        throw new Error('Cannot use "--local" and "--global" together.');
+      }
+      scope = "global";
+      continue;
+    }
+
+    throw new Error(`Unknown option "${arg}".`);
+  }
+
+  return { scope };
 }
 
 const DEFAULT_MAX_ITERATIONS = 5;
@@ -505,41 +581,6 @@ async function promptForModel(
   }
 
   return selection;
-}
-
-function formatAgentModel(settings: AgentSettings): string {
-  if (settings.agent === "pi") {
-    return `${settings.provider}/${settings.model}`;
-  }
-
-  return settings.model ? getModelDisplayName(settings.agent, settings.model) : "Default";
-}
-
-function formatRoleSummary(settings: AgentSettings): string {
-  const name = getAgentDisplayName(settings.agent);
-  const model = formatAgentModel(settings);
-  const reasoning = settings.reasoning ?? "default";
-  return `${name} (${model}, ${reasoning})`;
-}
-
-function formatConfigDisplay(config: Config): string {
-  const simplifierSettings = config["code-simplifier"];
-  const defaultReviewDisplay =
-    config.defaultReview.type === "base"
-      ? `base branch (${config.defaultReview.branch})`
-      : "uncommitted changes";
-
-  return [
-    `  Reviewer:            ${formatRoleSummary(config.reviewer)}`,
-    `  Fixer:               ${formatRoleSummary(config.fixer)}`,
-    `  Simplifier:          ${simplifierSettings ? formatRoleSummary(simplifierSettings) : "Not configured"}`,
-    `  Max iterations:      ${config.maxIterations}`,
-    `  Iteration timeout:   ${config.iterationTimeout / 1000 / 60} minutes`,
-    `  Default review:      ${defaultReviewDisplay}`,
-    `  Run simplifier:      ${config.run?.simplifier ? "enabled" : "disabled"}`,
-    `  Interactive Mode:    ${(config.run?.interactive ?? true) ? "enabled" : "disabled"}`,
-    `  Sound notify:        ${config.notifications.sound.enabled ? "enabled" : "disabled"}`,
-  ].join("\n");
 }
 
 function normalizeModelId(model: string): string {
@@ -948,18 +989,121 @@ async function promptForSoundNotifications(
   return shouldEnable as boolean;
 }
 
+async function promptForInitScope(
+  runtime: InitRuntime,
+  repoConfigPath: Awaited<ReturnType<typeof resolveRepoConfigPath>>
+): Promise<InitScope> {
+  if (!repoConfigPath) {
+    return "global";
+  }
+
+  const scope = await runtime.prompt.select({
+    message: "Choose config scope",
+    options: [
+      {
+        value: "local",
+        label: "Repo-local config",
+        hint: relative(process.cwd(), repoConfigPath.path),
+      },
+      {
+        value: "global",
+        label: "Global config",
+        hint: CONFIG_PATH.replace(homedir(), "~"),
+      },
+    ],
+    initialValue: "local",
+  });
+  handleCancel(runtime, scope);
+  return scope as InitScope;
+}
+
 export async function runInitWithRuntime(
+  argsOrRuntimeOverrides: string[] | InitRuntimeOverrides = [],
   runtimeOverrides: InitRuntimeOverrides = {}
 ): Promise<void> {
-  const runtime = createInitRuntime(runtimeOverrides);
+  const args = Array.isArray(argsOrRuntimeOverrides) ? argsOrRuntimeOverrides : [];
+  const resolvedRuntimeOverrides = Array.isArray(argsOrRuntimeOverrides)
+    ? runtimeOverrides
+    : argsOrRuntimeOverrides;
+  const runtime = createInitRuntime(resolvedRuntimeOverrides);
+  let parsedArgs: ParsedInitArgs;
+  try {
+    parsedArgs = parseInitArgs(args);
+  } catch (error) {
+    runtime.prompt.log.error(`${error}`);
+    return runtime.exit(1);
+  }
+
+  const projectPath = runtime.cwd();
+  const repoConfigPath = await runtime.resolveRepoConfigPath(projectPath);
+
+  if (parsedArgs.scope === "local" && !repoConfigPath) {
+    runtime.prompt.log.error("Cannot use --local outside a git repository.");
+    return runtime.exit(1);
+  }
+
   runtime.prompt.intro("Ralph Review Setup");
 
-  if (await runtime.configExists()) {
-    const existingConfig = await runtime.loadConfig();
-    if (existingConfig) {
-      runtime.prompt.log.info(`Current configuration:\n${formatConfigDisplay(existingConfig)}`);
-    }
+  const scope = parsedArgs.scope ?? (await promptForInitScope(runtime, repoConfigPath));
+  const targetPath = scope === "local" ? (repoConfigPath?.path ?? CONFIG_PATH) : CONFIG_PATH;
+  const targetDirSeparatorIndex = Math.max(
+    targetPath.lastIndexOf("/"),
+    targetPath.lastIndexOf("\\")
+  );
+  const targetDir =
+    targetDirSeparatorIndex >= 0 ? targetPath.substring(0, targetDirSeparatorIndex) : "";
+  const targetConfigExists = await runtime.configExists(targetPath);
 
+  if (targetConfigExists) {
+    if (scope === "local" && repoConfigPath) {
+      const selectedConfigDiagnostics = await runtime.loadConfigOverrideWithDiagnostics(
+        repoConfigPath.path
+      );
+
+      if (
+        selectedConfigDiagnostics.exists ||
+        selectedConfigDiagnostics.config ||
+        selectedConfigDiagnostics.errors.length > 0
+      ) {
+        const selectedConfigDisplay =
+          selectedConfigDiagnostics.config && selectedConfigDiagnostics.errors.length === 0
+            ? formatReadableConfigSection({
+                path: repoConfigPath.path,
+                config: selectedConfigDiagnostics.config,
+                mode: "override",
+              })
+            : formatConfigSection({
+                ...selectedConfigDiagnostics,
+              });
+
+        runtime.prompt.log.info(`Current configuration:\n${selectedConfigDisplay}`);
+      }
+    } else {
+      const selectedConfigDiagnostics = await runtime.loadConfigWithDiagnostics(CONFIG_PATH);
+
+      if (
+        selectedConfigDiagnostics.exists ||
+        selectedConfigDiagnostics.config ||
+        selectedConfigDiagnostics.errors.length > 0
+      ) {
+        const selectedConfigDisplay =
+          selectedConfigDiagnostics.config && selectedConfigDiagnostics.errors.length === 0
+            ? formatReadableConfigSection({
+                path: CONFIG_PATH,
+                config: selectedConfigDiagnostics.config,
+                mode: "full",
+              })
+            : formatConfigSection({
+                path: CONFIG_PATH,
+                ...selectedConfigDiagnostics,
+              });
+
+        runtime.prompt.log.info(`Current configuration:\n${selectedConfigDisplay}`);
+      }
+    }
+  }
+
+  if (targetConfigExists) {
     const shouldOverwrite = await runtime.prompt.confirm({
       message: "Configuration already exists. Overwrite?",
       initialValue: false,
@@ -1069,7 +1213,9 @@ export async function runInitWithRuntime(
         };
 
   const config = buildConfig(inputWithPreferences);
-  runtime.prompt.log.info(`Proposed configuration:\n${formatConfigDisplay(config)}`);
+  runtime.prompt.log.info(
+    `Proposed configuration:\n${formatReadableConfigSection({ config, mode: "full" })}`
+  );
 
   const shouldSave = await runtime.prompt.confirm({
     message: "Save this configuration?",
@@ -1082,13 +1228,33 @@ export async function runInitWithRuntime(
     return;
   }
 
-  await runtime.ensureConfigDir();
-  await runtime.saveConfig(config);
+  await runtime.ensureConfigDir(targetDir);
+  if (scope === "local") {
+    const globalConfig = await runtime.loadConfig(CONFIG_PATH);
+    const configOverride = runtime.buildConfigOverride(globalConfig, config);
+    await runtime.saveConfigOverride(configOverride, targetPath);
+  } else {
+    await runtime.saveConfig(config, targetPath);
 
-  runtime.prompt.log.success(`Configuration saved to ${CONFIG_PATH}`);
+    const effective = await runtime.loadEffectiveConfigWithDiagnostics(runtime.cwd());
+    if (effective.localExists && (!effective.config || effective.errors.length > 0)) {
+      const errorDetails =
+        effective.errors.length > 0
+          ? effective.errors.map((e) => `- ${e}`).join("\n")
+          : "- Configuration format is invalid.";
+      runtime.prompt.log.warn(
+        `Repo-local overrides may be incompatible with the new global config:\n${errorDetails}\nFix the repo-local override or restore compatible global values, then try again.`
+      );
+    }
+  }
+
+  runtime.prompt.log.success(`Configuration saved to ${targetPath}`);
   runtime.prompt.outro("You can now run: rr run");
 }
 
-export async function runInit(runtimeOverrides: InitRuntimeOverrides = {}): Promise<void> {
-  await runInitWithRuntime(runtimeOverrides);
+export async function runInit(
+  argsOrRuntimeOverrides: string[] | InitRuntimeOverrides = [],
+  runtimeOverrides: InitRuntimeOverrides = {}
+): Promise<void> {
+  await runInitWithRuntime(argsOrRuntimeOverrides, runtimeOverrides);
 }
