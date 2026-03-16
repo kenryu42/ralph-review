@@ -50,6 +50,24 @@ describe("config display", () => {
     ).toBe(["Repo-local config", "Path: /repo/.ralph-review/config.json", "Not found."].join("\n"));
   });
 
+  test("formats config sections with notes and serialized json", () => {
+    expect(
+      formatConfigSection({
+        title: "Effective config",
+        path: "/tmp/global.json",
+        note: "Source: global",
+        config: { run: { simplifier: true } },
+      })
+    ).toBe(
+      [
+        "Effective config",
+        "Path: /tmp/global.json",
+        "Source: global",
+        JSON.stringify({ run: { simplifier: true } }, null, 2),
+      ].join("\n")
+    );
+  });
+
   test("formats readable full config by section", () => {
     const output = formatReadableConfigSection({
       title: "Current configuration",
@@ -167,6 +185,64 @@ describe("config display", () => {
     expect(output).toContain("Notifications");
     expect(output).toContain("Sound: disabled");
     expect(output).toContain("Metadata");
+  });
+
+  test("formats readable repo-local overrides for pi agents with inherited removals", () => {
+    expect(
+      formatReadableConfigSection({
+        title: "Repo-local overrides",
+        config: {
+          reviewer: {
+            agent: "pi",
+            model: null,
+            reasoning: null,
+            provider: null,
+          },
+          fixer: {
+            agent: "pi",
+            model: "custom-model",
+            reasoning: "high",
+            provider: "acme",
+          },
+        },
+        mode: "override",
+      })
+    ).toBe(
+      [
+        "Repo-local overrides",
+        "",
+        "Agents",
+        "  Reviewer: Pi (inherited/inherited, default); model removed, reasoning removed, provider removed",
+        "  Fixer: Pi (acme/custom-model, high)",
+      ].join("\n")
+    );
+  });
+
+  test("formats readable repo-local overrides without agent identity", () => {
+    expect(
+      formatReadableConfigSection({
+        title: "Repo-local overrides",
+        config: {
+          reviewer: {
+            model: "gpt-5.4",
+            reasoning: "xhigh",
+            provider: "openai",
+          },
+          maxIterations: 7,
+        },
+        mode: "override",
+      })
+    ).toBe(
+      [
+        "Repo-local overrides",
+        "",
+        "Agents",
+        "  Reviewer: model gpt-5.4, reasoning xhigh, provider openai",
+        "",
+        "Limits",
+        "  Max iterations: 7",
+      ].join("\n")
+    );
   });
 
   test("formats readable full config with retry settings", () => {
@@ -291,6 +367,33 @@ describe("config display", () => {
     expect(output).toContain("Source: repo-local only");
     expect(output).toContain("Repo-local overrides");
     expect(output).toContain("No repo-local overrides.");
+  });
+
+  test("formats readable layered config for global-only source", () => {
+    const output = formatConfigLayersDisplay(
+      {
+        exists: true,
+        source: "global",
+        config: baseConfig,
+        errors: [],
+        globalPath: "/tmp/global.json",
+        localPath: null,
+        repoRoot: null,
+        globalExists: true,
+        localExists: false,
+        globalErrors: [],
+        localErrors: [],
+      },
+      {
+        exists: true,
+        config: baseConfig,
+        errors: [],
+      },
+      null
+    );
+
+    expect(output).toContain("Source: global");
+    expect(output).not.toContain("Repo-local overrides");
   });
 
   test("falls back to missing readable effective config details when no config is available", () => {
