@@ -12,7 +12,13 @@ import {
   validateConfigInvariants,
 } from "@/commands/config";
 import { parseConfig, parseConfigWithDiagnostics } from "@/lib/config";
-import { CONFIG_SCHEMA_URI, CONFIG_VERSION, type Config, DEFAULT_RETRY_CONFIG } from "@/lib/types";
+import {
+  CONFIG_SCHEMA_URI,
+  CONFIG_VERSION,
+  type Config,
+  type ConfigOverride,
+  DEFAULT_RETRY_CONFIG,
+} from "@/lib/types";
 
 const baseConfig: Config = {
   $schema: CONFIG_SCHEMA_URI,
@@ -39,10 +45,13 @@ type CommandHarness = {
   errors: string[];
   exits: number[];
   saved: Config[];
+  savedOverrides: ConfigOverride[];
+  savedOverridePaths: string[];
   spawnCalls: Array<{
     command: string[];
     options: Parameters<ConfigCommandDeps["spawn"]>[1];
   }>;
+  effectiveLoadCalls: string[];
 };
 
 function createCommandHarness(overrides?: Partial<ConfigCommandDeps>): CommandHarness {
@@ -52,25 +61,62 @@ function createCommandHarness(overrides?: Partial<ConfigCommandDeps>): CommandHa
   const errors: string[] = [];
   const exits: number[] = [];
   const saved: Config[] = [];
+  const savedOverrides: ConfigOverride[] = [];
+  const savedOverridePaths: string[] = [];
   const spawnCalls: Array<{
     command: string[];
     options: Parameters<ConfigCommandDeps["spawn"]>[1];
   }> = [];
+  const effectiveLoadCalls: string[] = [];
 
   const defaults: ConfigCommandDeps = {
     configPath: "/tmp/ralph-test-config.json",
     configExists: async () => true,
     ensureConfigDir: async () => {},
+    cwd: () => "/repo/project",
+    resolveRepoConfigPath: async () => ({
+      repoRoot: "/repo",
+      path: "/repo/.ralph-review/config.json",
+    }),
     loadConfig: async () => createBaseConfig(),
     loadConfigWithDiagnostics: async () => {
       const config = createBaseConfig();
       return { exists: true, config, errors: [] };
+    },
+    loadConfigOverrideWithDiagnostics: async () => ({
+      exists: true,
+      path: "/repo/.ralph-review/config.json",
+      config: { run: { simplifier: true } },
+      errors: [],
+    }),
+    loadEffectiveConfigWithDiagnostics: async (projectPath = "/repo/project") => {
+      effectiveLoadCalls.push(projectPath);
+      return {
+        exists: true,
+        config: createBaseConfig(),
+        errors: [],
+        source: "global",
+        globalPath: "/tmp/ralph-test-config.json",
+        localPath: "/repo/.ralph-review/config.json",
+        repoRoot: "/repo",
+        globalExists: true,
+        localExists: false,
+        globalErrors: [],
+        localErrors: [],
+      };
     },
     parseConfig: (value) => parseConfig(value),
     parseConfigWithDiagnostics: (value) => parseConfigWithDiagnostics(value),
     saveConfig: async (config) => {
       saved.push(config);
     },
+    saveConfigOverride: async (config, path) => {
+      savedOverrides.push(config);
+      savedOverridePaths.push(path);
+    },
+    buildConfigOverride: (_baseConfig, config) => ({
+      maxIterations: config.maxIterations,
+    }),
     spawn: ((command, options) => {
       spawnCalls.push({ command, options });
       return { exited: Promise.resolve(0) };
@@ -144,7 +190,10 @@ function createCommandHarness(overrides?: Partial<ConfigCommandDeps>): CommandHa
     errors,
     exits,
     saved,
+    savedOverrides,
+    savedOverridePaths,
     spawnCalls,
+    effectiveLoadCalls,
   };
 }
 
@@ -743,19 +792,190 @@ describe("config command execution", () => {
     await runConfig(["show"]);
 
     expect(harness.printed).toHaveLength(1);
-    expect(harness.printed[0]).toContain('"reviewer"');
+    expect(harness.printed[0]).toContain("Effective config");
+    expect(harness.printed[0]).toContain("Path: /tmp/ralph-test-config.json");
+    expect(harness.printed[0]).toContain("Agents");
+    expect(harness.printed[0]).toContain("Reviewer:");
+    expect(harness.printed[0]).not.toContain('"reviewer"');
+    expect(harness.effectiveLoadCalls).toEqual(["/repo/project"]);
     expect(harness.exits).toEqual([]);
+  });
+
+  test("show prints effective config and repo-local overrides when repo-local config exists", async () => {
+    const harness = createCommandHarness({
+      loadConfigWithDiagnostics: async () => ({
+        exists: true,
+        config: createBaseConfig(),
+        errors: [],
+      }),
+      loadConfigOverrideWithDiagnostics: async () => ({
+        exists: true,
+        path: "/repo/.ralph-review/config.json",
+        config: { run: { simplifier: true } },
+        errors: [],
+      }),
+      loadEffectiveConfigWithDiagnostics: async (projectPath = "/repo/project") => {
+        harness.effectiveLoadCalls.push(projectPath);
+        return {
+          exists: true,
+          config: { ...createBaseConfig(), run: { simplifier: true, interactive: false } },
+          errors: [],
+          source: "merged",
+          globalPath: "/tmp/ralph-test-config.json",
+          localPath: "/repo/.ralph-review/config.json",
+          repoRoot: "/repo",
+          globalExists: true,
+          localExists: true,
+          globalErrors: [],
+          localErrors: [],
+        };
+      },
+    });
+    const runConfig = createRunConfig(harness.deps);
+
+    await runConfig(["show"]);
+
+    expect(harness.printed).toHaveLength(1);
+    const output = harness.printed[0] ?? "";
+    expect(output).toContain("Effective config");
+    expect(output).toContain("Source: global + repo-local");
+    expect(output).toContain("Repo-local overrides");
+    expect(output).toContain("Path: /repo/.ralph-review/config.json");
+    expect(output).not.toContain("Global config");
+    expect(output).not.toContain('"run"');
+  });
+
+  test("show --json prints machine-readable layered config JSON", async () => {
+    const harness = createCommandHarness({
+      loadConfigWithDiagnostics: async () => ({
+        exists: true,
+        config: createBaseConfig(),
+        errors: [],
+      }),
+      loadConfigOverrideWithDiagnostics: async () => ({
+        exists: true,
+        path: "/repo/.ralph-review/config.json",
+        config: { run: { simplifier: true } },
+        errors: [],
+      }),
+      loadEffectiveConfigWithDiagnostics: async (projectPath = "/repo/project") => {
+        harness.effectiveLoadCalls.push(projectPath);
+        return {
+          exists: true,
+          config: { ...createBaseConfig(), run: { simplifier: true, interactive: false } },
+          errors: [],
+          source: "merged",
+          globalPath: "/tmp/ralph-test-config.json",
+          localPath: "/repo/.ralph-review/config.json",
+          repoRoot: "/repo",
+          globalExists: true,
+          localExists: true,
+          globalErrors: [],
+          localErrors: [],
+        };
+      },
+    });
+    const runConfig = createRunConfig(harness.deps);
+
+    await runConfig(["show", "--json"]);
+
+    const output = JSON.parse(harness.printed[0] ?? "");
+    expect(output).toEqual({
+      effective: { ...createBaseConfig(), run: { simplifier: true, interactive: false } },
+      global: createBaseConfig(),
+      local: { run: { simplifier: true } },
+    });
+  });
+
+  test("show --local prints the readable repo-local override file", async () => {
+    const harness = createCommandHarness({
+      loadConfigOverrideWithDiagnostics: async () => ({
+        exists: true,
+        path: "/repo/.ralph-review/config.json",
+        config: { maxIterations: 9, run: { simplifier: true } },
+        errors: [],
+      }),
+    });
+    const runConfig = createRunConfig(harness.deps);
+
+    await runConfig(["show", "--local"]);
+
+    expect(harness.printed).toHaveLength(1);
+    expect(harness.printed[0]).toContain("Repo-local overrides");
+    expect(harness.printed[0]).toContain("Path: /repo/.ralph-review/config.json");
+    expect(harness.printed[0]).toContain("Limits");
+    expect(harness.printed[0]).toContain("Run");
+    expect(harness.printed[0]).not.toContain('"maxIterations": 9');
+    expect(harness.effectiveLoadCalls).toEqual([]);
+    expect(harness.exits).toEqual([]);
+  });
+
+  test("show --local --json prints raw repo-local override JSON", async () => {
+    const harness = createCommandHarness({
+      loadConfigOverrideWithDiagnostics: async () => ({
+        exists: true,
+        path: "/repo/.ralph-review/config.json",
+        config: { maxIterations: 9, run: { simplifier: true } },
+        errors: [],
+      }),
+    });
+    const runConfig = createRunConfig(harness.deps);
+
+    await runConfig(["show", "--local", "--json"]);
+
+    expect(harness.printed).toHaveLength(1);
+    expect(JSON.parse(harness.printed[0] ?? "")).toEqual({
+      maxIterations: 9,
+      run: { simplifier: true },
+    });
+  });
+
+  test("show --global prints the readable global config", async () => {
+    const harness = createCommandHarness();
+    const runConfig = createRunConfig(harness.deps);
+
+    await runConfig(["show", "--global"]);
+
+    expect(harness.printed).toHaveLength(1);
+    expect(harness.printed[0]).toContain("Global config");
+    expect(harness.printed[0]).toContain("Agents");
+    expect(harness.printed[0]).toContain("Reviewer:");
+    expect(harness.printed[0]).not.toContain('"reviewer"');
+  });
+
+  test("show --global --json prints raw global config JSON", async () => {
+    const harness = createCommandHarness();
+    const runConfig = createRunConfig(harness.deps);
+
+    await runConfig(["show", "--global", "--json"]);
+
+    expect(harness.printed).toHaveLength(1);
+    expect(JSON.parse(harness.printed[0] ?? "")).toEqual(createBaseConfig());
   });
 
   test("show enforces usage and existing config", async () => {
     const usageHarness = createCommandHarness();
     const runUsage = createRunConfig(usageHarness.deps);
     await runUsage(["show", "extra"]);
-    expect(usageHarness.errors[0]).toContain("Usage: rr config show");
+    expect(usageHarness.errors[0]).toContain(
+      "Usage: rr config show [--local|--global] [--json] [--verbose]"
+    );
     expect(usageHarness.exits).toEqual([1]);
 
     const missingHarness = createCommandHarness({
-      configExists: async () => false,
+      loadEffectiveConfigWithDiagnostics: async () => ({
+        exists: false,
+        config: null,
+        errors: [],
+        source: "none",
+        globalPath: "/tmp/ralph-test-config.json",
+        localPath: "/repo/.ralph-review/config.json",
+        repoRoot: "/repo",
+        globalExists: false,
+        localExists: false,
+        globalErrors: [],
+        localErrors: [],
+      }),
     });
     const runMissing = createRunConfig(missingHarness.deps);
     await runMissing(["show"]);
@@ -765,13 +985,24 @@ describe("config command execution", () => {
 
   test("show reports invalid existing config", async () => {
     const harness = createCommandHarness({
-      loadConfigWithDiagnostics: async () => ({
+      loadEffectiveConfigWithDiagnostics: async () => ({
         exists: true,
         config: null,
         errors: [
           "run.watch is not supported. Available settings: run.simplifier, run.interactive.",
           "fixer.reasoning must be one of: low, medium, high, xhigh, max.",
         ],
+        source: "global",
+        globalPath: "/tmp/ralph-test-config.json",
+        localPath: "/repo/.ralph-review/config.json",
+        repoRoot: "/repo",
+        globalExists: true,
+        localExists: false,
+        globalErrors: [
+          "run.watch is not supported. Available settings: run.simplifier, run.interactive.",
+          "fixer.reasoning must be one of: low, medium, high, xhigh, max.",
+        ],
+        localErrors: [],
       }),
     });
     const runConfig = createRunConfig(harness.deps);
@@ -791,11 +1022,68 @@ describe("config command execution", () => {
     expect(harness.exits).toEqual([1]);
   });
 
+  test("show prints the effective config when a valid repo-local config masks global parse errors", async () => {
+    const localConfig = {
+      ...createBaseConfig(),
+      maxIterations: 8,
+    };
+    const harness = createCommandHarness({
+      loadEffectiveConfigWithDiagnostics: async () => ({
+        exists: true,
+        config: localConfig,
+        errors: [
+          "Invalid global config at /tmp/ralph-test-config.json: Invalid JSON syntax: Unexpected token",
+        ],
+        source: "local",
+        globalPath: "/tmp/ralph-test-config.json",
+        localPath: "/repo/.ralph-review/config.json",
+        repoRoot: "/repo",
+        globalExists: true,
+        localExists: true,
+        globalErrors: ["Invalid JSON syntax: Unexpected token"],
+        localErrors: [],
+      }),
+      loadConfigWithDiagnostics: async () => ({
+        exists: true,
+        config: null,
+        errors: ["Invalid JSON syntax: Unexpected token"],
+      }),
+      loadConfigOverrideWithDiagnostics: async () => ({
+        exists: true,
+        path: "/repo/.ralph-review/config.json",
+        config: localConfig,
+        errors: [],
+      }),
+    });
+    const runConfig = createRunConfig(harness.deps);
+
+    await runConfig(["show"]);
+
+    expect(harness.printed).toHaveLength(1);
+    expect(harness.printed[0]).toContain("Effective config");
+    expect(harness.printed[0]).toContain("Source: repo-local only");
+    expect(harness.printed[0]).toContain("Max iterations: 8");
+    expect(harness.errors).toEqual([]);
+    expect(harness.exits).toEqual([]);
+  });
+
+  test("show --verbose includes metadata in readable output", async () => {
+    const harness = createCommandHarness();
+    const runConfig = createRunConfig(harness.deps);
+
+    await runConfig(["show", "--verbose"]);
+
+    expect(harness.printed).toHaveLength(1);
+    expect(harness.printed[0]).toContain("Metadata");
+    expect(harness.printed[0]).toContain(CONFIG_SCHEMA_URI);
+    expect(harness.printed[0]).toContain(`${CONFIG_VERSION}`);
+  });
+
   test("get enforces usage and unknown keys", async () => {
     const usageHarness = createCommandHarness();
     const runUsage = createRunConfig(usageHarness.deps);
     await runUsage(["get"]);
-    expect(usageHarness.errors[0]).toContain("Usage: rr config get <key>");
+    expect(usageHarness.errors[0]).toContain("Usage: rr config get [--local|--global] <key>");
     expect(usageHarness.exits).toEqual([1]);
 
     const unknownHarness = createCommandHarness();
@@ -815,6 +1103,37 @@ describe("config command execution", () => {
     expect(harness.exits).toEqual([1]);
   });
 
+  test("get reads the effective config when a valid repo-local config masks global parse errors", async () => {
+    const localConfig = {
+      ...createBaseConfig(),
+      maxIterations: 8,
+    };
+    const harness = createCommandHarness({
+      loadEffectiveConfigWithDiagnostics: async () => ({
+        exists: true,
+        config: localConfig,
+        errors: [
+          "Invalid global config at /tmp/ralph-test-config.json: Invalid JSON syntax: Unexpected token",
+        ],
+        source: "local",
+        globalPath: "/tmp/ralph-test-config.json",
+        localPath: "/repo/.ralph-review/config.json",
+        repoRoot: "/repo",
+        globalExists: true,
+        localExists: true,
+        globalErrors: ["Invalid JSON syntax: Unexpected token"],
+        localErrors: [],
+      }),
+    });
+    const runConfig = createRunConfig(harness.deps);
+
+    await runConfig(["get", "maxIterations"]);
+
+    expect(harness.printed).toEqual(["8"]);
+    expect(harness.errors).toEqual([]);
+    expect(harness.exits).toEqual([]);
+  });
+
   test("get prints object values as JSON", async () => {
     const config = createBaseConfig();
     config.reviewer = {
@@ -823,7 +1142,19 @@ describe("config command execution", () => {
     };
 
     const harness = createCommandHarness({
-      loadConfig: async () => config,
+      loadEffectiveConfigWithDiagnostics: async () => ({
+        exists: true,
+        config,
+        errors: [],
+        source: "global",
+        globalPath: "/tmp/ralph-test-config.json",
+        localPath: "/repo/.ralph-review/config.json",
+        repoRoot: "/repo",
+        globalExists: true,
+        localExists: false,
+        globalErrors: [],
+        localErrors: [],
+      }),
     });
     const runConfig = createRunConfig(harness.deps);
 
@@ -844,13 +1175,31 @@ describe("config command execution", () => {
     expect(harness.exits).toEqual([]);
   });
 
+  test("get --local reads from the raw repo-local override file", async () => {
+    const harness = createCommandHarness({
+      loadConfigOverrideWithDiagnostics: async () => ({
+        exists: true,
+        path: "/repo/.ralph-review/config.json",
+        config: { run: { simplifier: true } },
+        errors: [],
+      }),
+    });
+    const runConfig = createRunConfig(harness.deps);
+
+    await runConfig(["get", "--local", "run.simplifier"]);
+
+    expect(harness.printed).toEqual(["true"]);
+    expect(harness.effectiveLoadCalls).toEqual([]);
+    expect(harness.exits).toEqual([]);
+  });
+
   test("set enforces usage", async () => {
     const harness = createCommandHarness();
     const runConfig = createRunConfig(harness.deps);
 
     await runConfig(["set", "maxIterations"]);
 
-    expect(harness.errors[0]).toContain("Usage: rr config set <key> <value>");
+    expect(harness.errors[0]).toContain("Usage: rr config set [--local|--global] <key> <value>");
     expect(harness.exits).toEqual([1]);
   });
 
@@ -911,6 +1260,714 @@ describe("config command execution", () => {
     expect(harness.saved[0]?.maxIterations).toBe(8);
     expect(harness.successes[0]).toContain('Updated "maxIterations" to 8.');
     expect(harness.exits).toEqual([]);
+  });
+
+  test("set warns when global save breaks effective config in current repo", async () => {
+    const harness = createCommandHarness({
+      loadEffectiveConfigWithDiagnostics: async () => ({
+        exists: true,
+        config: null,
+        errors: ["reviewer.provider is only valid when agent is pi"],
+        source: "merged",
+        globalPath: "/tmp/ralph-test-config.json",
+        localPath: "/repo/.ralph-review/config.json",
+        repoRoot: "/repo",
+        globalExists: true,
+        localExists: true,
+        globalErrors: [],
+        localErrors: ["reviewer.provider is only valid when agent is pi"],
+      }),
+    });
+    const runConfig = createRunConfig(harness.deps);
+
+    await runConfig(["set", "reviewer.agent", "claude"]);
+
+    expect(harness.saved).toHaveLength(1);
+    expect(harness.successes[0]).toContain('Updated "reviewer.agent"');
+    expect(harness.warnings[0]).toContain("repo-local");
+    expect(harness.warnings[0]).toContain("reviewer.provider is only valid when agent is pi");
+  });
+
+  test("set --local saves a repo-local diff instead of rewriting the global config", async () => {
+    const harness = createCommandHarness({
+      loadEffectiveConfigWithDiagnostics: async () => ({
+        exists: true,
+        config: {
+          ...createBaseConfig(),
+          run: { simplifier: true, interactive: false },
+        },
+        errors: [],
+        source: "merged",
+        globalPath: "/tmp/ralph-test-config.json",
+        localPath: "/repo/.ralph-review/config.json",
+        repoRoot: "/repo",
+        globalExists: true,
+        localExists: true,
+        globalErrors: [],
+        localErrors: [],
+      }),
+      buildConfigOverride: () => ({
+        run: { simplifier: true },
+        maxIterations: 8,
+      }),
+    });
+    const runConfig = createRunConfig(harness.deps);
+
+    await runConfig(["set", "--local", "maxIterations", "8"]);
+
+    expect(harness.saved).toHaveLength(0);
+    expect(harness.savedOverrides).toEqual([
+      {
+        run: { simplifier: true },
+        maxIterations: 8,
+      },
+    ]);
+    expect(harness.savedOverridePaths).toEqual(["/repo/.ralph-review/config.json"]);
+    expect(harness.successes[0]).toContain('Updated "maxIterations" to 8.');
+    expect(harness.exits).toEqual([]);
+  });
+
+  test("set --local updates a complete raw override when the global layer is broken", async () => {
+    const localConfig = {
+      ...createBaseConfig(),
+      run: { simplifier: true, interactive: false },
+    };
+    const harness = createCommandHarness({
+      loadEffectiveConfigWithDiagnostics: async () => ({
+        exists: true,
+        config: null,
+        errors: [
+          "Effective configuration is invalid.",
+          "Global config /tmp/ralph-test-config.json: Invalid JSON syntax: Unexpected token",
+        ],
+        source: "merged",
+        globalPath: "/tmp/ralph-test-config.json",
+        localPath: "/repo/.ralph-review/config.json",
+        repoRoot: "/repo",
+        globalExists: true,
+        localExists: true,
+        globalErrors: ["Invalid JSON syntax: Unexpected token"],
+        localErrors: [],
+      }),
+      loadConfigOverrideWithDiagnostics: async () => ({
+        exists: true,
+        path: "/repo/.ralph-review/config.json",
+        config: localConfig,
+        errors: [],
+      }),
+    });
+    const runConfig = createRunConfig(harness.deps);
+
+    await runConfig(["set", "--local", "maxIterations", "8"]);
+
+    expect(harness.saved).toHaveLength(0);
+    expect(harness.savedOverrides).toEqual([
+      {
+        ...localConfig,
+        maxIterations: 8,
+      },
+    ]);
+    expect(harness.savedOverridePaths).toEqual(["/repo/.ralph-review/config.json"]);
+    expect(harness.successes[0]).toContain('Updated "maxIterations" to 8.');
+    expect(harness.exits).toEqual([]);
+  });
+
+  test("set --local updates a diff-style raw override when the global layer is broken", async () => {
+    const localOverride: ConfigOverride = {
+      run: { simplifier: true },
+    };
+    const harness = createCommandHarness({
+      loadEffectiveConfigWithDiagnostics: async () => ({
+        exists: true,
+        config: null,
+        errors: [
+          "Effective configuration is invalid.",
+          "Global config /tmp/ralph-test-config.json: Invalid JSON syntax: Unexpected token",
+        ],
+        source: "merged",
+        globalPath: "/tmp/ralph-test-config.json",
+        localPath: "/repo/.ralph-review/config.json",
+        repoRoot: "/repo",
+        globalExists: true,
+        localExists: true,
+        globalErrors: ["Invalid JSON syntax: Unexpected token"],
+        localErrors: [],
+      }),
+      loadConfigOverrideWithDiagnostics: async () => ({
+        exists: true,
+        path: "/repo/.ralph-review/config.json",
+        config: localOverride,
+        errors: [],
+      }),
+    });
+    const runConfig = createRunConfig(harness.deps);
+
+    await runConfig(["set", "--local", "maxIterations", "8"]);
+
+    expect(harness.saved).toHaveLength(0);
+    expect(harness.savedOverrides).toEqual([
+      {
+        run: { simplifier: true },
+        maxIterations: 8,
+      },
+    ]);
+    expect(harness.savedOverridePaths).toEqual(["/repo/.ralph-review/config.json"]);
+    expect(harness.successes[0]).toContain('Updated "maxIterations" to 8.');
+    expect(harness.exits).toEqual([]);
+  });
+
+  test("set --local still updates a valid raw override when the effective config is incomplete", async () => {
+    const harness = createCommandHarness({
+      loadEffectiveConfigWithDiagnostics: async () => ({
+        exists: true,
+        config: null,
+        errors: ["Effective configuration is invalid.", "reviewer must be an object."],
+        source: "local",
+        globalPath: "/tmp/ralph-test-config.json",
+        localPath: "/repo/.ralph-review/config.json",
+        repoRoot: "/repo",
+        globalExists: false,
+        localExists: true,
+        globalErrors: [],
+        localErrors: [],
+      }),
+      loadConfigOverrideWithDiagnostics: async () => ({
+        exists: true,
+        path: "/repo/.ralph-review/config.json",
+        config: { maxIterations: 4 },
+        errors: [],
+      }),
+    });
+    const runConfig = createRunConfig(harness.deps);
+
+    await runConfig(["set", "--local", "iterationTimeout", "3600000"]);
+
+    expect(harness.savedOverrides).toEqual([
+      {
+        maxIterations: 4,
+        iterationTimeout: 3600000,
+      },
+    ]);
+    expect(harness.successes[0]).toContain('Updated "iterationTimeout" to 3600000.');
+    expect(harness.errors).toEqual([]);
+    expect(harness.exits).toEqual([]);
+  });
+
+  test("set --local validates repo scope before loading the effective config", async () => {
+    const harness = createCommandHarness({
+      resolveRepoConfigPath: async () => null,
+      loadEffectiveConfigWithDiagnostics: async () => {
+        harness.effectiveLoadCalls.push("unexpected");
+        return {
+          exists: false,
+          config: null,
+          errors: ["Invalid global config."],
+          source: "none",
+          globalPath: "/tmp/ralph-test-config.json",
+          localPath: null,
+          repoRoot: null,
+          globalExists: false,
+          localExists: false,
+          globalErrors: ["Invalid global config."],
+          localErrors: [],
+        };
+      },
+    });
+    const runConfig = createRunConfig(harness.deps);
+
+    await runConfig(["set", "--local", "maxIterations", "8"]);
+
+    expect(harness.errors[0]).toContain("Cannot use --local outside a git repository");
+    expect(harness.effectiveLoadCalls).toEqual([]);
+    expect(harness.exits).toEqual([1]);
+  });
+
+  test("reports an error when --local is used outside a git repository", async () => {
+    const harness = createCommandHarness({
+      resolveRepoConfigPath: async () => null,
+    });
+    const runConfig = createRunConfig(harness.deps);
+
+    await runConfig(["show", "--local"]);
+
+    expect(harness.errors[0]).toContain("Cannot use --local outside a git repository");
+    expect(harness.exits).toEqual([1]);
+  });
+
+  test("show rejects conflicting scope flags", async () => {
+    const harness = createCommandHarness();
+    const runConfig = createRunConfig(harness.deps);
+
+    await runConfig(["show", "--local", "--global"]);
+
+    expect(harness.errors[0]).toContain("Cannot use --local and --global together.");
+    expect(harness.exits).toEqual([1]);
+  });
+
+  test("get rejects conflicting scope flags", async () => {
+    const harness = createCommandHarness();
+    const runConfig = createRunConfig(harness.deps);
+
+    await runConfig(["get", "--global", "--local", "reviewer.agent"]);
+
+    expect(harness.errors[0]).toContain("Cannot use --local and --global together.");
+    expect(harness.exits).toEqual([1]);
+  });
+
+  test("set rejects conflicting scope flags", async () => {
+    const harness = createCommandHarness();
+    const runConfig = createRunConfig(harness.deps);
+
+    await runConfig(["set", "--local", "--global", "maxIterations", "8"]);
+
+    expect(harness.errors[0]).toContain("Cannot use --local and --global together.");
+    expect(harness.exits).toEqual([1]);
+  });
+
+  test("edit rejects conflicting scope flags", async () => {
+    const harness = createCommandHarness();
+    const runConfig = createRunConfig(harness.deps);
+
+    await runConfig(["edit", "--global", "--local"]);
+
+    expect(harness.errors[0]).toContain("Cannot use --local and --global together.");
+    expect(harness.exits).toEqual([1]);
+  });
+
+  test("show --global reports a missing config file", async () => {
+    const harness = createCommandHarness({
+      configExists: async () => false,
+    });
+    const runConfig = createRunConfig(harness.deps);
+
+    await runConfig(["show", "--global"]);
+
+    expect(harness.errors[0]).toContain('Configuration not found. Run "rr init" first.');
+    expect(harness.exits).toEqual([1]);
+  });
+
+  test("show --global reports invalid global config diagnostics", async () => {
+    const harness = createCommandHarness({
+      loadConfigWithDiagnostics: async () => ({
+        exists: true,
+        config: null,
+        errors: ["notifications.sound.enabled must be a boolean."],
+      }),
+    });
+    const runConfig = createRunConfig(harness.deps);
+
+    await runConfig(["show", "--global"]);
+
+    expect(harness.errors[0]).toContain("Invalid configuration: /tmp/ralph-test-config.json");
+    expect(harness.errors[0]).toContain("- notifications.sound.enabled must be a boolean.");
+    expect(harness.exits).toEqual([1]);
+  });
+
+  test("show --local reports invalid repo-local override diagnostics", async () => {
+    const harness = createCommandHarness({
+      loadConfigOverrideWithDiagnostics: async () => ({
+        exists: true,
+        path: "/repo/.ralph-review/config.json",
+        config: null,
+        errors: ["run.watch is not supported."],
+      }),
+    });
+    const runConfig = createRunConfig(harness.deps);
+
+    await runConfig(["show", "--local"]);
+
+    expect(harness.errors[0]).toContain(
+      "Invalid repo-local configuration: /repo/.ralph-review/config.json"
+    );
+    expect(harness.errors[0]).toContain("- run.watch is not supported.");
+    expect(harness.exits).toEqual([1]);
+  });
+
+  test("set --local can create an agent-only override when the role is absent", async () => {
+    const harness = createCommandHarness({
+      loadEffectiveConfigWithDiagnostics: async () => ({
+        exists: true,
+        config: null,
+        errors: ["Effective configuration is invalid.", "reviewer must be an object."],
+        source: "local",
+        globalPath: "/tmp/ralph-test-config.json",
+        localPath: "/repo/.ralph-review/config.json",
+        repoRoot: "/repo",
+        globalExists: false,
+        localExists: true,
+        globalErrors: [],
+        localErrors: [],
+      }),
+      loadConfigOverrideWithDiagnostics: async () => ({
+        exists: true,
+        path: "/repo/.ralph-review/config.json",
+        config: {},
+        errors: [],
+      }),
+    });
+    const runConfig = createRunConfig(harness.deps);
+
+    await runConfig(["set", "--local", "reviewer.agent", "codex"]);
+
+    expect(harness.savedOverrides).toEqual([
+      {
+        reviewer: { agent: "codex" },
+      },
+    ]);
+    expect(harness.errors).toEqual([]);
+    expect(harness.exits).toEqual([]);
+  });
+
+  test("set --local rejects provider updates for non-pi overrides", async () => {
+    const harness = createCommandHarness({
+      loadEffectiveConfigWithDiagnostics: async () => ({
+        exists: true,
+        config: null,
+        errors: ["Effective configuration is invalid.", "reviewer must be an object."],
+        source: "local",
+        globalPath: "/tmp/ralph-test-config.json",
+        localPath: "/repo/.ralph-review/config.json",
+        repoRoot: "/repo",
+        globalExists: false,
+        localExists: true,
+        globalErrors: [],
+        localErrors: [],
+      }),
+      loadConfigOverrideWithDiagnostics: async () => ({
+        exists: true,
+        path: "/repo/.ralph-review/config.json",
+        config: { reviewer: { agent: "codex" } },
+        errors: [],
+      }),
+    });
+    const runConfig = createRunConfig(harness.deps);
+
+    await runConfig(["set", "--local", "reviewer.provider", "openai"]);
+
+    expect(harness.errors[0]).toContain(
+      '"reviewer.provider" is only valid when "reviewer.agent" is "pi".'
+    );
+    expect(harness.savedOverrides).toHaveLength(0);
+    expect(harness.exits).toEqual([1]);
+  });
+
+  test("set --local removes provider from a non-pi override", async () => {
+    const harness = createCommandHarness({
+      loadEffectiveConfigWithDiagnostics: async () => ({
+        exists: true,
+        config: null,
+        errors: ["Effective configuration is invalid.", "reviewer must be an object."],
+        source: "local",
+        globalPath: "/tmp/ralph-test-config.json",
+        localPath: "/repo/.ralph-review/config.json",
+        repoRoot: "/repo",
+        globalExists: false,
+        localExists: true,
+        globalErrors: [],
+        localErrors: [],
+      }),
+      loadConfigOverrideWithDiagnostics: async () => ({
+        exists: true,
+        path: "/repo/.ralph-review/config.json",
+        config: {
+          reviewer: {
+            agent: "codex",
+            provider: "unused-provider",
+          },
+        },
+        errors: [],
+      }),
+    });
+    const runConfig = createRunConfig(harness.deps);
+
+    await runConfig(["set", "--local", "reviewer.provider", "null"]);
+
+    expect(harness.savedOverrides).toEqual([
+      {
+        reviewer: { agent: "codex" },
+      },
+    ]);
+    expect(harness.errors).toEqual([]);
+    expect(harness.exits).toEqual([]);
+  });
+
+  test("set --local rejects unsetting provider for pi overrides", async () => {
+    const harness = createCommandHarness({
+      loadEffectiveConfigWithDiagnostics: async () => ({
+        exists: true,
+        config: null,
+        errors: ["Effective configuration is invalid.", "reviewer must be an object."],
+        source: "local",
+        globalPath: "/tmp/ralph-test-config.json",
+        localPath: "/repo/.ralph-review/config.json",
+        repoRoot: "/repo",
+        globalExists: false,
+        localExists: true,
+        globalErrors: [],
+        localErrors: [],
+      }),
+      loadConfigOverrideWithDiagnostics: async () => ({
+        exists: true,
+        path: "/repo/.ralph-review/config.json",
+        config: {
+          reviewer: {
+            agent: "pi",
+            provider: "acme",
+            model: "r1",
+          },
+        },
+        errors: [],
+      }),
+    });
+    const runConfig = createRunConfig(harness.deps);
+
+    await runConfig(["set", "--local", "reviewer.provider", "null"]);
+
+    expect(harness.errors[0]).toContain(
+      'Cannot unset "reviewer.provider" while "reviewer.agent" is "pi".'
+    );
+    expect(harness.savedOverrides).toHaveLength(0);
+    expect(harness.exits).toEqual([1]);
+  });
+
+  test("set --local rejects unsetting model for pi overrides", async () => {
+    const harness = createCommandHarness({
+      loadEffectiveConfigWithDiagnostics: async () => ({
+        exists: true,
+        config: null,
+        errors: ["Effective configuration is invalid.", "reviewer must be an object."],
+        source: "local",
+        globalPath: "/tmp/ralph-test-config.json",
+        localPath: "/repo/.ralph-review/config.json",
+        repoRoot: "/repo",
+        globalExists: false,
+        localExists: true,
+        globalErrors: [],
+        localErrors: [],
+      }),
+      loadConfigOverrideWithDiagnostics: async () => ({
+        exists: true,
+        path: "/repo/.ralph-review/config.json",
+        config: {
+          reviewer: {
+            agent: "pi",
+            provider: "acme",
+            model: "r1",
+          },
+        },
+        errors: [],
+      }),
+    });
+    const runConfig = createRunConfig(harness.deps);
+
+    await runConfig(["set", "--local", "reviewer.model", "null"]);
+
+    expect(harness.errors[0]).toContain(
+      'Cannot unset "reviewer.model" while "reviewer.agent" is "pi".'
+    );
+    expect(harness.savedOverrides).toHaveLength(0);
+    expect(harness.exits).toEqual([1]);
+  });
+
+  test("set --local can switch a pi override to a non-pi agent", async () => {
+    const harness = createCommandHarness({
+      loadEffectiveConfigWithDiagnostics: async () => ({
+        exists: true,
+        config: null,
+        errors: ["Effective configuration is invalid.", "reviewer must be an object."],
+        source: "local",
+        globalPath: "/tmp/ralph-test-config.json",
+        localPath: "/repo/.ralph-review/config.json",
+        repoRoot: "/repo",
+        globalExists: false,
+        localExists: true,
+        globalErrors: [],
+        localErrors: [],
+      }),
+      loadConfigOverrideWithDiagnostics: async () => ({
+        exists: true,
+        path: "/repo/.ralph-review/config.json",
+        config: {
+          reviewer: {
+            agent: "pi",
+            provider: "acme",
+            model: "r1",
+            reasoning: "medium",
+          },
+        },
+        errors: [],
+      }),
+    });
+    const runConfig = createRunConfig(harness.deps);
+
+    await runConfig(["set", "--local", "reviewer.agent", "codex"]);
+
+    expect(harness.savedOverrides).toEqual([
+      {
+        reviewer: {
+          agent: "codex",
+          model: "r1",
+          reasoning: "medium",
+        },
+      },
+    ]);
+    expect(harness.errors).toEqual([]);
+    expect(harness.exits).toEqual([]);
+  });
+
+  test("set --local can update model, reasoning, run, retry, notifications, and review defaults", async () => {
+    const harness = createCommandHarness({
+      loadEffectiveConfigWithDiagnostics: async () => ({
+        exists: true,
+        config: null,
+        errors: ["Effective configuration is invalid.", "reviewer must be an object."],
+        source: "local",
+        globalPath: "/tmp/ralph-test-config.json",
+        localPath: "/repo/.ralph-review/config.json",
+        repoRoot: "/repo",
+        globalExists: false,
+        localExists: true,
+        globalErrors: [],
+        localErrors: [],
+      }),
+      loadConfigOverrideWithDiagnostics: async () => ({
+        exists: true,
+        path: "/repo/.ralph-review/config.json",
+        config: {
+          reviewer: {
+            agent: "codex",
+            model: "gpt-5",
+            reasoning: "low",
+          },
+        },
+        errors: [],
+      }),
+    });
+    const runConfig = createRunConfig(harness.deps);
+
+    await runConfig(["set", "--local", "reviewer.model", "null"]);
+    await runConfig(["set", "--local", "reviewer.reasoning", "max"]);
+    await runConfig(["set", "--local", "defaultReview.type", "uncommitted"]);
+    await runConfig(["set", "--local", "defaultReview.branch", "main"]);
+    await runConfig(["set", "--local", "run.simplifier", "true"]);
+    await runConfig(["set", "--local", "run.interactive", "false"]);
+    await runConfig(["set", "--local", "retry.maxRetries", "4"]);
+    await runConfig(["set", "--local", "retry.baseDelayMs", "500"]);
+    await runConfig(["set", "--local", "retry.maxDelayMs", "2000"]);
+    await runConfig(["set", "--local", "notifications.sound.enabled", "false"]);
+
+    expect(harness.savedOverrides.at(-1)).toEqual({
+      reviewer: {
+        agent: "codex",
+        model: "gpt-5",
+        reasoning: "low",
+      },
+      notifications: {
+        sound: {
+          enabled: false,
+        },
+      },
+    });
+    expect(harness.errors).toEqual([]);
+    expect(harness.exits).toEqual([]);
+  });
+
+  test("set --local reports invalid override normalization failures", async () => {
+    const harness = createCommandHarness({
+      loadEffectiveConfigWithDiagnostics: async () => ({
+        exists: true,
+        config: null,
+        errors: ["Effective configuration is invalid.", "reviewer must be an object."],
+        source: "local",
+        globalPath: "/tmp/ralph-test-config.json",
+        localPath: "/repo/.ralph-review/config.json",
+        repoRoot: "/repo",
+        globalExists: false,
+        localExists: true,
+        globalErrors: [],
+        localErrors: [],
+      }),
+      loadConfigOverrideWithDiagnostics: async () => ({
+        exists: true,
+        path: "/repo/.ralph-review/config.json",
+        config: {},
+        errors: [],
+      }),
+    });
+    const runConfig = createRunConfig(harness.deps);
+
+    await runConfig(["set", "--local", "defaultReview.type", "base"]);
+
+    expect(harness.errors[0]).toContain("Updated repo-local configuration is invalid.");
+    expect(harness.errors[0]).toContain(
+      'defaultReview.branch must be a non-empty string when defaultReview.type is "base".'
+    );
+    expect(harness.savedOverrides).toHaveLength(0);
+    expect(harness.exits).toEqual([1]);
+  });
+
+  test("set --local reports invalid effective config updates", async () => {
+    const harness = createCommandHarness({
+      loadEffectiveConfigWithDiagnostics: async () => ({
+        exists: true,
+        config: createBaseConfig(),
+        errors: [],
+        source: "global",
+        globalPath: "/tmp/ralph-test-config.json",
+        localPath: "/repo/.ralph-review/config.json",
+        repoRoot: "/repo",
+        globalExists: true,
+        localExists: false,
+        globalErrors: [],
+        localErrors: [],
+      }),
+    });
+    const runConfig = createRunConfig(harness.deps);
+
+    await runConfig(["set", "--local", "defaultReview.type", "base"]);
+
+    expect(harness.errors[0]).toContain("Updated configuration is invalid.");
+    expect(harness.errors[0]).toContain(
+      'defaultReview.branch must be a non-empty string when defaultReview.type is "base".'
+    );
+    expect(harness.savedOverrides).toHaveLength(0);
+    expect(harness.exits).toEqual([1]);
+  });
+
+  test("legacy loadConfig overrides still receive configPath for effective reads", async () => {
+    const printed: string[] = [];
+    const errors: string[] = [];
+    const exits: number[] = [];
+    const loadCalls: string[] = [];
+    const configPath = "/tmp/legacy-config.json";
+    const runConfig = createRunConfig({
+      configPath,
+      cwd: () => "/repo/project",
+      loadConfig: async (path = configPath) => {
+        loadCalls.push(path);
+        return path === configPath ? createBaseConfig() : null;
+      },
+      print: (value) => {
+        printed.push(value);
+      },
+      log: {
+        success: () => {},
+        warn: () => {},
+        error: (message) => {
+          errors.push(message);
+        },
+      },
+      exit: (code) => {
+        exits.push(code);
+      },
+    });
+
+    await runConfig(["get", "reviewer.agent"]);
+
+    expect(loadCalls).toEqual([configPath]);
+    expect(printed).toEqual(["codex"]);
+    expect(errors).toEqual([]);
+    expect(exits).toEqual([]);
   });
 
   test("createRunConfig default deps call process exit on failure", async () => {
@@ -1119,6 +2176,26 @@ describe("config command execution", () => {
     expect(harness.exits).toEqual([]);
   });
 
+  test("edit --local derives parent directory from Windows-style local config path", async () => {
+    const ensureConfigDirCalls: string[] = [];
+    const harness = createCommandHarness({
+      resolveRepoConfigPath: async () => ({
+        repoRoot: "C:\\repo",
+        path: "C:\\repo\\.ralph-review\\config.json",
+      }),
+      ensureConfigDir: async (dir = "") => {
+        ensureConfigDirCalls.push(dir);
+      },
+      configExists: async () => false,
+    });
+    const runConfig = createRunConfig(harness.deps);
+
+    await runConfig(["edit", "--local"]);
+
+    expect(ensureConfigDirCalls).toEqual(["C:\\repo\\.ralph-review"]);
+    expect(harness.exits).toEqual([]);
+  });
+
   test("edit warns when saved config is invalid", async () => {
     const harness = createCommandHarness({
       loadConfigWithDiagnostics: async () => ({
@@ -1149,6 +2226,74 @@ describe("config command execution", () => {
 
     expect(harness.saved).toHaveLength(1);
     expect(harness.saved[0]?.$schema).toBe(CONFIG_SCHEMA_URI);
+    expect(harness.exits).toEqual([]);
+  });
+
+  test("edit --global warns when the edited global config breaks the effective repo config", async () => {
+    const harness = createCommandHarness({
+      loadConfigWithDiagnostics: async () => ({
+        exists: true,
+        config: createBaseConfig(),
+        errors: [],
+      }),
+      loadEffectiveConfigWithDiagnostics: async () => ({
+        exists: true,
+        config: null,
+        errors: ["Effective configuration is invalid.", "run.simplifier must be a boolean."],
+        source: "merged",
+        globalPath: "/tmp/ralph-test-config.json",
+        localPath: "/repo/.ralph-review/config.json",
+        repoRoot: "/repo",
+        globalExists: true,
+        localExists: true,
+        globalErrors: [],
+        localErrors: [],
+      }),
+    });
+    const runConfig = createRunConfig(harness.deps);
+
+    await runConfig(["edit", "--global"]);
+
+    expect(harness.warnings[0]).toContain("Invalid effective configuration.");
+    expect(harness.warnings[0]).toContain("- run.simplifier must be a boolean.");
+    expect(harness.saved).toHaveLength(0);
+    expect(harness.exits).toEqual([]);
+  });
+
+  test("edit --local saves overrides when a valid repo-local config masks global parse errors", async () => {
+    const localConfig = {
+      ...createBaseConfig(),
+      maxIterations: 8,
+    };
+    const harness = createCommandHarness({
+      loadConfig: async () => createBaseConfig(),
+      loadEffectiveConfigWithDiagnostics: async () => ({
+        exists: true,
+        config: localConfig,
+        errors: [
+          "Invalid global config at /tmp/ralph-test-config.json: Invalid JSON syntax: Unexpected token",
+        ],
+        source: "local",
+        globalPath: "/tmp/ralph-test-config.json",
+        localPath: "/repo/.ralph-review/config.json",
+        repoRoot: "/repo",
+        globalExists: true,
+        localExists: true,
+        globalErrors: ["Invalid JSON syntax: Unexpected token"],
+        localErrors: [],
+      }),
+      buildConfigOverride: (_baseConfig, config) => ({
+        maxIterations: config.maxIterations,
+      }),
+    });
+    const runConfig = createRunConfig(harness.deps);
+
+    await runConfig(["edit", "--local"]);
+
+    expect(harness.saved).toHaveLength(0);
+    expect(harness.savedOverrides).toEqual([{ maxIterations: 8 }]);
+    expect(harness.savedOverridePaths).toEqual(["/repo/.ralph-review/config.json"]);
+    expect(harness.warnings).toEqual([]);
     expect(harness.exits).toEqual([]);
   });
 });

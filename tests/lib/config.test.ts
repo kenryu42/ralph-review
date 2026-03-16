@@ -1,15 +1,22 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  buildConfigOverride,
   configExists,
   ensureConfigDir,
+  getRepoConfigPath,
   loadConfig,
+  loadConfigOverrideWithDiagnostics,
   loadConfigWithDiagnostics,
+  loadEffectiveConfig,
+  loadEffectiveConfigWithDiagnostics,
   parseConfig,
   parseConfigWithDiagnostics,
+  resolveRepoConfigPath,
   saveConfig,
+  saveConfigOverride,
 } from "@/lib/config";
 import { type AgentSettings, CONFIG_SCHEMA_URI, CONFIG_VERSION, type Config } from "@/lib/types";
 
@@ -30,6 +37,17 @@ describe("config", () => {
 
   function createValidConfigInput(): Record<string, unknown> {
     return structuredClone(testConfig) as unknown as Record<string, unknown>;
+  }
+
+  function runGitIn(repoPath: string, args: string[]): void {
+    const result = Bun.spawnSync(["git", ...args], {
+      cwd: repoPath,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    if (result.exitCode !== 0) {
+      throw new Error(`git ${args.join(" ")} failed: ${result.stderr.toString().trim()}`);
+    }
   }
 
   beforeEach(async () => {
@@ -67,6 +85,19 @@ describe("config", () => {
       const configPath = join(tempDir, "config.json");
       await saveConfig(testConfig, configPath);
       expect(await Bun.file(configPath).exists()).toBe(true);
+    });
+
+    test("saveConfigOverride derives parent directory from Windows-style separators", async () => {
+      const previousCwd = process.cwd();
+      process.chdir(tempDir);
+
+      try {
+        await saveConfigOverride({ maxIterations: 9 }, "repo\\.ralph-review\\config.json");
+        const parent = await stat("repo\\.ralph-review");
+        expect(parent.isDirectory()).toBe(true);
+      } finally {
+        process.chdir(previousCwd);
+      }
     });
 
     test("loadConfig returns saved config", async () => {
@@ -574,6 +605,542 @@ describe("config", () => {
     test("returns false when config file does not exist", async () => {
       const configPath = join(tempDir, "nonexistent.json");
       expect(await configExists(configPath)).toBe(false);
+    });
+  });
+
+  describe("repo-local overrides", () => {
+    test("resolveRepoConfigPath returns null when no repository root is found", async () => {
+      const result = await resolveRepoConfigPath("/tmp/not-a-repo", {
+        repositoryRootResolver: async () => undefined,
+      });
+
+      expect(result).toBeNull();
+    });
+
+    test("buildConfigOverride returns the full config when there is no global base", () => {
+      expect(buildConfigOverride(null, testConfig)).toEqual(testConfig);
+    });
+
+    test("buildConfigOverride keeps only changed fields against a global base", () => {
+      const base = {
+        ...testConfig,
+        run: { simplifier: false, interactive: true },
+      };
+      const effective: Config = {
+        ...base,
+        reviewer: { agent: "gemini", model: "gemini-3-pro-preview", reasoning: "max" },
+        run: { simplifier: true, interactive: true },
+        maxIterations: 12,
+      };
+
+      const override = buildConfigOverride(base, effective);
+
+      expect(override).toEqual({
+        reviewer: { agent: "gemini", model: "gemini-3-pro-preview", reasoning: "max" },
+        run: { simplifier: true },
+        maxIterations: 12,
+      });
+    });
+
+    test("buildConfigOverride keeps role overrides granular against a global base", () => {
+      const base: Config = {
+        ...testConfig,
+        reviewer: { agent: "codex", model: "gpt-5.3-codex", reasoning: "high" },
+      };
+      const effective: Config = {
+        ...base,
+        reviewer: { ...base.reviewer, reasoning: "low" },
+      };
+
+      expect(buildConfigOverride(base, effective)).toEqual({
+        reviewer: { reasoning: "low" },
+      });
+    });
+
+    test("buildConfigOverride captures whole-section and nested override differences", () => {
+      const base: Config = {
+        ...testConfig,
+        "code-simplifier": { agent: "droid", model: "gpt-5.2-codex", reasoning: "low" },
+        run: { simplifier: false, interactive: true },
+        retry: { maxRetries: 1, baseDelayMs: 500, maxDelayMs: 1000 },
+        defaultReview: { type: "uncommitted" },
+        notifications: { sound: { enabled: false } },
+      };
+      const effective: Config = {
+        ...base,
+        fixer: { agent: "gemini", model: "gemini-3-pro-preview", reasoning: "max" },
+        "code-simplifier": { agent: "codex", model: "gpt-5.4", reasoning: "high" },
+        run: { simplifier: false, interactive: false },
+        retry: { maxRetries: 3, baseDelayMs: 750, maxDelayMs: 4000 },
+        iterationTimeout: 900000,
+        defaultReview: { type: "base", branch: "main" },
+        notifications: { sound: { enabled: true } },
+      };
+
+      expect(buildConfigOverride(base, effective)).toEqual({
+        fixer: { agent: "gemini", model: "gemini-3-pro-preview", reasoning: "max" },
+        "code-simplifier": { agent: "codex", model: "gpt-5.4", reasoning: "high" },
+        run: { interactive: false },
+        retry: { maxRetries: 3, baseDelayMs: 750, maxDelayMs: 4000 },
+        iterationTimeout: 900000,
+        defaultReview: { type: "base", branch: "main" },
+        notifications: { sound: { enabled: true } },
+      });
+    });
+
+    test("buildConfigOverride preserves explicit removal of inherited optional sections", () => {
+      const base: Config = {
+        ...testConfig,
+        "code-simplifier": { agent: "droid", model: "gpt-5.2-codex", reasoning: "low" },
+        run: { simplifier: false, interactive: true },
+        retry: { maxRetries: 1, baseDelayMs: 500, maxDelayMs: 1000 },
+      };
+      const effective: Config = {
+        ...testConfig,
+        fixer: base.fixer,
+        reviewer: base.reviewer,
+      };
+
+      expect(buildConfigOverride(base, effective)).toEqual({
+        "code-simplifier": null,
+        run: null,
+        retry: null,
+      });
+    });
+
+    test("loadConfigOverrideWithDiagnostics reads a valid partial repo-local override", async () => {
+      const localPath = join(tempDir, "override.json");
+
+      await Bun.write(
+        localPath,
+        JSON.stringify({
+          $schema: "https://example.com/custom.schema.json",
+          version: 99,
+          run: { simplifier: true, interactive: false },
+          retry: { maxRetries: 2, baseDelayMs: 750, maxDelayMs: 5000 },
+          notifications: { sound: { enabled: true } },
+          maxIterations: 8,
+          iterationTimeout: 300000,
+        })
+      );
+
+      const result = await loadConfigOverrideWithDiagnostics(localPath);
+
+      expect(result).toEqual({
+        exists: true,
+        path: localPath,
+        config: {
+          $schema: CONFIG_SCHEMA_URI,
+          version: CONFIG_VERSION,
+          run: { simplifier: true, interactive: false },
+          retry: { maxRetries: 2, baseDelayMs: 750, maxDelayMs: 5000 },
+          notifications: { sound: { enabled: true } },
+          maxIterations: 8,
+          iterationTimeout: 300000,
+        },
+        errors: [],
+      });
+    });
+
+    test("loadConfigOverrideWithDiagnostics reports invalid override structure", async () => {
+      const localPath = join(tempDir, "invalid-override.json");
+      await Bun.write(
+        localPath,
+        JSON.stringify({
+          reviewer: true,
+          defaultReview: "base",
+          retry: { maxRetries: "3", jitter: true },
+          notifications: { sound: { enabled: "yes", extra: true }, desktop: true },
+          run: { simplifier: "yes", watch: false },
+          maxIterations: "8",
+          iterationTimeout: "300000",
+        })
+      );
+
+      const result = await loadConfigOverrideWithDiagnostics(localPath);
+
+      expect(result.exists).toBe(true);
+      expect(result.path).toBe(localPath);
+      expect(result.config).toBeNull();
+      expect(result.errors).toContain("reviewer must be an object.");
+      expect(result.errors).toContain(
+        'defaultReview must be an object with type "uncommitted" or "base".'
+      );
+      expect(result.errors).toContain("retry.jitter is not supported.");
+      expect(result.errors).toContain("retry.maxRetries must be a number.");
+      expect(result.errors).toContain("notifications.desktop is not supported.");
+      expect(result.errors).toContain("notifications.sound.extra is not supported.");
+      expect(result.errors).toContain("notifications.sound.enabled must be a boolean.");
+      expect(result.errors).toContain(
+        "run.watch is not supported. Available settings: run.simplifier, run.interactive."
+      );
+      expect(result.errors).toContain("run.simplifier must be a boolean.");
+      expect(result.errors).toContain("maxIterations must be a number.");
+      expect(result.errors).toContain("iterationTimeout must be a number.");
+    });
+
+    test("loadConfigOverrideWithDiagnostics rejects unknown top-level override keys", async () => {
+      const localPath = join(tempDir, "invalid-top-level-override.json");
+      await Bun.write(
+        localPath,
+        JSON.stringify({
+          maxIteratons: 8,
+        })
+      );
+
+      const result = await loadConfigOverrideWithDiagnostics(localPath);
+
+      expect(result.exists).toBe(true);
+      expect(result.config).toBeNull();
+      expect(result.errors).toContain(
+        "maxIteratons is not supported. Available settings: reviewer, fixer, code-simplifier, defaultReview, retry, notifications, run, maxIterations, iterationTimeout."
+      );
+    });
+
+    test("loadEffectiveConfigWithDiagnostics returns the global config when no local file exists", async () => {
+      const globalPath = join(tempDir, "global-config.json");
+      const repoPath = join(tempDir, "repo");
+      const nestedPath = join(repoPath, "packages", "app");
+      await ensureConfigDir(nestedPath);
+      runGitIn(repoPath, ["init", "--initial-branch=main"]);
+      await saveConfig(testConfig, globalPath);
+
+      const result = await loadEffectiveConfigWithDiagnostics(nestedPath, { globalPath });
+
+      expect(result.exists).toBe(true);
+      expect(result.source).toBe("global");
+      expect(result.config).toEqual(testConfig);
+      expect(result.localPath?.endsWith("/repo/.ralph-review/config.json")).toBe(true);
+      expect(result.repoRoot?.endsWith("/repo")).toBe(true);
+    });
+
+    test("loadEffectiveConfigWithDiagnostics returns a full repo-local config without a global base", async () => {
+      const repoPath = join(tempDir, "repo");
+      const nestedPath = join(repoPath, "apps", "web");
+      const localPath = getRepoConfigPath(repoPath);
+      await ensureConfigDir(nestedPath);
+      runGitIn(repoPath, ["init", "--initial-branch=main"]);
+      await saveConfigOverride(testConfig, localPath);
+
+      const result = await loadEffectiveConfigWithDiagnostics(nestedPath, {
+        globalPath: join(tempDir, "missing-global.json"),
+      });
+
+      expect(result.exists).toBe(true);
+      expect(result.source).toBe("local");
+      expect(result.config).toEqual(testConfig);
+      expect(result.localPath?.endsWith("/repo/.ralph-review/config.json")).toBe(true);
+    });
+
+    test("loadEffectiveConfigWithDiagnostics merges repo-local overrides over the global config", async () => {
+      const globalPath = join(tempDir, "global-config.json");
+      const repoPath = join(tempDir, "repo");
+      const nestedPath = join(repoPath, "packages", "app");
+      const localPath = getRepoConfigPath(repoPath);
+      const globalConfig: Config = {
+        ...testConfig,
+        run: { simplifier: false, interactive: true },
+        notifications: { sound: { enabled: true } },
+      };
+      await ensureConfigDir(nestedPath);
+      runGitIn(repoPath, ["init", "--initial-branch=main"]);
+      await saveConfig(globalConfig, globalPath);
+      await saveConfigOverride(
+        {
+          reviewer: { agent: "gemini", model: "gemini-3-pro-preview", reasoning: "max" },
+          run: { simplifier: true },
+          notifications: { sound: { enabled: false } },
+          maxIterations: 3,
+        },
+        localPath
+      );
+
+      const result = await loadEffectiveConfigWithDiagnostics(nestedPath, { globalPath });
+
+      expect(result.exists).toBe(true);
+      expect(result.source).toBe("merged");
+      expect(result.config).toEqual({
+        ...globalConfig,
+        reviewer: { agent: "gemini", model: "gemini-3-pro-preview", reasoning: "max" },
+        run: { simplifier: true, interactive: true },
+        notifications: { sound: { enabled: false } },
+        maxIterations: 3,
+      });
+    });
+
+    test("loadEffectiveConfigWithDiagnostics preserves inherited role fields for partial agent overrides", async () => {
+      const globalPath = join(tempDir, "global-config.json");
+      const repoPath = join(tempDir, "repo");
+      const nestedPath = join(repoPath, "packages", "app");
+      const localPath = getRepoConfigPath(repoPath);
+      const globalConfig: Config = {
+        ...testConfig,
+        reviewer: { agent: "codex", model: "gpt-5.4", reasoning: "high" },
+      };
+      await ensureConfigDir(nestedPath);
+      runGitIn(repoPath, ["init", "--initial-branch=main"]);
+      await saveConfig(globalConfig, globalPath);
+      await saveConfigOverride(
+        {
+          reviewer: { reasoning: "low" },
+        },
+        localPath
+      );
+
+      const result = await loadEffectiveConfigWithDiagnostics(nestedPath, { globalPath });
+
+      expect(result.exists).toBe(true);
+      expect(result.source).toBe("merged");
+      expect(result.config?.reviewer).toEqual({
+        agent: "codex",
+        model: "gpt-5.4",
+        reasoning: "low",
+      });
+    });
+
+    test("loadEffectiveConfigWithDiagnostics removes inherited optional sections when override sets null", async () => {
+      const globalPath = join(tempDir, "global-config.json");
+      const repoPath = join(tempDir, "repo");
+      const nestedPath = join(repoPath, "packages", "app");
+      const localPath = getRepoConfigPath(repoPath);
+      await ensureConfigDir(nestedPath);
+      runGitIn(repoPath, ["init", "--initial-branch=main"]);
+      await saveConfig(
+        {
+          ...testConfig,
+          "code-simplifier": { agent: "droid", model: "gpt-5.2-codex", reasoning: "low" },
+          run: { simplifier: false, interactive: true },
+          retry: { maxRetries: 1, baseDelayMs: 500, maxDelayMs: 1000 },
+        },
+        globalPath
+      );
+      await Bun.write(
+        localPath,
+        JSON.stringify(
+          {
+            "code-simplifier": null,
+            run: null,
+            retry: null,
+          },
+          null,
+          2
+        )
+      );
+
+      const result = await loadEffectiveConfigWithDiagnostics(nestedPath, { globalPath });
+
+      expect(result.exists).toBe(true);
+      expect(result.config).toEqual(testConfig);
+      expect(result.config?.["code-simplifier"]).toBeUndefined();
+      expect(result.config?.run).toBeUndefined();
+      expect(result.config?.retry).toBeUndefined();
+    });
+
+    test("loadEffectiveConfigWithDiagnostics deep-merges retry and run overrides", async () => {
+      const globalPath = join(tempDir, "global-config.json");
+      const repoPath = join(tempDir, "repo");
+      const nestedPath = join(repoPath, "packages", "app");
+      const localPath = getRepoConfigPath(repoPath);
+      await ensureConfigDir(nestedPath);
+      runGitIn(repoPath, ["init", "--initial-branch=main"]);
+      await saveConfig(
+        {
+          ...testConfig,
+          run: { simplifier: false, interactive: true },
+          retry: { maxRetries: 1, baseDelayMs: 500, maxDelayMs: 1000 },
+        },
+        globalPath
+      );
+      await saveConfigOverride(
+        {
+          run: { interactive: false },
+          retry: { baseDelayMs: 750, maxDelayMs: 4000 },
+        },
+        localPath
+      );
+
+      const result = await loadEffectiveConfigWithDiagnostics(nestedPath, { globalPath });
+
+      expect(result.config?.run).toEqual({ simplifier: false, interactive: false });
+      expect(result.config?.retry).toEqual({ maxRetries: 1, baseDelayMs: 750, maxDelayMs: 4000 });
+    });
+
+    test("loadEffectiveConfigWithDiagnostics resolves the repo-local path from the git top-level", async () => {
+      const globalPath = join(tempDir, "global-config.json");
+      const repoPath = join(tempDir, "repo");
+      const nestedPath = join(repoPath, "packages", "cli", "src");
+      const localPath = getRepoConfigPath(repoPath);
+      await ensureConfigDir(nestedPath);
+      runGitIn(repoPath, ["init", "--initial-branch=main"]);
+      await saveConfig(testConfig, globalPath);
+      await saveConfigOverride({ maxIterations: 9 }, localPath);
+
+      const result = await loadEffectiveConfigWithDiagnostics(nestedPath, { globalPath });
+
+      expect(result.config?.maxIterations).toBe(9);
+      expect(result.localPath?.endsWith("/repo/.ralph-review/config.json")).toBe(true);
+      expect(result.repoRoot?.endsWith("/repo")).toBe(true);
+    });
+
+    test("loadConfigOverrideWithDiagnostics reports invalid local JSON syntax", async () => {
+      const repoPath = join(tempDir, "repo");
+      const localPath = getRepoConfigPath(repoPath);
+      await ensureConfigDir(join(repoPath, ".ralph-review"));
+      await Bun.write(localPath, "{ invalid json");
+
+      const result = await loadConfigOverrideWithDiagnostics(localPath);
+
+      expect(result.exists).toBe(true);
+      expect(result.config).toBeNull();
+      expect(result.errors[0]).toContain("Invalid JSON syntax:");
+    });
+
+    test("loadEffectiveConfigWithDiagnostics fails loudly when the local override is invalid", async () => {
+      const globalPath = join(tempDir, "global-config.json");
+      const repoPath = join(tempDir, "repo");
+      const nestedPath = join(repoPath, "packages", "app");
+      const localPath = getRepoConfigPath(repoPath);
+      await ensureConfigDir(nestedPath);
+      runGitIn(repoPath, ["init", "--initial-branch=main"]);
+      await saveConfig(testConfig, globalPath);
+      await ensureConfigDir(join(repoPath, ".ralph-review"));
+      await Bun.write(localPath, "{ invalid json");
+
+      const result = await loadEffectiveConfigWithDiagnostics(nestedPath, { globalPath });
+
+      expect(result.exists).toBe(true);
+      expect(result.config).toBeNull();
+      expect(result.errors.some((error) => error.includes(localPath))).toBe(true);
+    });
+
+    test("loadEffectiveConfigWithDiagnostics reports both global and local parse errors together", async () => {
+      const globalPath = join(tempDir, "global-invalid.json");
+      const repoPath = join(tempDir, "repo");
+      const nestedPath = join(repoPath, "packages", "app");
+      const localPath = getRepoConfigPath(repoPath);
+      await ensureConfigDir(nestedPath);
+      runGitIn(repoPath, ["init", "--initial-branch=main"]);
+      await Bun.write(globalPath, "{ invalid global json");
+      await ensureConfigDir(join(repoPath, ".ralph-review"));
+      await Bun.write(localPath, "{ invalid local json");
+
+      const result = await loadEffectiveConfigWithDiagnostics(nestedPath, { globalPath });
+
+      expect(result.exists).toBe(true);
+      expect(result.config).toBeNull();
+      expect(result.globalErrors[0]).toContain("Invalid JSON syntax:");
+      expect(result.localErrors[0]).toContain("Invalid JSON syntax:");
+      expect(result.errors.some((error) => error.includes(localPath))).toBe(true);
+      expect(result.errors.some((error) => error.includes(globalPath))).toBe(true);
+    });
+
+    test("loadEffectiveConfigWithDiagnostics rejects a valid local override that cannot produce a full config", async () => {
+      const repoPath = join(tempDir, "repo");
+      const nestedPath = join(repoPath, "packages", "app");
+      const localPath = getRepoConfigPath(repoPath);
+      await ensureConfigDir(nestedPath);
+      runGitIn(repoPath, ["init", "--initial-branch=main"]);
+      await saveConfigOverride({ maxIterations: 4 }, localPath);
+
+      const result = await loadEffectiveConfigWithDiagnostics(nestedPath, {
+        globalPath: join(tempDir, "missing-global.json"),
+      });
+
+      expect(result.exists).toBe(true);
+      expect(result.config).toBeNull();
+      expect(result.errors).toContain("Effective configuration is invalid.");
+      expect(result.errors.some((error) => error.includes("reviewer must be an object."))).toBe(
+        true
+      );
+      expect(result.errors.some((error) => error.includes(localPath))).toBe(true);
+    });
+
+    test("loadEffectiveConfigWithDiagnostics keeps a full repo-local config usable when the global file is invalid", async () => {
+      const globalPath = join(tempDir, "global-invalid.json");
+      const repoPath = join(tempDir, "repo");
+      const nestedPath = join(repoPath, "packages", "app");
+      const localPath = getRepoConfigPath(repoPath);
+      await ensureConfigDir(nestedPath);
+      runGitIn(repoPath, ["init", "--initial-branch=main"]);
+      await Bun.write(globalPath, "{ invalid global json");
+      await saveConfigOverride(testConfig, localPath);
+
+      const result = await loadEffectiveConfigWithDiagnostics(nestedPath, { globalPath });
+
+      expect(result.exists).toBe(true);
+      expect(result.config).toEqual(testConfig);
+      expect(result.errors[0]).toContain(`Invalid global config at ${globalPath}`);
+      expect(result.globalErrors[0]).toContain("Invalid JSON syntax:");
+      expect(result.localErrors).toEqual([]);
+      expect(result.source).toBe("local");
+    });
+
+    test("loadEffectiveConfigWithDiagnostics reports invalid global config diagnostics", async () => {
+      const globalPath = join(tempDir, "global-invalid.json");
+      const projectPath = join(tempDir, "project");
+      await ensureConfigDir(projectPath);
+      await Bun.write(globalPath, "{ invalid json");
+
+      const result = await loadEffectiveConfigWithDiagnostics(projectPath, {
+        globalPath,
+        repositoryRootResolver: async () => undefined,
+      });
+
+      expect(result.exists).toBe(true);
+      expect(result.source).toBe("global");
+      expect(result.config).toBeNull();
+      expect(result.errors[0]).toContain(`Invalid global config at ${globalPath}`);
+    });
+
+    test("loadEffectiveConfigWithDiagnostics returns none when no global or repo-local config exists", async () => {
+      const projectPath = join(tempDir, "project");
+      const globalPath = join(tempDir, "missing-global.json");
+      await ensureConfigDir(projectPath);
+
+      const result = await loadEffectiveConfigWithDiagnostics(projectPath, {
+        globalPath,
+        repositoryRootResolver: async () => undefined,
+      });
+
+      expect(result).toEqual({
+        exists: false,
+        source: "none",
+        config: null,
+        errors: [],
+        globalPath,
+        localPath: null,
+        repoRoot: null,
+        globalExists: false,
+        localExists: false,
+        globalErrors: [],
+        localErrors: [],
+      });
+    });
+
+    test("loadEffectiveConfig returns the resolved effective config", async () => {
+      const globalPath = join(tempDir, "global-config.json");
+      const projectPath = join(tempDir, "project");
+      await ensureConfigDir(projectPath);
+      await saveConfig(testConfig, globalPath);
+
+      const result = await loadEffectiveConfig(projectPath, {
+        globalPath,
+        repositoryRootResolver: async () => undefined,
+      });
+
+      expect(result).toEqual(testConfig);
+    });
+
+    test("loadEffectiveConfig returns null when no config can be resolved", async () => {
+      const projectPath = join(tempDir, "project");
+      await ensureConfigDir(projectPath);
+
+      const result = await loadEffectiveConfig(projectPath, {
+        globalPath: join(tempDir, "missing-global.json"),
+        repositoryRootResolver: async () => undefined,
+      });
+
+      expect(result).toBeNull();
     });
   });
 });
