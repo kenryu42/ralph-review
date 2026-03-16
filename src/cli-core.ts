@@ -15,24 +15,63 @@ export const COMMANDS: CommandDef[] = [
   {
     name: "init",
     description: "Configure reviewer, fixer, and simplifier agents (auto or custom)",
-    examples: ["rr init"],
+    options: [
+      {
+        name: "local",
+        type: "boolean",
+        description: "Write the repo-local override file at .ralph-review/config.json",
+      },
+      {
+        name: "global",
+        type: "boolean",
+        description: "Write the user-global config at ~/.config/ralph-review/config.json",
+      },
+    ],
+    examples: ["rr init", "rr init --global"],
   },
   {
     name: "config",
     description: "Inspect and update configuration",
+    options: [
+      {
+        name: "local",
+        type: "boolean",
+        description: "Use the repo-local override file at .ralph-review/config.json",
+      },
+      {
+        name: "global",
+        type: "boolean",
+        description: "Use the user-global config at ~/.config/ralph-review/config.json",
+      },
+      {
+        name: "json",
+        type: "boolean",
+        description: "Print raw JSON output for `config show`",
+      },
+      {
+        name: "verbose",
+        type: "boolean",
+        description: "Include metadata in human-readable `config show` output",
+      },
+    ],
     positional: [
       {
         name: "subcommand",
         description:
-          "show = print full config | get = read one key | set = update one key | edit = open in $EDITOR",
+          "show = print config | get = read one key | set = update one key | edit = open in $EDITOR",
       },
       { name: "key", description: "Dot-path config key (required for get/set)" },
       { name: "value", description: "Value to write (required for set)" },
     ],
     examples: [
       "rr config show",
+      "rr config show --local",
+      "rr config show --json",
+      "rr config show --verbose",
       "rr config get reviewer.agent",
+      "rr config get --local run.simplifier",
       "rr config set maxIterations 8",
+      "rr config set --local defaultReview.branch main",
       "rr config edit",
     ],
   },

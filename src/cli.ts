@@ -156,7 +156,7 @@ export async function runCli(
   try {
     switch (resolvedCommand) {
       case "init":
-        await cliDeps.runInit();
+        await cliDeps.runInit(commandArgs);
         break;
 
       case "config":
