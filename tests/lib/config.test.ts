@@ -13,6 +13,7 @@ import {
   loadEffectiveConfig,
   loadEffectiveConfigWithDiagnostics,
   parseConfig,
+  parseConfigOverrideWithDiagnostics,
   parseConfigWithDiagnostics,
   resolveRepoConfigPath,
   saveConfig,
@@ -797,6 +798,120 @@ describe("config", () => {
       );
     });
 
+    test("parseConfigOverrideWithDiagnostics returns null for non-object input", () => {
+      expect(parseConfigOverrideWithDiagnostics(null)).toEqual({
+        config: null,
+        errors: ["Configuration override must be a JSON object."],
+      });
+    });
+
+    test("parseConfigOverrideWithDiagnostics rejects non-object retry notifications and run overrides", () => {
+      const result = parseConfigOverrideWithDiagnostics({
+        retry: true,
+        notifications: true,
+        run: true,
+      });
+
+      expect(result.config).toBeNull();
+      expect(result.errors).toContain("retry must be an object.");
+      expect(result.errors).toContain("notifications must be an object.");
+      expect(result.errors).toContain("run must be an object.");
+    });
+
+    test("parseConfigOverrideWithDiagnostics reports nested override field validation errors", () => {
+      const result = parseConfigOverrideWithDiagnostics({
+        reviewer: {
+          extra: true,
+          agent: "wizard",
+          model: 123,
+          provider: 456,
+          reasoning: "ultra",
+        },
+        retry: { baseDelayMs: "500", maxDelayMs: "5000" },
+        notifications: { sound: true },
+        run: { interactive: "yes" },
+      });
+
+      expect(result.config).toBeNull();
+      expect(result.errors).toContain("reviewer.extra is not supported.");
+      expect(result.errors).toContain(
+        "reviewer.agent must be one of: codex, claude, opencode, droid, gemini, pi."
+      );
+      expect(result.errors).toContain("reviewer.model must be a string or null.");
+      expect(result.errors).toContain("reviewer.provider must be a string or null.");
+      expect(result.errors).toContain(
+        "reviewer.reasoning must be one of: low, medium, high, xhigh, max."
+      );
+      expect(result.errors).toContain("retry.baseDelayMs must be a number.");
+      expect(result.errors).toContain("retry.maxDelayMs must be a number.");
+      expect(result.errors).toContain("notifications.sound must be an object.");
+      expect(result.errors).toContain("run.interactive must be a boolean.");
+    });
+
+    test("parseConfigOverrideWithDiagnostics preserves null removals without adding metadata", () => {
+      const result = parseConfigOverrideWithDiagnostics({
+        reviewer: { model: null, reasoning: null, provider: null },
+        "code-simplifier": null,
+        retry: null,
+        run: null,
+        notifications: {},
+      });
+
+      expect(result).toEqual({
+        config: {
+          reviewer: { model: null, reasoning: null, provider: null },
+          "code-simplifier": null,
+          retry: null,
+          run: null,
+          notifications: {},
+        },
+        errors: [],
+      });
+    });
+
+    test("buildConfigOverride adds a code-simplifier section when the base lacks one", () => {
+      const effective: Config = {
+        ...testConfig,
+        "code-simplifier": { agent: "codex", model: "gpt-5.4", reasoning: "high" },
+      };
+
+      expect(buildConfigOverride(testConfig, effective)).toEqual({
+        "code-simplifier": { agent: "codex", model: "gpt-5.4", reasoning: "high" },
+      });
+    });
+
+    test("buildConfigOverride captures pi reviewer provider changes and removals", () => {
+      const base: Config = {
+        ...testConfig,
+        reviewer: {
+          agent: "pi",
+          provider: "google",
+          model: "gemini-2.5-pro",
+          reasoning: "high",
+        },
+      };
+      const changedProvider: Config = {
+        ...base,
+        reviewer: {
+          agent: "pi",
+          provider: "openrouter",
+          model: "gemini-2.5-pro",
+          reasoning: "high",
+        },
+      };
+      const switchedAgent: Config = {
+        ...base,
+        reviewer: { agent: "codex" },
+      };
+
+      expect(buildConfigOverride(base, changedProvider)).toEqual({
+        reviewer: { provider: "openrouter" },
+      });
+      expect(buildConfigOverride(base, switchedAgent)).toEqual({
+        reviewer: { agent: "codex", model: null, reasoning: null, provider: null },
+      });
+    });
+
     test("loadEffectiveConfigWithDiagnostics returns the global config when no local file exists", async () => {
       const globalPath = join(tempDir, "global-config.json");
       const repoPath = join(tempDir, "repo");
@@ -898,6 +1013,71 @@ describe("config", () => {
       });
     });
 
+    test("loadEffectiveConfigWithDiagnostics updates only the pi provider when overridden", async () => {
+      const globalPath = join(tempDir, "global-config.json");
+      const repoPath = join(tempDir, "repo");
+      const nestedPath = join(repoPath, "packages", "app");
+      const localPath = getRepoConfigPath(repoPath);
+      const globalConfig: Config = {
+        ...testConfig,
+        reviewer: {
+          agent: "pi",
+          provider: "google",
+          model: "gemini-2.5-pro",
+          reasoning: "high",
+        },
+      };
+      await ensureConfigDir(nestedPath);
+      runGitIn(repoPath, ["init", "--initial-branch=main"]);
+      await saveConfig(globalConfig, globalPath);
+      await saveConfigOverride(
+        {
+          reviewer: { provider: "openrouter" },
+        },
+        localPath
+      );
+
+      const result = await loadEffectiveConfigWithDiagnostics(nestedPath, { globalPath });
+
+      expect(result.config?.reviewer).toEqual({
+        agent: "pi",
+        provider: "openrouter",
+        model: "gemini-2.5-pro",
+        reasoning: "high",
+      });
+    });
+
+    test("loadEffectiveConfigWithDiagnostics removes pi-specific reviewer fields when switching agents", async () => {
+      const globalPath = join(tempDir, "global-config.json");
+      const repoPath = join(tempDir, "repo");
+      const nestedPath = join(repoPath, "packages", "app");
+      const localPath = getRepoConfigPath(repoPath);
+      const globalConfig: Config = {
+        ...testConfig,
+        reviewer: {
+          agent: "pi",
+          provider: "google",
+          model: "gemini-2.5-pro",
+          reasoning: "high",
+        },
+      };
+      await ensureConfigDir(nestedPath);
+      runGitIn(repoPath, ["init", "--initial-branch=main"]);
+      await saveConfig(globalConfig, globalPath);
+      await saveConfigOverride(
+        {
+          reviewer: { agent: "codex", model: null, reasoning: null, provider: null },
+        },
+        localPath
+      );
+
+      const result = await loadEffectiveConfigWithDiagnostics(nestedPath, { globalPath });
+
+      expect(result.config?.reviewer).toEqual({
+        agent: "codex",
+      });
+    });
+
     test("loadEffectiveConfigWithDiagnostics removes inherited optional sections when override sets null", async () => {
       const globalPath = join(tempDir, "global-config.json");
       const repoPath = join(tempDir, "repo");
@@ -963,6 +1143,56 @@ describe("config", () => {
 
       expect(result.config?.run).toEqual({ simplifier: false, interactive: false });
       expect(result.config?.retry).toEqual({ maxRetries: 1, baseDelayMs: 750, maxDelayMs: 4000 });
+    });
+
+    test("loadEffectiveConfigWithDiagnostics applies maxRetries-only retry overrides", async () => {
+      const globalPath = join(tempDir, "global-config.json");
+      const repoPath = join(tempDir, "repo");
+      const nestedPath = join(repoPath, "packages", "app");
+      const localPath = getRepoConfigPath(repoPath);
+      await ensureConfigDir(nestedPath);
+      runGitIn(repoPath, ["init", "--initial-branch=main"]);
+      await saveConfig(
+        {
+          ...testConfig,
+          retry: { maxRetries: 1, baseDelayMs: 500, maxDelayMs: 1000 },
+        },
+        globalPath
+      );
+      await saveConfigOverride(
+        {
+          retry: { maxRetries: 4 },
+        },
+        localPath
+      );
+
+      const result = await loadEffectiveConfigWithDiagnostics(nestedPath, { globalPath });
+
+      expect(result.config?.retry).toEqual({ maxRetries: 4, baseDelayMs: 500, maxDelayMs: 1000 });
+    });
+
+    test("loadEffectiveConfigWithDiagnostics adds a repo-local code-simplifier when none exists globally", async () => {
+      const globalPath = join(tempDir, "global-config.json");
+      const repoPath = join(tempDir, "repo");
+      const nestedPath = join(repoPath, "packages", "app");
+      const localPath = getRepoConfigPath(repoPath);
+      await ensureConfigDir(nestedPath);
+      runGitIn(repoPath, ["init", "--initial-branch=main"]);
+      await saveConfig(testConfig, globalPath);
+      await saveConfigOverride(
+        {
+          "code-simplifier": { agent: "codex", model: "gpt-5.4", reasoning: "high" },
+        },
+        localPath
+      );
+
+      const result = await loadEffectiveConfigWithDiagnostics(nestedPath, { globalPath });
+
+      expect(result.config?.["code-simplifier"]).toEqual({
+        agent: "codex",
+        model: "gpt-5.4",
+        reasoning: "high",
+      });
     });
 
     test("loadEffectiveConfigWithDiagnostics resolves the repo-local path from the git top-level", async () => {
@@ -1053,6 +1283,88 @@ describe("config", () => {
         true
       );
       expect(result.errors.some((error) => error.includes(localPath))).toBe(true);
+    });
+
+    test("loadEffectiveConfigWithDiagnostics rejects empty reviewer and fixer overrides without a base config", async () => {
+      const repoPath = join(tempDir, "repo");
+      const nestedPath = join(repoPath, "packages", "app");
+      const localPath = getRepoConfigPath(repoPath);
+      await ensureConfigDir(nestedPath);
+      runGitIn(repoPath, ["init", "--initial-branch=main"]);
+      await saveConfigOverride(
+        {
+          reviewer: {},
+          fixer: {},
+          defaultReview: { type: "uncommitted" },
+          maxIterations: 4,
+          iterationTimeout: 600000,
+        },
+        localPath
+      );
+
+      const result = await loadEffectiveConfigWithDiagnostics(nestedPath, {
+        globalPath: join(tempDir, "missing-global.json"),
+      });
+
+      expect(result.config).toBeNull();
+      expect(result.errors.some((error) => error.includes("reviewer must be an object."))).toBe(
+        true
+      );
+      expect(result.errors.some((error) => error.includes("fixer must be an object."))).toBe(true);
+    });
+
+    test("loadEffectiveConfigWithDiagnostics rejects an empty code-simplifier override without a base config", async () => {
+      const repoPath = join(tempDir, "repo");
+      const nestedPath = join(repoPath, "packages", "app");
+      const localPath = getRepoConfigPath(repoPath);
+      await ensureConfigDir(nestedPath);
+      runGitIn(repoPath, ["init", "--initial-branch=main"]);
+      await saveConfigOverride(
+        {
+          reviewer: { agent: "codex", model: "gpt-4", reasoning: "high" },
+          fixer: { agent: "claude", reasoning: "medium" },
+          "code-simplifier": {},
+          defaultReview: { type: "uncommitted" },
+          maxIterations: 4,
+          iterationTimeout: 600000,
+        },
+        localPath
+      );
+
+      const result = await loadEffectiveConfigWithDiagnostics(nestedPath, {
+        globalPath: join(tempDir, "missing-global.json"),
+      });
+
+      expect(result.config?.["code-simplifier"]).toBeUndefined();
+      expect(result.errors).toEqual([]);
+      expect(result.source).toBe("local");
+    });
+
+    test("loadEffectiveConfigWithDiagnostics defaults notifications when a full repo-local override leaves them empty", async () => {
+      const repoPath = join(tempDir, "repo");
+      const nestedPath = join(repoPath, "packages", "app");
+      const localPath = getRepoConfigPath(repoPath);
+      await ensureConfigDir(nestedPath);
+      runGitIn(repoPath, ["init", "--initial-branch=main"]);
+      await saveConfigOverride(
+        {
+          reviewer: { agent: "codex", model: "gpt-4", reasoning: "high" },
+          fixer: { agent: "claude", reasoning: "medium" },
+          defaultReview: { type: "uncommitted" },
+          notifications: {},
+          maxIterations: 10,
+          iterationTimeout: 600000,
+        },
+        localPath
+      );
+
+      const result = await loadEffectiveConfigWithDiagnostics(nestedPath, {
+        globalPath: join(tempDir, "missing-global.json"),
+      });
+
+      expect(result.config?.notifications).toEqual({
+        sound: { enabled: true },
+      });
     });
 
     test("loadEffectiveConfigWithDiagnostics keeps a full repo-local config usable when the global file is invalid", async () => {
