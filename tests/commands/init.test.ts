@@ -153,6 +153,7 @@ function createInitHarness(options: InitHarnessOptions = {}) {
   const intros: string[] = [];
   const outros: string[] = [];
   const cancels: string[] = [];
+  const notes: Array<{ title: string; message: string }> = [];
   const infos: string[] = [];
   const warnings: string[] = [];
   const errors: string[] = [];
@@ -211,6 +212,9 @@ function createInitHarness(options: InitHarnessOptions = {}) {
       },
       cancel: (message) => {
         cancels.push(message);
+      },
+      note: (message, title) => {
+        notes.push({ title, message });
       },
       isCancel: (value) => value === CANCEL,
       select: async (input) => {
@@ -344,6 +348,7 @@ function createInitHarness(options: InitHarnessOptions = {}) {
     intros,
     outros,
     cancels,
+    notes,
     infos,
     warnings,
     errors,
@@ -807,7 +812,7 @@ describe("init command", () => {
       await expect(runtime.configExists()).resolves.toBe(false);
     });
 
-    test("shows existing config and cancels when overwrite is declined", async () => {
+    test("shows current layered config and cancels when overwrite is declined", async () => {
       const harness = createInitHarness({
         configExists: true,
         existingConfig: createExistingConfigWithPi(),
@@ -822,15 +827,16 @@ describe("init command", () => {
       await runInitWithRuntime(harness.overrides);
 
       expect(harness.intros).toEqual(["Ralph Review Setup"]);
-      expect(harness.infos[0]).toContain(
-        "Current configuration:\nPath: ~/.config/ralph-review/config.json"
-      );
-      expect(harness.infos[0]).toContain("Agents");
-      expect(harness.infos[0]).toContain("Reviewer:");
-      expect(harness.infos[0]).not.toContain("Global config");
-      expect(harness.infos[0]).not.toContain("Effective config");
-      expect(harness.infos[0]).not.toContain("Repo-local config");
-      expect(harness.infos[0]).not.toContain('"reviewer"');
+      expect(harness.notes[0]).toBeDefined();
+      expect(harness.notes[0]?.title).toBe("Current Configuration");
+      expect(harness.notes[0]?.message).toContain("Effective config");
+      expect(harness.notes[0]?.message).toContain("Source: global + repo-local");
+      expect(harness.notes[0]?.message).toContain("Repo-local overrides");
+      expect(harness.notes[0]?.message).toContain("Agents");
+      expect(harness.notes[0]?.message).toContain("Reviewer:");
+      expect(harness.notes[0]?.message).not.toContain("Global config");
+      expect(harness.notes[0]?.message).not.toContain("Repo-local config");
+      expect(harness.notes[0]?.message).not.toContain('"reviewer"');
       expect(harness.cancels).toEqual(["Setup cancelled."]);
       expect(harness.savedConfigs).toHaveLength(0);
       expect(harness.ensureConfigDirCalls).toBe(0);
@@ -843,25 +849,61 @@ describe("init command", () => {
       const harness = createInitHarness({
         configExists: true,
         confirmResponses: [false],
+        repoConfigPath: null,
       });
       harness.overrides.loadConfigWithDiagnostics = async () => ({
         exists: true,
         config: null,
         errors: ["bad json"],
       });
+      harness.overrides.loadEffectiveConfigWithDiagnostics = async () => ({
+        exists: true,
+        config: null,
+        errors: ["Invalid global config at ~/.config/ralph-review/config.json", "bad json"],
+        source: "global",
+        globalPath: CONFIG_PATH,
+        localPath: null,
+        repoRoot: null,
+        globalExists: true,
+        localExists: false,
+        globalErrors: ["bad json"],
+        localErrors: [],
+      });
 
       await runInitWithRuntime(harness.overrides);
 
-      expect(harness.infos[0]).toContain(
-        "Current configuration:\nPath: ~/.config/ralph-review/config.json"
+      expect(harness.notes[0]?.title).toBe("Current Configuration");
+      expect(harness.notes[0]?.message).toContain(
+        "Effective config\nPath: ~/.config/ralph-review/config.json"
       );
-      expect(harness.infos[0]).toContain("Invalid configuration:");
-      expect(harness.infos[0]).toContain("- bad json");
-      expect(harness.infos[0]).not.toContain("Agents");
+      expect(harness.notes[0]?.message).toContain("Invalid configuration:");
+      expect(harness.notes[0]?.message).toContain("- bad json");
+      expect(harness.notes[0]?.message).not.toContain("Agents");
       expect(harness.cancels).toEqual(["Setup cancelled."]);
     });
 
-    test("shows only the selected repo-local config when overwrite is declined", async () => {
+    test("shows effective global config outside a git repository before overwrite prompt", async () => {
+      const harness = createInitHarness({
+        configExists: true,
+        existingConfig: createExistingConfigWithPi(),
+        effectiveConfig: createExistingConfigWithPi(),
+        confirmResponses: [false],
+        repoConfigPath: null,
+      });
+
+      await runInitWithRuntime(harness.overrides);
+
+      expect(harness.notes[0]?.title).toBe("Current Configuration");
+      expect(harness.notes[0]?.message).toContain("Effective config");
+      expect(harness.notes[0]?.message).toContain("Source: global");
+      expect(harness.notes[0]?.message).toContain("Path: ~/.config/ralph-review/config.json");
+      expect(harness.notes[0]?.message).toContain("Agents");
+      expect(harness.notes[0]?.message).not.toContain("Repo-local overrides");
+      expect(harness.notes[0]?.message).not.toContain('"reviewer"');
+      expect(harness.cancels).toEqual(["Setup cancelled."]);
+    });
+
+    test("shows current layered config before prompting for repo-local overwrite", async () => {
       const harness = createInitHarness({
         configExists: true,
         existingConfig: createExistingConfigWithPi(),
@@ -875,15 +917,38 @@ describe("init command", () => {
 
       await runInitWithRuntime(harness.overrides);
 
-      expect(harness.infos[0]).toContain(
-        "Current configuration:\nPath: /repo/.ralph-review/config.json"
-      );
-      expect(harness.infos[0]).toContain("Run");
-      expect(harness.infos[0]).toContain("Default review");
-      expect(harness.infos[0]).not.toContain("Global config");
-      expect(harness.infos[0]).not.toContain("Effective config");
-      expect(harness.infos[0]).not.toContain("Repo-local config");
-      expect(harness.infos[0]).not.toContain('"run"');
+      expect(harness.notes[0]?.title).toBe("Current Configuration");
+      expect(harness.notes[0]?.message).toContain("Effective config");
+      expect(harness.notes[0]?.message).toContain("Source: global + repo-local");
+      expect(harness.notes[0]?.message).toContain("Repo-local overrides");
+      expect(harness.notes[0]?.message).toContain("Run");
+      expect(harness.notes[0]?.message).toContain("Default review");
+      expect(harness.notes[0]?.message).not.toContain("Global config");
+      expect(harness.notes[0]?.message).not.toContain("Repo-local config");
+      expect(harness.notes[0]?.message).not.toContain('"run"');
+    });
+
+    test("shows current effective config before scope selection when only the global config exists", async () => {
+      const harness = createInitHarness({
+        existingConfig: createExistingConfigWithPi(),
+        effectiveConfig: createExistingConfigWithPi(),
+        localConfigOverride: null,
+        availability: createAvailability({ codex: true }),
+        selectResponses: ["local", "auto"],
+        confirmResponses: [false],
+      });
+      harness.overrides.configExists = async (path) => path === CONFIG_PATH;
+
+      await runInitWithRuntime(harness.overrides);
+
+      expect(harness.notes[0]?.title).toBe("Current Configuration");
+      expect(harness.notes[0]?.message).toContain("Effective config");
+      expect(harness.notes[0]?.message).toContain("Source: global");
+      expect(harness.notes[0]?.message).toContain("Path: ~/.config/ralph-review/config.json");
+      expect(harness.notes[0]?.message).toContain("Agents");
+      expect(harness.notes[0]?.message).not.toContain("Repo-local overrides");
+      expect(harness.notes[0]?.message).not.toContain('"reviewer"');
+      expect(harness.cancels).toContain("Setup cancelled.");
     });
 
     test("shows invalid repo-local config diagnostics when overwrite is declined", async () => {
@@ -898,15 +963,32 @@ describe("init command", () => {
         config: null,
         errors: ["missing run.simplifier"],
       });
+      harness.overrides.loadEffectiveConfigWithDiagnostics = async () => ({
+        exists: true,
+        config: null,
+        errors: [
+          "Invalid repo-local config at /repo/.ralph-review/config.json",
+          "missing run.simplifier",
+        ],
+        source: "local",
+        globalPath: CONFIG_PATH,
+        localPath: "/repo/.ralph-review/config.json",
+        repoRoot: "/repo",
+        globalExists: false,
+        localExists: true,
+        globalErrors: [],
+        localErrors: ["missing run.simplifier"],
+      });
 
       await runInitWithRuntime(harness.overrides);
 
-      expect(harness.infos[0]).toContain(
-        "Current configuration:\nPath: /repo/.ralph-review/config.json"
+      expect(harness.notes[0]?.title).toBe("Current Configuration");
+      expect(harness.notes[0]?.message).toContain(
+        "Effective config\nPath: /repo/.ralph-review/config.json"
       );
-      expect(harness.infos[0]).toContain("Invalid configuration:");
-      expect(harness.infos[0]).toContain("- missing run.simplifier");
-      expect(harness.infos[0]).not.toContain("Agents");
+      expect(harness.notes[0]?.message).toContain("Invalid configuration:");
+      expect(harness.notes[0]?.message).toContain("- missing run.simplifier");
+      expect(harness.notes[0]?.message).not.toContain("Agents");
       expect(harness.cancels).toEqual(["Setup cancelled."]);
     });
 
@@ -1015,16 +1097,14 @@ describe("init command", () => {
       expect(harness.savedConfigPaths).toEqual([CONFIG_PATH]);
       expect(harness.savedConfigs[0]?.run?.interactive).toBe(true);
       expect(harness.savedConfigs[0]?.notifications.sound.enabled).toBe(true);
-      const proposedInfo = harness.infos.find((entry) =>
-        entry.startsWith("Proposed configuration:\n")
-      );
-      expect(proposedInfo).toBeDefined();
-      expect(proposedInfo).toContain("Agents");
-      expect(proposedInfo).toContain("Notifications");
-      expect(proposedInfo).not.toContain('"reviewer"');
-      expect(proposedInfo).not.toContain("Global config");
-      expect(proposedInfo).not.toContain("Effective config");
-      expect(proposedInfo).not.toContain("Repo-local config");
+      const proposedNote = harness.notes.find((entry) => entry.title === "Proposed Configuration");
+      expect(proposedNote).toBeDefined();
+      expect(proposedNote?.message).toContain("Agents");
+      expect(proposedNote?.message).toContain("Notifications");
+      expect(proposedNote?.message).not.toContain('"reviewer"');
+      expect(proposedNote?.message).not.toContain("Global config");
+      expect(proposedNote?.message).not.toContain("Effective config");
+      expect(proposedNote?.message).not.toContain("Repo-local config");
       expect(harness.ensureConfigDirCalls).toBe(1);
       expect(harness.successes[0]).toContain("Configuration saved to");
       expect(harness.outros).toEqual(["You can now run: rr run"]);
@@ -1568,6 +1648,7 @@ describe("init command", () => {
             intro: () => {},
             outro: () => {},
             cancel: () => {},
+            note: () => {},
             isCancel: () => false,
             select: async () => "invalid-mode",
             confirm: async () => true,
