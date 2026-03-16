@@ -197,6 +197,34 @@ function createCommandHarness(overrides?: Partial<ConfigCommandDeps>): CommandHa
   };
 }
 
+function createBrokenLocalOverrideHarness(
+  config: ConfigOverride,
+  overrides?: Partial<ConfigCommandDeps>
+): CommandHarness {
+  return createCommandHarness({
+    loadEffectiveConfigWithDiagnostics: async () => ({
+      exists: true,
+      config: null,
+      errors: ["Effective configuration is invalid.", "reviewer must be an object."],
+      source: "local",
+      globalPath: "/tmp/ralph-test-config.json",
+      localPath: "/repo/.ralph-review/config.json",
+      repoRoot: "/repo",
+      globalExists: false,
+      localExists: true,
+      globalErrors: [],
+      localErrors: [],
+    }),
+    loadConfigOverrideWithDiagnostics: async () => ({
+      exists: true,
+      path: "/repo/.ralph-review/config.json",
+      config,
+      errors: [],
+    }),
+    ...overrides,
+  });
+}
+
 describe("config command helpers", () => {
   describe("parseConfigSubcommand", () => {
     test("accepts supported subcommands", () => {
@@ -1134,6 +1162,30 @@ describe("config command execution", () => {
     expect(harness.exits).toEqual([]);
   });
 
+  test("get reports a missing effective config when diagnostics report it absent", async () => {
+    const harness = createCommandHarness({
+      loadEffectiveConfigWithDiagnostics: async () => ({
+        exists: false,
+        config: null,
+        errors: [],
+        source: "none",
+        globalPath: "/tmp/ralph-test-config.json",
+        localPath: null,
+        repoRoot: null,
+        globalExists: false,
+        localExists: false,
+        globalErrors: [],
+        localErrors: [],
+      }),
+    });
+    const runConfig = createRunConfig(harness.deps);
+
+    await runConfig(["get", "reviewer.agent"]);
+
+    expect(harness.errors[0]).toContain('Configuration not found. Run "rr init" first.');
+    expect(harness.exits).toEqual([1]);
+  });
+
   test("get prints object values as JSON", async () => {
     const config = createBaseConfig();
     config.reviewer = {
@@ -1191,6 +1243,41 @@ describe("config command execution", () => {
     expect(harness.printed).toEqual(["true"]);
     expect(harness.effectiveLoadCalls).toEqual([]);
     expect(harness.exits).toEqual([]);
+  });
+
+  test("get --global reports a missing config when diagnostics report it absent", async () => {
+    const harness = createCommandHarness({
+      loadConfigWithDiagnostics: async () => ({
+        exists: false,
+        config: null,
+        errors: [],
+      }),
+    });
+    const runConfig = createRunConfig(harness.deps);
+
+    await runConfig(["get", "--global", "reviewer.agent"]);
+
+    expect(harness.errors[0]).toContain('Configuration not found. Run "rr init" first.');
+    expect(harness.exits).toEqual([1]);
+  });
+
+  test("get --local reports a missing repo-local override when diagnostics report it absent", async () => {
+    const harness = createCommandHarness({
+      loadConfigOverrideWithDiagnostics: async () => ({
+        exists: false,
+        path: "/repo/.ralph-review/config.json",
+        config: null,
+        errors: [],
+      }),
+    });
+    const runConfig = createRunConfig(harness.deps);
+
+    await runConfig(["get", "--local", "reviewer.agent"]);
+
+    expect(harness.errors[0]).toContain(
+      'Configuration not found. Run "rr init" and choose Repo-local config first.'
+    );
+    expect(harness.exits).toEqual([1]);
   });
 
   test("set enforces usage", async () => {
@@ -1504,6 +1591,16 @@ describe("config command execution", () => {
     expect(harness.exits).toEqual([1]);
   });
 
+  test("show rejects conflicting scope flags when --global appears first", async () => {
+    const harness = createCommandHarness();
+    const runConfig = createRunConfig(harness.deps);
+
+    await runConfig(["show", "--global", "--local"]);
+
+    expect(harness.errors[0]).toContain("Cannot use --local and --global together.");
+    expect(harness.exits).toEqual([1]);
+  });
+
   test("get rejects conflicting scope flags", async () => {
     const harness = createCommandHarness();
     const runConfig = createRunConfig(harness.deps);
@@ -1563,6 +1660,67 @@ describe("config command execution", () => {
     expect(harness.exits).toEqual([1]);
   });
 
+  test("show reports global-source invariant errors with the global config header", async () => {
+    const invalidConfig = createBaseConfig();
+    invalidConfig.maxIterations = 0;
+
+    const harness = createCommandHarness({
+      loadEffectiveConfigWithDiagnostics: async () => ({
+        exists: true,
+        config: invalidConfig,
+        errors: [],
+        source: "global",
+        globalPath: "/tmp/ralph-test-config.json",
+        localPath: null,
+        repoRoot: null,
+        globalExists: true,
+        localExists: false,
+        globalErrors: [],
+        localErrors: [],
+      }),
+    });
+    const runConfig = createRunConfig(harness.deps);
+
+    await runConfig(["show"]);
+
+    expect(harness.errors[0]).toContain("Invalid configuration: /tmp/ralph-test-config.json");
+    expect(harness.errors[0]).toContain("- maxIterations must be an integer greater than 0.");
+    expect(harness.exits).toEqual([1]);
+  });
+
+  test("show --local reports a missing repo-local override before loading it", async () => {
+    const harness = createCommandHarness({
+      configExists: async () => false,
+    });
+    const runConfig = createRunConfig(harness.deps);
+
+    await runConfig(["show", "--local"]);
+
+    expect(harness.errors[0]).toContain(
+      'Configuration not found. Run "rr init" and choose Repo-local config first.'
+    );
+    expect(harness.exits).toEqual([1]);
+  });
+
+  test("show --local reports a missing repo-local override when diagnostics report it absent", async () => {
+    const harness = createCommandHarness({
+      loadConfigOverrideWithDiagnostics: async () => ({
+        exists: false,
+        path: "/repo/.ralph-review/config.json",
+        config: null,
+        errors: [],
+      }),
+    });
+    const runConfig = createRunConfig(harness.deps);
+
+    await runConfig(["show", "--local"]);
+
+    expect(harness.errors[0]).toContain(
+      'Configuration not found. Run "rr init" and choose Repo-local config first.'
+    );
+    expect(harness.exits).toEqual([1]);
+  });
+
   test("show --local reports invalid repo-local override diagnostics", async () => {
     const harness = createCommandHarness({
       loadConfigOverrideWithDiagnostics: async () => ({
@@ -1618,6 +1776,71 @@ describe("config command execution", () => {
     expect(harness.exits).toEqual([]);
   });
 
+  test("set --local rejects switching to pi in a single-key update when the override role is absent", async () => {
+    const harness = createBrokenLocalOverrideHarness({});
+    const runConfig = createRunConfig(harness.deps);
+
+    await runConfig(["set", "--local", "reviewer.agent", "pi"]);
+
+    expect(harness.errors[0]).toContain(
+      'Cannot set "reviewer.agent" to "pi" in a single-key update.'
+    );
+    expect(harness.savedOverrides).toHaveLength(0);
+    expect(harness.exits).toEqual([1]);
+  });
+
+  test("set --local preserves pi override settings when setting the same pi agent", async () => {
+    const harness = createBrokenLocalOverrideHarness({
+      reviewer: {
+        agent: "pi",
+        provider: "anthropic",
+        model: "claude-sonnet-4-5",
+        reasoning: "high",
+      },
+    });
+    const runConfig = createRunConfig(harness.deps);
+
+    await runConfig(["set", "--local", "reviewer.agent", "pi"]);
+
+    expect(harness.savedOverrides).toEqual([
+      {
+        reviewer: {
+          agent: "pi",
+          provider: "anthropic",
+          model: "claude-sonnet-4-5",
+          reasoning: "high",
+        },
+      },
+    ]);
+    expect(harness.errors).toEqual([]);
+    expect(harness.exits).toEqual([]);
+  });
+
+  test("set --local updates a non-pi override agent while preserving its other fields", async () => {
+    const harness = createBrokenLocalOverrideHarness({
+      reviewer: {
+        agent: "claude",
+        model: "claude-opus-4-6",
+        reasoning: "medium",
+      },
+    });
+    const runConfig = createRunConfig(harness.deps);
+
+    await runConfig(["set", "--local", "reviewer.agent", "codex"]);
+
+    expect(harness.savedOverrides).toEqual([
+      {
+        reviewer: {
+          agent: "codex",
+          model: "claude-opus-4-6",
+          reasoning: "medium",
+        },
+      },
+    ]);
+    expect(harness.errors).toEqual([]);
+    expect(harness.exits).toEqual([]);
+  });
+
   test("set --local rejects provider updates for non-pi overrides", async () => {
     const harness = createCommandHarness({
       loadEffectiveConfigWithDiagnostics: async () => ({
@@ -1649,6 +1872,31 @@ describe("config command execution", () => {
     );
     expect(harness.savedOverrides).toHaveLength(0);
     expect(harness.exits).toEqual([1]);
+  });
+
+  test("set --local updates provider for pi overrides", async () => {
+    const harness = createBrokenLocalOverrideHarness({
+      reviewer: {
+        agent: "pi",
+        provider: "anthropic",
+        model: "claude-sonnet-4-5",
+      },
+    });
+    const runConfig = createRunConfig(harness.deps);
+
+    await runConfig(["set", "--local", "reviewer.provider", "llm-proxy"]);
+
+    expect(harness.savedOverrides).toEqual([
+      {
+        reviewer: {
+          agent: "pi",
+          provider: "llm-proxy",
+          model: "claude-sonnet-4-5",
+        },
+      },
+    ]);
+    expect(harness.errors).toEqual([]);
+    expect(harness.exits).toEqual([]);
   });
 
   test("set --local removes provider from a non-pi override", async () => {
@@ -1769,6 +2017,53 @@ describe("config command execution", () => {
     expect(harness.exits).toEqual([1]);
   });
 
+  test("set --local updates model for pi overrides", async () => {
+    const harness = createBrokenLocalOverrideHarness({
+      reviewer: {
+        agent: "pi",
+        provider: "anthropic",
+        model: "claude-sonnet-4-5",
+      },
+    });
+    const runConfig = createRunConfig(harness.deps);
+
+    await runConfig(["set", "--local", "reviewer.model", "claude-opus-4-6"]);
+
+    expect(harness.savedOverrides).toEqual([
+      {
+        reviewer: {
+          agent: "pi",
+          provider: "anthropic",
+          model: "claude-opus-4-6",
+        },
+      },
+    ]);
+    expect(harness.errors).toEqual([]);
+    expect(harness.exits).toEqual([]);
+  });
+
+  test("set --local updates model for non-pi overrides", async () => {
+    const harness = createBrokenLocalOverrideHarness({
+      reviewer: {
+        agent: "codex",
+      },
+    });
+    const runConfig = createRunConfig(harness.deps);
+
+    await runConfig(["set", "--local", "reviewer.model", "gpt-5.3-codex"]);
+
+    expect(harness.savedOverrides).toEqual([
+      {
+        reviewer: {
+          agent: "codex",
+          model: "gpt-5.3-codex",
+        },
+      },
+    ]);
+    expect(harness.errors).toEqual([]);
+    expect(harness.exits).toEqual([]);
+  });
+
   test("set --local can switch a pi override to a non-pi agent", async () => {
     const harness = createCommandHarness({
       loadEffectiveConfigWithDiagnostics: async () => ({
@@ -1813,6 +2108,118 @@ describe("config command execution", () => {
     ]);
     expect(harness.errors).toEqual([]);
     expect(harness.exits).toEqual([]);
+  });
+
+  test("set --local updates reasoning for pi overrides with null and valid values", async () => {
+    const clearHarness = createBrokenLocalOverrideHarness({
+      reviewer: {
+        agent: "pi",
+        provider: "anthropic",
+        model: "claude-sonnet-4-5",
+        reasoning: "high",
+      },
+    });
+    const clearRunConfig = createRunConfig(clearHarness.deps);
+
+    await clearRunConfig(["set", "--local", "reviewer.reasoning", "null"]);
+
+    expect(clearHarness.savedOverrides).toEqual([
+      {
+        reviewer: {
+          agent: "pi",
+          provider: "anthropic",
+          model: "claude-sonnet-4-5",
+          reasoning: null,
+        },
+      },
+    ]);
+    expect(clearHarness.errors).toEqual([]);
+    expect(clearHarness.exits).toEqual([]);
+
+    const updateHarness = createBrokenLocalOverrideHarness({
+      reviewer: {
+        agent: "pi",
+        provider: "anthropic",
+        model: "claude-sonnet-4-5",
+        reasoning: "high",
+      },
+    });
+    const updateRunConfig = createRunConfig(updateHarness.deps);
+
+    await updateRunConfig(["set", "--local", "reviewer.reasoning", "medium"]);
+
+    expect(updateHarness.savedOverrides).toEqual([
+      {
+        reviewer: {
+          agent: "pi",
+          provider: "anthropic",
+          model: "claude-sonnet-4-5",
+          reasoning: "medium",
+        },
+      },
+    ]);
+    expect(updateHarness.errors).toEqual([]);
+    expect(updateHarness.exits).toEqual([]);
+  });
+
+  test("set --local updates reasoning for non-pi overrides with null and valid values", async () => {
+    const clearHarness = createBrokenLocalOverrideHarness({
+      reviewer: {
+        agent: "codex",
+        reasoning: "high",
+      },
+    });
+    const clearRunConfig = createRunConfig(clearHarness.deps);
+
+    await clearRunConfig(["set", "--local", "reviewer.reasoning", "null"]);
+
+    expect(clearHarness.savedOverrides).toEqual([
+      {
+        reviewer: {
+          agent: "codex",
+          reasoning: null,
+        },
+      },
+    ]);
+    expect(clearHarness.errors).toEqual([]);
+    expect(clearHarness.exits).toEqual([]);
+
+    const updateHarness = createBrokenLocalOverrideHarness({
+      reviewer: {
+        agent: "codex",
+        reasoning: "low",
+      },
+    });
+    const updateRunConfig = createRunConfig(updateHarness.deps);
+
+    await updateRunConfig(["set", "--local", "reviewer.reasoning", "max"]);
+
+    expect(updateHarness.savedOverrides).toEqual([
+      {
+        reviewer: {
+          agent: "codex",
+          reasoning: "max",
+        },
+      },
+    ]);
+    expect(updateHarness.errors).toEqual([]);
+    expect(updateHarness.exits).toEqual([]);
+  });
+
+  test("set --local rejects clearing the base review branch to null after override normalization", async () => {
+    const harness = createBrokenLocalOverrideHarness({
+      defaultReview: { type: "base", branch: "main" },
+    });
+    const runConfig = createRunConfig(harness.deps);
+
+    await runConfig(["set", "--local", "defaultReview.branch", "null"]);
+
+    expect(harness.errors[0]).toContain("Updated repo-local configuration is invalid.");
+    expect(harness.errors[0]).toContain(
+      'defaultReview.branch must be a non-empty string when defaultReview.type is "base".'
+    );
+    expect(harness.savedOverrides).toHaveLength(0);
+    expect(harness.exits).toEqual([1]);
   });
 
   test("set --local can update model, reasoning, run, retry, notifications, and review defaults", async () => {
@@ -2215,6 +2622,34 @@ describe("config command execution", () => {
       "- run.watch is not supported. Available settings: run.simplifier, run.interactive."
     );
     expect(harness.saved).toHaveLength(0);
+    expect(harness.exits).toEqual([]);
+  });
+
+  test("edit --local warns when the resulting effective config is invalid", async () => {
+    const harness = createCommandHarness({
+      loadEffectiveConfigWithDiagnostics: async () => ({
+        exists: true,
+        config: null,
+        errors: ["run.watch is not supported."],
+        source: "local",
+        globalPath: "/tmp/ralph-test-config.json",
+        localPath: "/repo/.ralph-review/config.json",
+        repoRoot: "/repo",
+        globalExists: false,
+        localExists: true,
+        globalErrors: [],
+        localErrors: ["run.watch is not supported."],
+      }),
+    });
+    const runConfig = createRunConfig(harness.deps);
+
+    await runConfig(["edit", "--local"]);
+
+    expect(harness.warnings[0]).toContain(
+      "Invalid repo-local configuration: /repo/.ralph-review/config.json"
+    );
+    expect(harness.warnings[0]).toContain("- run.watch is not supported.");
+    expect(harness.savedOverrides).toHaveLength(0);
     expect(harness.exits).toEqual([]);
   });
 
