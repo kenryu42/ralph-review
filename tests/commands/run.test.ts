@@ -143,6 +143,7 @@ interface RunHarness {
   intervalHandlers: Array<() => void>;
   clearIntervalCalls: unknown[];
   parseCalls: Array<{ commandName: string; args: string[] }>;
+  loadConfigCalls: Array<string | undefined>;
 }
 
 function createRunHarness(options: RunHarnessOptions = {}): RunHarness {
@@ -181,6 +182,7 @@ function createRunHarness(options: RunHarnessOptions = {}): RunHarness {
   const intervalHandlers: Array<() => void> = [];
   const clearIntervalCalls: unknown[] = [];
   const parseCalls: Array<{ commandName: string; args: string[] }> = [];
+  const loadConfigCalls: Array<string | undefined> = [];
 
   const parseErrorFor = new Set(options.parseErrorFor ?? []);
   const runDef: CommandDef | undefined =
@@ -260,7 +262,8 @@ function createRunHarness(options: RunHarnessOptions = {}): RunHarness {
         positional: [],
       };
     }) as unknown as typeof parseCommand,
-    loadConfig: async () => {
+    loadConfig: async (projectPath?: string) => {
+      loadConfigCalls.push(projectPath);
       if (configQueue.length === 0) {
         return null;
       }
@@ -414,6 +417,7 @@ function createRunHarness(options: RunHarnessOptions = {}): RunHarness {
     intervalHandlers,
     clearIntervalCalls,
     parseCalls,
+    loadConfigCalls,
   };
 }
 
@@ -959,6 +963,40 @@ describe("run command", () => {
       expect(harness.createSessionCalls).toHaveLength(1);
     });
 
+    test("loads the effective config using RR_PROJECT_PATH during startup", async () => {
+      const harness = createRunHarness({
+        env: {
+          RR_PROJECT_PATH: "/repo/nested/project",
+        },
+      });
+
+      await startReview([], harness.overrides);
+
+      expect(harness.loadConfigCalls[0]).toBe("/repo/nested/project");
+      expect(harness.diagnosticsCalls[0]?.options.projectPath).toBe("/repo/nested/project");
+    });
+
+    test("uses RR_PROJECT_PATH for background session lockfiles and env", async () => {
+      const harness = createRunHarness({
+        env: {
+          RR_PROJECT_PATH: "/repo/nested/project",
+        },
+        cwd: "/repo/current-shell-dir",
+        generatedSessionId: "session-xyz",
+        generatedSessionName: "rr-main-xyz",
+      });
+
+      await startReview([], harness.overrides);
+
+      expect(harness.createLockfileCalls[0]?.projectPath).toBe("/repo/nested/project");
+      expect(harness.createSessionCalls[0]?.command).toContain(
+        "RR_PROJECT_PATH='/repo/nested/project'"
+      );
+      expect(harness.createSessionCalls[0]?.command).not.toContain(
+        "RR_PROJECT_PATH='/repo/current-shell-dir'"
+      );
+    });
+
     test("trims base branch from defaultReview before diagnostics", async () => {
       const config = createConfig();
       config.defaultReview = {
@@ -1362,6 +1400,19 @@ describe("run command", () => {
 
       expect(exitCode).toBe(1);
       expect(harness.errors).toContain("Failed to load config");
+    });
+
+    test("loads the effective config using RR_PROJECT_PATH before running the cycle", async () => {
+      const harness = createRunHarness({
+        env: {
+          RR_PROJECT_PATH: "/repo/nested/project",
+        },
+      });
+
+      await runForeground([], harness.overrides);
+
+      expect(harness.loadConfigCalls[0]).toBe("/repo/nested/project");
+      expect(harness.updateLockfileCalls[0]?.projectPath).toBe("/repo/nested/project");
     });
 
     test("uses RR_SESSION_ID from env for lock updates and runtime info", async () => {
