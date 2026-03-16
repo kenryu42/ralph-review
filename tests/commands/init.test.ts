@@ -839,6 +839,28 @@ describe("init command", () => {
       expect(harness.successes).toHaveLength(0);
     });
 
+    test("shows invalid global config diagnostics when overwrite is declined", async () => {
+      const harness = createInitHarness({
+        configExists: true,
+        confirmResponses: [false],
+      });
+      harness.overrides.loadConfigWithDiagnostics = async () => ({
+        exists: true,
+        config: null,
+        errors: ["bad json"],
+      });
+
+      await runInitWithRuntime(harness.overrides);
+
+      expect(harness.infos[0]).toContain(
+        "Current configuration:\nPath: ~/.config/ralph-review/config.json"
+      );
+      expect(harness.infos[0]).toContain("Invalid configuration:");
+      expect(harness.infos[0]).toContain("- bad json");
+      expect(harness.infos[0]).not.toContain("Agents");
+      expect(harness.cancels).toEqual(["Setup cancelled."]);
+    });
+
     test("shows only the selected repo-local config when overwrite is declined", async () => {
       const harness = createInitHarness({
         configExists: true,
@@ -862,6 +884,30 @@ describe("init command", () => {
       expect(harness.infos[0]).not.toContain("Effective config");
       expect(harness.infos[0]).not.toContain("Repo-local config");
       expect(harness.infos[0]).not.toContain('"run"');
+    });
+
+    test("shows invalid repo-local config diagnostics when overwrite is declined", async () => {
+      const harness = createInitHarness({
+        configExists: true,
+        selectResponses: ["local"],
+        confirmResponses: [false],
+      });
+      harness.overrides.loadConfigOverrideWithDiagnostics = async (path) => ({
+        exists: true,
+        path,
+        config: null,
+        errors: ["missing run.simplifier"],
+      });
+
+      await runInitWithRuntime(harness.overrides);
+
+      expect(harness.infos[0]).toContain(
+        "Current configuration:\nPath: /repo/.ralph-review/config.json"
+      );
+      expect(harness.infos[0]).toContain("Invalid configuration:");
+      expect(harness.infos[0]).toContain("- missing run.simplifier");
+      expect(harness.infos[0]).not.toContain("Agents");
+      expect(harness.cancels).toEqual(["Setup cancelled."]);
     });
 
     test("prompts for config scope inside a git repository", async () => {
@@ -1116,6 +1162,54 @@ describe("init command", () => {
       );
 
       expect(harness.errors[0]).toContain('Invalid value for "--global": expected "true".');
+      expect(harness.intros).toHaveLength(0);
+      expect(harness.savedConfigPaths).toHaveLength(0);
+      expect(harness.savedOverridePaths).toHaveLength(0);
+      expect(harness.exits).toEqual([1]);
+    });
+
+    test("rejects combining --global and --local", async () => {
+      const harness = createInitHarness({
+        availability: createAvailability({ codex: true }),
+      });
+
+      await expect(runInitWithRuntime(["--global", "--local"], harness.overrides)).rejects.toThrow(
+        "forced-exit:1"
+      );
+
+      expect(harness.errors[0]).toContain('Cannot use "--local" and "--global" together.');
+      expect(harness.intros).toHaveLength(0);
+      expect(harness.savedConfigPaths).toHaveLength(0);
+      expect(harness.savedOverridePaths).toHaveLength(0);
+      expect(harness.exits).toEqual([1]);
+    });
+
+    test("rejects combining --local and --global", async () => {
+      const harness = createInitHarness({
+        availability: createAvailability({ codex: true }),
+      });
+
+      await expect(runInitWithRuntime(["--local", "--global"], harness.overrides)).rejects.toThrow(
+        "forced-exit:1"
+      );
+
+      expect(harness.errors[0]).toContain('Cannot use "--local" and "--global" together.');
+      expect(harness.intros).toHaveLength(0);
+      expect(harness.savedConfigPaths).toHaveLength(0);
+      expect(harness.savedOverridePaths).toHaveLength(0);
+      expect(harness.exits).toEqual([1]);
+    });
+
+    test("rejects unknown init options", async () => {
+      const harness = createInitHarness({
+        availability: createAvailability({ codex: true }),
+      });
+
+      await expect(runInitWithRuntime(["--unknown"], harness.overrides)).rejects.toThrow(
+        "forced-exit:1"
+      );
+
+      expect(harness.errors[0]).toContain('Unknown option "--unknown".');
       expect(harness.intros).toHaveLength(0);
       expect(harness.savedConfigPaths).toHaveLength(0);
       expect(harness.savedOverridePaths).toHaveLength(0);
