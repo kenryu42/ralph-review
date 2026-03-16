@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { loadConfig } from "@/lib/config";
+import { loadEffectiveConfig } from "@/lib/config";
 import { ensureGitRepositoryAsync } from "@/lib/git";
 import type { LockData } from "@/lib/lockfile";
 import { listAllActiveSessions, readLockfile } from "@/lib/lockfile";
@@ -221,7 +221,7 @@ export function useDashboardState(
         listAllActiveSessions(),
         readLockfile(undefined, projectPath),
         getLatestProjectLogSession(undefined, projectPath),
-        loadConfig().catch(() => null),
+        loadEffectiveConfig(projectPath).catch(() => null),
       ]);
 
       let logEntries = stateRef.current.logEntries;
