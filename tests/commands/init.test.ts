@@ -16,7 +16,9 @@ import {
   selectAutoReasoning,
   validateAgentSelection,
 } from "@/commands/init";
+import { CONFIG_PATH } from "@/lib/config";
 import type { AgentCapabilitiesMap } from "@/lib/diagnostics";
+import type { ConfigOverride } from "@/lib/types";
 import { type AgentType, CONFIG_SCHEMA_URI, CONFIG_VERSION, type Config } from "@/lib/types";
 
 const CANCEL = Symbol("cancel");
@@ -132,10 +134,15 @@ interface InitHarnessOptions {
   textResponses?: unknown[];
   configExists?: boolean;
   existingConfig?: Config | null;
+  effectiveConfig?: Config | null;
+  localConfigOverride?: ConfigOverride | null;
   tmuxInstalled?: boolean;
   availability?: Record<AgentType, boolean>;
   capabilities?: AgentCapabilitiesMap;
   discoverAgentCapabilities?: InitRuntimeOverrides["discoverAgentCapabilities"];
+  cwd?: string;
+  repoConfigPath?: string | null;
+  configOverrideResult?: ConfigOverride;
 }
 
 function createInitHarness(options: InitHarnessOptions = {}) {
@@ -154,6 +161,7 @@ function createInitHarness(options: InitHarnessOptions = {}) {
   const exits: number[] = [];
   const spinnerStarts: string[] = [];
   const spinnerStops: string[] = [];
+  const selectCalls: string[] = [];
   const textCalls: Array<{
     message: string;
     defaultValue?: string;
@@ -165,7 +173,16 @@ function createInitHarness(options: InitHarnessOptions = {}) {
     cacheNamespace?: string;
   }> = [];
   const savedConfigs: Config[] = [];
+  const savedConfigPaths: string[] = [];
+  const savedOverrides: ConfigOverride[] = [];
+  const savedOverridePaths: string[] = [];
   let ensureConfigDirCalls = 0;
+  const ensureConfigDirPaths: Array<string | undefined> = [];
+  const cwd = options.cwd ?? "/repo/project";
+  const repoConfigPath =
+    options.repoConfigPath === undefined
+      ? "/repo/.ralph-review/config.json"
+      : options.repoConfigPath;
 
   const next = (queue: unknown[], label: string): unknown => {
     const value = queue.shift();
@@ -197,6 +214,13 @@ function createInitHarness(options: InitHarnessOptions = {}) {
       },
       isCancel: (value) => value === CANCEL,
       select: async (input) => {
+        selectCalls.push(input.message);
+        if (input.message === "Choose config scope") {
+          if (selectQueue[0] === "local" || selectQueue[0] === "global") {
+            return next(selectQueue, `select(${input.message})`);
+          }
+          return "global";
+        }
         return next(selectQueue, `select(${input.message})`);
       },
       confirm: async (input) => {
@@ -239,12 +263,64 @@ function createInitHarness(options: InitHarnessOptions = {}) {
     },
     configExists: async () => options.configExists ?? false,
     loadConfig: async () => options.existingConfig ?? null,
-    ensureConfigDir: async () => {
+    loadEffectiveConfig: async () => options.effectiveConfig ?? options.existingConfig ?? null,
+    loadConfigOverrideWithDiagnostics: async (path) => ({
+      exists: options.localConfigOverride !== null && options.localConfigOverride !== undefined,
+      path,
+      config: options.localConfigOverride ?? null,
+      errors: [],
+    }),
+    loadConfigWithDiagnostics: async () => ({
+      exists: (options.existingConfig ?? null) !== null,
+      config: options.existingConfig ?? null,
+      errors: [],
+    }),
+    loadEffectiveConfigWithDiagnostics: async () => ({
+      exists:
+        (options.effectiveConfig ??
+          options.existingConfig ??
+          options.localConfigOverride ??
+          null) !== null,
+      config: options.effectiveConfig ?? options.existingConfig ?? null,
+      errors: [],
+      source:
+        options.localConfigOverride && (options.existingConfig ?? null)
+          ? "merged"
+          : options.localConfigOverride
+            ? "local"
+            : "global",
+      globalPath: CONFIG_PATH,
+      localPath: repoConfigPath,
+      repoRoot: repoConfigPath?.replace(/\/\.ralph-review\/config\.json$/, "") ?? null,
+      globalExists: (options.existingConfig ?? null) !== null,
+      localExists: (options.localConfigOverride ?? null) !== null,
+      globalErrors: [],
+      localErrors: [],
+    }),
+    ensureConfigDir: async (path) => {
       ensureConfigDirCalls += 1;
+      ensureConfigDirPaths.push(path);
     },
-    saveConfig: async (config) => {
+    cwd: () => cwd,
+    resolveRepoConfigPath: async () => {
+      if (repoConfigPath === null) {
+        return null;
+      }
+
+      return {
+        repoRoot: repoConfigPath.replace(/\/\.ralph-review\/config\.json$/, ""),
+        path: repoConfigPath,
+      };
+    },
+    saveConfig: async (config, path) => {
       savedConfigs.push(config);
+      savedConfigPaths.push(path ?? CONFIG_PATH);
     },
+    saveConfigOverride: async (config, path) => {
+      savedOverrides.push(config);
+      savedOverridePaths.push(path);
+    },
+    buildConfigOverride: () => options.configOverrideResult ?? { maxIterations: 7 },
     discoverAgentCapabilities:
       options.discoverAgentCapabilities ??
       (async (input = {}) => {
@@ -276,12 +352,17 @@ function createInitHarness(options: InitHarnessOptions = {}) {
     exits,
     spinnerStarts,
     spinnerStops,
+    selectCalls,
     textCalls,
     discoverCalls,
     savedConfigs,
+    savedConfigPaths,
+    savedOverrides,
+    savedOverridePaths,
     get ensureConfigDirCalls() {
       return ensureConfigDirCalls;
     },
+    ensureConfigDirPaths,
   };
 }
 
@@ -730,20 +811,103 @@ describe("init command", () => {
       const harness = createInitHarness({
         configExists: true,
         existingConfig: createExistingConfigWithPi(),
+        effectiveConfig: createExistingConfigWithPi(),
+        localConfigOverride: {
+          run: { simplifier: true },
+          defaultReview: { type: "base", branch: "develop" },
+        },
         confirmResponses: [false],
       });
 
       await runInitWithRuntime(harness.overrides);
 
       expect(harness.intros).toEqual(["Ralph Review Setup"]);
-      expect(harness.infos[0]).toContain("Current configuration:");
-      expect(harness.infos[0]).toContain("llm-proxy/gemini_cli/gemini-3-flash-preview");
+      expect(harness.infos[0]).toContain(
+        "Current configuration:\nPath: ~/.config/ralph-review/config.json"
+      );
+      expect(harness.infos[0]).toContain("Agents");
+      expect(harness.infos[0]).toContain("Reviewer:");
+      expect(harness.infos[0]).not.toContain("Global config");
+      expect(harness.infos[0]).not.toContain("Effective config");
+      expect(harness.infos[0]).not.toContain("Repo-local config");
+      expect(harness.infos[0]).not.toContain('"reviewer"');
       expect(harness.cancels).toEqual(["Setup cancelled."]);
       expect(harness.savedConfigs).toHaveLength(0);
       expect(harness.ensureConfigDirCalls).toBe(0);
       expect(harness.spinnerStarts).toHaveLength(0);
       expect(harness.outros).toHaveLength(0);
       expect(harness.successes).toHaveLength(0);
+    });
+
+    test("shows only the selected repo-local config when overwrite is declined", async () => {
+      const harness = createInitHarness({
+        configExists: true,
+        existingConfig: createExistingConfigWithPi(),
+        localConfigOverride: {
+          run: { simplifier: true },
+          defaultReview: { type: "base", branch: "develop" },
+        },
+        selectResponses: ["local"],
+        confirmResponses: [false],
+      });
+
+      await runInitWithRuntime(harness.overrides);
+
+      expect(harness.infos[0]).toContain(
+        "Current configuration:\nPath: /repo/.ralph-review/config.json"
+      );
+      expect(harness.infos[0]).toContain("Run");
+      expect(harness.infos[0]).toContain("Default review");
+      expect(harness.infos[0]).not.toContain("Global config");
+      expect(harness.infos[0]).not.toContain("Effective config");
+      expect(harness.infos[0]).not.toContain("Repo-local config");
+      expect(harness.infos[0]).not.toContain('"run"');
+    });
+
+    test("prompts for config scope inside a git repository", async () => {
+      const harness = createInitHarness({
+        availability: createAvailability({ codex: true }),
+        selectResponses: ["local", "auto"],
+        confirmResponses: [true],
+        repoConfigPath: "/repo/.ralph-review/config.json",
+      });
+
+      await runInitWithRuntime(harness.overrides);
+
+      expect(harness.selectCalls[0]).toBe("Choose config scope");
+      expect(harness.savedConfigs).toHaveLength(0);
+      expect(harness.savedOverrides).toHaveLength(1);
+      expect(harness.savedOverridePaths).toEqual(["/repo/.ralph-review/config.json"]);
+    });
+
+    test("does not prompt for config scope outside a git repository", async () => {
+      const harness = createInitHarness({
+        availability: createAvailability({ codex: true }),
+        selectResponses: ["auto"],
+        confirmResponses: [true],
+        repoConfigPath: null,
+      });
+
+      await runInitWithRuntime(harness.overrides);
+
+      expect(harness.selectCalls).not.toContain("Choose config scope");
+      expect(harness.savedConfigPaths).toEqual([CONFIG_PATH]);
+    });
+
+    test("exits with error when --local is used outside a git repository", async () => {
+      const harness = createInitHarness({
+        availability: createAvailability({ codex: true }),
+        repoConfigPath: null,
+      });
+
+      await expect(runInitWithRuntime(["--local"], harness.overrides)).rejects.toThrow(
+        "forced-exit:1"
+      );
+
+      expect(harness.errors[0]).toContain("Cannot use --local outside a git repository.");
+      expect(harness.savedConfigPaths).toHaveLength(0);
+      expect(harness.savedOverridePaths).toHaveLength(0);
+      expect(harness.exits).toEqual([1]);
     });
 
     test("cancels when overwrite is declined and existing config cannot be loaded", async () => {
@@ -802,11 +966,160 @@ describe("init command", () => {
       );
       expect(harness.spinnerStops).toContain("Automatic configuration ready");
       expect(harness.savedConfigs).toHaveLength(1);
+      expect(harness.savedConfigPaths).toEqual([CONFIG_PATH]);
       expect(harness.savedConfigs[0]?.run?.interactive).toBe(true);
       expect(harness.savedConfigs[0]?.notifications.sound.enabled).toBe(true);
+      const proposedInfo = harness.infos.find((entry) =>
+        entry.startsWith("Proposed configuration:\n")
+      );
+      expect(proposedInfo).toBeDefined();
+      expect(proposedInfo).toContain("Agents");
+      expect(proposedInfo).toContain("Notifications");
+      expect(proposedInfo).not.toContain('"reviewer"');
+      expect(proposedInfo).not.toContain("Global config");
+      expect(proposedInfo).not.toContain("Effective config");
+      expect(proposedInfo).not.toContain("Repo-local config");
       expect(harness.ensureConfigDirCalls).toBe(1);
       expect(harness.successes[0]).toContain("Configuration saved to");
       expect(harness.outros).toEqual(["You can now run: rr run"]);
+    });
+
+    test("writes repo-local config overrides to .ralph-review/config.json when repo-local scope is selected", async () => {
+      const harness = createInitHarness({
+        availability: createAvailability({ codex: true }),
+        capabilities: createCapabilities(),
+        existingConfig: createExistingConfigWithPi(),
+        effectiveConfig: createExistingConfigWithPi(),
+        configOverrideResult: {
+          defaultReview: { type: "base", branch: "main" },
+          run: { simplifier: true },
+        },
+        selectResponses: ["local", "auto"],
+        confirmResponses: [true],
+        repoConfigPath: "/repo/.ralph-review/config.json",
+      });
+
+      await runInitWithRuntime(harness.overrides);
+
+      expect(harness.savedConfigs).toHaveLength(0);
+      expect(harness.savedOverrides).toEqual([
+        {
+          defaultReview: { type: "base", branch: "main" },
+          run: { simplifier: true },
+        },
+      ]);
+      expect(harness.savedOverridePaths).toEqual(["/repo/.ralph-review/config.json"]);
+      expect(harness.successes[0]).toContain("/repo/.ralph-review/config.json");
+    });
+
+    test("uses the Windows parent directory when saving repo-local config overrides", async () => {
+      const harness = createInitHarness({
+        availability: createAvailability({ codex: true }),
+        capabilities: createCapabilities(),
+        existingConfig: createExistingConfigWithPi(),
+        effectiveConfig: createExistingConfigWithPi(),
+        configOverrideResult: {
+          defaultReview: { type: "base", branch: "main" },
+          run: { simplifier: true },
+        },
+        selectResponses: ["local", "auto"],
+        confirmResponses: [true],
+        repoConfigPath: "C:\\repo\\.ralph-review\\config.json",
+      });
+
+      await runInitWithRuntime(harness.overrides);
+
+      expect(harness.ensureConfigDirCalls).toBe(1);
+      expect(harness.ensureConfigDirPaths).toEqual(["C:\\repo\\.ralph-review"]);
+      expect(harness.savedOverridePaths).toEqual(["C:\\repo\\.ralph-review\\config.json"]);
+      expect(harness.successes[0]).toContain("C:\\repo\\.ralph-review\\config.json");
+    });
+
+    test("accepts --global and skips the scope prompt", async () => {
+      const harness = createInitHarness({
+        availability: createAvailability({ codex: true }),
+        selectResponses: ["auto"],
+        confirmResponses: [true],
+      });
+
+      await runInitWithRuntime(["--global"], harness.overrides);
+
+      expect(harness.selectCalls).not.toContain("Choose config scope");
+      expect(harness.savedConfigPaths).toEqual([CONFIG_PATH]);
+      expect(harness.savedOverrides).toHaveLength(0);
+    });
+
+    test("warns when global save breaks effective config in current repo", async () => {
+      const harness = createInitHarness({
+        availability: createAvailability({ codex: true }),
+        selectResponses: ["auto"],
+        confirmResponses: [true],
+      });
+      harness.overrides.loadEffectiveConfigWithDiagnostics = async () => ({
+        exists: true,
+        config: null,
+        errors: ["reviewer.provider is only valid when agent is pi"],
+        source: "merged",
+        globalPath: CONFIG_PATH,
+        localPath: "/repo/.ralph-review/config.json",
+        repoRoot: "/repo",
+        globalExists: true,
+        localExists: true,
+        globalErrors: [],
+        localErrors: ["reviewer.provider is only valid when agent is pi"],
+      });
+
+      await runInitWithRuntime(["--global"], harness.overrides);
+
+      expect(harness.savedConfigPaths).toEqual([CONFIG_PATH]);
+      expect(harness.warnings[0]).toContain("Repo-local overrides may be incompatible");
+      expect(harness.warnings[0]).toContain("reviewer.provider is only valid when agent is pi");
+    });
+
+    test("accepts --local=true and skips the scope prompt", async () => {
+      const harness = createInitHarness({
+        availability: createAvailability({ codex: true }),
+        selectResponses: ["auto"],
+        confirmResponses: [true],
+      });
+
+      await runInitWithRuntime(["--local=true"], harness.overrides);
+
+      expect(harness.selectCalls).not.toContain("Choose config scope");
+      expect(harness.savedConfigPaths).toHaveLength(0);
+      expect(harness.savedOverridePaths).toEqual(["/repo/.ralph-review/config.json"]);
+    });
+
+    test("rejects --local=false", async () => {
+      const harness = createInitHarness({
+        availability: createAvailability({ codex: true }),
+      });
+
+      await expect(runInitWithRuntime(["--local=false"], harness.overrides)).rejects.toThrow(
+        "forced-exit:1"
+      );
+
+      expect(harness.errors[0]).toContain('Invalid value for "--local": expected "true".');
+      expect(harness.intros).toHaveLength(0);
+      expect(harness.savedConfigPaths).toHaveLength(0);
+      expect(harness.savedOverridePaths).toHaveLength(0);
+      expect(harness.exits).toEqual([1]);
+    });
+
+    test("rejects --global=false", async () => {
+      const harness = createInitHarness({
+        availability: createAvailability({ codex: true }),
+      });
+
+      await expect(runInitWithRuntime(["--global=false"], harness.overrides)).rejects.toThrow(
+        "forced-exit:1"
+      );
+
+      expect(harness.errors[0]).toContain('Invalid value for "--global": expected "true".');
+      expect(harness.intros).toHaveLength(0);
+      expect(harness.savedConfigPaths).toHaveLength(0);
+      expect(harness.savedOverridePaths).toHaveLength(0);
+      expect(harness.exits).toEqual([1]);
     });
 
     test("exits when auto capability discovery fails", async () => {
