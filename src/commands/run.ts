@@ -2,7 +2,7 @@ import * as p from "@clack/prompts";
 import { getCommandDef } from "@/cli";
 import { getAgentDisplayInfo } from "@/lib/agents/display";
 import { parseCommand } from "@/lib/cli-parser";
-import { loadConfig } from "@/lib/config";
+import { loadEffectiveConfig } from "@/lib/config";
 import { collectIssueItems, runDiagnostics } from "@/lib/diagnostics";
 import { getTmuxInstallHint } from "@/lib/diagnostics/tmux-install";
 import type { DiagnosticsReport } from "@/lib/diagnostics/types";
@@ -153,7 +153,7 @@ export interface RunRuntime {
   };
   getCommandDef: typeof getCommandDef;
   parseCommand: typeof parseCommand;
-  loadConfig: typeof loadConfig;
+  loadConfig: typeof loadEffectiveConfig;
   runDiagnostics: typeof runDiagnostics;
   collectIssueItems: typeof collectIssueItems;
   getTmuxInstallHint: typeof getTmuxInstallHint;
@@ -226,7 +226,7 @@ export function createRunRuntime(overrides: RunRuntimeOverrides = {}): RunRuntim
     },
     getCommandDef,
     parseCommand,
-    loadConfig,
+    loadConfig: loadEffectiveConfig,
     runDiagnostics,
     collectIssueItems,
     getTmuxInstallHint,
@@ -308,6 +308,7 @@ export function createRunRuntime(overrides: RunRuntimeOverrides = {}): RunRuntim
 
 async function runInBackground(
   runtime: RunRuntime,
+  projectPath: string,
   config: Config,
   maxIterations?: number,
   baseBranch?: string,
@@ -326,7 +327,6 @@ async function runInBackground(
     return;
   }
 
-  const projectPath = runtime.process.cwd();
   const branch = await runtime.getGitBranch(projectPath);
   const sessionName = runtime.tmux.generateSessionName();
   const sessionId = runtime.lockfile.createSessionId();
@@ -396,14 +396,13 @@ export async function runForeground(
   overrides: RunRuntimeOverrides = {}
 ): Promise<void> {
   const runtime = createRunRuntime(overrides);
-  const config = await runtime.loadConfig();
+  const projectPath = runtime.process.env.RR_PROJECT_PATH || runtime.process.cwd();
+  const config = await runtime.loadConfig(projectPath);
   if (!config) {
     runtime.prompt.log.error("Failed to load config");
     runtime.process.exit(1);
     return;
   }
-
-  const projectPath = runtime.process.env.RR_PROJECT_PATH || runtime.process.cwd();
 
   const baseBranch = runtime.process.env.RR_BASE_BRANCH || undefined;
   const commitSha = runtime.process.env.RR_COMMIT_SHA || undefined;
@@ -547,6 +546,7 @@ export async function startReview(
   overrides: RunRuntimeOverrides = {}
 ): Promise<void> {
   const runtime = createRunRuntime(overrides);
+  const projectPath = runtime.process.env.RR_PROJECT_PATH || runtime.process.cwd();
   // Parse options using command definition
   const runDef = runtime.getCommandDef("run");
   if (!runDef) {
@@ -580,7 +580,7 @@ export async function startReview(
     return;
   }
 
-  const loadedConfig = await runtime.loadConfig();
+  const loadedConfig = await runtime.loadConfig(projectPath);
 
   if (options.custom !== undefined && options.custom.trim().length === 0) {
     runtime.prompt.log.error("--custom cannot be empty");
@@ -647,7 +647,7 @@ export async function startReview(
   let diagnostics: DiagnosticsReport;
   try {
     diagnostics = await runtime.runDiagnostics("run", {
-      projectPath: runtime.process.cwd(),
+      projectPath,
       baseBranch: options.base,
       commitSha: options.commit,
       customInstructions: options.custom,
@@ -684,7 +684,7 @@ export async function startReview(
     }
   }
 
-  const config = diagnostics.config ?? (await runtime.loadConfig());
+  const config = diagnostics.config ?? (await runtime.loadConfig(projectPath));
   if (!config) {
     runtime.prompt.log.error("Failed to load configuration");
     runtime.process.exit(1);
@@ -712,6 +712,7 @@ export async function startReview(
 
   await runInBackground(
     runtime,
+    projectPath,
     config,
     options.max,
     options.base,
@@ -726,7 +727,6 @@ export async function startReview(
     return;
   }
 
-  const projectPath = runtime.process.cwd();
   try {
     const branch = await runtime.getGitBranch(projectPath);
     await runtime.openSessionPanel(projectPath, branch ?? undefined);
