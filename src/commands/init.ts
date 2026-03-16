@@ -26,7 +26,8 @@ import {
   saveConfig,
   saveConfigOverride,
 } from "@/lib/config";
-import { formatConfigSection, formatReadableConfigSection } from "@/lib/config-display";
+import { formatConfigLayersDisplay, formatReadableConfigSection } from "@/lib/config-display";
+import { loadConfigDisplayLayers } from "@/lib/config-layers";
 import { type AgentCapabilitiesMap, discoverAgentCapabilities } from "@/lib/diagnostics";
 import { getTmuxInstallHint } from "@/lib/diagnostics/tmux-install";
 import {
@@ -145,6 +146,7 @@ interface InitPromptRuntime {
   intro(message: string): void;
   outro(message: string): void;
   cancel(message: string): void;
+  note(message: string, title: string): void;
   isCancel(value: unknown): boolean;
   select(options: InitSelectInput): Promise<unknown>;
   confirm(options: InitConfirmInput): Promise<unknown>;
@@ -190,6 +192,7 @@ export function createInitRuntime(overrides: InitRuntimeOverrides = {}): InitRun
     intro: p.intro,
     outro: p.outro,
     cancel: p.cancel,
+    note: p.note,
     isCancel: p.isCancel,
     select: DEFAULT_SELECT,
     confirm: DEFAULT_CONFIRM,
@@ -1017,6 +1020,24 @@ async function promptForInitScope(
   return scope as InitScope;
 }
 
+async function showCurrentConfiguration(runtime: InitRuntime): Promise<void> {
+  const layers = await loadConfigDisplayLayers(runtime.cwd(), {
+    loadEffectiveConfigWithDiagnostics: runtime.loadEffectiveConfigWithDiagnostics,
+    loadConfigWithDiagnostics: runtime.loadConfigWithDiagnostics,
+    loadConfigOverrideWithDiagnostics: runtime.loadConfigOverrideWithDiagnostics,
+  });
+
+  const { effective, globalConfig, localConfig } = layers;
+  if (!effective.exists) {
+    return;
+  }
+
+  runtime.prompt.note(
+    formatConfigLayersDisplay(effective, globalConfig, localConfig),
+    "Current Configuration"
+  );
+}
+
 export async function runInitWithRuntime(
   argsOrRuntimeOverrides: string[] | InitRuntimeOverrides = [],
   runtimeOverrides: InitRuntimeOverrides = {}
@@ -1043,6 +1064,7 @@ export async function runInitWithRuntime(
   }
 
   runtime.prompt.intro("Ralph Review Setup");
+  await showCurrentConfiguration(runtime);
 
   const scope = parsedArgs.scope ?? (await promptForInitScope(runtime, repoConfigPath));
   const targetPath = scope === "local" ? (repoConfigPath?.path ?? CONFIG_PATH) : CONFIG_PATH;
@@ -1055,57 +1077,8 @@ export async function runInitWithRuntime(
   const targetConfigExists = await runtime.configExists(targetPath);
 
   if (targetConfigExists) {
-    if (scope === "local" && repoConfigPath) {
-      const selectedConfigDiagnostics = await runtime.loadConfigOverrideWithDiagnostics(
-        repoConfigPath.path
-      );
-
-      if (
-        selectedConfigDiagnostics.exists ||
-        selectedConfigDiagnostics.config ||
-        selectedConfigDiagnostics.errors.length > 0
-      ) {
-        const selectedConfigDisplay =
-          selectedConfigDiagnostics.config && selectedConfigDiagnostics.errors.length === 0
-            ? formatReadableConfigSection({
-                path: repoConfigPath.path,
-                config: selectedConfigDiagnostics.config,
-                mode: "override",
-              })
-            : formatConfigSection({
-                ...selectedConfigDiagnostics,
-              });
-
-        runtime.prompt.log.info(`Current configuration:\n${selectedConfigDisplay}`);
-      }
-    } else {
-      const selectedConfigDiagnostics = await runtime.loadConfigWithDiagnostics(CONFIG_PATH);
-
-      if (
-        selectedConfigDiagnostics.exists ||
-        selectedConfigDiagnostics.config ||
-        selectedConfigDiagnostics.errors.length > 0
-      ) {
-        const selectedConfigDisplay =
-          selectedConfigDiagnostics.config && selectedConfigDiagnostics.errors.length === 0
-            ? formatReadableConfigSection({
-                path: CONFIG_PATH,
-                config: selectedConfigDiagnostics.config,
-                mode: "full",
-              })
-            : formatConfigSection({
-                path: CONFIG_PATH,
-                ...selectedConfigDiagnostics,
-              });
-
-        runtime.prompt.log.info(`Current configuration:\n${selectedConfigDisplay}`);
-      }
-    }
-  }
-
-  if (targetConfigExists) {
     const shouldOverwrite = await runtime.prompt.confirm({
-      message: "Configuration already exists. Overwrite?",
+      message: `Configuration already exists at ${targetPath}. Overwrite?`,
       initialValue: false,
     });
 
@@ -1213,8 +1186,9 @@ export async function runInitWithRuntime(
         };
 
   const config = buildConfig(inputWithPreferences);
-  runtime.prompt.log.info(
-    `Proposed configuration:\n${formatReadableConfigSection({ config, mode: "full" })}`
+  runtime.prompt.note(
+    formatReadableConfigSection({ config, mode: "full" }),
+    "Proposed Configuration"
   );
 
   const shouldSave = await runtime.prompt.confirm({
