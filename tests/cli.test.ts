@@ -151,6 +151,15 @@ describe("cli", () => {
         expect(cmd.positional).toBeUndefined();
       }
     });
+
+    test("init command exposes optional scope flags", () => {
+      const initCmd = COMMANDS.find((c) => c.name === "init");
+      const optionNames = initCmd?.options?.map((o) => o.name) ?? [];
+
+      expect(optionNames).toContain("local");
+      expect(optionNames).toContain("global");
+      expect(initCmd?.examples).toEqual(["rr init", "rr init --global"]);
+    });
   });
 
   describe("getCommandDef", () => {
@@ -190,10 +199,14 @@ describe("cli", () => {
       const help = printCommandHelp("config");
       expect(help).toBeDefined();
       expect(help).toContain("rr config show");
+      expect(help).toContain("rr config show --json");
+      expect(help).toContain("rr config show --verbose");
       expect(help).toContain("rr config get reviewer.agent");
       expect(help).toContain("rr config set maxIterations 8");
       expect(help).toContain("rr config edit");
-      expect(help).toContain("show = print full config");
+      expect(help).toContain("--json");
+      expect(help).toContain("--verbose");
+      expect(help).toContain("show = print config");
       expect(help).toContain("get = read one key");
       expect(help).toContain("set = update one key");
       expect(help).toContain("edit = open in $EDITOR");

@@ -293,7 +293,7 @@ async function mountDashboardHarness(
     options.computeNextTmuxCaptureInterval ?? (({ previousIntervalMs }) => previousIntervalMs);
 
   mock.module("@/lib/config", () => ({
-    loadConfig,
+    loadEffectiveConfig: loadConfig,
   }));
 
   mock.module("@/lib/git", () => ({
