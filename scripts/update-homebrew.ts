@@ -14,13 +14,22 @@ export type UpdateHomebrewDeps = {
 };
 
 export async function computeSha256(url: string): Promise<string> {
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`Failed to download tarball: ${response.statusText}`);
+  try {
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(response.statusText || `HTTP ${response.status}`);
+    }
+
+    const buffer = await response.arrayBuffer();
+    return new Bun.CryptoHasher("sha256").update(buffer).digest("hex");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      message.startsWith("Failed to download tarball:")
+        ? message
+        : `Failed to download tarball: ${message}`
+    );
   }
-  const buffer = await response.arrayBuffer();
-  const hash = new Bun.CryptoHasher("sha256").update(buffer).digest("hex");
-  return hash;
 }
 
 export function updateFormula(formula: string, version: string, sha256: string): string {
