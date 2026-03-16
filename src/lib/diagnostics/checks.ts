@@ -1,4 +1,4 @@
-import { configExists, loadConfig } from "@/lib/config";
+import { configExists, loadConfig, loadEffectiveConfigWithDiagnostics } from "@/lib/config";
 import { cleanupStaleLockfile, hasActiveLockfile } from "@/lib/lockfile";
 import { isTmuxInstalled } from "@/lib/tmux";
 import { type AgentSettings, type Config, isAgentType } from "@/lib/types";
@@ -15,6 +15,7 @@ import type {
 interface RunDiagnosticsDependencies {
   configExists?: typeof configExists;
   loadConfig?: typeof loadConfig;
+  loadEffectiveConfigWithDiagnostics?: typeof loadEffectiveConfigWithDiagnostics;
   discoverAgentCapabilities?: (
     options?: CapabilityDiscoveryOptions
   ) => Promise<AgentCapabilitiesMap>;
@@ -51,6 +52,22 @@ function runStep(command: string): string {
 
 function thenStep(command: string): string {
   return `Then run: ${command}`;
+}
+
+function getConfigInvalidRemediation(configScope?: "global" | "local" | "mixed"): string[] {
+  if (configScope === "mixed") {
+    return [runStep("rr init --global"), runStep("rr init --local"), thenStep("rr doctor --fix")];
+  }
+
+  if (configScope === "global") {
+    return [runStep("rr init --global"), thenStep("rr doctor --fix")];
+  }
+
+  if (configScope === "local") {
+    return [runStep("rr init --local"), thenStep("rr doctor --fix")];
+  }
+
+  return [runStep("rr init"), thenStep("rr doctor --fix")];
 }
 
 function getRoleSeverity(context: DiagnosticContext, role: ConfiguredRole): "warning" | "error" {
@@ -173,6 +190,8 @@ export async function runDiagnostics(
 
   const resolveConfigExists = deps.configExists ?? configExists;
   const resolveLoadConfig = deps.loadConfig ?? loadConfig;
+  const resolveLoadEffectiveConfigWithDiagnostics =
+    deps.loadEffectiveConfigWithDiagnostics ?? loadEffectiveConfigWithDiagnostics;
   const resolveCapabilityDiscovery = deps.discoverAgentCapabilities ?? discoverAgentCapabilities;
   const resolveIsGitRepo = deps.isGitRepository ?? isGitRepository;
   const resolveHasChanges = deps.hasUncommittedChanges ?? hasGitUncommittedChanges;
@@ -247,16 +266,27 @@ export async function runDiagnostics(
           ],
   });
 
-  const hasConfigFile = await resolveConfigExists();
-  let config: Config | null = null;
+  const useExplicitEffectiveConfig = deps.loadEffectiveConfigWithDiagnostics !== undefined;
+  const useLegacyConfigAccess = deps.configExists !== undefined || deps.loadConfig !== undefined;
+  const resolvedConfig =
+    useExplicitEffectiveConfig || !useLegacyConfigAccess
+      ? await resolveLoadEffectiveConfigWithDiagnostics(projectPath)
+      : null;
+  const hasConfigFile = resolvedConfig ? resolvedConfig.exists : await resolveConfigExists();
+  let config: Config | null = resolvedConfig?.config ?? null;
 
   if (!hasConfigFile) {
+    const missingDetails =
+      resolvedConfig?.localPath && resolvedConfig.repoRoot
+        ? `Expected configuration at ${resolvedConfig.localPath} in the project root or ${resolvedConfig.globalPath} in the user config directory.`
+        : undefined;
     items.push({
       id: "config-missing",
       category: "config",
       title: "Configuration file",
       severity: context === "init" ? "warning" : "error",
       summary: "Configuration file was not found.",
+      ...(missingDetails ? { details: missingDetails } : {}),
       remediation:
         context === "init"
           ? [runStep("rr init"), thenStep("rr doctor")]
@@ -264,16 +294,59 @@ export async function runDiagnostics(
       fixable: isFixable("config-missing"),
     });
   } else {
-    config = await resolveLoadConfig();
-    if (!config) {
+    if (!resolvedConfig) {
+      config = await resolveLoadConfig();
+    }
+    const hasConfigErrors = resolvedConfig ? resolvedConfig.errors.length > 0 : false;
+    const hasLocalConfigErrors =
+      hasConfigErrors && resolvedConfig !== null && resolvedConfig.localErrors.length > 0;
+    const hasGlobalConfigErrors =
+      hasConfigErrors && resolvedConfig !== null && resolvedConfig.globalErrors.length > 0;
+    const hasUsableConfigWithGlobalErrors =
+      config !== null && hasGlobalConfigErrors && !hasLocalConfigErrors;
+    if (!config || hasConfigErrors) {
+      const isRepoLocalConfigIssue =
+        hasConfigErrors &&
+        resolvedConfig !== null &&
+        resolvedConfig.localExists &&
+        (hasLocalConfigErrors ||
+          (!hasGlobalConfigErrors &&
+            (resolvedConfig.source === "local" || resolvedConfig.source === "merged")));
+      const isGlobalConfigIssue =
+        hasConfigErrors &&
+        resolvedConfig !== null &&
+        (hasGlobalConfigErrors || (!isRepoLocalConfigIssue && resolvedConfig.source === "global"));
+      const configIssueLabel =
+        isRepoLocalConfigIssue && isGlobalConfigIssue
+          ? "global and repo-local config issues"
+          : isRepoLocalConfigIssue
+            ? "repo-local config issue"
+            : "global config issue";
+      const details =
+        hasConfigErrors && resolvedConfig
+          ? [configIssueLabel, ...resolvedConfig.errors].join("\n")
+          : undefined;
+      const configContext =
+        isRepoLocalConfigIssue && isGlobalConfigIssue
+          ? { configScope: "mixed" }
+          : isRepoLocalConfigIssue && !isGlobalConfigIssue
+            ? { configScope: "local" }
+            : isGlobalConfigIssue && !isRepoLocalConfigIssue
+              ? { configScope: "global" }
+              : undefined;
+      const configScope = configContext?.configScope as "global" | "local" | "mixed" | undefined;
       items.push({
         id: "config-invalid",
         category: "config",
         title: "Configuration file",
-        severity: context === "init" ? "warning" : "error",
-        summary: "Configuration exists but could not be parsed.",
-        remediation: [runStep("rr init"), thenStep("rr doctor --fix")],
+        severity: hasUsableConfigWithGlobalErrors || context === "init" ? "warning" : "error",
+        summary: hasUsableConfigWithGlobalErrors
+          ? "Global configuration is invalid, but repo-local config loaded successfully."
+          : "Configuration exists but could not be parsed.",
+        ...(details ? { details } : {}),
+        remediation: getConfigInvalidRemediation(configScope),
         fixable: isFixable("config-invalid"),
+        ...(configContext ? { context: configContext } : {}),
       });
     } else {
       items.push({

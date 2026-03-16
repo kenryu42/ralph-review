@@ -105,10 +105,40 @@ async function fixTmux(deps: RemediationDependencies): Promise<FixResult> {
 }
 
 const CONFIG_FIX_NEXT_ACTIONS = ["Run: rr init", "Then run: rr doctor --fix"];
+const MIXED_CONFIG_FIX_NEXT_ACTIONS = [
+  "Run: rr init --global",
+  "Run: rr init --local",
+  "Then run: rr doctor --fix",
+];
 
-async function fixConfig(id: string, deps: RemediationDependencies): Promise<FixResult> {
+async function fixConfig(item: DiagnosticItem, deps: RemediationDependencies): Promise<FixResult> {
+  if (item.context?.configScope === "mixed") {
+    return {
+      id: item.id,
+      success: false,
+      message:
+        "Cannot auto-fix configuration because both the global and repo-local config need attention.",
+      category: "manual-needed",
+      nextActions: MIXED_CONFIG_FIX_NEXT_ACTIONS,
+    };
+  }
+
+  const initScopeArg =
+    item.context?.configScope === "local"
+      ? "--local"
+      : item.context?.configScope === "global"
+        ? "--global"
+        : null;
+  const initArgs = initScopeArg ? ["init", initScopeArg] : ["init"];
+  const attemptedCommand = initScopeArg ? `rr init ${initScopeArg}` : "rr init";
+  const nextActions =
+    item.context?.configScope === "local"
+      ? ["Run: rr init --local", "Then run: rr doctor --fix"]
+      : item.context?.configScope === "global"
+        ? ["Run: rr init --global", "Then run: rr doctor --fix"]
+        : CONFIG_FIX_NEXT_ACTIONS;
   try {
-    const proc = deps.spawn([deps.execPath, deps.cliPath, "init"], {
+    const proc = deps.spawn([deps.execPath, deps.cliPath, ...initArgs], {
       stdout: "inherit",
       stderr: "inherit",
       stdin: "inherit",
@@ -116,29 +146,29 @@ async function fixConfig(id: string, deps: RemediationDependencies): Promise<Fix
     const exitCode = await proc.exited;
     if (exitCode === 0) {
       return {
-        id,
+        id: item.id,
         success: true,
         message: "Configuration updated via rr init.",
         category: "auto-fixed",
-        attemptedCommand: "rr init",
+        attemptedCommand,
       };
     }
     return {
-      id,
+      id: item.id,
       success: false,
-      message: `rr init exited with code ${exitCode}.`,
+      message: `${attemptedCommand} exited with code ${exitCode}.`,
       category: "manual-needed",
-      attemptedCommand: "rr init",
-      nextActions: CONFIG_FIX_NEXT_ACTIONS,
+      attemptedCommand,
+      nextActions,
     };
   } catch (error) {
     return {
-      id,
+      id: item.id,
       success: false,
-      message: `Failed to run rr init: ${error}`,
+      message: `Failed to run ${attemptedCommand}: ${error}`,
       category: "manual-needed",
-      attemptedCommand: "rr init",
-      nextActions: CONFIG_FIX_NEXT_ACTIONS,
+      attemptedCommand,
+      nextActions,
     };
   }
 }
@@ -186,12 +216,12 @@ export async function applyFix(
       return fixTmux(resolved);
     case "config-missing":
     case "config-invalid":
-      return fixConfig(item.id, resolved);
+      return fixConfig(item, resolved);
     case "run-lockfile":
       return fixLockfile(resolved);
     default:
       if (isConfigFixableId(item.id)) {
-        return fixConfig(item.id, resolved);
+        return fixConfig(item, resolved);
       }
       return {
         id: item.id,
