@@ -4,6 +4,7 @@ import { type CommandDef, parseCommand } from "@/lib/cli-parser";
 import {
   getDefaultSelfUpdateDependencies,
   isUpdateManager,
+  managerDisplay,
   performSelfUpdate,
   type SelfUpdateDependencies,
   SelfUpdateError,
@@ -52,34 +53,30 @@ function createUpdateRuntime(overrides: UpdateRuntimeOverrides = {}): UpdateRunt
   };
 }
 
-function managerLabel(manager: SelfUpdateResult["manager"]): string {
-  return manager === "brew" ? "Homebrew" : "npm";
-}
-
 function renderSelfUpdateResult(result: SelfUpdateResult, runtime: UpdateRuntime): void {
   switch (result.status) {
     case "up-to-date":
       runtime.log.success(
-        `ralph-review is already up to date via ${managerLabel(result.manager)} (${result.currentVersion}).`
+        `ralph-review is already up to date via ${managerDisplay(result.manager)} (${result.currentVersion}).`
       );
       return;
 
     case "update-available":
       if (result.latestVersion) {
         runtime.log.info(
-          `Update available via ${managerLabel(result.manager)}: ${result.currentVersion} -> ${result.latestVersion}`
+          `Update available via ${managerDisplay(result.manager)}: ${result.currentVersion} -> ${result.latestVersion}`
         );
         return;
       }
 
       runtime.log.info(
-        `Update available via ${managerLabel(result.manager)}. Current version: ${result.currentVersion}`
+        `Update available via ${managerDisplay(result.manager)}. Current version: ${result.currentVersion}`
       );
       return;
 
     case "updated":
       runtime.log.success(
-        `Updated ralph-review via ${managerLabel(result.manager)}: ${result.previousVersion} -> ${result.finalVersion}`
+        `Updated ralph-review via ${managerDisplay(result.manager)}: ${result.previousVersion} -> ${result.finalVersion}`
       );
       return;
   }
@@ -112,13 +109,33 @@ export async function runUpdate(
   };
 
   const spinner = runtime.spinner();
+  let spinnerActive = false;
+  const stopSpinner = (message: string): void => {
+    if (!spinnerActive) {
+      return;
+    }
+
+    spinner.stop(message);
+    spinnerActive = false;
+  };
+
   spinner.start("Checking for updates...");
+  spinnerActive = true;
   try {
-    const result = await runtime.performSelfUpdate(options, runtime);
-    spinner.stop("Done.");
+    const result = await runtime.performSelfUpdate(
+      {
+        ...options,
+        onBeforeInstall: async ({ manager }) => {
+          stopSpinner("Update check complete.");
+          runtime.log.info(`Installing update via ${managerDisplay(manager)}...`);
+        },
+      },
+      runtime
+    );
+    stopSpinner("Done.");
     renderSelfUpdateResult(result, runtime);
   } catch (error) {
-    spinner.stop("Update failed.");
+    stopSpinner("Update failed.");
     if (error instanceof SelfUpdateError) {
       runtime.log.error(error.message);
       for (const note of error.notes) {

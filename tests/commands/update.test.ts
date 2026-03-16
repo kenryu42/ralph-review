@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { runUpdate } from "@/commands/update";
 import type { CommandDef, ParseResult } from "@/lib/cli-parser";
-import { SelfUpdateError, type SelfUpdateResult } from "@/lib/self-update";
+import { SelfUpdateError, type SelfUpdateOptions, type SelfUpdateResult } from "@/lib/self-update";
 
 interface UpdateHarness {
   overrides: NonNullable<Parameters<typeof runUpdate>[1]>;
@@ -10,7 +10,7 @@ interface UpdateHarness {
   messages: string[];
   successes: string[];
   exits: number[];
-  performCalls: Array<{ checkOnly: boolean; manager?: "npm" | "brew" }>;
+  performCalls: SelfUpdateOptions[];
   spinnerStarts: string[];
   spinnerStops: string[];
 }
@@ -34,7 +34,7 @@ function createUpdateHarness(
   const messages: string[] = [];
   const successes: string[] = [];
   const exits: number[] = [];
-  const performCalls: Array<{ checkOnly: boolean; manager?: "npm" | "brew" }> = [];
+  const performCalls: SelfUpdateOptions[] = [];
   const spinnerStarts: string[] = [];
   const spinnerStops: string[] = [];
 
@@ -153,6 +153,7 @@ describe("update command", () => {
     await runUpdate(["--check", "--manager", "npm"], harness.overrides);
 
     expect(harness.infos).toEqual(["Update available via npm: 0.1.6 -> 0.1.7"]);
+    expect(harness.spinnerStops).toEqual(["Done."]);
   });
 
   test("prints brew check-mode availability with both versions", async () => {
@@ -175,6 +176,7 @@ describe("update command", () => {
     await runUpdate(["--check", "--manager", "brew"], harness.overrides);
 
     expect(harness.infos).toEqual(["Update available via Homebrew: 0.1.6 -> 0.1.7"]);
+    expect(harness.spinnerStops).toEqual(["Done."]);
   });
 
   test("prints update-available with only current version when latest is unknown", async () => {
@@ -199,18 +201,29 @@ describe("update command", () => {
   });
 
   test("prints a success message after updating", async () => {
-    const harness = createUpdateHarness({
-      status: "updated",
-      manager: "brew",
-      previousVersion: "0.1.6",
-      finalVersion: "0.1.7",
-    });
+    const harness = createUpdateHarness();
+    harness.overrides.performSelfUpdate = async (options) => {
+      harness.performCalls.push(options);
+      await options.onBeforeInstall?.({
+        manager: "brew",
+        currentVersion: "0.1.6",
+        latestVersion: "0.1.7",
+      });
+
+      return {
+        status: "updated",
+        manager: "brew",
+        previousVersion: "0.1.6",
+        finalVersion: "0.1.7",
+      };
+    };
 
     await runUpdate([], harness.overrides);
 
     expect(harness.successes).toEqual(["Updated ralph-review via Homebrew: 0.1.6 -> 0.1.7"]);
+    expect(harness.infos).toEqual(["Installing update via Homebrew..."]);
     expect(harness.spinnerStarts).toEqual(["Checking for updates..."]);
-    expect(harness.spinnerStops).toEqual(["Done."]);
+    expect(harness.spinnerStops).toEqual(["Update check complete."]);
   });
 
   test("renders self-update guidance on failure and exits", async () => {
@@ -231,5 +244,27 @@ describe("update command", () => {
     expect(harness.exits).toEqual([1]);
     expect(harness.spinnerStarts).toEqual(["Checking for updates..."]);
     expect(harness.spinnerStops).toEqual(["Update failed."]);
+  });
+
+  test("does not stop the spinner twice when install fails after handoff", async () => {
+    const harness = createUpdateHarness();
+    harness.overrides.performSelfUpdate = async (options) => {
+      harness.performCalls.push(options);
+      await options.onBeforeInstall?.({
+        manager: "npm",
+        currentVersion: "0.1.6",
+        latestVersion: "0.1.7",
+      });
+
+      throw new SelfUpdateError("npm install -g ralph-review@latest exited with code 2.");
+    };
+
+    await runUpdate([], harness.overrides);
+
+    expect(harness.infos).toEqual(["Installing update via npm..."]);
+    expect(harness.errors).toEqual(["npm install -g ralph-review@latest exited with code 2."]);
+    expect(harness.exits).toEqual([1]);
+    expect(harness.spinnerStarts).toEqual(["Checking for updates..."]);
+    expect(harness.spinnerStops).toEqual(["Update check complete."]);
   });
 });

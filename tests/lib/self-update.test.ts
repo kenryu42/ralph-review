@@ -566,6 +566,7 @@ describe("self-update", () => {
     test("runs npm install -g when an npm update is available", async () => {
       let versionCallCount = 0;
       const { deps, interactiveCalls } = createDependencies();
+      const lifecycleEvents: string[] = [];
       deps.runText = async (command: string[]) => {
         const key = command.join(" ");
         if (key === NPM_VIEW_COMMAND) {
@@ -588,7 +589,23 @@ describe("self-update", () => {
         };
       };
 
-      const result = await performSelfUpdate({ checkOnly: false, manager: "npm" }, deps);
+      const result = await performSelfUpdate(
+        {
+          checkOnly: false,
+          manager: "npm",
+          onBeforeInstall: ({ manager, currentVersion, latestVersion }) => {
+            lifecycleEvents.push(`before:${manager}:${currentVersion}->${latestVersion}`);
+          },
+        },
+        {
+          ...deps,
+          runInteractive: async (command: string[]) => {
+            lifecycleEvents.push(`interactive:${command.join(" ")}`);
+            interactiveCalls.push(command);
+            return 0;
+          },
+        }
+      );
 
       expect(result).toEqual({
         status: "updated",
@@ -598,6 +615,73 @@ describe("self-update", () => {
         latestVersion: "0.1.7",
       });
       expect(interactiveCalls).toEqual([["npm", "install", "-g", "ralph-review@latest"]]);
+      expect(lifecycleEvents).toEqual([
+        "before:npm:0.1.6->0.1.7",
+        "interactive:npm install -g ralph-review@latest",
+      ]);
+    });
+
+    test("does not invoke onBeforeInstall for npm checks", async () => {
+      let hookCalls = 0;
+      const { deps, interactiveCalls } = createDependencies(
+        {},
+        {
+          [NPM_LIST_COMMAND]: npmListResult("0.1.6"),
+          [NPM_VIEW_COMMAND]: {
+            stdout: "0.1.7\n",
+            stderr: "",
+            exitCode: 0,
+          },
+        }
+      );
+
+      const result = await performSelfUpdate(
+        {
+          checkOnly: true,
+          manager: "npm",
+          onBeforeInstall: () => {
+            hookCalls += 1;
+          },
+        },
+        deps
+      );
+
+      expect(result).toEqual({
+        status: "update-available",
+        manager: "npm",
+        currentVersion: "0.1.6",
+        latestVersion: "0.1.7",
+      });
+      expect(hookCalls).toBe(0);
+      expect(interactiveCalls).toEqual([]);
+    });
+
+    test("aborts npm install when onBeforeInstall fails", async () => {
+      const { deps, interactiveCalls } = createDependencies(
+        {},
+        {
+          [NPM_LIST_COMMAND]: npmListResult("0.1.6"),
+          [NPM_VIEW_COMMAND]: {
+            stdout: "0.1.7\n",
+            stderr: "",
+            exitCode: 0,
+          },
+        }
+      );
+
+      await expect(
+        performSelfUpdate(
+          {
+            checkOnly: false,
+            manager: "npm",
+            onBeforeInstall: () => {
+              throw new Error("install handoff failed");
+            },
+          },
+          deps
+        )
+      ).rejects.toThrow("install handoff failed");
+      expect(interactiveCalls).toEqual([]);
     });
 
     test("does not downgrade newer npm-installed versions during updates", async () => {
@@ -840,6 +924,7 @@ describe("self-update", () => {
 
     test("runs brew install with tap-qualified name when an update is available", async () => {
       let infoCallCount = 0;
+      const lifecycleEvents: string[] = [];
       const { deps, interactiveCalls, textCalls } = createDependencies({
         runText: async (command: string[]) => {
           const key = command.join(" ");
@@ -873,7 +958,23 @@ describe("self-update", () => {
         },
       });
 
-      const result = await performSelfUpdate({ checkOnly: false, manager: "brew" }, deps);
+      const result = await performSelfUpdate(
+        {
+          checkOnly: false,
+          manager: "brew",
+          onBeforeInstall: ({ manager, currentVersion, latestVersion }) => {
+            lifecycleEvents.push(`before:${manager}:${currentVersion}->${latestVersion}`);
+          },
+        },
+        {
+          ...deps,
+          runInteractive: async (command: string[]) => {
+            lifecycleEvents.push(`interactive:${command.join(" ")}`);
+            interactiveCalls.push(command);
+            return 0;
+          },
+        }
+      );
 
       expect(result).toEqual({
         status: "updated",
@@ -888,6 +989,49 @@ describe("self-update", () => {
         ["brew", "info", "--json=v1", "ralph-review"],
       ]);
       expect(interactiveCalls).toEqual([["brew", "install", "kenryu42/tap/ralph-review"]]);
+      expect(lifecycleEvents).toEqual([
+        "before:brew:0.1.6->0.1.7",
+        "interactive:brew install kenryu42/tap/ralph-review",
+      ]);
+    });
+
+    test("does not invoke onBeforeInstall when brew is already up to date", async () => {
+      let hookCalls = 0;
+      const { deps, interactiveCalls } = createDependencies(
+        {},
+        {
+          "brew info --json=v1 ralph-review": {
+            stdout: JSON.stringify([
+              {
+                installed: [{ version: "0.1.6" }],
+                versions: { stable: "0.1.6" },
+              },
+            ]),
+            stderr: "",
+            exitCode: 0,
+          },
+        }
+      );
+
+      const result = await performSelfUpdate(
+        {
+          checkOnly: false,
+          manager: "brew",
+          onBeforeInstall: () => {
+            hookCalls += 1;
+          },
+        },
+        deps
+      );
+
+      expect(result).toEqual({
+        status: "up-to-date",
+        manager: "brew",
+        currentVersion: "0.1.6",
+        latestVersion: "0.1.6",
+      });
+      expect(hookCalls).toBe(0);
+      expect(interactiveCalls).toEqual([]);
     });
 
     test("fails with Homebrew update guidance when refreshing metadata fails", async () => {

@@ -16,9 +16,16 @@ export interface SelfUpdateDependencies {
   runInteractive: (command: string[]) => Promise<number>;
 }
 
+export interface BeforeInstallEvent {
+  manager: UpdateManager;
+  currentVersion: string;
+  latestVersion: string;
+}
+
 export interface SelfUpdateOptions {
   checkOnly: boolean;
   manager?: UpdateManager;
+  onBeforeInstall?: (event: BeforeInstallEvent) => void | Promise<void>;
 }
 
 export type SelfUpdateResult =
@@ -100,7 +107,7 @@ function commandDisplay(command: readonly string[]): string {
   return command.join(" ");
 }
 
-function managerDisplay(manager: UpdateManager): string {
+export function managerDisplay(manager: UpdateManager): string {
   switch (manager) {
     case "brew":
       return "Homebrew";
@@ -504,6 +511,12 @@ async function performNpmSelfUpdate(
     };
   }
 
+  await options.onBeforeInstall?.({
+    manager: "npm",
+    currentVersion,
+    latestVersion,
+  });
+
   const exitCode = await deps.runInteractive([...NPM_INSTALL_COMMAND]);
   if (exitCode !== 0) {
     throw new SelfUpdateError(
@@ -546,6 +559,12 @@ async function performBrewSelfUpdate(
       latestVersion,
     };
   }
+
+  await options.onBeforeInstall?.({
+    manager: "brew",
+    currentVersion,
+    latestVersion,
+  });
 
   const exitCode = await deps.runInteractive([...BREW_INSTALL_COMMAND]);
   if (exitCode !== 0) {
