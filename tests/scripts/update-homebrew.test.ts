@@ -1,4 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { CommandRunner } from "../../scripts/generate-changelog";
 import { computeSha256, runUpdateHomebrew, updateFormula } from "../../scripts/update-homebrew";
 
@@ -99,36 +102,33 @@ describe("updateFormula", () => {
 });
 
 describe("computeSha256", () => {
-  let server: ReturnType<typeof Bun.serve>;
-  let baseUrl: string;
+  let tempDir: string;
+  let okUrl: string;
+  let missingUrl: string;
 
-  beforeAll(() => {
-    server = Bun.serve({
-      port: 0,
-      fetch(req) {
-        const url = new URL(req.url);
-        if (url.pathname === "/ok") {
-          return new Response("hello world");
-        }
-        return new Response("Not Found", { status: 404 });
-      },
-    });
-    baseUrl = `http://localhost:${server.port}`;
+  beforeAll(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "ralph-review-update-homebrew-"));
+
+    const okPath = join(tempDir, "ok.txt");
+    await Bun.write(okPath, "hello world");
+
+    okUrl = `file://${okPath}`;
+    missingUrl = `file://${join(tempDir, "missing.txt")}`;
   });
 
-  afterAll(() => {
-    server.stop();
+  afterAll(async () => {
+    await rm(tempDir, { recursive: true, force: true });
   });
 
   test("returns hex sha256 of response body", async () => {
-    const hash = await computeSha256(`${baseUrl}/ok`);
+    const hash = await computeSha256(okUrl);
     const expected = new Bun.CryptoHasher("sha256").update("hello world").digest("hex");
 
     expect(hash).toBe(expected);
   });
 
-  test("throws on non-ok response", async () => {
-    await expect(computeSha256(`${baseUrl}/missing`)).rejects.toThrow("Failed to download tarball");
+  test("throws when the tarball cannot be downloaded", async () => {
+    await expect(computeSha256(missingUrl)).rejects.toThrow("Failed to download tarball");
   });
 });
 
