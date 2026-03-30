@@ -13,7 +13,7 @@
  */
 import { createCliRenderer } from "@opentui/core";
 import { createRoot } from "@opentui/react";
-import type { LockData } from "@/lib/lockfile";
+import type { SessionState } from "@/lib/session-state";
 import { SessionPanel } from "@/lib/tui/components/SessionPanel";
 import type {
   AgentRole,
@@ -148,7 +148,7 @@ const mockCodexReviewText = `- Line 42: Consider using const instead of let for 
 - Line 156: Debug console.log should be removed
 - Line 89-92: Nested property access could use optional chaining`;
 
-const mockSession: LockData = {
+const mockSession: SessionState = {
   schemaVersion: 2,
   sessionId: "mock-session-id",
   sessionName: "ralph-review-mock-12345",
@@ -163,7 +163,7 @@ const mockSession: LockData = {
   currentAgent: "reviewer",
 };
 
-const mockCompletedSession: LockData = {
+const mockCompletedSession: SessionState = {
   ...mockSession,
   state: "completed",
   iteration: 3,
@@ -259,7 +259,7 @@ const mockProjectStats: ProjectStats = {
 };
 
 interface MockData {
-  session: LockData | null;
+  session: SessionState | null;
   fixes: FixEntry[];
   skipped: SkippedEntry[];
   findings: Finding[];

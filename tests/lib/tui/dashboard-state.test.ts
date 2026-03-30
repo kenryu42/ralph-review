@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import type { LockData } from "@/lib/lockfile";
+import type { SessionState } from "@/lib/session-state";
 import type { DashboardState } from "@/lib/tui/types";
 import {
-  getCurrentAgentFromLockData,
+  getCurrentAgentFromSessionState,
   getLiveRefreshMeta,
   hasLiveMetaChanged,
   mergeHeavyDashboardState,
@@ -11,8 +11,8 @@ import {
 } from "@/lib/tui/use-dashboard-state";
 import type { LogEntry } from "@/lib/types";
 
-describe("getCurrentAgentFromLockData", () => {
-  const baseLockData: LockData = {
+describe("getCurrentAgentFromSessionState", () => {
+  const baseSessionState: SessionState = {
     schemaVersion: 2,
     sessionId: "session-1",
     sessionName: "rr-test-123",
@@ -25,27 +25,27 @@ describe("getCurrentAgentFromLockData", () => {
     mode: "background",
   };
 
-  test("returns null when lockData is null", () => {
-    expect(getCurrentAgentFromLockData(null)).toBeNull();
+  test("returns null when session state is null", () => {
+    expect(getCurrentAgentFromSessionState(null)).toBeNull();
   });
 
   test("returns null when currentAgent is missing", () => {
-    expect(getCurrentAgentFromLockData(baseLockData)).toBeNull();
+    expect(getCurrentAgentFromSessionState(baseSessionState)).toBeNull();
   });
 
   test("returns reviewer when currentAgent is reviewer", () => {
-    const data: LockData = { ...baseLockData, currentAgent: "reviewer" };
-    expect(getCurrentAgentFromLockData(data)).toBe("reviewer");
+    const data: SessionState = { ...baseSessionState, currentAgent: "reviewer" };
+    expect(getCurrentAgentFromSessionState(data)).toBe("reviewer");
   });
 
   test("returns fixer when currentAgent is fixer", () => {
-    const data: LockData = { ...baseLockData, currentAgent: "fixer" };
-    expect(getCurrentAgentFromLockData(data)).toBe("fixer");
+    const data: SessionState = { ...baseSessionState, currentAgent: "fixer" };
+    expect(getCurrentAgentFromSessionState(data)).toBe("fixer");
   });
 
   test("returns code-simplifier when currentAgent is code-simplifier", () => {
-    const data: LockData = { ...baseLockData, currentAgent: "code-simplifier" };
-    expect(getCurrentAgentFromLockData(data)).toBe("code-simplifier");
+    const data: SessionState = { ...baseSessionState, currentAgent: "code-simplifier" };
+    expect(getCurrentAgentFromSessionState(data)).toBe("code-simplifier");
   });
 });
 
@@ -120,6 +120,7 @@ describe("selectLatestReviewFromEntries", () => {
 describe("mergeHeavyDashboardState", () => {
   const baseState: DashboardState = {
     sessions: [],
+    projectSessions: [],
     currentSession: {
       schemaVersion: 2,
       sessionId: "rr-live-session",
@@ -159,6 +160,7 @@ describe("mergeHeavyDashboardState", () => {
   test("keeps live fields while applying heavy refresh fields", () => {
     const merged = mergeHeavyDashboardState(baseState, {
       sessions: [],
+      projectSessions: [],
       logEntries: [],
       fixes: [],
       skipped: [],
@@ -260,7 +262,7 @@ describe("mergeIncrementalLogEntries", () => {
 });
 
 describe("live metadata helpers", () => {
-  const baseLockData: LockData = {
+  const baseSessionState: SessionState = {
     schemaVersion: 2,
     sessionId: "session-1",
     sessionName: "rr-test-123",
@@ -275,8 +277,8 @@ describe("live metadata helpers", () => {
     currentAgent: "fixer",
   };
 
-  test("builds metadata shape from lock data", () => {
-    const meta = getLiveRefreshMeta(baseLockData);
+  test("builds metadata shape from session state", () => {
+    const meta = getLiveRefreshMeta(baseSessionState);
     expect(meta.sessionName).toBe("rr-test-123");
     expect(meta.state).toBe("running");
     expect(meta.iteration).toBe(2);
@@ -284,16 +286,16 @@ describe("live metadata helpers", () => {
   });
 
   test("detects changed metadata fields", () => {
-    const previous = getLiveRefreshMeta(baseLockData);
+    const previous = getLiveRefreshMeta(baseSessionState);
     const next = getLiveRefreshMeta({
-      ...baseLockData,
+      ...baseSessionState,
       iteration: 3,
     });
     expect(hasLiveMetaChanged(previous, next)).toBe(true);
   });
 
   test("returns false for first metadata sample", () => {
-    const next = getLiveRefreshMeta(baseLockData);
+    const next = getLiveRefreshMeta(baseSessionState);
     expect(hasLiveMetaChanged(null, next)).toBe(false);
   });
 });

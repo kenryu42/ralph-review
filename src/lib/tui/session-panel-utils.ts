@@ -1,3 +1,4 @@
+import type { SessionState } from "@/lib/session-state";
 import { TUI_COLORS } from "@/lib/tui/colors";
 import {
   type Finding,
@@ -30,6 +31,31 @@ export function formatProjectStatsSummary(totalFixes: number, sessionCount: numb
   const fixWord = totalFixes === 1 ? "fix" : "fixes";
   const sessionWord = sessionCount === 1 ? "session" : "sessions";
   return `${totalFixes} ${fixWord} across ${sessionCount} ${sessionWord}`;
+}
+
+interface SessionIdentityDisplay {
+  primary: string;
+  details: string[];
+}
+
+export function formatSessionIdentityDisplay(
+  session: Pick<SessionState, "sessionName" | "worktreeBranch">,
+  activeSessionCount: number = 0
+): SessionIdentityDisplay {
+  const details: string[] = [];
+
+  if (session.worktreeBranch) {
+    details.push(session.worktreeBranch);
+  }
+
+  if (activeSessionCount > 1) {
+    details.push(`${activeSessionCount} active sessions`);
+  }
+
+  return {
+    primary: session.sessionName,
+    details,
+  };
 }
 
 export function extractFixesFromStats(stats: SessionStats): FixEntry[] {
@@ -213,7 +239,7 @@ interface ResolveIssuesFoundDisplayInput {
   parsedCodexSummary: ReviewSummary | null;
   liveReviewSummary: ReviewSummary | null;
   cachedLiveReviewSummary: ReviewSummary | null;
-  lockfileReviewSummary: ReviewSummary | null;
+  sessionStateReviewSummary: ReviewSummary | null;
 }
 
 interface IssuesFoundDisplay {
@@ -230,7 +256,7 @@ export function resolveIssuesFoundDisplay({
   parsedCodexSummary,
   liveReviewSummary,
   cachedLiveReviewSummary,
-  lockfileReviewSummary,
+  sessionStateReviewSummary,
 }: ResolveIssuesFoundDisplayInput): IssuesFoundDisplay {
   const activeLiveSummary = liveReviewSummary ?? cachedLiveReviewSummary;
   if (activeLiveSummary) {
@@ -243,7 +269,7 @@ export function resolveIssuesFoundDisplay({
   const hasCurrentIterationPersistedReview = latestReviewIteration === sessionIteration;
   const isRunning = sessionStatus === "running";
 
-  // Persisted findings for current iteration take precedence over lockfile
+  // Persisted findings for the current iteration take precedence over session state.
   if (hasCurrentIterationPersistedReview && persistedFindings.length > 0) {
     return {
       findings: persistedFindings,
@@ -251,10 +277,10 @@ export function resolveIssuesFoundDisplay({
     };
   }
 
-  // Lockfile-based review: fallback when no persisted review for current iteration
-  if (lockfileReviewSummary) {
+  // Session-state review summary: fallback when no persisted review exists for this iteration.
+  if (sessionStateReviewSummary) {
     return {
-      findings: lockfileReviewSummary.findings,
+      findings: sessionStateReviewSummary.findings,
       codexText: null,
     };
   }

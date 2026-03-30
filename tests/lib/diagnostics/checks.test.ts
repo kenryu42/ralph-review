@@ -24,8 +24,6 @@ describe("diagnostics checks", () => {
         configExists: async () => false,
         isGitRepository: async () => true,
         hasUncommittedChanges: async () => true,
-        cleanupStaleLockfile: async () => false,
-        hasActiveLockfile: async () => false,
         isTmuxInstalled: () => true,
       },
     });
@@ -71,8 +69,6 @@ describe("diagnostics checks", () => {
         }),
         isGitRepository: async () => true,
         hasUncommittedChanges: async () => true,
-        cleanupStaleLockfile: async () => false,
-        hasActiveLockfile: async () => false,
         isTmuxInstalled: () => true,
       },
     });
@@ -102,8 +98,6 @@ describe("diagnostics checks", () => {
         loadConfig: async () => config,
         isGitRepository: async () => true,
         hasUncommittedChanges: async () => true,
-        cleanupStaleLockfile: async () => false,
-        hasActiveLockfile: async () => false,
         isTmuxInstalled: () => true,
       },
     });
@@ -138,8 +132,6 @@ describe("diagnostics checks", () => {
         loadConfig: async () => null,
         isGitRepository: async () => true,
         hasUncommittedChanges: async () => true,
-        cleanupStaleLockfile: async () => false,
-        hasActiveLockfile: async () => false,
         isTmuxInstalled: () => true,
       },
     });
@@ -171,8 +163,6 @@ describe("diagnostics checks", () => {
         }),
         isGitRepository: async () => true,
         hasUncommittedChanges: async () => true,
-        cleanupStaleLockfile: async () => false,
-        hasActiveLockfile: async () => false,
         isTmuxInstalled: () => true,
       },
     });
@@ -206,8 +196,6 @@ describe("diagnostics checks", () => {
         }),
         isGitRepository: async () => true,
         hasUncommittedChanges: async () => true,
-        cleanupStaleLockfile: async () => false,
-        hasActiveLockfile: async () => false,
         isTmuxInstalled: () => true,
       },
     });
@@ -244,8 +232,6 @@ describe("diagnostics checks", () => {
         }),
         isGitRepository: async () => true,
         hasUncommittedChanges: async () => true,
-        cleanupStaleLockfile: async () => false,
-        hasActiveLockfile: async () => false,
         isTmuxInstalled: () => true,
       },
     });
@@ -279,8 +265,6 @@ describe("diagnostics checks", () => {
         }),
         isGitRepository: async () => true,
         hasUncommittedChanges: async () => true,
-        cleanupStaleLockfile: async () => false,
-        hasActiveLockfile: async () => false,
         isTmuxInstalled: () => true,
       },
     });
@@ -320,8 +304,6 @@ describe("diagnostics checks", () => {
         }),
         isGitRepository: async () => true,
         hasUncommittedChanges: async () => true,
-        cleanupStaleLockfile: async () => false,
-        hasActiveLockfile: async () => false,
         isTmuxInstalled: () => true,
       },
     });
@@ -366,8 +348,6 @@ describe("diagnostics checks", () => {
         loadConfig: async () => createConfig(),
         isGitRepository: async () => true,
         hasUncommittedChanges: async () => true,
-        cleanupStaleLockfile: async () => false,
-        hasActiveLockfile: async () => false,
         isTmuxInstalled: () => true,
       },
     });
@@ -436,8 +416,6 @@ describe("diagnostics checks", () => {
         loadConfig: async () => config,
         isGitRepository: async () => true,
         hasUncommittedChanges: async () => true,
-        cleanupStaleLockfile: async () => false,
-        hasActiveLockfile: async () => false,
         isTmuxInstalled: () => true,
       },
     });
@@ -456,8 +434,6 @@ describe("diagnostics checks", () => {
         loadConfig: async () => createConfig(),
         isGitRepository: async () => true,
         hasUncommittedChanges: async () => true,
-        cleanupStaleLockfile: async () => false,
-        hasActiveLockfile: async () => false,
         isTmuxInstalled: () => true,
       },
     });
@@ -481,8 +457,6 @@ describe("diagnostics checks", () => {
         loadConfig: async () => config,
         isGitRepository: async () => true,
         hasUncommittedChanges: async () => true,
-        cleanupStaleLockfile: async () => false,
-        hasActiveLockfile: async () => false,
         isTmuxInstalled: () => true,
       },
     });
@@ -507,8 +481,6 @@ describe("diagnostics checks", () => {
         loadConfig: async () => config,
         isGitRepository: async () => true,
         hasUncommittedChanges: async () => true,
-        cleanupStaleLockfile: async () => false,
-        hasActiveLockfile: async () => false,
         isTmuxInstalled: () => true,
       },
     });
@@ -537,8 +509,6 @@ describe("diagnostics checks", () => {
         loadConfig: async () => config,
         isGitRepository: async () => true,
         hasUncommittedChanges: async () => true,
-        cleanupStaleLockfile: async () => false,
-        hasActiveLockfile: async () => false,
         isTmuxInstalled: () => true,
       },
     });
@@ -565,8 +535,6 @@ describe("diagnostics checks", () => {
         loadConfig: async () => config,
         isGitRepository: async () => true,
         hasUncommittedChanges: async () => true,
-        cleanupStaleLockfile: async () => false,
-        hasActiveLockfile: async () => false,
         isTmuxInstalled: () => true,
       },
     });
@@ -593,8 +561,6 @@ describe("diagnostics checks", () => {
         loadConfig: async () => config,
         isGitRepository: async () => true,
         hasUncommittedChanges: async () => true,
-        cleanupStaleLockfile: async () => false,
-        hasActiveLockfile: async () => false,
         isTmuxInstalled: () => true,
       },
     });
@@ -632,8 +598,6 @@ describe("diagnostics checks", () => {
         hasUncommittedChanges: async () => {
           throw new Error("git status failed");
         },
-        cleanupStaleLockfile: async () => false,
-        hasActiveLockfile: async () => false,
         isTmuxInstalled: () => true,
       },
     });
@@ -658,8 +622,6 @@ describe("diagnostics checks", () => {
           uncommittedChecks += 1;
           return false;
         },
-        cleanupStaleLockfile: async () => false,
-        hasActiveLockfile: async () => false,
         isTmuxInstalled: () => true,
       },
     });
@@ -690,8 +652,6 @@ describe("diagnostics checks", () => {
           uncommittedChecks += 1;
           return true;
         },
-        cleanupStaleLockfile: async () => false,
-        hasActiveLockfile: async () => false,
         isTmuxInstalled: () => true,
       },
     });
@@ -713,8 +673,6 @@ describe("diagnostics checks", () => {
         loadConfig: async () => createConfig(),
         isGitRepository: async () => true,
         gitRefExists: async () => false,
-        cleanupStaleLockfile: async () => false,
-        hasActiveLockfile: async () => false,
         isTmuxInstalled: () => true,
       },
     });
@@ -737,8 +695,6 @@ describe("diagnostics checks", () => {
         dependencies: {
           configExists: async () => true,
           loadConfig: async () => createConfig(),
-          cleanupStaleLockfile: async () => false,
-          hasActiveLockfile: async () => false,
           isTmuxInstalled: () => true,
         },
       });
@@ -768,8 +724,6 @@ describe("diagnostics checks", () => {
         dependencies: {
           configExists: async () => true,
           loadConfig: async () => createConfig(),
-          cleanupStaleLockfile: async () => false,
-          hasActiveLockfile: async () => false,
           isTmuxInstalled: () => true,
         },
       });
@@ -794,8 +748,6 @@ describe("diagnostics checks", () => {
         gitRefExists: async () => {
           throw new Error("base ref check failed");
         },
-        cleanupStaleLockfile: async () => false,
-        hasActiveLockfile: async () => false,
         isTmuxInstalled: () => true,
       },
     });
@@ -827,8 +779,6 @@ describe("diagnostics checks", () => {
           uncommittedChecks += 1;
           return true;
         },
-        cleanupStaleLockfile: async () => false,
-        hasActiveLockfile: async () => false,
         isTmuxInstalled: () => true,
       },
     });
@@ -850,8 +800,6 @@ describe("diagnostics checks", () => {
         loadConfig: async () => createConfig(),
         isGitRepository: async () => true,
         gitRefExists: async () => false,
-        cleanupStaleLockfile: async () => false,
-        hasActiveLockfile: async () => false,
         isTmuxInstalled: () => true,
       },
     });
@@ -873,8 +821,6 @@ describe("diagnostics checks", () => {
         gitRefExists: async () => {
           throw new Error("commit ref check failed");
         },
-        cleanupStaleLockfile: async () => false,
-        hasActiveLockfile: async () => false,
         isTmuxInstalled: () => true,
       },
     });
@@ -899,8 +845,6 @@ describe("diagnostics checks", () => {
         dependencies: {
           configExists: async () => true,
           loadConfig: async () => createConfig(),
-          cleanupStaleLockfile: async () => false,
-          hasActiveLockfile: async () => false,
           isTmuxInstalled: () => true,
         },
       });
@@ -924,8 +868,6 @@ describe("diagnostics checks", () => {
         dependencies: {
           configExists: async () => true,
           loadConfig: async () => createConfig(),
-          cleanupStaleLockfile: async () => false,
-          hasActiveLockfile: async () => false,
           isTmuxInstalled: () => true,
         },
       });
@@ -949,34 +891,12 @@ describe("diagnostics checks", () => {
         loadConfig: async () => createConfig(),
         isGitRepository: async () => true,
         hasUncommittedChanges: async () => true,
-        cleanupStaleLockfile: async () => false,
-        hasActiveLockfile: async () => false,
         isTmuxInstalled: () => true,
       },
     });
 
     expect(report.hasErrors).toBe(false);
     expect(report.hasWarnings).toBe(true);
-  });
-
-  test("marks run-lockfile as fixable when an active review lock is present", async () => {
-    const report = await runDiagnostics("run", {
-      capabilitiesByAgent: createCapabilities(),
-      dependencies: {
-        configExists: async () => true,
-        loadConfig: async () => createConfig(),
-        isGitRepository: async () => true,
-        hasUncommittedChanges: async () => true,
-        cleanupStaleLockfile: async () => false,
-        hasActiveLockfile: async () => true,
-        isTmuxInstalled: () => true,
-      },
-    });
-
-    const lockItem = report.items.find((item) => item.id === "run-lockfile");
-    expect(lockItem?.severity).toBe("error");
-    expect(lockItem?.fixable).toBe(true);
-    expect(lockItem?.remediation).toContain("Then run: rr run");
   });
 
   test("uses platform-aware tmux remediation via injected guidance", async () => {
@@ -1011,8 +931,6 @@ describe("diagnostics checks", () => {
         loadConfig: async () => createConfig(),
         isGitRepository: async () => true,
         hasUncommittedChanges: async () => true,
-        cleanupStaleLockfile: async () => false,
-        hasActiveLockfile: async () => false,
         isTmuxInstalled: () => true,
       },
     });

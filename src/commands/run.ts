@@ -8,18 +8,18 @@ import { getTmuxInstallHint } from "@/lib/diagnostics/tmux-install";
 import type { DiagnosticsReport } from "@/lib/diagnostics/types";
 import { type CycleResult, runReviewCycle } from "@/lib/engine";
 import { formatReviewType } from "@/lib/format";
-import {
-  createLockfile,
-  createSessionId,
-  HEARTBEAT_INTERVAL_MS,
-  readLockfile,
-  removeLockfile,
-  touchHeartbeat,
-  updateLockfile,
-} from "@/lib/lockfile";
 import { getGitBranch } from "@/lib/logger";
 import { playCompletionSound, resolveSoundEnabled, type SoundOverride } from "@/lib/notify/sound";
 import { CLI_PATH } from "@/lib/paths";
+import {
+  createSessionId,
+  createSessionState,
+  HEARTBEAT_INTERVAL_MS,
+  readSessionState,
+  removeSessionState,
+  touchSessionHeartbeat,
+  updateSessionState,
+} from "@/lib/session-state";
 import { createSession, generateSessionName, isInsideTmux, isTmuxInstalled } from "@/lib/tmux";
 import type { AgentType, Config, ReviewOptions } from "@/lib/types";
 
@@ -158,13 +158,13 @@ export interface RunRuntime {
   collectIssueItems: typeof collectIssueItems;
   getTmuxInstallHint: typeof getTmuxInstallHint;
   runReviewCycle: typeof runReviewCycle;
-  lockfile: {
-    createLockfile: typeof createLockfile;
+  sessionState: {
+    createSessionState: typeof createSessionState;
     createSessionId: typeof createSessionId;
-    readLockfile: typeof readLockfile;
-    removeLockfile: typeof removeLockfile;
-    touchHeartbeat: typeof touchHeartbeat;
-    updateLockfile: typeof updateLockfile;
+    readSessionState: typeof readSessionState;
+    removeSessionState: typeof removeSessionState;
+    touchSessionHeartbeat: typeof touchSessionHeartbeat;
+    updateSessionState: typeof updateSessionState;
   };
   getGitBranch: typeof getGitBranch;
   sound: {
@@ -202,10 +202,10 @@ interface RunPromptOverrides {
 
 export interface RunRuntimeOverrides
   extends Partial<
-    Omit<RunRuntime, "prompt" | "lockfile" | "sound" | "tmux" | "process" | "timer">
+    Omit<RunRuntime, "prompt" | "sessionState" | "sound" | "tmux" | "process" | "timer">
   > {
   prompt?: RunPromptOverrides;
-  lockfile?: Partial<RunRuntime["lockfile"]>;
+  sessionState?: Partial<RunRuntime["sessionState"]>;
   sound?: Partial<RunRuntime["sound"]>;
   tmux?: Partial<RunRuntime["tmux"]>;
   process?: Partial<RunRuntime["process"]>;
@@ -231,13 +231,13 @@ export function createRunRuntime(overrides: RunRuntimeOverrides = {}): RunRuntim
     collectIssueItems,
     getTmuxInstallHint,
     runReviewCycle,
-    lockfile: {
-      createLockfile,
+    sessionState: {
+      createSessionState,
       createSessionId,
-      readLockfile,
-      removeLockfile,
-      touchHeartbeat,
-      updateLockfile,
+      readSessionState,
+      removeSessionState,
+      touchSessionHeartbeat,
+      updateSessionState,
     },
     getGitBranch,
     sound: {
@@ -283,9 +283,9 @@ export function createRunRuntime(overrides: RunRuntimeOverrides = {}): RunRuntim
       note: overrides.prompt?.note ?? defaults.prompt.note,
       spinner: overrides.prompt?.spinner ?? defaults.prompt.spinner,
     },
-    lockfile: {
-      ...defaults.lockfile,
-      ...(overrides.lockfile ?? {}),
+    sessionState: {
+      ...defaults.sessionState,
+      ...(overrides.sessionState ?? {}),
     },
     sound: {
       ...defaults.sound,
@@ -329,10 +329,9 @@ async function runInBackground(
 
   const branch = await runtime.getGitBranch(projectPath);
   const sessionName = runtime.tmux.generateSessionName();
-  const sessionId = runtime.lockfile.createSessionId();
+  const sessionId = runtime.sessionState.createSessionId();
 
-  // Create lockfile for this project
-  await runtime.lockfile.createLockfile(undefined, projectPath, sessionName, {
+  await runtime.sessionState.createSessionState(undefined, projectPath, sessionName, {
     branch,
     sessionId,
     state: "pending",
@@ -379,7 +378,9 @@ async function runInBackground(
     runtime.prompt.note(formatRunAgentsNote(config, reviewOptions), "Agents");
     runtime.prompt.note("rr         - Check status\n" + "rr stop    - Stop the review", "Commands");
   } catch (error) {
-    await runtime.lockfile.removeLockfile(undefined, projectPath, { expectedSessionId: sessionId });
+    await runtime.sessionState.removeSessionState(undefined, projectPath, sessionId, {
+      expectedSessionId: sessionId,
+    });
     runtime.prompt.log.error(`Failed to start background session: ${error}`);
     runtime.process.exit(1);
   }
@@ -415,10 +416,6 @@ export async function runForeground(
   const soundEnabled = runtime.sound.resolveSoundEnabled(config, soundOverride);
   let cycleResult: CycleResult | undefined;
   let sessionId = expectedSessionId;
-  const lockData = await runtime.lockfile.readLockfile(undefined, projectPath);
-  if (!sessionId) {
-    sessionId = lockData?.sessionId ?? runtime.lockfile.createSessionId();
-  }
 
   // Parse --max option using the _run-foreground command def
   const foregroundDef = runtime.getCommandDef("_run-foreground");
@@ -439,25 +436,45 @@ export async function runForeground(
     }
   }
 
-  // Update from "pending" (launcher) to "running" with actual PID
-  await runtime.lockfile.updateLockfile(
+  const branch = await runtime.getGitBranch(projectPath);
+  let sessionState = sessionId
+    ? await runtime.sessionState.readSessionState(undefined, projectPath, sessionId)
+    : null;
+
+  if (!sessionId) {
+    sessionId = runtime.sessionState.createSessionId();
+    const sessionName = runtime.tmux.generateSessionName();
+    await runtime.sessionState.createSessionState(undefined, projectPath, sessionName, {
+      branch,
+      sessionId,
+      state: "running",
+      mode: "foreground",
+      pid: runtime.process.pid,
+      lastHeartbeat: runtime.timer.now(),
+    });
+    sessionState = await runtime.sessionState.readSessionState(undefined, projectPath, sessionId);
+  }
+
+  await runtime.sessionState.updateSessionState(
     undefined,
     projectPath,
+    sessionId,
     {
       pid: runtime.process.pid,
       state: "running",
       mode: "foreground",
       lastHeartbeat: runtime.timer.now(),
       currentAgent: runSimplifier ? "code-simplifier" : "reviewer",
+      branch: branch ?? sessionState?.branch,
     },
     {
-      expectedSessionId: expectedSessionId ?? lockData?.sessionId ?? sessionId,
+      expectedSessionId: sessionId,
     }
   );
 
   const heartbeatTimer = runtime.timer.setInterval(() => {
-    void runtime.lockfile.touchHeartbeat(undefined, projectPath, sessionId).catch(() => {
-      // Ignore heartbeat failures (lock may have been removed).
+    void runtime.sessionState.touchSessionHeartbeat(undefined, projectPath, sessionId).catch(() => {
+      // Ignore heartbeat failures if the session state was removed mid-shutdown.
     });
   }, HEARTBEAT_INTERVAL_MS);
 
@@ -506,9 +523,10 @@ export async function runForeground(
     runtime.timer.clearInterval(heartbeatTimer);
 
     if (cycleResult) {
-      await runtime.lockfile.updateLockfile(
+      await runtime.sessionState.updateSessionState(
         undefined,
         projectPath,
+        sessionId,
         {
           state: cycleResult.finalStatus,
           endTime: runtime.timer.now(),
@@ -523,9 +541,10 @@ export async function runForeground(
         }
       );
     } else {
-      await runtime.lockfile.updateLockfile(
+      await runtime.sessionState.updateSessionState(
         undefined,
         projectPath,
+        sessionId,
         {
           state: "failed",
           endTime: runtime.timer.now(),
@@ -548,8 +567,7 @@ export async function runForeground(
       }
     }
 
-    // Clean up lockfile for this project
-    await runtime.lockfile.removeLockfile(undefined, projectPath, {
+    await runtime.sessionState.removeSessionState(undefined, projectPath, sessionId, {
       expectedSessionId: sessionId,
     });
   }

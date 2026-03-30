@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { loadEffectiveConfig } from "@/lib/config";
 import { ensureGitRepositoryAsync } from "@/lib/git";
-import type { LockData } from "@/lib/lockfile";
-import { listAllActiveSessions, readLockfile } from "@/lib/lockfile";
 import type { LogIncrementalResult, LogIncrementalState } from "@/lib/logger";
 import {
   computeProjectStats,
@@ -12,6 +10,12 @@ import {
   listProjectLogSessions,
   readLogIncremental,
 } from "@/lib/logger";
+import type { SessionState } from "@/lib/session-state";
+import {
+  getLatestProjectActiveSession,
+  listAllActiveSessions,
+  listProjectActiveSessions,
+} from "@/lib/session-state";
 import {
   computeNextTmuxCaptureInterval,
   getSessionOutput,
@@ -35,23 +39,25 @@ import type { DashboardState } from "./types";
 const DEFAULT_REFRESH_INTERVAL = 1000;
 const LIVE_REFRESH_INTERVAL = TMUX_CAPTURE_MIN_INTERVAL_MS;
 
-export function getCurrentAgentFromLockData(lockData: LockData | null): AgentRole | null {
-  return lockData?.currentAgent ?? null;
+export function getCurrentAgentFromSessionState(
+  sessionState: SessionState | null
+): AgentRole | null {
+  return sessionState?.currentAgent ?? null;
 }
 
 interface LiveRefreshMeta {
   sessionName: string | null;
-  state: LockData["state"] | null;
+  state: SessionState["state"] | null;
   iteration: number | null;
   currentAgent: AgentRole | null;
 }
 
-export function getLiveRefreshMeta(lockData: LockData | null): LiveRefreshMeta {
+export function getLiveRefreshMeta(sessionState: SessionState | null): LiveRefreshMeta {
   return {
-    sessionName: lockData?.sessionName ?? null,
-    state: lockData?.state ?? null,
-    iteration: lockData?.iteration ?? null,
-    currentAgent: getCurrentAgentFromLockData(lockData),
+    sessionName: sessionState?.sessionName ?? null,
+    state: sessionState?.state ?? null,
+    iteration: sessionState?.iteration ?? null,
+    currentAgent: getCurrentAgentFromSessionState(sessionState),
   };
 }
 
@@ -124,6 +130,7 @@ export function selectLatestReviewFromEntries(logEntries: LogEntry[]): LatestRev
 
 interface HeavyRefreshUpdate {
   sessions: DashboardState["sessions"];
+  projectSessions: DashboardState["projectSessions"];
   logEntries: DashboardState["logEntries"];
   fixes: DashboardState["fixes"];
   skipped: DashboardState["skipped"];
@@ -148,6 +155,7 @@ export function mergeHeavyDashboardState(
   return {
     ...prev,
     sessions: update.sessions,
+    projectSessions: update.projectSessions,
     logEntries: update.logEntries,
     fixes: update.fixes,
     skipped: update.skipped,
@@ -175,6 +183,7 @@ export function useDashboardState(
 ): DashboardState {
   const [state, setState] = useState<DashboardState>({
     sessions: [],
+    projectSessions: [],
     currentSession: null,
     logEntries: [],
     fixes: [],
@@ -216,13 +225,15 @@ export function useDashboardState(
     isHeavyRefreshingRef.current = true;
 
     try {
-      const [isGitRepo, sessions, lockData, logSession, config] = await Promise.all([
-        ensureGitRepositoryAsync(projectPath),
-        listAllActiveSessions(),
-        readLockfile(undefined, projectPath),
-        getLatestProjectLogSession(undefined, projectPath),
-        loadEffectiveConfig(projectPath).catch(() => null),
-      ]);
+      const [isGitRepo, sessions, projectSessions, currentSession, logSession, config] =
+        await Promise.all([
+          ensureGitRepositoryAsync(projectPath),
+          listAllActiveSessions(),
+          listProjectActiveSessions(undefined, projectPath),
+          getLatestProjectActiveSession(undefined, projectPath),
+          getLatestProjectLogSession(undefined, projectPath),
+          loadEffectiveConfig(projectPath).catch(() => null),
+        ]);
 
       let logEntries = stateRef.current.logEntries;
       let nextLogIncrementalState = logIncrementalStateRef.current;
@@ -285,7 +296,7 @@ export function useDashboardState(
       let lastSessionStats: SessionStats | null = null;
       let projectStats: ProjectStats | null = null;
 
-      if (!lockData) {
+      if (!currentSession) {
         const projectSessions = await listProjectLogSessions(undefined, projectPath);
         const latestSession = projectSessions[0];
 
@@ -301,6 +312,7 @@ export function useDashboardState(
       setState((prev: DashboardState) =>
         mergeHeavyDashboardState(prev, {
           sessions,
+          projectSessions,
           logEntries,
           fixes,
           skipped,
@@ -334,10 +346,10 @@ export function useDashboardState(
     isLiveRefreshingRef.current = true;
 
     try {
-      const lockData = await readLockfile(undefined, projectPath);
+      const currentSession = await getLatestProjectActiveSession(undefined, projectPath);
 
       let tmuxOutput = lastTmuxOutputRef.current;
-      const liveMeta = getLiveRefreshMeta(lockData);
+      const liveMeta = getLiveRefreshMeta(currentSession);
       const sessionName = liveMeta.sessionName;
       const now = Date.now();
       const liveMetaChanged = hasLiveMetaChanged(lastLiveMetaRef.current, liveMeta);
@@ -375,12 +387,12 @@ export function useDashboardState(
         }
       }
 
-      const elapsed = lockData ? Date.now() - lockData.startTime : 0;
+      const elapsed = currentSession ? Date.now() - currentSession.startTime : 0;
       lastLiveMetaRef.current = liveMeta;
 
       setState((prev: DashboardState) => ({
         ...prev,
-        currentSession: lockData,
+        currentSession,
         currentAgent: liveMeta.currentAgent,
         tmuxOutput,
         elapsed,

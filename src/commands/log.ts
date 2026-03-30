@@ -2,7 +2,6 @@ import * as p from "@clack/prompts";
 import { getCommandDef } from "@/cli";
 import { parseCommand } from "@/lib/cli-parser";
 import { CONFIG_DIR } from "@/lib/config";
-import { type ActiveSession, listAllActiveSessions } from "@/lib/lockfile";
 import {
   computeSessionStats,
   getProjectName,
@@ -10,6 +9,7 @@ import {
   listLogSessions,
   listProjectLogSessions,
 } from "@/lib/logger";
+import { type ActiveSession, listAllActiveSessions } from "@/lib/session-state";
 import type {
   AgentSettings,
   DerivedRunStatus,
@@ -27,13 +27,31 @@ interface LogsOptions {
   global: boolean;
 }
 
-// Lockfiles use "default" when branch is unavailable, but logs store undefined
+// Session state uses "default" when branch is unavailable, but logs store undefined.
 export function normalizeBranch(branch: string | undefined): string | undefined {
   const trimmed = branch?.trim();
   if (!trimmed || trimmed === "default") {
     return undefined;
   }
   return trimmed;
+}
+
+function hasUniqueProjectBranchMatch(
+  session: SessionStats,
+  activeSessions: ActiveSession[]
+): boolean {
+  const sessionProjectName = getProjectNameFromLogPath(session.sessionPath);
+  const sessionBranch = normalizeBranch(session.gitBranch);
+  const matches = activeSessions.filter((active) => {
+    const activeProjectName = getProjectName(active.projectPath);
+    if (sessionProjectName !== activeProjectName) {
+      return false;
+    }
+
+    return normalizeBranch(active.branch) === sessionBranch;
+  });
+
+  return matches.length === 1;
 }
 
 /**
@@ -45,29 +63,15 @@ export function markSessionStatsRunning(
   activeSessions: ActiveSession[]
 ): void {
   for (const session of sessions) {
-    const sessionProjectName = getProjectNameFromLogPath(session.sessionPath);
-
-    for (const active of activeSessions) {
-      if (session.sessionId && active.sessionId) {
-        if (session.sessionId === active.sessionId) {
-          session.status = "running";
-          break;
-        }
-        continue;
-      }
-
-      const activeProjectName = getProjectName(active.projectPath);
-      if (sessionProjectName !== activeProjectName) {
-        continue;
-      }
-
-      const activeBranch = normalizeBranch(active.branch);
-      const branchMatches = activeBranch ? session.gitBranch === activeBranch : !session.gitBranch;
-
-      if (branchMatches) {
+    if (session.sessionId) {
+      if (activeSessions.some((active) => active.sessionId === session.sessionId)) {
         session.status = "running";
-        break;
       }
+      continue;
+    }
+
+    if (hasUniqueProjectBranchMatch(session, activeSessions)) {
+      session.status = "running";
     }
   }
 }

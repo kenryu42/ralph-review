@@ -31,7 +31,7 @@ describe("SessionPanel behavior", () => {
       parsedCodexSummary: null,
       liveReviewSummary: liveSummary,
       cachedLiveReviewSummary: null,
-      lockfileReviewSummary: null,
+      sessionStateReviewSummary: null,
     });
 
     expect(result.codexText).toBeNull();
@@ -49,7 +49,7 @@ describe("SessionPanel behavior", () => {
       parsedCodexSummary: null,
       liveReviewSummary: null,
       cachedLiveReviewSummary: liveSummary,
-      lockfileReviewSummary: null,
+      sessionStateReviewSummary: null,
     });
 
     expect(result.codexText).toBeNull();
@@ -67,14 +67,14 @@ describe("SessionPanel behavior", () => {
       parsedCodexSummary: null,
       liveReviewSummary: null,
       cachedLiveReviewSummary: null,
-      lockfileReviewSummary: null,
+      sessionStateReviewSummary: null,
     });
 
     expect(result.codexText).toBeNull();
     expect(result.findings).toEqual([]);
   });
 
-  test("shows lockfile review summary when running with no live or persisted review", () => {
+  test("shows session-state review summary when running with no live or persisted review", () => {
     const result = resolveIssuesFoundDisplay({
       sessionStatus: "running",
       sessionIteration: 2,
@@ -84,7 +84,7 @@ describe("SessionPanel behavior", () => {
       parsedCodexSummary: null,
       liveReviewSummary: null,
       cachedLiveReviewSummary: null,
-      lockfileReviewSummary: liveSummary,
+      sessionStateReviewSummary: liveSummary,
     });
 
     expect(result.codexText).toBeNull();
@@ -92,11 +92,11 @@ describe("SessionPanel behavior", () => {
     expect(result.findings[0]?.title).toBe("Fix race condition");
   });
 
-  test("prefers live tmux summary over lockfile review summary", () => {
-    const lockfileSummary: ReviewSummary = {
-      findings: [{ ...finding, title: "Lockfile finding" }],
+  test("prefers live tmux summary over session-state review summary", () => {
+    const sessionStateSummary: ReviewSummary = {
+      findings: [{ ...finding, title: "Session-state finding" }],
       overall_correctness: "patch is incorrect",
-      overall_explanation: "From lockfile.",
+      overall_explanation: "From session state.",
       overall_confidence_score: 0.7,
     };
 
@@ -109,14 +109,14 @@ describe("SessionPanel behavior", () => {
       parsedCodexSummary: null,
       liveReviewSummary: liveSummary,
       cachedLiveReviewSummary: null,
-      lockfileReviewSummary: lockfileSummary,
+      sessionStateReviewSummary: sessionStateSummary,
     });
 
     expect(result.findings).toHaveLength(1);
     expect(result.findings[0]?.title).toBe("Fix race condition");
   });
 
-  test("ignores lockfile review summary when persisted review matches current iteration", () => {
+  test("ignores session-state review summary when persisted review matches current iteration", () => {
     const persistedFinding = { ...finding, title: "Persisted finding" };
     const result = resolveIssuesFoundDisplay({
       sessionStatus: "running",
@@ -127,7 +127,7 @@ describe("SessionPanel behavior", () => {
       parsedCodexSummary: null,
       liveReviewSummary: null,
       cachedLiveReviewSummary: null,
-      lockfileReviewSummary: liveSummary,
+      sessionStateReviewSummary: liveSummary,
     });
 
     // Persisted findings win because latestReviewIteration === sessionIteration
@@ -146,7 +146,7 @@ describe("SessionPanel behavior", () => {
       parsedCodexSummary: null,
       liveReviewSummary: null,
       cachedLiveReviewSummary: null,
-      lockfileReviewSummary: null,
+      sessionStateReviewSummary: null,
     });
 
     expect(result.codexText).toBeNull();
@@ -171,7 +171,7 @@ describe("SessionPanel behavior", () => {
       parsedCodexSummary: parsedSummary,
       liveReviewSummary: null,
       cachedLiveReviewSummary: null,
-      lockfileReviewSummary: null,
+      sessionStateReviewSummary: null,
     });
 
     expect(result.codexText).toBeNull();
@@ -189,7 +189,7 @@ describe("SessionPanel behavior", () => {
       parsedCodexSummary: null,
       liveReviewSummary: null,
       cachedLiveReviewSummary: null,
-      lockfileReviewSummary: null,
+      sessionStateReviewSummary: null,
     });
 
     expect(result.findings).toEqual([]);

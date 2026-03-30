@@ -22,7 +22,6 @@ function makeItem(
 function mockDeps(overrides: Partial<RemediationDependencies> = {}): RemediationDependencies {
   return {
     spawn: (() => ({ exited: Promise.resolve(0) })) as unknown as typeof Bun.spawn,
-    cleanupStaleLockfile: async () => true,
     execPath: "/usr/bin/bun",
     cliPath: "/path/to/cli.ts",
     projectPath: "/project",
@@ -37,7 +36,6 @@ describe("isFixable", () => {
     expect(isFixable("tmux-installed")).toBe(true);
     expect(isFixable("config-missing")).toBe(true);
     expect(isFixable("config-invalid")).toBe(true);
-    expect(isFixable("run-lockfile")).toBe(true);
     expect(isFixable("config-reviewer-agent-invalid")).toBe(true);
     expect(isFixable("config-fixer-agent-missing")).toBe(true);
     expect(isFixable("config-code-simplifier-pi-invalid")).toBe(true);
@@ -304,50 +302,6 @@ describe("applyFix", () => {
     expect(result.success).toBe(true);
     expect(result.id).toBe("config-reviewer-model-missing");
     expect(spawnedArgs).toEqual(["/usr/bin/bun", "/path/to/cli.ts", "init"]);
-  });
-
-  test("fixes run-lockfile by cleaning up stale lockfile", async () => {
-    let cleanupCalled = false;
-    const deps = mockDeps({
-      cleanupStaleLockfile: async () => {
-        cleanupCalled = true;
-        return true;
-      },
-    });
-
-    const result = await applyFix(makeItem("run-lockfile"), deps);
-
-    expect(result.success).toBe(true);
-    expect(cleanupCalled).toBe(true);
-  });
-
-  test("reports failure when lockfile is not stale", async () => {
-    const deps = mockDeps({
-      cleanupStaleLockfile: async () => false,
-    });
-
-    const result = await applyFix(makeItem("run-lockfile"), deps);
-
-    expect(result.success).toBe(false);
-    expect(result.message).toContain("still active");
-    expect(result.nextActions).toContain("Run: rr");
-    expect(result.nextActions).toContain("Then run: rr run");
-  });
-
-  test("reports failure when lockfile cleanup throws", async () => {
-    const deps = mockDeps({
-      cleanupStaleLockfile: async () => {
-        throw new Error("cleanup failed");
-      },
-    });
-
-    const result = await applyFix(makeItem("run-lockfile"), deps);
-
-    expect(result.success).toBe(false);
-    expect(result.category).toBe("manual-needed");
-    expect(result.message).toContain("Failed to clean lockfile");
-    expect(result.nextActions).toContain("Run: rr");
-    expect(result.nextActions).toContain("Then run: rr run");
   });
 
   test("returns failure for unknown fix ID", async () => {

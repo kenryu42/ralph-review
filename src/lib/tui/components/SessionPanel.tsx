@@ -1,7 +1,7 @@
 import { useTerminalDimensions } from "@opentui/react";
 import { useEffect, useMemo, useRef } from "react";
 import { formatReviewType } from "@/lib/format";
-import type { LockData } from "@/lib/lockfile";
+import type { SessionState } from "@/lib/session-state";
 import { TUI_COLORS } from "@/lib/tui/colors";
 import type {
   AgentRole,
@@ -25,6 +25,7 @@ import {
   formatPriorityBreakdown,
   formatProjectStatsSummary,
   formatRelativeTime,
+  formatSessionIdentityDisplay,
   PRIORITY_COLORS,
   resolveIssuesFoundDisplay,
   UNKNOWN_PRIORITY_COLOR,
@@ -33,7 +34,7 @@ import { ProgressBar } from "./ProgressBar";
 import { Spinner } from "./Spinner";
 
 interface SessionPanelProps {
-  session: LockData | null;
+  session: SessionState | null;
   fixes: FixEntry[];
   skipped: SkippedEntry[];
   findings: Finding[];
@@ -49,6 +50,7 @@ interface SessionPanelProps {
   reviewOptions: ReviewOptions | undefined;
   isStarting: boolean;
   isStopping: boolean;
+  activeSessionCount?: number;
   focused?: boolean;
 }
 
@@ -300,6 +302,7 @@ export function SessionPanel({
   reviewOptions,
   isStarting,
   isStopping,
+  activeSessionCount = 0,
   focused = false,
 }: SessionPanelProps) {
   const minWidth = 50;
@@ -462,6 +465,18 @@ export function SessionPanel({
           </text>
         </box>
 
+        {lastSessionStats.worktreeBranch && (
+          <box flexDirection="column">
+            <box flexDirection="row" gap={1}>
+              <text fg={TUI_COLORS.text.muted}>Worktree branch:</text>
+              <text fg={TUI_COLORS.status.success}>{lastSessionStats.worktreeBranch}</text>
+            </box>
+            <text fg={TUI_COLORS.text.dim} paddingLeft={2}>
+              git merge {lastSessionStats.worktreeBranch}
+            </text>
+          </box>
+        )}
+
         {lastSessionFixes.length > 0 && (
           <box flexDirection="column">
             <text fg={TUI_COLORS.text.muted}>Recent fixes:</text>
@@ -495,7 +510,7 @@ export function SessionPanel({
     parsedCodexSummary,
     liveReviewSummary,
     cachedLiveReviewSummary,
-    lockfileReviewSummary: session.reviewSummary ?? null,
+    sessionStateReviewSummary: session.reviewSummary ?? null,
   });
 
   const showingCodex = displayCodexText !== null && displayFindings.length === 0;
@@ -505,6 +520,7 @@ export function SessionPanel({
       : displayFindings.length;
   const appliedCount = fixes.length;
   const skippedCount = skipped.length;
+  const sessionIdentity = formatSessionIdentityDisplay(session, activeSessionCount);
 
   // Reserve extra rows for header/status and panel chrome to avoid clipping app top rows.
   const listHeightBudget = Math.max(8, terminalHeight - 25);
@@ -552,6 +568,27 @@ export function SessionPanel({
           {toSingleLine(formatReviewType(reviewOptions))}
         </text>
       </box>
+
+      <box flexDirection="column">
+        <box flexDirection="row" gap={1}>
+          <text fg={TUI_COLORS.text.muted}>Session:</text>
+          <text fg={TUI_COLORS.text.primary} wrapMode="none">
+            {sessionIdentity.primary}
+          </text>
+        </box>
+        {sessionIdentity.details.map((detail) => (
+          <text key={detail} fg={TUI_COLORS.text.dim} paddingLeft={2} wrapMode="none">
+            {detail}
+          </text>
+        ))}
+      </box>
+
+      {session.state === "completed" && session.worktreeBranch && (
+        <box flexDirection="row" gap={1}>
+          <text fg={TUI_COLORS.text.muted}>Merge fixes:</text>
+          <text fg={TUI_COLORS.text.dim}>git merge {session.worktreeBranch}</text>
+        </box>
+      )}
 
       <ProgressBar current={iteration} max={maxIterations} />
 

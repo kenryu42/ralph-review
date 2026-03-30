@@ -8,6 +8,7 @@ import {
   formatPriorityBreakdown,
   formatProjectStatsSummary,
   formatRelativeTime,
+  formatSessionIdentityDisplay,
 } from "@/lib/tui/session-panel-utils";
 import type {
   FixEntry,
@@ -318,6 +319,38 @@ describe("SessionPanel helpers", () => {
     test("handles zero fixes", () => {
       const result = formatProjectStatsSummary(0, 5);
       expect(result).toBe("0 fixes across 5 sessions");
+    });
+  });
+
+  describe("formatSessionIdentityDisplay", () => {
+    test("includes worktree branch and active session count details", () => {
+      const result = formatSessionIdentityDisplay(
+        {
+          sessionName: "rr-newest",
+          worktreeBranch: "rr-worktree-session-new",
+        },
+        2
+      );
+
+      expect(result).toEqual({
+        primary: "rr-newest",
+        details: ["rr-worktree-session-new", "2 active sessions"],
+      });
+    });
+
+    test("omits extra details when there is only one session and no worktree branch", () => {
+      const result = formatSessionIdentityDisplay(
+        {
+          sessionName: "rr-single",
+          worktreeBranch: undefined,
+        },
+        1
+      );
+
+      expect(result).toEqual({
+        primary: "rr-single",
+        details: [],
+      });
     });
   });
 

@@ -1,4 +1,4 @@
-import type { ActiveSession, LockData } from "@/lib/lockfile";
+import type { ActiveSession, SessionState } from "@/lib/session-state";
 import type {
   AgentRole,
   Config,
@@ -13,7 +13,8 @@ import type {
 
 export interface DashboardState {
   sessions: ActiveSession[];
-  currentSession: LockData | null;
+  projectSessions: ActiveSession[];
+  currentSession: SessionState | null;
   logEntries: LogEntry[];
   fixes: FixEntry[];
   skipped: SkippedEntry[];

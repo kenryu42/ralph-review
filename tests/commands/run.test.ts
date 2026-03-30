@@ -18,7 +18,7 @@ import { type CommandDef, parseCommand } from "@/lib/cli-parser";
 import { collectIssueItems as collectIssueItemsFromDiagnostics } from "@/lib/diagnostics";
 import type { DiagnosticItem, DiagnosticsReport } from "@/lib/diagnostics/types";
 import type { CycleResult } from "@/lib/engine";
-import type { LockData } from "@/lib/lockfile";
+import type { SessionState } from "@/lib/session-state";
 import type { Config } from "@/lib/types";
 import { createCapabilities, createConfig } from "../helpers/diagnostics";
 
@@ -50,7 +50,7 @@ function createDiagnosticsReport(
   };
 }
 
-function createLockData(sessionId = "lock-session-id"): LockData {
+function createLockData(sessionId = "lock-session-id"): SessionState {
   return {
     schemaVersion: 2,
     sessionId,
@@ -95,7 +95,7 @@ interface RunHarnessOptions {
   };
   env?: Record<string, string | undefined>;
   cwd?: string;
-  lockData?: LockData | null;
+  sessionStateData?: SessionState | null;
   generatedSessionId?: string;
   generatedSessionName?: string;
   gitBranch?: string | null;
@@ -123,9 +123,9 @@ interface RunHarness {
     outputIds: string[];
   }>;
   createSessionCalls: Array<{ sessionName: string; command: string }>;
-  createLockfileCalls: Array<{ projectPath: string; sessionName: string; options: unknown }>;
-  removeLockfileCalls: Array<{ projectPath: string; expectedSessionId?: string }>;
-  updateLockfileCalls: Array<{
+  createSessionStateCalls: Array<{ projectPath: string; sessionName: string; options: unknown }>;
+  removeSessionStateCalls: Array<{ projectPath: string; expectedSessionId?: string }>;
+  updateSessionStateCalls: Array<{
     projectPath: string;
     updates: Record<string, unknown>;
     expectedSessionId?: string;
@@ -161,10 +161,13 @@ function createRunHarness(options: RunHarnessOptions = {}): RunHarness {
     outputIds: string[];
   }> = [];
   const createSessionCalls: Array<{ sessionName: string; command: string }> = [];
-  const createLockfileCalls: Array<{ projectPath: string; sessionName: string; options: unknown }> =
-    [];
-  const removeLockfileCalls: Array<{ projectPath: string; expectedSessionId?: string }> = [];
-  const updateLockfileCalls: Array<{
+  const createSessionStateCalls: Array<{
+    projectPath: string;
+    sessionName: string;
+    options: unknown;
+  }> = [];
+  const removeSessionStateCalls: Array<{ projectPath: string; expectedSessionId?: string }> = [];
+  const updateSessionStateCalls: Array<{
     projectPath: string;
     updates: Record<string, unknown>;
     expectedSessionId?: string;
@@ -301,35 +304,41 @@ function createRunHarness(options: RunHarnessOptions = {}): RunHarness {
       }
       return options.runReviewCycleResult ?? createCycleResult();
     },
-    lockfile: {
-      createLockfile: async (_logsDir, projectPath, sessionName, lockOptions) => {
-        createLockfileCalls.push({
+    sessionState: {
+      createSessionState: async (_logsDir, projectPath, sessionName, sessionStateOptions) => {
+        createSessionStateCalls.push({
           projectPath,
           sessionName,
-          options: lockOptions,
+          options: sessionStateOptions,
         });
       },
       createSessionId: () => options.generatedSessionId ?? "generated-session-id",
-      readLockfile: async () => options.lockData ?? null,
-      removeLockfile: async (_logsDir, projectPath, lockOptions) => {
-        removeLockfileCalls.push({
+      readSessionState: async () => options.sessionStateData ?? null,
+      removeSessionState: async (_logsDir, projectPath, _sessionId, sessionStateOptions) => {
+        removeSessionStateCalls.push({
           projectPath,
-          expectedSessionId: lockOptions?.expectedSessionId,
+          expectedSessionId: sessionStateOptions?.expectedSessionId,
         });
         return true;
       },
-      touchHeartbeat: async (_logsDir, projectPath, sessionId) => {
+      touchSessionHeartbeat: async (_logsDir, projectPath, sessionId) => {
         touchHeartbeatCalls.push({ projectPath, sessionId });
         if (options.touchHeartbeatReject) {
           throw new Error("heartbeat failed");
         }
         return true;
       },
-      updateLockfile: async (_logsDir, projectPath, updates, lockOptions) => {
-        updateLockfileCalls.push({
+      updateSessionState: async (
+        _logsDir,
+        projectPath,
+        _sessionId,
+        updates,
+        sessionStateOptions
+      ) => {
+        updateSessionStateCalls.push({
           projectPath,
           updates: updates as Record<string, unknown>,
-          expectedSessionId: lockOptions?.expectedSessionId,
+          expectedSessionId: sessionStateOptions?.expectedSessionId,
         });
         return true;
       },
@@ -405,9 +414,9 @@ function createRunHarness(options: RunHarnessOptions = {}): RunHarness {
     diagnosticsCalls,
     collectIssueItemsCalls,
     createSessionCalls,
-    createLockfileCalls,
-    removeLockfileCalls,
-    updateLockfileCalls,
+    createSessionStateCalls,
+    removeSessionStateCalls,
+    updateSessionStateCalls,
     touchHeartbeatCalls,
     runReviewCycleCalls,
     resolveSoundEnabledCalls,
@@ -976,7 +985,7 @@ describe("run command", () => {
       expect(harness.diagnosticsCalls[0]?.options.projectPath).toBe("/repo/nested/project");
     });
 
-    test("uses RR_PROJECT_PATH for background session lockfiles and env", async () => {
+    test("uses RR_PROJECT_PATH for background session state and env", async () => {
       const harness = createRunHarness({
         env: {
           RR_PROJECT_PATH: "/repo/nested/project",
@@ -988,7 +997,7 @@ describe("run command", () => {
 
       await startReview([], harness.overrides);
 
-      expect(harness.createLockfileCalls[0]?.projectPath).toBe("/repo/nested/project");
+      expect(harness.createSessionStateCalls[0]?.projectPath).toBe("/repo/nested/project");
       expect(harness.createSessionCalls[0]?.command).toContain(
         "RR_PROJECT_PATH='/repo/nested/project'"
       );
@@ -1195,12 +1204,12 @@ describe("run command", () => {
 
     test("prints diagnostic errors and remediation and exits", async () => {
       const errorItem: DiagnosticItem = {
-        id: "run-lockfile",
+        id: "git-worktree-state",
         category: "environment",
-        title: "Review lock",
+        title: "Worktree setup failed",
         severity: "error",
-        summary: "A review is already running for this project.",
-        remediation: ["Run rr", "Run rr stop"],
+        summary: "The review worktree could not be prepared.",
+        remediation: ["Retry rr run", "Inspect git status"],
       };
       const harness = createRunHarness({
         diagnostics: createDiagnosticsReport([errorItem], createConfig()),
@@ -1212,9 +1221,9 @@ describe("run command", () => {
 
       expect(exitCode).toBe(1);
       expect(harness.errors).toContain("Cannot run review:");
-      expect(harness.messages).toContain("  A review is already running for this project.");
-      expect(harness.messages).toContain("    -> Run rr");
-      expect(harness.messages).toContain("    -> Run rr stop");
+      expect(harness.messages).toContain("  The review worktree could not be prepared.");
+      expect(harness.messages).toContain("    -> Retry rr run");
+      expect(harness.messages).toContain("    -> Inspect git status");
     });
 
     test("prints warnings but continues when diagnostics are non-blocking", async () => {
@@ -1323,7 +1332,7 @@ describe("run command", () => {
       expect(harness.errors).toContain("tmux is not installed. Install with: brew install tmux");
     });
 
-    test("removes lockfile and exits when background session creation fails", async () => {
+    test("removes session state and exits when background session creation fails", async () => {
       const harness = createRunHarness({
         generatedSessionId: "session-abc",
         createSessionError: new Error("tmux create-session failed"),
@@ -1334,8 +1343,8 @@ describe("run command", () => {
       });
 
       expect(exitCode).toBe(1);
-      expect(harness.createLockfileCalls).toHaveLength(1);
-      expect(harness.removeLockfileCalls).toEqual([
+      expect(harness.createSessionStateCalls).toHaveLength(1);
+      expect(harness.removeSessionStateCalls).toEqual([
         {
           projectPath: "/repo/project",
           expectedSessionId: "session-abc",
@@ -1412,7 +1421,7 @@ describe("run command", () => {
       await runForeground([], harness.overrides);
 
       expect(harness.loadConfigCalls[0]).toBe("/repo/nested/project");
-      expect(harness.updateLockfileCalls[0]?.projectPath).toBe("/repo/nested/project");
+      expect(harness.updateSessionStateCalls[0]?.projectPath).toBe("/repo/nested/project");
     });
 
     test("uses RR_SESSION_ID from env for lock updates and runtime info", async () => {
@@ -1420,35 +1429,31 @@ describe("run command", () => {
         env: {
           RR_SESSION_ID: "env-session-id",
         },
-        lockData: createLockData("lock-session-id"),
+        sessionStateData: createLockData("env-session-id"),
       });
 
       await runForeground([], harness.overrides);
 
-      expect(harness.updateLockfileCalls[0]?.expectedSessionId).toBe("env-session-id");
+      expect(harness.updateSessionStateCalls[0]?.expectedSessionId).toBe("env-session-id");
       expect(harness.runReviewCycleCalls[0]?.runtimeInfo.sessionId).toBe("env-session-id");
     });
 
-    test("falls back to lockfile session id when env session id is absent", async () => {
+    test("creates a new foreground session state when RR_SESSION_ID is absent", async () => {
       const harness = createRunHarness({
-        lockData: createLockData("lock-session-id"),
-      });
-
-      await runForeground([], harness.overrides);
-
-      expect(harness.updateLockfileCalls[0]?.expectedSessionId).toBe("lock-session-id");
-      expect(harness.runReviewCycleCalls[0]?.runtimeInfo.sessionId).toBe("lock-session-id");
-    });
-
-    test("falls back to generated session id when env and lockfile are missing", async () => {
-      const harness = createRunHarness({
-        lockData: null,
+        sessionStateData: createLockData("existing-session-id"),
         generatedSessionId: "generated-session-id",
       });
 
       await runForeground([], harness.overrides);
 
-      expect(harness.updateLockfileCalls[0]?.expectedSessionId).toBe("generated-session-id");
+      expect(harness.createSessionStateCalls).toHaveLength(1);
+      expect(harness.createSessionStateCalls[0]?.projectPath).toBe("/repo/project");
+      expect(harness.createSessionStateCalls[0]?.sessionName).toBe("rr-project-main");
+      expect(
+        (harness.createSessionStateCalls[0]?.options as { sessionId?: string } | undefined)
+          ?.sessionId
+      ).toBe("generated-session-id");
+      expect(harness.updateSessionStateCalls[0]?.expectedSessionId).toBe("generated-session-id");
       expect(harness.runReviewCycleCalls[0]?.runtimeInfo.sessionId).toBe("generated-session-id");
     });
 
@@ -1466,7 +1471,7 @@ describe("run command", () => {
       expect(harness.runReviewCycleCalls[0]?.maxIterations).toBe(9);
       expect(harness.runReviewCycleCalls[0]?.options.forceMaxIterations).toBe(true);
       expect(harness.runReviewCycleCalls[0]?.options.simplifier).toBe(true);
-      expect(harness.updateLockfileCalls[0]?.updates.currentAgent).toBe("code-simplifier");
+      expect(harness.updateSessionStateCalls[0]?.updates.currentAgent).toBe("code-simplifier");
     });
 
     test("ignores internal parser failures and continues with defaults", async () => {
@@ -1479,7 +1484,7 @@ describe("run command", () => {
       expect(harness.runReviewCycleCalls[0]?.maxIterations).toBe(5);
       expect(harness.runReviewCycleCalls[0]?.options.forceMaxIterations).toBe(false);
       expect(harness.runReviewCycleCalls[0]?.options.simplifier).toBe(false);
-      expect(harness.updateLockfileCalls[0]?.updates.currentAgent).toBe("reviewer");
+      expect(harness.updateSessionStateCalls[0]?.updates.currentAgent).toBe("reviewer");
     });
 
     test("runs even when _run-foreground command definition is missing", async () => {
@@ -1512,7 +1517,7 @@ describe("run command", () => {
       expect(harness.warnings).toContain(
         "Review cycle complete with warnings: Interrupted by signal (4 iterations)"
       );
-      expect(harness.updateLockfileCalls[1]?.updates.state).toBe("interrupted");
+      expect(harness.updateSessionStateCalls[1]?.updates.state).toBe("interrupted");
     });
 
     test("surfaces the retained worktree path and branch after a successful run", async () => {
@@ -1535,10 +1540,10 @@ describe("run command", () => {
           "Path: /Users/test/.config/ralph-review/test-project-12345678/worktrees/session-123\n" +
           "Branch: rr-worktree-session-123",
       });
-      expect(harness.updateLockfileCalls[1]?.updates.worktreeProjectPath).toBe(
+      expect(harness.updateSessionStateCalls[1]?.updates.worktreeProjectPath).toBe(
         "/Users/test/.config/ralph-review/test-project-12345678/worktrees/session-123"
       );
-      expect(harness.updateLockfileCalls[1]?.updates.worktreeBranch).toBe(
+      expect(harness.updateSessionStateCalls[1]?.updates.worktreeBranch).toBe(
         "rr-worktree-session-123"
       );
     });
@@ -1556,7 +1561,7 @@ describe("run command", () => {
       await runForeground([], harness.overrides);
 
       expect(harness.errors).toContain("Review stopped: Reviewer failed (1 iterations)");
-      expect(harness.updateLockfileCalls[1]?.updates.state).toBe("failed");
+      expect(harness.updateSessionStateCalls[1]?.updates.state).toBe("failed");
     });
 
     test("writes failed terminal state and cleans up when runReviewCycle throws", async () => {
@@ -1566,10 +1571,10 @@ describe("run command", () => {
 
       await expect(runForeground([], harness.overrides)).rejects.toThrow("cycle crashed");
       expect(harness.clearIntervalCalls).toHaveLength(1);
-      expect(harness.updateLockfileCalls).toHaveLength(2);
-      expect(harness.updateLockfileCalls[1]?.updates.state).toBe("failed");
-      expect(harness.updateLockfileCalls[1]?.updates.reason).toBe("Review exited unexpectedly");
-      expect(harness.removeLockfileCalls).toHaveLength(1);
+      expect(harness.updateSessionStateCalls).toHaveLength(2);
+      expect(harness.updateSessionStateCalls[1]?.updates.state).toBe("failed");
+      expect(harness.updateSessionStateCalls[1]?.updates.reason).toBe("Review exited unexpectedly");
+      expect(harness.removeSessionStateCalls).toHaveLength(1);
     });
 
     test("plays completion sound when enabled and warns if playback fails", async () => {

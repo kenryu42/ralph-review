@@ -150,8 +150,14 @@ export const COMMANDS: CommandDef[] = [
     description: "Stop running review session",
     options: [
       { name: "all", alias: "A", type: "boolean", description: "Stop all running review sessions" },
+      {
+        name: "session",
+        alias: "s",
+        type: "string",
+        description: "Stop a specific session in the current project",
+      },
     ],
-    examples: ["rr stop", "rr stop --all"],
+    examples: ["rr stop", "rr stop --session session-123", "rr stop --all"],
   },
   {
     name: "log",

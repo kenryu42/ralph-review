@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import { testRender } from "@opentui/react/test-utils";
 import { act, createElement, useEffect } from "react";
-import type { ActiveSession, LockData } from "@/lib/lockfile";
 import type { LogIncrementalResult, LogIncrementalState, LogSession } from "@/lib/logger";
+import type { ActiveSession, SessionState } from "@/lib/session-state";
 import type { DashboardState } from "@/lib/tui/types";
 import type {
   Config,
@@ -89,7 +89,7 @@ function createIterationEntry(overrides: Partial<IterationEntry> = {}): Iteratio
   };
 }
 
-function createLockData(overrides: Partial<LockData> = {}): LockData {
+function createLockData(overrides: Partial<SessionState> = {}): SessionState {
   return {
     schemaVersion: 2,
     sessionId: "session-1",
@@ -110,7 +110,7 @@ function createLockData(overrides: Partial<LockData> = {}): LockData {
 function createActiveSession(overrides: Partial<ActiveSession> = {}): ActiveSession {
   return {
     ...createLockData(overrides),
-    lockPath: "/tmp/rr-project-main.lock",
+    sessionStatePath: "/tmp/rr-project-main.lock",
   };
 }
 
@@ -155,7 +155,14 @@ interface DashboardHarnessOptions {
   refreshInterval?: number;
   ensureGitRepositoryAsync?: (projectPath: string) => Promise<boolean>;
   listAllActiveSessions?: () => Promise<ActiveSession[]>;
-  readLockfile?: (logsDir: string | undefined, projectPath: string) => Promise<LockData | null>;
+  listProjectActiveSessions?: (
+    logsDir: string | undefined,
+    projectPath: string
+  ) => Promise<ActiveSession[]>;
+  getLatestProjectActiveSession?: (
+    logsDir: string | undefined,
+    projectPath: string
+  ) => Promise<SessionState | null>;
   getLatestProjectLogSession?: (
     logsDir: string | undefined,
     projectPath: string
@@ -193,7 +200,7 @@ interface DashboardHarness {
   intervalCallbacks: Array<() => unknown>;
   clearIntervalCalls: Array<ReturnType<typeof setInterval>>;
   ensureGitRepositoryCalls: string[];
-  readLockfileCallCount: () => number;
+  getLatestProjectActiveSessionCallCount: () => number;
   readLogIncrementalCalls: Array<{ logPath: string; state: LogIncrementalState | undefined }>;
   shouldCaptureCalls: Array<{
     sessionChanged: boolean;
@@ -220,7 +227,7 @@ async function mountDashboardHarness(
   const projectPath = options.projectPath ?? "/repo/project";
   const refreshInterval = options.refreshInterval ?? 10_000;
   const ensureGitRepositoryCalls: string[] = [];
-  let readLockfileCalls = 0;
+  let getLatestProjectActiveSessionCalls = 0;
   const readLogIncrementalCalls: Array<{
     logPath: string;
     state: LogIncrementalState | undefined;
@@ -261,7 +268,16 @@ async function mountDashboardHarness(
   const ensureGitRepositoryAsync =
     options.ensureGitRepositoryAsync ?? (async (_projectPath: string) => true);
   const listAllActiveSessions = options.listAllActiveSessions ?? (async () => []);
-  const readLockfile = options.readLockfile ?? (async () => null);
+  const listProjectActiveSessions =
+    options.listProjectActiveSessions ??
+    (async (_logsDir: string | undefined, path: string) =>
+      (await listAllActiveSessions()).filter((session) => session.projectPath === path));
+  const getLatestProjectActiveSession =
+    options.getLatestProjectActiveSession ??
+    (async (logsDir: string | undefined, path: string) => {
+      const sessions = await listProjectActiveSessions(logsDir, path);
+      return sessions[0] ?? null;
+    });
   const getLatestProjectLogSession = options.getLatestProjectLogSession ?? (async () => null);
   const loadConfig = options.loadConfig ?? (async () => createConfig());
   const readLogIncremental =
@@ -303,11 +319,12 @@ async function mountDashboardHarness(
     },
   }));
 
-  mock.module("@/lib/lockfile", () => ({
+  mock.module("@/lib/session-state", () => ({
     listAllActiveSessions,
-    readLockfile: async (logsDir: string | undefined, path: string) => {
-      readLockfileCalls += 1;
-      return readLockfile(logsDir, path);
+    listProjectActiveSessions,
+    getLatestProjectActiveSession: async (logsDir: string | undefined, path: string) => {
+      getLatestProjectActiveSessionCalls += 1;
+      return getLatestProjectActiveSession(logsDir, path);
     },
   }));
 
@@ -400,7 +417,7 @@ async function mountDashboardHarness(
     intervalCallbacks,
     clearIntervalCalls,
     ensureGitRepositoryCalls,
-    readLockfileCallCount: () => readLockfileCalls,
+    getLatestProjectActiveSessionCallCount: () => getLatestProjectActiveSessionCalls,
     readLogIncrementalCalls,
     shouldCaptureCalls,
     computeNextIntervalCalls,
@@ -472,7 +489,7 @@ describe("useDashboardState hook", () => {
 
     const harness = await mountDashboardHarness({
       listAllActiveSessions: async () => [createActiveSession()],
-      readLockfile: async () => null,
+      getLatestProjectActiveSession: async () => null,
       getLatestProjectLogSession: async () => logSession,
       readLogIncremental: async () => ({
         mode: "reset",
@@ -542,7 +559,7 @@ describe("useDashboardState hook", () => {
 
     let readCount = 0;
     const harness = await mountDashboardHarness({
-      readLockfile: async () => null,
+      getLatestProjectActiveSession: async () => null,
       getLatestProjectLogSession: async () => logSession,
       readLogIncremental: async (_path: string, _state?: LogIncrementalState) => {
         readCount += 1;
@@ -574,7 +591,7 @@ describe("useDashboardState hook", () => {
 
   test("falls back to null config and no incremental reads when no log session exists", async () => {
     const harness = await mountDashboardHarness({
-      readLockfile: async () => createLockData(),
+      getLatestProjectActiveSession: async () => createLockData(),
       getLatestProjectLogSession: async () => null,
       loadConfig: async () => {
         throw new Error("missing config");
@@ -630,16 +647,20 @@ describe("useDashboardState hook", () => {
   });
 
   test("captures live tmux output and keeps prior output when capture returns empty", async () => {
-    const firstLock = createLockData({ iteration: 1, currentAgent: "fixer" });
-    const secondLock = createLockData({ iteration: 2, currentAgent: "reviewer" });
-    const lockResponses: Array<LockData | null> = [firstLock, firstLock, secondLock];
-    let lockReadIndex = 0;
+    const firstSession = createLockData({ iteration: 1, currentAgent: "fixer" });
+    const secondSession = createLockData({ iteration: 2, currentAgent: "reviewer" });
+    const sessionResponses: Array<SessionState | null> = [
+      firstSession,
+      firstSession,
+      secondSession,
+    ];
+    let sessionReadIndex = 0;
 
     let outputCall = 0;
     const harness = await mountDashboardHarness({
-      readLockfile: async () => {
-        const value = lockResponses[lockReadIndex] ?? secondLock;
-        lockReadIndex += 1;
+      getLatestProjectActiveSession: async () => {
+        const value = sessionResponses[sessionReadIndex] ?? secondSession;
+        sessionReadIndex += 1;
         return value;
       },
       shouldCaptureTmux: () => true,
@@ -683,13 +704,13 @@ describe("useDashboardState hook", () => {
 
   test("clears live output when session is no longer present", async () => {
     const running = createLockData();
-    const lockResponses: Array<LockData | null> = [running, running, null];
-    let lockReadIndex = 0;
+    const sessionResponses: Array<SessionState | null> = [running, running, null];
+    let sessionReadIndex = 0;
 
     const harness = await mountDashboardHarness({
-      readLockfile: async () => {
-        const value = lockResponses[lockReadIndex] ?? null;
-        lockReadIndex += 1;
+      getLatestProjectActiveSession: async () => {
+        const value = sessionResponses[sessionReadIndex] ?? null;
+        sessionReadIndex += 1;
         return value;
       },
       shouldCaptureTmux: () => true,
@@ -714,7 +735,7 @@ describe("useDashboardState hook", () => {
     let captureCall = 0;
 
     const harness = await mountDashboardHarness({
-      readLockfile: async () => lock,
+      getLatestProjectActiveSession: async () => lock,
       shouldCaptureTmux: () => true,
       getSessionOutput: async () => {
         captureCall += 1;
@@ -741,13 +762,13 @@ describe("useDashboardState hook", () => {
   });
 
   test("skips re-entrant live refresh calls while one is already running", async () => {
-    const liveGate = createDeferred<LockData | null>();
-    let lockCalls = 0;
+    const liveGate = createDeferred<SessionState | null>();
+    let sessionStateCalls = 0;
 
     const harness = await mountDashboardHarness({
-      readLockfile: async () => {
-        lockCalls += 1;
-        if (lockCalls === 2) {
+      getLatestProjectActiveSession: async () => {
+        sessionStateCalls += 1;
+        if (sessionStateCalls === 2) {
           return liveGate.promise;
         }
         return null;
@@ -757,7 +778,7 @@ describe("useDashboardState hook", () => {
 
     try {
       await harness.runInterval(1);
-      expect(harness.readLockfileCallCount()).toBe(2);
+      expect(harness.getLatestProjectActiveSessionCallCount()).toBe(2);
       liveGate.resolve(null);
       await harness.flush();
     } finally {

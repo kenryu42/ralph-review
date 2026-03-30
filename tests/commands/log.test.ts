@@ -8,8 +8,8 @@ import {
   formatStatus,
   markSessionStatsRunning,
 } from "@/commands/log";
-import type { ActiveSession } from "@/lib/lockfile";
 import { getProjectName } from "@/lib/logger";
+import type { ActiveSession } from "@/lib/session-state";
 import type { FixEntry, IterationEntry, SessionStats, SystemEntry } from "@/lib/types";
 import { buildFixEntry, buildFixSummary } from "../test-utils/fix-summary";
 
@@ -84,7 +84,7 @@ function createActiveSession(projectPath: string, branch: string): ActiveSession
     branch,
     state: "running",
     mode: "background",
-    lockPath: "/logs/lockfile.lock",
+    sessionStatePath: "/logs/lockfile.lock",
   };
 }
 
@@ -183,6 +183,35 @@ describe("markSessionStatsRunning", () => {
     markSessionStatsRunning(sessions, [active]);
 
     expect(sessions[0]?.status).toBe("running");
+  });
+
+  test("does not infer running state from branch when multiple active sessions share that branch", () => {
+    const projectPath = "/work/project-a";
+    const projectName = getProjectName(projectPath);
+    const sessions = [
+      createSessionStats({
+        sessionPath: `/logs/${projectName}/session.jsonl`,
+        gitBranch: "main",
+        status: "completed",
+        iterations: 3,
+      }),
+    ];
+
+    const activeA = createActiveSession(projectPath, "main");
+    const activeB = {
+      ...createActiveSession(projectPath, "main"),
+      sessionId: "other-active-session-id",
+      sessionName: "rr-project-456",
+    };
+
+    const session = sessions[0];
+    if (!session) {
+      throw new Error("expected session");
+    }
+    session.sessionId = undefined;
+    markSessionStatsRunning(sessions, [activeA, activeB]);
+
+    expect(session.status).toBe("completed");
   });
 
   test("does not mark session when project does not match", () => {

@@ -399,12 +399,12 @@ describe("doctor --fix", () => {
   test("stops remediation when no progress is detected", async () => {
     const stuckReport = createReport([
       {
-        id: "run-lockfile",
-        category: "environment",
-        title: "Review lock",
+        id: "config-invalid",
+        category: "config",
+        title: "Invalid config",
         severity: "error",
-        summary: "A review is already running for this project.",
-        remediation: ["Run: rr", "Run: rr stop", "Then run: rr run"],
+        summary: "Configuration file could not be loaded.",
+        remediation: ["Run: rr init", "Then run: rr doctor --fix"],
       },
     ]);
 
@@ -416,10 +416,10 @@ describe("doctor --fix", () => {
     };
     runtime.overrides.applyFixes = async () => [
       {
-        id: "run-lockfile",
+        id: "config-invalid",
         success: false,
-        message: "Lockfile is not stale.",
-        nextActions: ["Run: rr", "Run: rr stop", "Then run: rr run"],
+        message: "Configuration is still invalid.",
+        nextActions: ["Run: rr init", "Then run: rr doctor --fix"],
       },
     ];
 

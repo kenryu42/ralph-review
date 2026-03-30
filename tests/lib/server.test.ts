@@ -2,11 +2,11 @@ import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import * as lockfile from "@/lib/lockfile";
-import { createLockfile, removeLockfile } from "@/lib/lockfile";
 import * as logger from "@/lib/logger";
 import { getHtmlPath, getProjectName, getSummaryPath } from "@/lib/logger";
 import { type DashboardServerEvent, startDashboardServer } from "@/lib/server";
+import * as sessionState from "@/lib/session-state";
+import { createSessionState, removeSessionState } from "@/lib/session-state";
 import type { DashboardData, SessionStats } from "@/lib/types";
 
 function createTestData(tempDir: string): DashboardData {
@@ -92,7 +92,9 @@ describe("server", () => {
     }
     mock.restore();
     for (const lock of createdLocks) {
-      await removeLockfile(tempDir, lock.projectPath, { expectedSessionId: lock.sessionId });
+      await removeSessionState(tempDir, lock.projectPath, lock.sessionId, {
+        expectedSessionId: lock.sessionId,
+      });
     }
     await rm(tempDir, { recursive: true, force: true });
   });
@@ -180,7 +182,7 @@ describe("server", () => {
       session.sessionId = runningSessionId;
     }
 
-    await createLockfile(tempDir, activeProjectPath, "rr-running-session", {
+    await createSessionState(tempDir, activeProjectPath, "rr-running-session", {
       branch: "main",
       sessionId: runningSessionId,
       state: "running",
@@ -225,7 +227,7 @@ describe("server", () => {
       session.gitBranch = "main";
     }
 
-    await createLockfile(tempDir, activeProjectPath, "rr-running-session", {
+    await createSessionState(tempDir, activeProjectPath, "rr-running-session", {
       branch: "main",
       sessionId: runningSessionId,
       state: "running",
@@ -253,6 +255,61 @@ describe("server", () => {
     expect(events[1]?.status).toBe(409);
     expect(events[1]?.details?.projectName).toBe(project?.projectName);
     expect(events[1]?.details?.gitBranch).toBe("main");
+  });
+
+  test("DELETE /api/sessions does not infer a running conflict from branch when multiple active sessions share it", async () => {
+    const data = createTestData(tempDir);
+    const project = data.projects[0];
+    const session = project?.sessions[0];
+    const sessionPath = session?.sessionPath ?? "";
+    const activeProjectPath = join(tempDir, "active-project");
+
+    if (project && session) {
+      project.projectName = getProjectName(activeProjectPath);
+      session.status = "running";
+      session.sessionId = undefined;
+      session.gitBranch = "main";
+    }
+
+    await Bun.write(sessionPath, '{"type":"system"}\n', { createPath: true });
+    await Bun.write(getHtmlPath(sessionPath), "<html></html>", { createPath: true });
+    await Bun.write(getSummaryPath(sessionPath), "{}", { createPath: true });
+
+    await createSessionState(tempDir, activeProjectPath, "rr-running-a", {
+      branch: "main",
+      sessionId: "running-branch-session-a",
+      state: "running",
+      mode: "background",
+      lastHeartbeat: Date.now(),
+      pid: process.pid,
+    });
+    await createSessionState(tempDir, activeProjectPath, "rr-running-b", {
+      branch: "main",
+      sessionId: "running-branch-session-b",
+      state: "running",
+      mode: "background",
+      lastHeartbeat: Date.now(),
+      pid: process.pid,
+    });
+    createdLocks.push(
+      { projectPath: activeProjectPath, sessionId: "running-branch-session-a" },
+      { projectPath: activeProjectPath, sessionId: "running-branch-session-b" }
+    );
+
+    const { events, onEvent } = createEventCollector();
+    server = startDashboardServer({ data, onEvent, logsDir: tempDir });
+
+    const res = await fetch(`http://localhost:${server.port}/api/sessions`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionPath }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(events.map((event) => event.event)).toEqual([
+      "session_delete_requested",
+      "session_delete_success",
+    ]);
   });
 
   test("DELETE /api/sessions deletes a non-terminal session when no active lock exists", async () => {
@@ -408,9 +465,9 @@ describe("server", () => {
     expect(events[1]?.details?.message).toBe("disk failure");
   });
 
-  test("DELETE /api/sessions returns 500 when lockfile lookup throws a non-Error", async () => {
-    spyOn(lockfile, "listAllActiveSessions").mockImplementation(async () => {
-      throw "lockfile exploded";
+  test("DELETE /api/sessions returns 500 when session-state lookup throws a non-Error", async () => {
+    spyOn(sessionState, "listAllActiveSessions").mockImplementation(async () => {
+      throw "session state exploded";
     });
     const data = createTestData(tempDir);
     const sessionPath = data.projects[0]?.sessions[0]?.sessionPath ?? "";
@@ -432,7 +489,7 @@ describe("server", () => {
     expect(events[1]?.status).toBe(500);
     expect(events[1]?.sessionPath).toBe(sessionPath);
     expect(events[1]?.reason).toBe("unexpected_error");
-    expect(events[1]?.details?.message).toBe("lockfile exploded");
+    expect(events[1]?.details?.message).toBe("session state exploded");
   });
 
   test("GET /api/sessions returns 405", async () => {

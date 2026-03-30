@@ -903,6 +903,7 @@ export async function computeSessionStats(session: LogSession): Promise<SessionS
     sessionId: summary?.sessionId ?? systemEntry?.sessionId,
     timestamp: session.timestamp,
     gitBranch: summary?.gitBranch ?? systemEntry?.gitBranch,
+    worktreeBranch: systemEntry?.worktreeBranch,
     status: summary?.status ?? deriveRunStatusFromEntries(entries, metrics),
     stop_iteration: summary?.stop_iteration ?? metrics.lastIteration?.fixes?.stop_iteration,
     totalFixes: summary?.totalFixes ?? metrics.totalFixes,

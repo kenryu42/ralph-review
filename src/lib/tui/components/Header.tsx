@@ -1,6 +1,6 @@
 import { getVersion } from "@/cli-core";
 import { getAgentDisplayInfo } from "@/lib/agents/display";
-import type { LockData } from "@/lib/lockfile";
+import type { SessionState } from "@/lib/session-state";
 import { TUI_COLORS } from "@/lib/tui/colors";
 import type { Config } from "@/lib/types";
 
@@ -8,7 +8,7 @@ interface HeaderProps {
   projectName: string;
   branch?: string;
   elapsed: number;
-  session: LockData | null;
+  session: SessionState | null;
   projectPath: string;
   config?: Config | null;
 }

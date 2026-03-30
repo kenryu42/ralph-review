@@ -3,7 +3,6 @@ import * as p from "@clack/prompts";
 import { $ } from "bun";
 import { isUnknownEmptySession, normalizeBranch } from "@/commands/log";
 import { CONFIG_DIR } from "@/lib/config";
-import { type ActiveSession, listAllActiveSessions } from "@/lib/lockfile";
 import {
   buildAgentStats,
   buildDashboardData,
@@ -12,6 +11,7 @@ import {
   getProjectName,
 } from "@/lib/logger";
 import { startDashboardServer } from "@/lib/server";
+import { type ActiveSession, listAllActiveSessions } from "@/lib/session-state";
 import type { DashboardData, Priority, SessionStats } from "@/lib/types";
 
 type BrowserOpenCommand = "open" | "xdg-open" | "start";
@@ -180,38 +180,27 @@ function recomputeDashboardAggregates(data: DashboardData): void {
 }
 
 export function markRunningSessions(data: DashboardData, activeSessions: ActiveSession[]): void {
-  for (const active of activeSessions) {
-    if (active.sessionId) {
-      let matchedBySessionId = false;
-      for (const project of data.projects) {
-        const session = project.sessions.find((s) => s.sessionId === active.sessionId);
-        if (!session) {
-          continue;
+  for (const project of data.projects) {
+    for (const session of project.sessions) {
+      if (session.sessionId) {
+        if (activeSessions.some((active) => active.sessionId === session.sessionId)) {
+          session.status = "running";
         }
-
-        session.status = "running";
-        matchedBySessionId = true;
-        break;
-      }
-
-      if (matchedBySessionId) {
         continue;
       }
-    }
 
-    const projectName = getProjectName(active.projectPath);
-    const project = data.projects.find((p) => p.projectName === projectName);
-    if (!project) {
-      continue;
-    }
+      const sessionBranch = normalizeBranch(session.gitBranch);
+      const branchMatches = activeSessions.filter((active) => {
+        if (getProjectName(active.projectPath) !== project.projectName) {
+          return false;
+        }
 
-    const activeBranch = normalizeBranch(active.branch);
-    const session = project.sessions.find(
-      (s) => !s.sessionId && (activeBranch ? s.gitBranch === activeBranch : !s.gitBranch)
-    );
+        return normalizeBranch(active.branch) === sessionBranch;
+      });
 
-    if (session) {
-      session.status = "running";
+      if (branchMatches.length === 1) {
+        session.status = "running";
+      }
     }
   }
 }

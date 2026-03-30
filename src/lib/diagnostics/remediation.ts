@@ -1,4 +1,3 @@
-import { cleanupStaleLockfile } from "@/lib/lockfile";
 import { resolveTmuxInstallGuidance } from "./tmux-install";
 import type { DiagnosticItem } from "./types";
 
@@ -11,12 +10,7 @@ export interface FixResult {
   category?: "auto-fixed" | "manual-needed" | "no-op";
 }
 
-const FIXABLE_IDS = new Set<string>([
-  "tmux-installed",
-  "config-missing",
-  "config-invalid",
-  "run-lockfile",
-]);
+const FIXABLE_IDS = new Set<string>(["tmux-installed", "config-missing", "config-invalid"]);
 
 const CONFIG_FIXABLE_PATTERN =
   /^config-(reviewer|fixer|code-simplifier)-(agent-invalid|agent-missing|pi-invalid|model-missing|model-unverified)$/;
@@ -27,7 +21,6 @@ export function isFixable(id: string): boolean {
 
 export interface RemediationDependencies {
   spawn: typeof Bun.spawn;
-  cleanupStaleLockfile: typeof cleanupStaleLockfile;
   execPath: string;
   cliPath: string;
   projectPath: string;
@@ -38,7 +31,6 @@ export interface RemediationDependencies {
 function getDefaultDependencies(): RemediationDependencies {
   return {
     spawn: Bun.spawn,
-    cleanupStaleLockfile,
     execPath: process.execPath,
     cliPath: `${import.meta.dir}/../../cli.ts`,
     projectPath: process.cwd(),
@@ -173,38 +165,6 @@ async function fixConfig(item: DiagnosticItem, deps: RemediationDependencies): P
   }
 }
 
-const LOCKFILE_FIX_NEXT_ACTIONS = ["Run: rr", "Run: rr stop", "Then run: rr run"];
-
-async function fixLockfile(deps: RemediationDependencies): Promise<FixResult> {
-  try {
-    const cleaned = await deps.cleanupStaleLockfile(undefined, deps.projectPath);
-    if (cleaned) {
-      return {
-        id: "run-lockfile",
-        success: true,
-        message: "Stale lockfile removed.",
-        category: "auto-fixed",
-      };
-    }
-    return {
-      id: "run-lockfile",
-      success: false,
-      message:
-        "Lock is still active (heartbeat/session checks passed). Use rr stop to terminate it.",
-      category: "manual-needed",
-      nextActions: LOCKFILE_FIX_NEXT_ACTIONS,
-    };
-  } catch (error) {
-    return {
-      id: "run-lockfile",
-      success: false,
-      message: `Failed to clean lockfile: ${error}`,
-      category: "manual-needed",
-      nextActions: LOCKFILE_FIX_NEXT_ACTIONS,
-    };
-  }
-}
-
 export async function applyFix(
   item: DiagnosticItem,
   deps?: Partial<RemediationDependencies>
@@ -217,8 +177,6 @@ export async function applyFix(
     case "config-missing":
     case "config-invalid":
       return fixConfig(item, resolved);
-    case "run-lockfile":
-      return fixLockfile(resolved);
     default:
       if (isConfigFixableId(item.id)) {
         return fixConfig(item, resolved);

@@ -36,7 +36,7 @@ interface RunAgentCall {
   cwd?: string;
 }
 
-interface LockfileUpdateCall {
+interface SessionStateUpdateCall {
   projectPath: string;
   updates: Record<string, unknown>;
   expectedSessionId?: string;
@@ -58,7 +58,7 @@ interface HarnessState {
   runAgentCalls: RunAgentCall[];
   runAgentSteps: AgentStep[];
   appendedEntries: LogEntry[];
-  updateLockfileCalls: LockfileUpdateCall[];
+  updateSessionStateCalls: SessionStateUpdateCall[];
   createCheckpointCalls: Array<{ projectPath: string; label: string }>;
   rollbackCalls: Array<{ projectPath: string; checkpoint: GitCheckpoint }>;
   discardCalls: Array<{ projectPath: string; checkpoint: GitCheckpoint }>;
@@ -73,7 +73,7 @@ interface HarnessState {
   createSessionWorktreeError: Error | null;
   discardSessionWorktreeError: Error | null;
   finalizeSessionWorktreeError: Error | null;
-  updateLockfileFailuresRemaining: number;
+  updateSessionStateFailuresRemaining: number;
   onRunAgent?: (role: AgentRole) => void;
   onAppendLog?: (entry: LogEntry) => void;
   capturedSigintHandler?: () => void;
@@ -84,7 +84,7 @@ function createHarnessState(): HarnessState {
     runAgentCalls: [],
     runAgentSteps: [],
     appendedEntries: [],
-    updateLockfileCalls: [],
+    updateSessionStateCalls: [],
     createCheckpointCalls: [],
     rollbackCalls: [],
     discardCalls: [],
@@ -99,7 +99,7 @@ function createHarnessState(): HarnessState {
     createSessionWorktreeError: null,
     discardSessionWorktreeError: null,
     finalizeSessionWorktreeError: null,
-    updateLockfileFailuresRemaining: 0,
+    updateSessionStateFailuresRemaining: 0,
     onRunAgent: undefined,
     onAppendLog: undefined,
     capturedSigintHandler: undefined,
@@ -363,21 +363,22 @@ function createDependencies(state: HarnessState): RunReviewCycleDeps {
         throw state.discardError;
       }
     },
-    updateLockfile: async (
+    updateSessionState: async (
       _logsDir: string | undefined,
       projectPath: string,
+      _sessionId: string,
       updates: Record<string, unknown>,
-      lockfileOptions?: { expectedSessionId?: string }
+      sessionStateOptions?: { expectedSessionId?: string }
     ) => {
-      state.updateLockfileCalls.push({
+      state.updateSessionStateCalls.push({
         projectPath,
         updates,
-        expectedSessionId: lockfileOptions?.expectedSessionId,
+        expectedSessionId: sessionStateOptions?.expectedSessionId,
       });
 
-      if (state.updateLockfileFailuresRemaining > 0) {
-        state.updateLockfileFailuresRemaining -= 1;
-        throw new Error("lockfile update failed");
+      if (state.updateSessionStateFailuresRemaining > 0) {
+        state.updateSessionStateFailuresRemaining -= 1;
+        throw new Error("session state update failed");
       }
 
       return true;
@@ -472,10 +473,10 @@ describe("runReviewCycle", () => {
       ]);
       expect(iterationRoles).toEqual(["reviewer", "fixer"]);
       expect(
-        state.updateLockfileCalls.some((call) => call.updates.reviewSummary !== undefined)
+        state.updateSessionStateCalls.some((call) => call.updates.reviewSummary !== undefined)
       ).toBe(true);
       expect(
-        state.updateLockfileCalls.some(
+        state.updateSessionStateCalls.some(
           (call) => call.updates.worktreeProjectPath === TEST_WORKTREE_PROJECT_PATH
         )
       ).toBe(true);
@@ -579,8 +580,8 @@ describe("runReviewCycle", () => {
       );
 
       expect(result.success).toBe(false);
-      expect(state.updateLockfileCalls[0]?.updates.sessionPath).toBe(TEST_SESSION_PATH);
-      expect(state.updateLockfileCalls[0]?.expectedSessionId).toBe(TEST_SESSION_ID);
+      expect(state.updateSessionStateCalls[0]?.updates.sessionPath).toBe(TEST_SESSION_PATH);
+      expect(state.updateSessionStateCalls[0]?.expectedSessionId).toBe(TEST_SESSION_ID);
     });
   });
 
@@ -785,7 +786,7 @@ describe("runReviewCycle", () => {
       expect(result.success).toBe(true);
       expect(state.runAgentCalls[1]?.prompt).toContain("REVIEWER_SUMMARY_RETRY_REMINDER");
       expect(
-        state.updateLockfileCalls.some((call) => call.updates.reviewSummary !== undefined)
+        state.updateSessionStateCalls.some((call) => call.updates.reviewSummary !== undefined)
       ).toBe(false);
     });
   });
@@ -829,7 +830,7 @@ describe("runReviewCycle", () => {
       expect(result.success).toBe(true);
       expect(state.runAgentCalls[1]?.prompt).toContain("REVIEWER_SUMMARY_RETRY_REMINDER");
       expect(
-        state.updateLockfileCalls.some((call) => call.updates.reviewSummary !== undefined)
+        state.updateSessionStateCalls.some((call) => call.updates.reviewSummary !== undefined)
       ).toBe(false);
     });
   });
@@ -868,12 +869,12 @@ describe("runReviewCycle", () => {
 
       expect(result.success).toBe(true);
       expect(
-        state.updateLockfileCalls.some(
+        state.updateSessionStateCalls.some(
           (call) => call.updates.codexReviewText === "codex raw output"
         )
       ).toBe(true);
       expect(
-        state.updateLockfileCalls.some((call) => call.updates.reviewSummary !== undefined)
+        state.updateSessionStateCalls.some((call) => call.updates.reviewSummary !== undefined)
       ).toBe(false);
     });
   });
@@ -914,17 +915,17 @@ describe("runReviewCycle", () => {
 
       expect(result.success).toBe(true);
       expect(
-        state.updateLockfileCalls.some((call) => call.updates.reviewSummary !== undefined)
+        state.updateSessionStateCalls.some((call) => call.updates.reviewSummary !== undefined)
       ).toBe(true);
       expect(
-        state.updateLockfileCalls.some((call) => call.updates.codexReviewText !== undefined)
+        state.updateSessionStateCalls.some((call) => call.updates.codexReviewText !== undefined)
       ).toBe(false);
     });
   });
 
-  test("continues when codex reviewer lockfile updates fail", async () => {
+  test("continues when codex reviewer session state updates fail", async () => {
     await withHarness(async (state, deps) => {
-      state.updateLockfileFailuresRemaining = 100;
+      state.updateSessionStateFailuresRemaining = 100;
       queueRunAgentSteps(
         state,
         resultStep(successResult("codex raw output")),
@@ -959,7 +960,7 @@ describe("runReviewCycle", () => {
       expect(result.finalStatus).toBe("completed");
       expect(state.runAgentCalls.map((call) => call.role)).toEqual(["reviewer", "fixer"]);
       expect(
-        state.updateLockfileCalls.some(
+        state.updateSessionStateCalls.some(
           (call) => call.updates.codexReviewText === "codex raw output"
         )
       ).toBe(true);
@@ -1133,9 +1134,9 @@ describe("runReviewCycle", () => {
     });
   });
 
-  test("swallows simplifier lockfile update failures and still completes", async () => {
+  test("swallows simplifier session state update failures and still completes", async () => {
     await withHarness(async (state, deps) => {
-      state.updateLockfileFailuresRemaining = 100;
+      state.updateSessionStateFailuresRemaining = 100;
       queueRunAgentSteps(
         state,
         resultStep(successResult("simplifier output")),
@@ -1175,7 +1176,7 @@ describe("runReviewCycle", () => {
         "reviewer",
         "fixer",
       ]);
-      expect(state.updateLockfileCalls.length).toBeGreaterThan(0);
+      expect(state.updateSessionStateCalls.length).toBeGreaterThan(0);
     });
   });
 
@@ -1422,9 +1423,9 @@ describe("runReviewCycle", () => {
     });
   });
 
-  test("swallows lockfile update errors and still completes", async () => {
+  test("swallows session state update errors and still completes", async () => {
     await withHarness(async (state, deps) => {
-      state.updateLockfileFailuresRemaining = 100;
+      state.updateSessionStateFailuresRemaining = 100;
       queueRunAgentSteps(
         state,
         resultStep(successResult("review output")),
@@ -1456,7 +1457,7 @@ describe("runReviewCycle", () => {
 
       expect(result.success).toBe(true);
       expect(result.finalStatus).toBe("completed");
-      expect(state.updateLockfileCalls.length).toBeGreaterThan(0);
+      expect(state.updateSessionStateCalls.length).toBeGreaterThan(0);
     });
   });
 

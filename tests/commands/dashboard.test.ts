@@ -6,8 +6,8 @@ import {
   runDashboard,
   runOpenCommand,
 } from "@/commands/dashboard";
-import type { ActiveSession } from "@/lib/lockfile";
 import { getProjectName } from "@/lib/logger";
+import type { ActiveSession } from "@/lib/session-state";
 import type {
   DashboardData,
   FixEntry,
@@ -141,7 +141,7 @@ function createActiveSession(projectPath: string, branch: string): ActiveSession
     branch,
     state: "running",
     mode: "background",
-    lockPath: "/logs/lockfile.lock",
+    sessionStatePath: "/logs/lockfile.lock",
   };
 }
 
@@ -285,6 +285,25 @@ describe("dashboard markRunningSessions", () => {
     markRunningSessions(data, [active]);
 
     expect(data.projects[0]?.sessions[0]?.status).toBe("running");
+  });
+
+  test("does not infer running state from branch when multiple active sessions share that branch", () => {
+    const projectPath = "/work/project-c";
+    const data = createDashboardData(projectPath, "main");
+    const activeA = createActiveSession(projectPath, "main");
+    const activeB = {
+      ...createActiveSession(projectPath, "main"),
+      sessionId: "other-active-session-id",
+      sessionName: "rr-project-456",
+    };
+
+    if (data.projects[0]?.sessions[0]) {
+      data.projects[0].sessions[0].sessionId = undefined;
+    }
+
+    markRunningSessions(data, [activeA, activeB]);
+
+    expect(data.projects[0]?.sessions[0]?.status).toBe("completed");
   });
 
   test("ignores active sessions for projects that are not in dashboard data", () => {

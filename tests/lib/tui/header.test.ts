@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { testRender } from "@opentui/react/test-utils";
 import { act, createElement } from "react";
-import type { LockData } from "@/lib/lockfile";
+import type { SessionState } from "@/lib/session-state";
 import { getHeaderAgentDisplays, Header } from "@/lib/tui/components/Header";
 import { createConfig } from "../../helpers/diagnostics";
 
@@ -63,7 +63,7 @@ describe("Header", () => {
     }
   });
 
-  function createSession(): LockData {
+  function createSession(): SessionState {
     return {
       schemaVersion: 2,
       sessionId: "session-1",

@@ -2,8 +2,8 @@ import { removeSession } from "@/commands/dashboard";
 import { normalizeBranch } from "@/commands/log";
 import { CONFIG_DIR } from "@/lib/config";
 import { generateDashboardHtml } from "@/lib/html";
-import { listAllActiveSessions } from "@/lib/lockfile";
 import { deleteSessionFiles, getProjectName } from "@/lib/logger";
+import { listAllActiveSessions } from "@/lib/session-state";
 import type { DashboardData } from "@/lib/types";
 
 type DashboardServerEventName =
@@ -130,7 +130,7 @@ export function startDashboardServer(options: ServerOptions): ReturnType<typeof 
 
           sessionPathForContext = body.sessionPath;
 
-          // Check if session is actually running by querying live lockfile state
+          // Check if session is actually running by querying live session state.
           // (the in-memory status may be stale if a review completed after dashboard opened)
           const activeSessions = await listAllActiveSessions(logsDir);
           for (const project of data.projects) {
@@ -139,19 +139,20 @@ export function startDashboardServer(options: ServerOptions): ReturnType<typeof 
               // Sessions with terminal statuses are definitely not running - allow deletion
               const terminalStatuses = ["completed", "failed", "interrupted"];
               if (!terminalStatuses.includes(session.status)) {
-                // Session might be running - check lockfile for this project
                 const sessionBranch = normalizeBranch(session.gitBranch);
-                const isActive = activeSessions.some((a) => {
-                  if (session.sessionId && a.sessionId) {
-                    return a.sessionId === session.sessionId;
-                  }
-
-                  const activeProjectName = getProjectName(a.projectPath);
-                  const activeBranch = normalizeBranch(a.branch);
-                  return (
-                    activeProjectName === project.projectName && activeBranch === sessionBranch
-                  );
-                });
+                const exactSessionMatch = session.sessionId
+                  ? activeSessions.some((active) => active.sessionId === session.sessionId)
+                  : false;
+                const uniqueBranchMatch = !session.sessionId
+                  ? activeSessions.filter((active) => {
+                      const activeProjectName = getProjectName(active.projectPath);
+                      return (
+                        activeProjectName === project.projectName &&
+                        normalizeBranch(active.branch) === sessionBranch
+                      );
+                    }).length === 1
+                  : false;
+                const isActive = exactSessionMatch || uniqueBranchMatch;
                 if (isActive) {
                   emit({
                     route: url.pathname,

@@ -1,5 +1,4 @@
 import { configExists, loadConfig, loadEffectiveConfigWithDiagnostics } from "@/lib/config";
-import { cleanupStaleLockfile, hasActiveLockfile } from "@/lib/lockfile";
 import { isTmuxInstalled } from "@/lib/tmux";
 import { type AgentSettings, type Config, isAgentType } from "@/lib/types";
 import { type CapabilityDiscoveryOptions, discoverAgentCapabilities } from "./capabilities";
@@ -22,8 +21,6 @@ interface RunDiagnosticsDependencies {
   isGitRepository?: (path: string) => Promise<boolean>;
   hasUncommittedChanges?: (path: string) => Promise<boolean>;
   gitRefExists?: (path: string, ref: string) => Promise<boolean>;
-  cleanupStaleLockfile?: typeof cleanupStaleLockfile;
-  hasActiveLockfile?: typeof hasActiveLockfile;
   isTmuxInstalled?: () => boolean;
   resolveTmuxInstallGuidance?: (
     options?: Parameters<typeof resolveTmuxInstallGuidance>[0]
@@ -196,8 +193,6 @@ export async function runDiagnostics(
   const resolveIsGitRepo = deps.isGitRepository ?? isGitRepository;
   const resolveHasChanges = deps.hasUncommittedChanges ?? hasGitUncommittedChanges;
   const resolveGitRefExists = deps.gitRefExists ?? hasGitRef;
-  const resolveCleanupStaleLockfile = deps.cleanupStaleLockfile ?? cleanupStaleLockfile;
-  const resolveHasActiveLockfile = deps.hasActiveLockfile ?? hasActiveLockfile;
   const resolveIsTmuxInstalled = deps.isTmuxInstalled ?? isTmuxInstalled;
   const resolveTmuxGuidance = deps.resolveTmuxInstallGuidance ?? resolveTmuxInstallGuidance;
   const tmuxGuidance = resolveTmuxGuidance({
@@ -619,22 +614,6 @@ export async function runDiagnostics(
           });
         }
       }
-
-      await resolveCleanupStaleLockfile(undefined, projectPath);
-      const hasRunningReview = await resolveHasActiveLockfile(undefined, projectPath);
-      items.push({
-        id: "run-lockfile",
-        category: "environment",
-        title: "Review lock",
-        severity: hasRunningReview ? "error" : "ok",
-        summary: hasRunningReview
-          ? "A review is already running for this project."
-          : "No running review lock detected.",
-        remediation: hasRunningReview
-          ? [runStep("rr"), runStep("rr stop"), thenStep("rr run")]
-          : [],
-        fixable: hasRunningReview && isFixable("run-lockfile"),
-      });
     }
   }
 

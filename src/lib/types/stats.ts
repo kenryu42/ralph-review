@@ -31,6 +31,7 @@ export interface SessionStats {
   sessionId?: string;
   timestamp: number;
   gitBranch?: string;
+  worktreeBranch?: string;
   status: DerivedRunStatus;
   stop_iteration?: boolean;
   totalFixes: number;

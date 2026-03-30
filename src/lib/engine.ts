@@ -17,8 +17,9 @@ import {
   type RetainedSessionWorktree,
   rollbackToCheckpoint,
 } from "./git";
-import { updateLockfile } from "./lockfile";
 import { appendLog, createLogSession, getGitBranch } from "./logger";
+import type { SessionState } from "./session-state";
+import { updateSessionState } from "./session-state";
 import {
   extractJsonBlock as extractJsonBlockFromOutput,
   parseFixSummaryCandidate,
@@ -56,7 +57,7 @@ interface RunReviewCycleDependencies {
   discardSessionWorktree: typeof discardSessionWorktree;
   finalizeSessionWorktree: typeof finalizeSessionWorktree;
   rollbackToCheckpoint: typeof rollbackToCheckpoint;
-  updateLockfile: typeof updateLockfile;
+  updateSessionState: typeof updateSessionState;
   appendLog: typeof appendLog;
   createLogSession: typeof createLogSession;
   getGitBranch: typeof getGitBranch;
@@ -78,7 +79,7 @@ const DEFAULT_RUN_REVIEW_CYCLE_DEPENDENCIES: RunReviewCycleDependencies = {
   discardSessionWorktree,
   finalizeSessionWorktree,
   rollbackToCheckpoint,
-  updateLockfile,
+  updateSessionState,
   appendLog,
   createLogSession,
   getGitBranch,
@@ -473,22 +474,22 @@ export async function runReviewCycle(
   let hasRemainingIssues = true;
   const retryConfig = config.retry ?? DEFAULT_RETRY_CONFIG;
   let worktree: GitSessionWorktree | null = null;
+  const updateCurrentSessionState = async (updates: Partial<SessionState>): Promise<void> => {
+    if (!sessionId) {
+      return;
+    }
+
+    await deps
+      .updateSessionState(undefined, projectPath, sessionId, updates, {
+        expectedSessionId: sessionId,
+      })
+      .catch(() => {});
+  };
 
   try {
-    if (sessionId) {
-      await deps
-        .updateLockfile(
-          undefined,
-          projectPath,
-          {
-            sessionPath,
-          },
-          {
-            expectedSessionId: sessionId,
-          }
-        )
-        .catch(() => {});
-    }
+    await updateCurrentSessionState({
+      sessionPath,
+    });
 
     try {
       worktree = deps.createSessionWorktree(projectPath, sessionId ?? "session");
@@ -498,22 +499,11 @@ export async function runReviewCycle(
       );
     }
 
-    if (sessionId) {
-      await deps
-        .updateLockfile(
-          undefined,
-          projectPath,
-          {
-            sessionPath,
-            worktreeProjectPath: worktree.worktreeProjectPath,
-            worktreeBranch: worktree.retainedBranch,
-          },
-          {
-            expectedSessionId: sessionId,
-          }
-        )
-        .catch(() => {});
-    }
+    await updateCurrentSessionState({
+      sessionPath,
+      worktreeProjectPath: worktree.worktreeProjectPath,
+      worktreeBranch: worktree.retainedBranch,
+    });
 
     const systemEntry: SystemEntry = {
       type: "system",
@@ -534,16 +524,7 @@ export async function runReviewCycle(
     const agentProjectPath = worktree.agentProjectPath;
 
     if (reviewOptions?.simplifier) {
-      await deps
-        .updateLockfile(
-          undefined,
-          projectPath,
-          { currentAgent: "code-simplifier" },
-          {
-            expectedSessionId: sessionId,
-          }
-        )
-        .catch(() => {});
+      await updateCurrentSessionState({ currentAgent: "code-simplifier" });
       printHeader("Running code simplifier agent...", "\x1b[34m");
 
       const { baseBranch, commitSha, customInstructions } = reviewOptions;
@@ -605,21 +586,12 @@ export async function runReviewCycle(
         );
       }
 
-      await deps
-        .updateLockfile(
-          undefined,
-          projectPath,
-          {
-            currentAgent: "reviewer",
-            iteration,
-            reviewSummary: undefined,
-            codexReviewText: undefined,
-          },
-          {
-            expectedSessionId: sessionId,
-          }
-        )
-        .catch(() => {});
+      await updateCurrentSessionState({
+        currentAgent: "reviewer",
+        iteration,
+        reviewSummary: undefined,
+        codexReviewText: undefined,
+      });
       printHeader("Running reviewer...", "\x1b[36m");
 
       const reviewerPrompt = deps.createReviewerPrompt({
@@ -732,16 +704,7 @@ export async function runReviewCycle(
         );
       }
 
-      await deps
-        .updateLockfile(
-          undefined,
-          projectPath,
-          { currentAgent: "fixer" },
-          {
-            expectedSessionId: sessionId,
-          }
-        )
-        .catch(() => {});
+      await updateCurrentSessionState({ currentAgent: "fixer" });
       printHeader("Running fixer to verify and apply fixes...", "\x1b[35m");
 
       let reviewSummary: ReviewSummary | null = null;
@@ -756,16 +719,7 @@ export async function runReviewCycle(
             `  ⚠️  Could not parse codex session review JSON (${reviewParseResult.failureReason ?? "unknown error"}). Falling back to raw codex output.`
           );
           codexReviewSummary = { text: reviewTextForFixer };
-          await deps
-            .updateLockfile(
-              undefined,
-              projectPath,
-              { codexReviewText: reviewTextForFixer },
-              {
-                expectedSessionId: sessionId,
-              }
-            )
-            .catch(() => {});
+          await updateCurrentSessionState({ codexReviewText: reviewTextForFixer });
         }
       } else if (!reviewParseResult.ok) {
         console.log(
@@ -782,16 +736,7 @@ export async function runReviewCycle(
       }
 
       if (reviewSummary) {
-        await deps
-          .updateLockfile(
-            undefined,
-            projectPath,
-            { reviewSummary },
-            {
-              expectedSessionId: sessionId,
-            }
-          )
-          .catch(() => {});
+        await updateCurrentSessionState({ reviewSummary });
       }
 
       const fixerPrompt = deps.createFixerPrompt(reviewJson ?? reviewTextForFixer);
@@ -970,7 +915,7 @@ export async function runReviewCycle(
     throw error;
   } finally {
     if (worktree) {
-      if (finalResult?.success && finalResult.finalStatus === "completed") {
+      if (finalResult?.finalStatus === "completed") {
         try {
           finalResult.retainedWorktree = deps.finalizeSessionWorktree(worktree);
         } catch (error) {
