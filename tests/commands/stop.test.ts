@@ -1,26 +1,26 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
-import * as p from "@clack/prompts";
-import type { ActiveSession, LockData } from "@/lib/lockfile";
+import type { ActiveSession } from "@/lib/session-state";
 
 const EXIT_PREFIX = "__FORCED_EXIT__:";
 
 interface StopHarnessOptions {
   activeSessions?: ActiveSession[];
   tmuxSessions?: string[];
-  lockData?: LockData | null;
   fastTimeout?: boolean;
   hasStopCommandDef?: boolean;
+  isTTY?: boolean;
+  selectValues?: unknown[];
 }
 
 interface StopHarnessResult {
-  readLockfileCalls: string[];
-  updateLockfileCalls: Array<{
+  listProjectActiveSessionsCalls: string[];
+  updateSessionStateCalls: Array<{
     projectPath: string;
     updates: Record<string, unknown>;
     expectedSessionId?: string;
   }>;
-  removeLockfileCalls: Array<{ projectPath: string; expectedSessionId?: string }>;
-  removeAllLockfilesCalls: number;
+  removeSessionStateCalls: Array<{ projectPath: string; expectedSessionId?: string }>;
+  removeAllSessionStatesCalls: number;
   sendInterruptCalls: string[];
   killSessionCalls: string[];
   infos: string[];
@@ -29,6 +29,7 @@ interface StopHarnessResult {
   messages: string[];
   successes: string[];
   exitCode: number | undefined;
+  selectMessages: string[];
 }
 
 function createActiveSession(overrides: Partial<ActiveSession> = {}): ActiveSession {
@@ -43,23 +44,7 @@ function createActiveSession(overrides: Partial<ActiveSession> = {}): ActiveSess
     branch: "main",
     state: "running",
     mode: "background",
-    lockPath: "/tmp/project.lock",
-    ...overrides,
-  };
-}
-
-function createLockData(overrides: Partial<LockData> = {}): LockData {
-  return {
-    schemaVersion: 2,
-    sessionId: "lock-session-id",
-    sessionName: "rr-project-main",
-    startTime: 1,
-    lastHeartbeat: 1,
-    pid: 123,
-    projectPath: process.cwd(),
-    branch: "main",
-    state: "running",
-    mode: "background",
+    sessionStatePath: "/tmp/project.lock",
     ...overrides,
   };
 }
@@ -68,14 +53,14 @@ async function runStopWithHarness(
   args: string[],
   options: StopHarnessOptions = {}
 ): Promise<StopHarnessResult> {
-  const readLockfileCalls: string[] = [];
-  const updateLockfileCalls: Array<{
+  const listProjectActiveSessionsCalls: string[] = [];
+  const updateSessionStateCalls: Array<{
     projectPath: string;
     updates: Record<string, unknown>;
     expectedSessionId?: string;
   }> = [];
-  const removeLockfileCalls: Array<{ projectPath: string; expectedSessionId?: string }> = [];
-  let removeAllLockfilesCalls = 0;
+  const removeSessionStateCalls: Array<{ projectPath: string; expectedSessionId?: string }> = [];
+  let removeAllSessionStatesCalls = 0;
   const sendInterruptCalls: string[] = [];
   const killSessionCalls: string[] = [];
   const infos: string[] = [];
@@ -86,55 +71,51 @@ async function runStopWithHarness(
 
   const activeSessions = options.activeSessions ?? [];
   const tmuxSessions = options.tmuxSessions ?? [];
-  const lockData = options.lockData ?? null;
   const hasStopCommandDef = options.hasStopCommandDef ?? true;
+  const selectValues = [...(options.selectValues ?? [])];
+  const selectMessages: string[] = [];
 
-  mock.module("@/lib/lockfile", () => ({
-    LOCK_SCHEMA_VERSION: 2,
+  mock.module("@/lib/session-state", () => ({
+    SESSION_STATE_SCHEMA_VERSION: 2,
     HEARTBEAT_INTERVAL_MS: 5_000,
     RUNNING_STALE_AFTER_MS: 20_000,
     PENDING_STARTUP_TIMEOUT_MS: 45_000,
     STOPPING_STALE_AFTER_MS: 20_000,
     createSessionId: () => "mock-session-id",
-    getLockPath: (_logsDir: string | undefined, projectPath: string) => `${projectPath}.lock`,
-    createLockfile: async () => {},
     listAllActiveSessions: async () => activeSessions,
-    readLockfile: async (_logsDir: string | undefined, projectPath: string) => {
-      readLockfileCalls.push(projectPath);
-      return lockData;
+    listProjectActiveSessions: async (_logsDir: string | undefined, projectPath: string) => {
+      listProjectActiveSessionsCalls.push(projectPath);
+      return activeSessions.filter((session) => session.projectPath === projectPath);
     },
-    removeAllLockfiles: async () => {
-      removeAllLockfilesCalls += 1;
+    removeAllSessionStates: async () => {
+      removeAllSessionStatesCalls += 1;
     },
-    removeLockfile: async (
+    removeSessionState: async (
       _logsDir: string | undefined,
       projectPath: string,
-      lockfileOptions?: { expectedSessionId?: string }
+      _sessionId: string,
+      sessionStateOptions?: { expectedSessionId?: string }
     ) => {
-      removeLockfileCalls.push({
+      removeSessionStateCalls.push({
         projectPath,
-        expectedSessionId: lockfileOptions?.expectedSessionId,
+        expectedSessionId: sessionStateOptions?.expectedSessionId,
       });
       return true;
     },
-    updateLockfile: async (
+    updateSessionState: async (
       _logsDir: string | undefined,
       projectPath: string,
+      _sessionId: string,
       updates: Record<string, unknown>,
-      lockfileOptions?: { expectedSessionId?: string }
+      sessionStateOptions?: { expectedSessionId?: string }
     ) => {
-      updateLockfileCalls.push({
+      updateSessionStateCalls.push({
         projectPath,
         updates,
-        expectedSessionId: lockfileOptions?.expectedSessionId,
+        expectedSessionId: sessionStateOptions?.expectedSessionId,
       });
       return true;
     },
-    touchHeartbeat: async () => true,
-    lockfileExists: async () => false,
-    isProcessAlive: () => false,
-    cleanupStaleLockfile: async () => false,
-    hasActiveLockfile: async () => false,
   }));
 
   mock.module("@/lib/tmux", () => ({
@@ -160,26 +141,30 @@ async function runStopWithHarness(
     },
   }));
 
-  const originalInfo = p.log.info;
-  const originalError = p.log.error;
-  const originalStep = p.log.step;
-  const originalMessage = p.log.message;
-  const originalSuccess = p.log.success;
-  p.log.info = ((message: string) => {
-    infos.push(message);
-  }) as typeof p.log.info;
-  p.log.error = ((message: string) => {
-    errors.push(message);
-  }) as typeof p.log.error;
-  p.log.step = ((message: string) => {
-    steps.push(message);
-  }) as typeof p.log.step;
-  p.log.message = ((message: string) => {
-    messages.push(message);
-  }) as typeof p.log.message;
-  p.log.success = ((message: string) => {
-    successes.push(message);
-  }) as typeof p.log.success;
+  mock.module("@clack/prompts", () => ({
+    log: {
+      info: (message: string) => {
+        infos.push(message);
+      },
+      error: (message: string) => {
+        errors.push(message);
+      },
+      step: (message: string) => {
+        steps.push(message);
+      },
+      message: (message: string) => {
+        messages.push(message);
+      },
+      success: (message: string) => {
+        successes.push(message);
+      },
+    },
+    select: async (input: { message: string }) => {
+      selectMessages.push(input.message);
+      return selectValues.shift();
+    },
+    isCancel: (value: unknown) => value === "__CANCEL__",
+  }));
 
   const originalSetTimeout = globalThis.setTimeout;
   if (options.fastTimeout) {
@@ -193,9 +178,14 @@ async function runStopWithHarness(
   }
 
   const originalExit = process.exit;
+  const originalIsTTY = process.stdout.isTTY;
   process.exit = ((code?: number) => {
     throw new Error(`${EXIT_PREFIX}${code ?? 0}`);
   }) as typeof process.exit;
+  Object.defineProperty(process.stdout, "isTTY", {
+    configurable: true,
+    value: options.isTTY ?? true,
+  });
 
   const { runStop } = await import("@/commands/stop");
   let exitCode: number | undefined;
@@ -215,20 +205,19 @@ async function runStopWithHarness(
       throw error;
     }
   } finally {
-    p.log.info = originalInfo;
-    p.log.error = originalError;
-    p.log.step = originalStep;
-    p.log.message = originalMessage;
-    p.log.success = originalSuccess;
     process.exit = originalExit;
     globalThis.setTimeout = originalSetTimeout;
+    Object.defineProperty(process.stdout, "isTTY", {
+      configurable: true,
+      value: originalIsTTY,
+    });
   }
 
   return {
-    readLockfileCalls,
-    updateLockfileCalls,
-    removeLockfileCalls,
-    removeAllLockfilesCalls,
+    listProjectActiveSessionsCalls,
+    updateSessionStateCalls,
+    removeSessionStateCalls,
+    removeAllSessionStatesCalls,
     sendInterruptCalls,
     killSessionCalls,
     infos,
@@ -237,6 +226,7 @@ async function runStopWithHarness(
     messages,
     successes,
     exitCode,
+    selectMessages,
   };
 }
 
@@ -260,30 +250,30 @@ describe("runStop", () => {
 
     expect(result.errors).toEqual(["Internal error: stop command definition not found"]);
     expect(result.exitCode).toBe(1);
-    expect(result.readLockfileCalls).toEqual([]);
-    expect(result.updateLockfileCalls).toEqual([]);
-    expect(result.removeLockfileCalls).toEqual([]);
-    expect(result.removeAllLockfilesCalls).toBe(0);
+    expect(result.listProjectActiveSessionsCalls).toEqual([]);
+    expect(result.updateSessionStateCalls).toEqual([]);
+    expect(result.removeSessionStateCalls).toEqual([]);
+    expect(result.removeAllSessionStatesCalls).toBe(0);
     expect(result.sendInterruptCalls).toEqual([]);
     expect(result.killSessionCalls).toEqual([]);
   });
 
-  test("stop --all reports empty state and clears lockfiles when no sessions exist", async () => {
+  test("stop --all reports empty state and clears session states when no sessions exist", async () => {
     const result = await runStopWithHarness(["--all"], {
       activeSessions: [],
       tmuxSessions: [],
     });
 
     expect(result.infos).toEqual(["No active review sessions."]);
-    expect(result.removeAllLockfilesCalls).toBe(1);
-    expect(result.updateLockfileCalls).toHaveLength(0);
+    expect(result.removeAllSessionStatesCalls).toBe(1);
+    expect(result.updateSessionStateCalls).toHaveLength(0);
     expect(result.sendInterruptCalls).toEqual([]);
     expect(result.killSessionCalls).toEqual([]);
-    expect(result.removeLockfileCalls).toEqual([]);
+    expect(result.removeSessionStateCalls).toEqual([]);
     expect(result.exitCode).toBeUndefined();
   });
 
-  test("stop --all updates lockfiles and stops deduplicated sessions", async () => {
+  test("stop --all updates session states and stops deduplicated sessions", async () => {
     const result = await runStopWithHarness(["--all"], {
       fastTimeout: true,
       activeSessions: [
@@ -302,15 +292,15 @@ describe("runStop", () => {
     });
 
     expect(result.steps).toEqual(["Stopping 3 session(s)..."]);
-    expect(result.updateLockfileCalls).toHaveLength(2);
-    expect(result.updateLockfileCalls[0]?.projectPath).toBe("/repo/alpha");
-    expect(result.updateLockfileCalls[0]?.updates.state).toBe("stopping");
-    expect(typeof result.updateLockfileCalls[0]?.updates.lastHeartbeat).toBe("number");
-    expect(result.updateLockfileCalls[0]?.expectedSessionId).toBe("session-a");
-    expect(result.updateLockfileCalls[1]?.projectPath).toBe("/repo/bravo");
-    expect(result.updateLockfileCalls[1]?.updates.state).toBe("stopping");
-    expect(typeof result.updateLockfileCalls[1]?.updates.lastHeartbeat).toBe("number");
-    expect(result.updateLockfileCalls[1]?.expectedSessionId).toBe("session-b");
+    expect(result.updateSessionStateCalls).toHaveLength(2);
+    expect(result.updateSessionStateCalls[0]?.projectPath).toBe("/repo/alpha");
+    expect(result.updateSessionStateCalls[0]?.updates.state).toBe("stopping");
+    expect(typeof result.updateSessionStateCalls[0]?.updates.lastHeartbeat).toBe("number");
+    expect(result.updateSessionStateCalls[0]?.expectedSessionId).toBe("session-a");
+    expect(result.updateSessionStateCalls[1]?.projectPath).toBe("/repo/bravo");
+    expect(result.updateSessionStateCalls[1]?.updates.state).toBe("stopping");
+    expect(typeof result.updateSessionStateCalls[1]?.updates.lastHeartbeat).toBe("number");
+    expect(result.updateSessionStateCalls[1]?.expectedSessionId).toBe("session-b");
 
     expect(result.sendInterruptCalls).toEqual(["rr-bravo", "rr-charlie", "rr-alpha"]);
     expect(result.killSessionCalls).toEqual(["rr-bravo", "rr-charlie", "rr-alpha"]);
@@ -320,18 +310,17 @@ describe("runStop", () => {
       "  Stopped: rr-alpha",
     ]);
 
-    expect(result.removeLockfileCalls).toEqual([
+    expect(result.removeSessionStateCalls).toEqual([
       { projectPath: "/repo/alpha", expectedSessionId: "session-a" },
       { projectPath: "/repo/bravo", expectedSessionId: "session-b" },
     ]);
-    expect(result.removeAllLockfilesCalls).toBe(1);
+    expect(result.removeAllSessionStatesCalls).toBe(1);
     expect(result.successes).toEqual(["Stopped 3 session(s)."]);
     expect(result.exitCode).toBeUndefined();
   });
 
-  test("stop without active lockfile shows empty state for current project", async () => {
+  test("stop without active session state shows empty state for current project", async () => {
     const result = await runStopWithHarness([], {
-      lockData: null,
       activeSessions: [],
     });
 
@@ -339,14 +328,15 @@ describe("runStop", () => {
     expect(result.messages).toEqual([]);
     expect(result.sendInterruptCalls).toEqual([]);
     expect(result.killSessionCalls).toEqual([]);
-    expect(result.updateLockfileCalls).toEqual([]);
+    expect(result.updateSessionStateCalls).toEqual([]);
     expect(result.exitCode).toBeUndefined();
   });
 
-  test("stop without active lockfile shows hint when other sessions are running", async () => {
+  test("stop without active session state shows hint when other sessions are running", async () => {
     const result = await runStopWithHarness([], {
-      lockData: null,
-      activeSessions: [createActiveSession({ sessionName: "rr-other" })],
+      activeSessions: [
+        createActiveSession({ sessionName: "rr-other", projectPath: "/repo/other" }),
+      ],
     });
 
     expect(result.infos).toEqual(["No active review session for current working directory."]);
@@ -356,7 +346,7 @@ describe("runStop", () => {
     ]);
     expect(result.sendInterruptCalls).toEqual([]);
     expect(result.killSessionCalls).toEqual([]);
-    expect(result.updateLockfileCalls).toEqual([]);
+    expect(result.updateSessionStateCalls).toEqual([]);
     expect(result.exitCode).toBeUndefined();
   });
 
@@ -364,26 +354,144 @@ describe("runStop", () => {
     const cwd = process.cwd();
     const result = await runStopWithHarness([], {
       fastTimeout: true,
-      lockData: createLockData({
-        sessionId: "current-session-id",
-        sessionName: "rr-current-session",
-      }),
+      activeSessions: [
+        createActiveSession({
+          sessionId: "current-session-id",
+          sessionName: "rr-current-session",
+          projectPath: cwd,
+        }),
+      ],
     });
 
-    expect(result.readLockfileCalls).toEqual([cwd]);
+    expect(result.listProjectActiveSessionsCalls).toEqual([cwd]);
     expect(result.steps).toEqual(["Stopping session: rr-current-session"]);
-    expect(result.updateLockfileCalls).toHaveLength(1);
-    expect(result.updateLockfileCalls[0]?.projectPath).toBe(cwd);
-    expect(result.updateLockfileCalls[0]?.updates.state).toBe("stopping");
-    expect(typeof result.updateLockfileCalls[0]?.updates.lastHeartbeat).toBe("number");
-    expect(result.updateLockfileCalls[0]?.expectedSessionId).toBe("current-session-id");
+    expect(result.updateSessionStateCalls).toHaveLength(1);
+    expect(result.updateSessionStateCalls[0]?.projectPath).toBe(cwd);
+    expect(result.updateSessionStateCalls[0]?.updates.state).toBe("stopping");
+    expect(typeof result.updateSessionStateCalls[0]?.updates.lastHeartbeat).toBe("number");
+    expect(result.updateSessionStateCalls[0]?.expectedSessionId).toBe("current-session-id");
 
     expect(result.sendInterruptCalls).toEqual(["rr-current-session"]);
     expect(result.killSessionCalls).toEqual(["rr-current-session"]);
-    expect(result.removeLockfileCalls).toEqual([
+    expect(result.removeSessionStateCalls).toEqual([
       { projectPath: cwd, expectedSessionId: "current-session-id" },
     ]);
     expect(result.successes).toEqual(["Review stopped."]);
     expect(result.exitCode).toBeUndefined();
+  });
+
+  test("stop with multiple current-project sessions prompts for a target and stops the selection", async () => {
+    const cwd = process.cwd();
+    const result = await runStopWithHarness([], {
+      fastTimeout: true,
+      activeSessions: [
+        createActiveSession({
+          sessionId: "session-older",
+          sessionName: "rr-older",
+          projectPath: cwd,
+          startTime: 100,
+        }),
+        createActiveSession({
+          sessionId: "session-newer",
+          sessionName: "rr-newer",
+          projectPath: cwd,
+          startTime: 200,
+        }),
+      ],
+      selectValues: ["session-newer"],
+    });
+
+    expect(result.selectMessages).toEqual(["Choose a review session to stop"]);
+    expect(result.steps).toEqual(["Stopping session: rr-newer"]);
+    expect(result.sendInterruptCalls).toEqual(["rr-newer"]);
+    expect(result.killSessionCalls).toEqual(["rr-newer"]);
+    expect(result.removeSessionStateCalls).toEqual([
+      { projectPath: cwd, expectedSessionId: "session-newer" },
+    ]);
+    expect(result.successes).toEqual(["Review stopped."]);
+  });
+
+  test("stop with multiple current-project sessions in non-tty mode requires --session", async () => {
+    const cwd = process.cwd();
+    const result = await runStopWithHarness([], {
+      isTTY: false,
+      activeSessions: [
+        createActiveSession({
+          sessionId: "session-a",
+          sessionName: "rr-a",
+          projectPath: cwd,
+          startTime: 100,
+        }),
+        createActiveSession({
+          sessionId: "session-b",
+          sessionName: "rr-b",
+          projectPath: cwd,
+          startTime: 200,
+        }),
+      ],
+    });
+
+    expect(result.errors).toEqual([
+      "Multiple review sessions are running for this project. Re-run with --session <id|name>.",
+    ]);
+    expect(result.exitCode).toBe(1);
+    expect(result.sendInterruptCalls).toEqual([]);
+    expect(result.killSessionCalls).toEqual([]);
+    expect(result.selectMessages).toEqual([]);
+  });
+
+  test("stop --session accepts a unique session id prefix within the current project", async () => {
+    const cwd = process.cwd();
+    const result = await runStopWithHarness(["--session", "session-be"], {
+      fastTimeout: true,
+      activeSessions: [
+        createActiveSession({
+          sessionId: "session-alpha",
+          sessionName: "rr-alpha",
+          projectPath: cwd,
+          startTime: 100,
+        }),
+        createActiveSession({
+          sessionId: "session-beta",
+          sessionName: "rr-beta",
+          projectPath: cwd,
+          startTime: 200,
+        }),
+      ],
+    });
+
+    expect(result.steps).toEqual(["Stopping session: rr-beta"]);
+    expect(result.sendInterruptCalls).toEqual(["rr-beta"]);
+    expect(result.killSessionCalls).toEqual(["rr-beta"]);
+    expect(result.removeSessionStateCalls).toEqual([
+      { projectPath: cwd, expectedSessionId: "session-beta" },
+    ]);
+  });
+
+  test("stop --session rejects ambiguous prefixes within the current project", async () => {
+    const cwd = process.cwd();
+    const result = await runStopWithHarness(["--session", "session-"], {
+      activeSessions: [
+        createActiveSession({
+          sessionId: "session-alpha",
+          sessionName: "rr-alpha",
+          projectPath: cwd,
+          startTime: 100,
+        }),
+        createActiveSession({
+          sessionId: "session-beta",
+          sessionName: "rr-beta",
+          projectPath: cwd,
+          startTime: 200,
+        }),
+      ],
+    });
+
+    expect(result.errors).toEqual([
+      'Session selector "session-" is ambiguous for the current project.',
+    ]);
+    expect(result.exitCode).toBe(1);
+    expect(result.sendInterruptCalls).toEqual([]);
+    expect(result.killSessionCalls).toEqual([]);
   });
 });
