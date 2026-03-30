@@ -19,7 +19,8 @@ export async function runAgent(
   config: Config,
   prompt: string = "",
   timeout: number = config.iterationTimeout,
-  reviewOptions?: ReviewOptions
+  reviewOptions?: ReviewOptions,
+  cwd?: string
 ): Promise<IterationResult> {
   const startTime = Date.now();
   const agentSettings = resolveAgentSettings(role, config);
@@ -48,6 +49,7 @@ export async function runAgent(
     }, timeout);
 
     const proc = Bun.spawn([command, ...args], {
+      cwd,
       env,
       stdout: "pipe",
       stderr: "pipe",

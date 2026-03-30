@@ -1,15 +1,21 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { CONFIG_DIR } from "@/lib/config";
 import {
   createCheckpoint,
+  createSessionWorktree,
   discardCheckpoint,
+  discardSessionWorktree,
   ensureGitRepository,
   ensureGitRepositoryAsync,
+  finalizeSessionWorktree,
+  type GitSessionWorktree,
   mergeBaseWithHead,
   rollbackToCheckpoint,
 } from "@/lib/git";
+import { getProjectStorageDir, getProjectWorktreesDir } from "@/lib/logger";
 
 /**
  * Helper to run git commands in a directory
@@ -60,7 +66,7 @@ function commit(repoPath: string, filename: string, message: string): void {
   runGitIn(repoPath, ["commit", "-m", message]);
 }
 
-function patchGitSpawnSync(shouldFail: (command: string[]) => boolean): () => void {
+function patchSpawnSyncFailure(shouldFail: (command: string[]) => boolean): () => void {
   const originalSpawnSync = Bun.spawnSync;
   type SpawnSyncArgs =
     | [command: string[], options?: { cwd?: string }]
@@ -90,6 +96,13 @@ function patchGitSpawnSync(shouldFail: (command: string[]) => boolean): () => vo
   return () => {
     Bun.spawnSync = originalSpawnSync;
   };
+}
+
+function listWorktreePaths(repoPath: string): string[] {
+  return runGitStdout(repoPath, ["worktree", "list", "--porcelain"])
+    .split("\n")
+    .filter((line) => line.startsWith("worktree "))
+    .map((line) => line.slice("worktree ".length));
 }
 
 describe("ensureGitRepository", () => {
@@ -243,7 +256,7 @@ describe("mergeBaseWithHead", () => {
     initTestRepo(tempDir);
     commit(tempDir, "base.txt", "base commit");
 
-    const restoreSpawnSync = patchGitSpawnSync(
+    const restoreSpawnSync = patchSpawnSyncFailure(
       (command) =>
         command[0] === "git" && command[1] === "rev-parse" && command[2] === "--show-toplevel"
     );
@@ -495,7 +508,7 @@ exec "$REAL_GIT" "$@"
   });
 
   test("throws contextual error when checkpoint stash creation fails", async () => {
-    const restoreSpawnSync = patchGitSpawnSync(
+    const restoreSpawnSync = patchSpawnSyncFailure(
       (command) => command[0] === "git" && command[1] === "stash" && command[2] === "push"
     );
 
@@ -515,7 +528,7 @@ exec "$REAL_GIT" "$@"
       throw new Error("Expected ref checkpoint");
     }
 
-    const restoreSpawnSync = patchGitSpawnSync(
+    const restoreSpawnSync = patchSpawnSyncFailure(
       (command) => command[0] === "git" && command[1] === "update-ref" && command[2] === "-d"
     );
 
@@ -604,5 +617,159 @@ describe("checkpoint management on unborn HEAD", () => {
     expect(() => rollbackToCheckpoint(tempDir, checkpoint)).toThrow(
       "Failed to restore working tree snapshot"
     );
+  });
+});
+
+describe("session worktree management", () => {
+  let tempDir: string;
+  let createdWorktrees: GitSessionWorktree[];
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "git-session-worktree-test-"));
+    createdWorktrees = [];
+  });
+
+  afterEach(async () => {
+    for (const worktree of createdWorktrees) {
+      try {
+        discardSessionWorktree(worktree);
+      } catch (error) {
+        await rm(worktree.worktreeProjectPath, { recursive: true, force: true });
+        if (await Bun.file(worktree.worktreeProjectPath).exists()) {
+          throw error;
+        }
+      }
+    }
+    await rm(getProjectStorageDir(CONFIG_DIR, tempDir), { recursive: true, force: true });
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  test("captures dirty tracked, untracked, and ignored state into an isolated worktree", async () => {
+    initTestRepo(tempDir);
+    commit(tempDir, "base.txt", "base commit");
+    await Bun.write(join(tempDir, ".gitignore"), ".env\n");
+    runGitIn(tempDir, ["add", ".gitignore"]);
+    runGitIn(tempDir, ["commit", "-m", "add ignore rules"]);
+
+    await Bun.write(join(tempDir, "base.txt"), "base with unstaged changes");
+    await Bun.write(join(tempDir, "staged.txt"), "staged content");
+    runGitIn(tempDir, ["add", "staged.txt"]);
+    await Bun.write(join(tempDir, "untracked.txt"), "untracked content");
+    await Bun.write(join(tempDir, ".env"), "ignored content");
+
+    const worktree = createSessionWorktree(tempDir, "session-1");
+    createdWorktrees.push(worktree);
+
+    expect(
+      worktree.worktreeProjectPath.startsWith(`${getProjectWorktreesDir(CONFIG_DIR, tempDir)}/`)
+    ).toBe(true);
+    expect(worktree.worktreeProjectPath).not.toContain(
+      join(process.env.TMPDIR || "/tmp", "ralph-review", "sandboxes")
+    );
+    expect(await Bun.file(join(worktree.worktreeProjectPath, "base.txt")).text()).toBe(
+      "base with unstaged changes"
+    );
+    expect(await Bun.file(join(worktree.worktreeProjectPath, "staged.txt")).exists()).toBe(true);
+    expect(await Bun.file(join(worktree.worktreeProjectPath, "untracked.txt")).exists()).toBe(true);
+    expect(await Bun.file(join(worktree.worktreeProjectPath, ".env")).text()).toBe(
+      "ignored content"
+    );
+
+    const worktreeStatus = runGitStdout(worktree.worktreeProjectPath, ["status", "--porcelain"]);
+    expect(worktreeStatus).toContain("M base.txt");
+    expect(worktreeStatus).toContain("A  staged.txt");
+    expect(worktreeStatus).toContain("?? untracked.txt");
+
+    await Bun.write(join(tempDir, "base.txt"), "source changed after capture");
+    await Bun.write(join(tempDir, "late.txt"), "late source file");
+
+    expect(await Bun.file(join(worktree.worktreeProjectPath, "base.txt")).text()).toBe(
+      "base with unstaged changes"
+    );
+    expect(await Bun.file(join(worktree.worktreeProjectPath, "late.txt")).exists()).toBe(false);
+  });
+
+  test("finalizes a detached worktree onto a retained branch and removes it cleanly", async () => {
+    initTestRepo(tempDir);
+    commit(tempDir, "base.txt", "base commit");
+
+    const worktree = createSessionWorktree(tempDir, "session-2");
+    createdWorktrees.push(worktree);
+
+    await Bun.write(join(worktree.worktreeProjectPath, "base.txt"), "worktree change");
+
+    const retained = finalizeSessionWorktree(worktree);
+    expect(retained.worktreeBranch).toBe("rr-worktree-session-2");
+    expect(runGitStdout(worktree.worktreeProjectPath, ["branch", "--show-current"])).toBe(
+      retained.worktreeBranch
+    );
+
+    discardSessionWorktree(worktree);
+    createdWorktrees = createdWorktrees.filter(
+      (candidate) => candidate.worktreeProjectPath !== worktree.worktreeProjectPath
+    );
+
+    expect(await Bun.file(worktree.worktreeProjectPath).exists()).toBe(false);
+    const worktreeList = runGitStdout(tempDir, ["worktree", "list", "--porcelain"]);
+    expect(worktreeList).not.toContain(worktree.worktreeProjectPath);
+  });
+
+  test("creates an unborn worktree that preserves staged and untracked state", async () => {
+    initTestRepo(tempDir);
+
+    await Bun.write(join(tempDir, "staged.txt"), "staged content");
+    runGitIn(tempDir, ["add", "staged.txt"]);
+    await Bun.write(join(tempDir, "mixed.txt"), "staged snapshot");
+    runGitIn(tempDir, ["add", "mixed.txt"]);
+    await Bun.write(join(tempDir, "mixed.txt"), "staged snapshot plus unstaged change");
+    await Bun.write(join(tempDir, "untracked.txt"), "untracked content");
+
+    const worktree = createSessionWorktree(tempDir, "unborn-session");
+    createdWorktrees.push(worktree);
+
+    expect(runGitStdout(worktree.worktreeProjectPath, ["branch", "--show-current"])).toBe(
+      "rr-worktree-unborn-session"
+    );
+
+    const worktreeStatus = runGitStdout(worktree.worktreeProjectPath, ["status", "--porcelain"]);
+    expect(worktreeStatus).toContain("A  staged.txt");
+    expect(worktreeStatus).toContain("AM mixed.txt");
+    expect(worktreeStatus).toContain("?? untracked.txt");
+  });
+
+  test("includes cleanup failure details when worktree creation cleanup also fails", async () => {
+    initTestRepo(tempDir);
+    commit(tempDir, "base.txt", "base commit");
+
+    const restoreSpawnSync = patchSpawnSyncFailure(
+      (command) =>
+        (command[0] === "tar" && command.includes("--exclude=.git")) ||
+        (command[0] === "git" &&
+          command[1] === "worktree" &&
+          command[2] === "remove" &&
+          command[3] === "--force") ||
+        (command[0] === "rm" &&
+          command[1] === "-rf" &&
+          command.some((part) =>
+            part.includes(join(getProjectWorktreesDir(CONFIG_DIR, tempDir), "cleanup-failure"))
+          ))
+    );
+
+    try {
+      expect(() => createSessionWorktree(tempDir, "cleanup-failure")).toThrow(
+        "Cleanup also failed"
+      );
+    } finally {
+      restoreSpawnSync();
+      const repoRoot = await realpath(runGitStdout(tempDir, ["rev-parse", "--show-toplevel"]));
+
+      for (const worktreePath of listWorktreePaths(tempDir)) {
+        if ((await realpath(worktreePath)) === repoRoot) {
+          continue;
+        }
+
+        runGitIn(tempDir, ["worktree", "remove", "--force", worktreePath]);
+      }
+    }
   });
 });

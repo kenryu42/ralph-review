@@ -16,6 +16,7 @@ import {
   getHtmlPath,
   getLatestProjectLogSession,
   getProjectName,
+  getProjectWorktreesDir,
   getSummaryPath,
   listLogSessions,
   listProjectLogSessions,
@@ -140,6 +141,16 @@ describe("logger", () => {
     test("includes branch in filename when provided", async () => {
       const logPath = await createLogSession(tempDir, "/path/to/my-project", "main");
       expect(logPath).toContain("_main.jsonl");
+    });
+  });
+
+  describe("getProjectWorktreesDir", () => {
+    test("returns the per-project worktrees directory under storage root", () => {
+      const projectPath = "/path/to/my-project";
+
+      expect(getProjectWorktreesDir(tempDir, projectPath)).toBe(
+        join(tempDir, getProjectName(projectPath), "worktrees")
+      );
     });
   });
 
@@ -996,6 +1007,17 @@ describe("logger", () => {
       expect(sessions.length).toBe(2);
       // Most recent first - now uses full sanitized path
       expect(sessions[0]?.projectName).toBe(getProjectName("/path/to/project-b"));
+    });
+
+    test("ignores jsonl files in the worktrees directory", async () => {
+      const worktreeLogPath = join(
+        getProjectWorktreesDir(tempDir, "/path/to/project-a"),
+        "ignored.jsonl"
+      );
+      await Bun.write(worktreeLogPath, '{"type":"system"}\n', { createPath: true });
+
+      const sessions = await listLogSessions(tempDir);
+      expect(sessions).toEqual([]);
     });
 
     test("returns empty array when no sessions", async () => {

@@ -16,6 +16,8 @@ export interface SystemEntry {
   sessionId?: string;
   projectPath: string;
   gitBranch?: string;
+  worktreeProjectPath?: string;
+  worktreeBranch?: string;
   reviewer: AgentSettings;
   fixer: AgentSettings;
   codeSimplifier?: AgentSettings;

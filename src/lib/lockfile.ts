@@ -42,6 +42,8 @@ interface CreateLockfileOptions {
   startTime?: number;
   lastHeartbeat?: number;
   sessionPath?: string;
+  worktreeProjectPath?: string;
+  worktreeBranch?: string;
   endTime?: number;
   reason?: string;
 }
@@ -58,6 +60,8 @@ export interface LockData {
   state: LockState;
   mode: LockMode;
   sessionPath?: string;
+  worktreeProjectPath?: string;
+  worktreeBranch?: string;
   endTime?: number;
   reason?: string;
   iteration?: number;
@@ -199,6 +203,8 @@ export async function createLockfile(
     state,
     mode: options.mode ?? "background",
     sessionPath: options.sessionPath,
+    worktreeProjectPath: options.worktreeProjectPath,
+    worktreeBranch: options.worktreeBranch,
     endTime: options.endTime,
     reason: options.reason,
     currentAgent: null,

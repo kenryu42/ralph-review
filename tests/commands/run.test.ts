@@ -1515,6 +1515,34 @@ describe("run command", () => {
       expect(harness.updateLockfileCalls[1]?.updates.state).toBe("interrupted");
     });
 
+    test("surfaces the retained worktree path and branch after a successful run", async () => {
+      const harness = createRunHarness({
+        runReviewCycleResult: createCycleResult({
+          retainedWorktree: {
+            worktreeProjectPath:
+              "/Users/test/.config/ralph-review/test-project-12345678/worktrees/session-123",
+            worktreeBranch: "rr-worktree-session-123",
+          },
+        }),
+      });
+
+      await runForeground([], harness.overrides);
+
+      expect(harness.notes).toContainEqual({
+        title: "Worktree",
+        message:
+          "Retained worktree for review:\n" +
+          "Path: /Users/test/.config/ralph-review/test-project-12345678/worktrees/session-123\n" +
+          "Branch: rr-worktree-session-123",
+      });
+      expect(harness.updateLockfileCalls[1]?.updates.worktreeProjectPath).toBe(
+        "/Users/test/.config/ralph-review/test-project-12345678/worktrees/session-123"
+      );
+      expect(harness.updateLockfileCalls[1]?.updates.worktreeBranch).toBe(
+        "rr-worktree-session-123"
+      );
+    });
+
     test("logs error completion for failed result", async () => {
       const harness = createRunHarness({
         runReviewCycleResult: createCycleResult({

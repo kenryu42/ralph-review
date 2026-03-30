@@ -491,6 +491,16 @@ export async function runForeground(
         `Review stopped: ${cycleResult.reason} (${cycleResult.iterations} iterations)`
       );
     }
+
+    if (cycleResult.retainedWorktree) {
+      runtime.prompt.note(
+        `Retained worktree for review:\n` +
+          `Path: ${cycleResult.retainedWorktree.worktreeProjectPath}\n` +
+          `Branch: ${cycleResult.retainedWorktree.worktreeBranch}`,
+        "Worktree"
+      );
+    }
+
     runtime.consoleLog(`${"=".repeat(50)}\n`);
   } finally {
     runtime.timer.clearInterval(heartbeatTimer);
@@ -505,6 +515,8 @@ export async function runForeground(
           reason: cycleResult.reason,
           currentAgent: null,
           lastHeartbeat: runtime.timer.now(),
+          worktreeProjectPath: cycleResult.retainedWorktree?.worktreeProjectPath,
+          worktreeBranch: cycleResult.retainedWorktree?.worktreeBranch,
         },
         {
           expectedSessionId: sessionId,
@@ -520,6 +532,8 @@ export async function runForeground(
           reason: "Review exited unexpectedly",
           currentAgent: null,
           lastHeartbeat: runtime.timer.now(),
+          worktreeProjectPath: undefined,
+          worktreeBranch: undefined,
         },
         {
           expectedSessionId: sessionId,

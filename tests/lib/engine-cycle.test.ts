@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
+import { join, relative } from "node:path";
+import { CONFIG_DIR } from "@/lib/config";
 import { runReviewCycle } from "@/lib/engine";
-import type { GitCheckpoint } from "@/lib/git";
+import type { GitCheckpoint, GitSessionWorktree, RetainedSessionWorktree } from "@/lib/git";
+import { getProjectWorktreesDir } from "@/lib/logger";
 import type { StructuredParseResult } from "@/lib/structured-output";
 import {
   type AgentRole,
@@ -18,6 +21,10 @@ import { buildFixSummary } from "../test-utils/fix-summary";
 const TEST_PROJECT_PATH = "/tmp/engine-cycle-project";
 const TEST_SESSION_PATH = "/tmp/engine-cycle-session.jsonl";
 const TEST_SESSION_ID = "engine-cycle-session-id";
+const TEST_WORKTREE_PROJECT_PATH = join(
+  getProjectWorktreesDir(CONFIG_DIR, TEST_PROJECT_PATH),
+  "session"
+);
 
 type RunReviewCycleDeps = NonNullable<Parameters<typeof runReviewCycle>[4]>;
 
@@ -26,6 +33,7 @@ interface RunAgentCall {
   prompt: string;
   timeout: number;
   reviewOptions?: ReviewOptions;
+  cwd?: string;
 }
 
 interface LockfileUpdateCall {
@@ -54,11 +62,17 @@ interface HarnessState {
   createCheckpointCalls: Array<{ projectPath: string; label: string }>;
   rollbackCalls: Array<{ projectPath: string; checkpoint: GitCheckpoint }>;
   discardCalls: Array<{ projectPath: string; checkpoint: GitCheckpoint }>;
+  createSessionWorktreeCalls: Array<{ projectPath: string; worktreeId: string }>;
+  discardSessionWorktreeCalls: GitSessionWorktree[];
+  finalizeSessionWorktreeCalls: GitSessionWorktree[];
   reviewParseQueue: Array<StructuredParseResult<ReviewSummary>>;
   fixParseQueue: Array<StructuredParseResult<FixSummary>>;
   createCheckpointError: Error | null;
   rollbackError: Error | null;
   discardError: Error | null;
+  createSessionWorktreeError: Error | null;
+  discardSessionWorktreeError: Error | null;
+  finalizeSessionWorktreeError: Error | null;
   updateLockfileFailuresRemaining: number;
   onRunAgent?: (role: AgentRole) => void;
   onAppendLog?: (entry: LogEntry) => void;
@@ -74,11 +88,17 @@ function createHarnessState(): HarnessState {
     createCheckpointCalls: [],
     rollbackCalls: [],
     discardCalls: [],
+    createSessionWorktreeCalls: [],
+    discardSessionWorktreeCalls: [],
+    finalizeSessionWorktreeCalls: [],
     reviewParseQueue: [],
     fixParseQueue: [],
     createCheckpointError: null,
     rollbackError: null,
     discardError: null,
+    createSessionWorktreeError: null,
+    discardSessionWorktreeError: null,
+    finalizeSessionWorktreeError: null,
     updateLockfileFailuresRemaining: 0,
     onRunAgent: undefined,
     onAppendLog: undefined,
@@ -259,13 +279,15 @@ function createDependencies(state: HarnessState): RunReviewCycleDeps {
       _config: Config,
       prompt = "",
       timeout = 0,
-      reviewOptions?: ReviewOptions
+      reviewOptions?: ReviewOptions,
+      cwd?: string
     ): Promise<IterationResult> => {
       state.runAgentCalls.push({
         role,
         prompt,
         timeout,
         reviewOptions,
+        cwd,
       });
       state.onRunAgent?.(role);
 
@@ -279,6 +301,43 @@ function createDependencies(state: HarnessState): RunReviewCycleDeps {
       }
 
       return nextStep.result;
+    },
+    createSessionWorktree: (projectPath: string, worktreeId: string): GitSessionWorktree => {
+      state.createSessionWorktreeCalls.push({ projectPath, worktreeId });
+      if (state.createSessionWorktreeError) {
+        throw state.createSessionWorktreeError;
+      }
+
+      return {
+        sourceProjectPath: projectPath,
+        sourceRepoPath: TEST_PROJECT_PATH,
+        worktreeProjectPath: TEST_WORKTREE_PROJECT_PATH,
+        agentProjectPath: (() => {
+          const projectSubpath = relative(TEST_PROJECT_PATH, projectPath);
+          return projectSubpath
+            ? join(TEST_WORKTREE_PROJECT_PATH, projectSubpath)
+            : TEST_WORKTREE_PROJECT_PATH;
+        })(),
+        retainedBranch: "rr-worktree-test",
+        headKind: "detached",
+      };
+    },
+    discardSessionWorktree: (worktree: GitSessionWorktree) => {
+      state.discardSessionWorktreeCalls.push(worktree);
+      if (state.discardSessionWorktreeError) {
+        throw state.discardSessionWorktreeError;
+      }
+    },
+    finalizeSessionWorktree: (worktree: GitSessionWorktree): RetainedSessionWorktree => {
+      state.finalizeSessionWorktreeCalls.push(worktree);
+      if (state.finalizeSessionWorktreeError) {
+        throw state.finalizeSessionWorktreeError;
+      }
+
+      return {
+        worktreeProjectPath: worktree.worktreeProjectPath,
+        worktreeBranch: worktree.retainedBranch,
+      };
     },
     createCheckpoint: (projectPath: string, label: string): GitCheckpoint => {
       state.createCheckpointCalls.push({ projectPath, label });
@@ -403,12 +462,26 @@ describe("runReviewCycle", () => {
       expect(result.iterations).toBe(1);
       expect(result.reason).toContain("No issues found");
       expect(result.sessionPath).toBe(TEST_SESSION_PATH);
+      expect(result.retainedWorktree?.worktreeProjectPath).toBe(TEST_WORKTREE_PROJECT_PATH);
+      expect(result.retainedWorktree?.worktreeBranch).toBe("rr-worktree-test");
 
       expect(state.runAgentCalls.map((call) => call.role)).toEqual(["reviewer", "fixer"]);
+      expect(state.runAgentCalls.map((call) => call.cwd)).toEqual([
+        TEST_WORKTREE_PROJECT_PATH,
+        TEST_WORKTREE_PROJECT_PATH,
+      ]);
       expect(iterationRoles).toEqual(["reviewer", "fixer"]);
       expect(
         state.updateLockfileCalls.some((call) => call.updates.reviewSummary !== undefined)
       ).toBe(true);
+      expect(
+        state.updateLockfileCalls.some(
+          (call) => call.updates.worktreeProjectPath === TEST_WORKTREE_PROJECT_PATH
+        )
+      ).toBe(true);
+      expect(state.createSessionWorktreeCalls).toHaveLength(1);
+      expect(state.finalizeSessionWorktreeCalls).toHaveLength(1);
+      expect(state.discardSessionWorktreeCalls).toHaveLength(0);
 
       const iterationEntry = state.appendedEntries.find((entry) => entry.type === "iteration");
       expect(iterationEntry?.type).toBe("iteration");
@@ -422,6 +495,92 @@ describe("runReviewCycle", () => {
       if (sessionEnd?.type === "session_end") {
         expect(sessionEnd.status).toBe("completed");
       }
+    });
+  });
+
+  test("runs agents from the matching subdirectory inside the session worktree", async () => {
+    await withHarness(async (state, deps) => {
+      const nestedProjectPath = join(TEST_PROJECT_PATH, "packages", "cli");
+      const reviewSummary = buildReviewSummary();
+      const cleanFixSummary = buildFixSummary({
+        decision: "NO_CHANGES_NEEDED",
+        stop_iteration: true,
+        fixes: [],
+        skipped: [],
+      });
+
+      queueRunAgentSteps(
+        state,
+        resultStep(successResult("review output")),
+        resultStep(successResult("fix output"))
+      );
+      queueReviewParses(state, parseReviewSuccess(reviewSummary));
+      queueFixParses(state, parseFixSuccess(cleanFixSummary));
+
+      await runReviewCycle(
+        createConfig(),
+        undefined,
+        undefined,
+        {
+          projectPath: nestedProjectPath,
+          sessionId: TEST_SESSION_ID,
+        },
+        deps
+      );
+
+      expect(state.runAgentCalls.map((call) => call.cwd)).toEqual([
+        join(TEST_WORKTREE_PROJECT_PATH, "packages", "cli"),
+        join(TEST_WORKTREE_PROJECT_PATH, "packages", "cli"),
+      ]);
+    });
+  });
+
+  test("discards the worktree when fixer fails", async () => {
+    await withHarness(async (state, deps) => {
+      queueRunAgentSteps(
+        state,
+        resultStep(successResult("review output")),
+        resultStep(failureResult("fixer failed", 17))
+      );
+      queueReviewParses(state, parseReviewSuccess(buildReviewSummary()));
+      queueFixParses(state, parseFixFailure("unusable fix output"));
+
+      const result = await runReviewCycle(
+        createConfig(),
+        undefined,
+        undefined,
+        {
+          projectPath: TEST_PROJECT_PATH,
+          sessionId: TEST_SESSION_ID,
+        },
+        deps
+      );
+
+      expect(result.success).toBe(false);
+      expect(state.createSessionWorktreeCalls).toHaveLength(1);
+      expect(state.discardSessionWorktreeCalls).toHaveLength(1);
+      expect(state.finalizeSessionWorktreeCalls).toHaveLength(0);
+    });
+  });
+
+  test("records the session path before worktree setup so early failures stay traceable", async () => {
+    await withHarness(async (state, deps) => {
+      state.createSessionWorktreeError = new Error("worktree setup exploded");
+
+      const result = await runReviewCycle(
+        createConfig(),
+        undefined,
+        undefined,
+        {
+          projectPath: TEST_PROJECT_PATH,
+          sessionId: TEST_SESSION_ID,
+        },
+        deps
+      );
+
+      expect(result.success).toBe(false);
+      expect(state.updateLockfileCalls[0]?.updates.sessionPath).toBe(TEST_SESSION_PATH);
+      expect(state.updateLockfileCalls[0]?.expectedSessionId).toBe(TEST_SESSION_ID);
     });
   });
 

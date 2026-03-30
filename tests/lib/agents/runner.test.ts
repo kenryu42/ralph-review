@@ -285,4 +285,30 @@ describe("runAgent", () => {
     expect(result.exitCode).toBe(1);
     expect(result.output).toContain("[Error: Error: spawn exploded]");
   });
+
+  test("passes an explicit working directory to the spawned agent process", async () => {
+    let spawnCwd: string | undefined;
+
+    AGENTS.codex = {
+      config: {
+        command: "mock-cwd-command",
+        buildArgs: () => [],
+        buildEnv: () => ({ PATH: process.env.PATH ?? "" }),
+      },
+      usesJsonl: false,
+      extractResult: (output) => output,
+    };
+
+    Bun.spawn = ((_command, options) => {
+      spawnCwd = (options as { cwd?: string }).cwd;
+      return createMockProcess(createTextStream("ok\n"), null, Promise.resolve(0));
+    }) as typeof Bun.spawn;
+
+    const result = await withMutedTerminalStreams(() =>
+      runAgent("reviewer", baseConfig, "prompt", 5000, undefined, "/tmp/sandbox-repo")
+    );
+
+    expect(spawnCwd).toBe("/tmp/sandbox-repo");
+    expect(result.success).toBe(true);
+  });
 });

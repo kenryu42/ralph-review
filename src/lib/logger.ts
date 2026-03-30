@@ -131,6 +131,13 @@ export function getProjectLogsDir(storageRoot: string = CONFIG_DIR, projectPath:
   return join(getProjectStorageDir(storageRoot, projectPath), "logs");
 }
 
+export function getProjectWorktreesDir(
+  storageRoot: string = CONFIG_DIR,
+  projectPath: string
+): string {
+  return join(getProjectStorageDir(storageRoot, projectPath), "worktrees");
+}
+
 export function getProjectNameFromLogPath(logPath: string): string {
   const logDir = dirname(logPath);
   if (basename(logDir) === "logs") {

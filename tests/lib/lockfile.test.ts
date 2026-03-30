@@ -63,6 +63,22 @@ describe("lockfile", () => {
       expect(typeof data?.lastHeartbeat).toBe("number");
     });
 
+    test("persists retained worktree metadata", async () => {
+      const projectPath = "/Users/test/project-with-worktree";
+
+      await createLockfile(tempLogsDir, projectPath, "rr-test-123", {
+        branch: "main",
+        worktreeProjectPath: "/Users/test/.config/ralph-review/project/worktrees/session-123",
+        worktreeBranch: "rr-worktree-session-123",
+      });
+
+      const data = await readLockfile(tempLogsDir, projectPath);
+      expect(data?.worktreeProjectPath).toBe(
+        "/Users/test/.config/ralph-review/project/worktrees/session-123"
+      );
+      expect(data?.worktreeBranch).toBe("rr-worktree-session-123");
+    });
+
     test("readLockfile returns null for missing lock", async () => {
       const data = await readLockfile(tempLogsDir, "/nonexistent/path");
       expect(data).toBeNull();

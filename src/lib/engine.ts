@@ -8,8 +8,13 @@ import {
 import { AGENTS, runAgent } from "./agents";
 import {
   createCheckpoint,
+  createSessionWorktree,
   discardCheckpoint,
+  discardSessionWorktree,
+  finalizeSessionWorktree,
   type GitCheckpoint,
+  type GitSessionWorktree,
+  type RetainedSessionWorktree,
   rollbackToCheckpoint,
 } from "./git";
 import { updateLockfile } from "./lockfile";
@@ -46,7 +51,10 @@ interface RunReviewCycleDependencies {
   AGENTS: typeof AGENTS;
   runAgent: typeof runAgent;
   createCheckpoint: typeof createCheckpoint;
+  createSessionWorktree: typeof createSessionWorktree;
   discardCheckpoint: typeof discardCheckpoint;
+  discardSessionWorktree: typeof discardSessionWorktree;
+  finalizeSessionWorktree: typeof finalizeSessionWorktree;
   rollbackToCheckpoint: typeof rollbackToCheckpoint;
   updateLockfile: typeof updateLockfile;
   appendLog: typeof appendLog;
@@ -65,7 +73,10 @@ const DEFAULT_RUN_REVIEW_CYCLE_DEPENDENCIES: RunReviewCycleDependencies = {
   AGENTS,
   runAgent,
   createCheckpoint,
+  createSessionWorktree,
   discardCheckpoint,
+  discardSessionWorktree,
+  finalizeSessionWorktree,
   rollbackToCheckpoint,
   updateLockfile,
   appendLog,
@@ -197,11 +208,12 @@ async function runAgentWithRetry(
   deps: RunReviewCycleDependencies,
   prompt: string = "",
   timeout: number = config.iterationTimeout,
-  reviewOptions?: ReviewOptions
+  reviewOptions?: ReviewOptions,
+  cwd?: string
 ): Promise<IterationResult> {
   const retryConfig = config.retry ?? DEFAULT_RETRY_CONFIG;
 
-  let result = await deps.runAgent(role, config, prompt, timeout, reviewOptions);
+  let result = await deps.runAgent(role, config, prompt, timeout, reviewOptions, cwd);
 
   if (result.success) {
     return result;
@@ -216,7 +228,7 @@ async function runAgentWithRetry(
     );
     await sleep(delay);
 
-    result = await deps.runAgent(role, config, prompt, timeout, reviewOptions);
+    result = await deps.runAgent(role, config, prompt, timeout, reviewOptions, cwd);
 
     if (result.success) {
       return result;
@@ -234,6 +246,7 @@ export interface CycleResult {
   iterations: number;
   reason: string;
   sessionPath: string;
+  retainedWorktree?: RetainedSessionWorktree;
 }
 
 const REVIEWER_SUMMARY_RETRY_COUNT = 1;
@@ -286,6 +299,44 @@ export type OnIterationCallback = (
 export interface RunReviewRuntimeContext {
   projectPath?: string;
   sessionId?: string;
+}
+
+function createWorktreeFailureResult(
+  sessionPath: string,
+  iteration: number,
+  reason: string
+): CycleResult {
+  return {
+    success: false,
+    finalStatus: "failed",
+    iterations: iteration,
+    reason,
+    sessionPath,
+  };
+}
+
+function applyWorktreeCleanupFailure(
+  result: CycleResult | undefined,
+  sessionPath: string,
+  iteration: number,
+  phase: "finalize" | "discard",
+  error: unknown
+): CycleResult {
+  const detail = `${error}`;
+
+  if (!result) {
+    return createWorktreeFailureResult(
+      sessionPath,
+      iteration,
+      `Session worktree ${phase} failed: ${detail}`
+    );
+  }
+
+  result.success = false;
+  result.finalStatus = "failed";
+  result.reason = `${result.reason} Session worktree ${phase} failed (${detail}).`;
+  result.retainedWorktree = undefined;
+  return result;
 }
 
 export function extractJsonBlock(output: string): string | null {
@@ -410,33 +461,6 @@ export async function runReviewCycle(
   const sessionId = runtimeContext?.sessionId;
   const gitBranch = await deps.getGitBranch(projectPath);
   const sessionPath = await deps.createLogSession(undefined, projectPath, gitBranch);
-  if (sessionId) {
-    await deps
-      .updateLockfile(
-        undefined,
-        projectPath,
-        {
-          sessionPath,
-        },
-        {
-          expectedSessionId: sessionId,
-        }
-      )
-      .catch(() => {});
-  }
-  const systemEntry: SystemEntry = {
-    type: "system",
-    timestamp: Date.now(),
-    sessionId,
-    projectPath,
-    gitBranch,
-    reviewer: config.reviewer,
-    fixer: config.fixer,
-    codeSimplifier: config["code-simplifier"],
-    maxIterations: config.maxIterations,
-    reviewOptions,
-  };
-  await deps.appendLog(sessionPath, systemEntry);
 
   let finalResult: CycleResult | undefined;
   let unhandledError: unknown;
@@ -448,8 +472,67 @@ export async function runReviewCycle(
   let iteration = 0;
   let hasRemainingIssues = true;
   const retryConfig = config.retry ?? DEFAULT_RETRY_CONFIG;
+  let worktree: GitSessionWorktree | null = null;
 
   try {
+    if (sessionId) {
+      await deps
+        .updateLockfile(
+          undefined,
+          projectPath,
+          {
+            sessionPath,
+          },
+          {
+            expectedSessionId: sessionId,
+          }
+        )
+        .catch(() => {});
+    }
+
+    try {
+      worktree = deps.createSessionWorktree(projectPath, sessionId ?? "session");
+    } catch (error) {
+      return finish(
+        createWorktreeFailureResult(sessionPath, 0, `Failed to create session worktree: ${error}`)
+      );
+    }
+
+    if (sessionId) {
+      await deps
+        .updateLockfile(
+          undefined,
+          projectPath,
+          {
+            sessionPath,
+            worktreeProjectPath: worktree.worktreeProjectPath,
+            worktreeBranch: worktree.retainedBranch,
+          },
+          {
+            expectedSessionId: sessionId,
+          }
+        )
+        .catch(() => {});
+    }
+
+    const systemEntry: SystemEntry = {
+      type: "system",
+      timestamp: Date.now(),
+      sessionId,
+      projectPath,
+      gitBranch,
+      worktreeProjectPath: worktree.worktreeProjectPath,
+      worktreeBranch: worktree.retainedBranch,
+      reviewer: config.reviewer,
+      fixer: config.fixer,
+      codeSimplifier: config["code-simplifier"],
+      maxIterations: config.maxIterations,
+      reviewOptions,
+    };
+    await deps.appendLog(sessionPath, systemEntry);
+
+    const agentProjectPath = worktree.agentProjectPath;
+
     if (reviewOptions?.simplifier) {
       await deps
         .updateLockfile(
@@ -466,7 +549,7 @@ export async function runReviewCycle(
       const { baseBranch, commitSha, customInstructions } = reviewOptions;
 
       const simplifierPrompt = deps.createCodeSimplifierPrompt({
-        repoPath: projectPath,
+        repoPath: agentProjectPath,
         baseBranch,
         commitSha,
         customInstructions,
@@ -477,7 +560,8 @@ export async function runReviewCycle(
         deps,
         simplifierPrompt,
         config.iterationTimeout,
-        reviewOptions
+        reviewOptions,
+        agentProjectPath
       );
 
       if (!simplifierResult.success) {
@@ -539,7 +623,7 @@ export async function runReviewCycle(
       printHeader("Running reviewer...", "\x1b[36m");
 
       const reviewerPrompt = deps.createReviewerPrompt({
-        repoPath: projectPath,
+        repoPath: agentProjectPath,
         baseBranch: reviewOptions?.baseBranch,
         commitSha: reviewOptions?.commitSha,
         customInstructions: reviewOptions?.customInstructions,
@@ -552,7 +636,8 @@ export async function runReviewCycle(
         deps,
         reviewerPrompt,
         config.iterationTimeout,
-        reviewOptions
+        reviewOptions,
+        agentProjectPath
       );
 
       if (!reviewResult.success) {
@@ -599,7 +684,8 @@ export async function runReviewCycle(
             deps,
             reviewRetryPrompt,
             config.iterationTimeout,
-            reviewOptions
+            reviewOptions,
+            agentProjectPath
           );
 
           if (!retryResult.success) {
@@ -713,7 +799,7 @@ export async function runReviewCycle(
       let checkpoint: GitCheckpoint | null = null;
       try {
         checkpoint = deps.createCheckpoint(
-          projectPath,
+          agentProjectPath,
           `${sessionId ?? "session"}-iter-${iteration}-${Date.now()}`
         );
       } catch (error) {
@@ -740,14 +826,22 @@ export async function runReviewCycle(
           return;
         }
         try {
-          deps.discardCheckpoint(projectPath, checkpoint);
+          deps.discardCheckpoint(agentProjectPath, checkpoint);
         } catch (error) {
           console.log(`  ⚠️  Failed to discard checkpoint: ${error}`);
         }
         checkpoint = null;
       };
 
-      let fixResult = await runAgentWithRetry("fixer", config, deps, fixerPrompt);
+      let fixResult = await runAgentWithRetry(
+        "fixer",
+        config,
+        deps,
+        fixerPrompt,
+        config.iterationTimeout,
+        undefined,
+        agentProjectPath
+      );
       let resultText = await fixerAgentModule.extractResult(fixResult.output);
       let fixParseResult = deps.parseFixSummaryOutput(resultText, fixResult.output);
       let fixSummary = fixParseResult.ok ? fixParseResult.value : null;
@@ -762,7 +856,15 @@ export async function runReviewCycle(
             `  ⚠️  Fixer output missing structured summary (${fixParseResult.failureReason}). Retrying fixer with format reminder...`
           );
           const summaryRetryPrompt = `${fixerPrompt}\n${deps.createFixerSummaryRetryReminder()}`;
-          fixResult = await runAgentWithRetry("fixer", config, deps, summaryRetryPrompt);
+          fixResult = await runAgentWithRetry(
+            "fixer",
+            config,
+            deps,
+            summaryRetryPrompt,
+            config.iterationTimeout,
+            undefined,
+            agentProjectPath
+          );
           resultText = await fixerAgentModule.extractResult(fixResult.output);
           fixParseResult = deps.parseFixSummaryOutput(resultText, fixResult.output);
           fixSummary = fixParseResult.ok ? fixParseResult.value : null;
@@ -777,7 +879,7 @@ export async function runReviewCycle(
         console.log(
           `  ❌ Fixer returned incomplete output (missing fix summary JSON: ${fixParseResult.failureReason}).`
         );
-        const rollback = checkpoint ? applyRollback(projectPath, checkpoint, deps) : undefined;
+        const rollback = checkpoint ? applyRollback(agentProjectPath, checkpoint, deps) : undefined;
         const entry = createIterationEntry(iteration, iterationStartTime, {
           error: {
             phase: "fixer",
@@ -802,7 +904,7 @@ export async function runReviewCycle(
       }
 
       if (!fixResult.success) {
-        const rollback = checkpoint ? applyRollback(projectPath, checkpoint, deps) : undefined;
+        const rollback = checkpoint ? applyRollback(agentProjectPath, checkpoint, deps) : undefined;
         return finish(
           await handleAgentFailure(
             "fixer",
@@ -867,6 +969,40 @@ export async function runReviewCycle(
     unhandledError = error;
     throw error;
   } finally {
+    if (worktree) {
+      if (finalResult?.success && finalResult.finalStatus === "completed") {
+        try {
+          finalResult.retainedWorktree = deps.finalizeSessionWorktree(worktree);
+        } catch (error) {
+          try {
+            deps.discardSessionWorktree(worktree);
+          } catch (discardError) {
+            console.log(`  ⚠️  Failed to discard worktree after finalize error: ${discardError}`);
+          }
+          finalResult = applyWorktreeCleanupFailure(
+            finalResult,
+            sessionPath,
+            iteration,
+            "finalize",
+            error
+          );
+        }
+      } else {
+        try {
+          deps.discardSessionWorktree(worktree);
+        } catch (error) {
+          console.log(`  ⚠️  Failed to discard session worktree: ${error}`);
+          finalResult = applyWorktreeCleanupFailure(
+            finalResult,
+            sessionPath,
+            iteration,
+            "discard",
+            error
+          );
+        }
+      }
+    }
+
     const sessionEndEntry = createSessionEndEntry(
       finalResult,
       unhandledError,

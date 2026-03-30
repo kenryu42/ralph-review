@@ -1,4 +1,6 @@
-import { isAbsolute, join } from "node:path";
+import { isAbsolute, join, relative } from "node:path";
+import { CONFIG_DIR } from "./config";
+import { getProjectWorktreesDir } from "./logger";
 
 function runGitForStdout(cwd: string, args: string[]): string | undefined {
   const result = Bun.spawnSync(["git", ...args], {
@@ -161,6 +163,21 @@ const CHECKPOINT_SNAPSHOT_DIR = "ralph-review/checkpoints";
 const CHECKPOINT_SNAPSHOT_ARCHIVE = "worktree.tar";
 const CHECKPOINT_SNAPSHOT_INDEX = "index";
 
+export interface GitSessionWorktree {
+  sourceProjectPath: string;
+  sourceRepoPath: string;
+  worktreeProjectPath: string;
+  agentProjectPath: string;
+  retainedBranch: string;
+  headKind: "detached" | "orphan";
+  preserveBranchOnDiscard?: boolean;
+}
+
+export interface RetainedSessionWorktree {
+  worktreeProjectPath: string;
+  worktreeBranch: string;
+}
+
 export type GitCheckpoint =
   | {
       kind: "clean";
@@ -204,6 +221,112 @@ function hasInitialCommit(repoPath: string): boolean {
   return runGit(repoPath, ["rev-parse", "--verify", "HEAD"]).exitCode === 0;
 }
 
+function resolveGitDir(repoRoot: string, context: string): string {
+  const gitDir = assertGitOk(repoRoot, ["rev-parse", "--git-dir"], context);
+  return toAbsolutePath(repoRoot, gitDir);
+}
+
+function createSnapshotDir(
+  absoluteGitDir: string,
+  snapshotNamespace: string,
+  category: string
+): string {
+  const uniqueSuffix = `${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
+  return join(absoluteGitDir, category, `${snapshotNamespace}-${uniqueSuffix}`);
+}
+
+function createWorkingTreeSnapshot(
+  repoPath: string,
+  snapshotNamespace: string,
+  context: string
+): string {
+  const repoRoot = assertGitOk(repoPath, ["rev-parse", "--show-toplevel"], context);
+  const absoluteGitDir = resolveGitDir(repoRoot, context);
+  const snapshotDir = createSnapshotDir(absoluteGitDir, snapshotNamespace, CHECKPOINT_SNAPSHOT_DIR);
+  const archivePath = join(snapshotDir, CHECKPOINT_SNAPSHOT_ARCHIVE);
+  const gitIndexPath = join(absoluteGitDir, "index");
+  const snapshotIndexPath = join(snapshotDir, CHECKPOINT_SNAPSHOT_INDEX);
+
+  assertCommandOk(repoRoot, ["mkdir", "-p", snapshotDir], context);
+  assertCommandOk(
+    repoRoot,
+    ["tar", "-C", repoRoot, "--exclude=.git", "-cf", archivePath, "."],
+    context
+  );
+
+  if (runCommand(repoRoot, ["test", "-f", gitIndexPath]).exitCode === 0) {
+    assertCommandOk(repoRoot, ["cp", gitIndexPath, snapshotIndexPath], context);
+  }
+
+  return snapshotDir;
+}
+
+function restoreWorkingTreeSnapshot(repoPath: string, snapshotDir: string, context: string): void {
+  const repoRoot = assertGitOk(repoPath, ["rev-parse", "--show-toplevel"], context);
+  const archivePath = join(snapshotDir, CHECKPOINT_SNAPSHOT_ARCHIVE);
+  const snapshotIndexPath = join(snapshotDir, CHECKPOINT_SNAPSHOT_INDEX);
+  const absoluteGitDir = resolveGitDir(repoRoot, context);
+  const gitIndexPath = join(absoluteGitDir, "index");
+
+  assertCommandOk(
+    repoRoot,
+    [
+      "find",
+      repoRoot,
+      "-mindepth",
+      "1",
+      "-maxdepth",
+      "1",
+      "!",
+      "-name",
+      ".git",
+      "-exec",
+      "rm",
+      "-rf",
+      "{}",
+      "+",
+    ],
+    context
+  );
+  assertCommandOk(repoRoot, ["tar", "-C", repoRoot, "-xf", archivePath], context);
+
+  if (runCommand(repoRoot, ["test", "-f", snapshotIndexPath]).exitCode === 0) {
+    assertCommandOk(repoRoot, ["cp", snapshotIndexPath, gitIndexPath], context);
+  } else {
+    assertCommandOk(repoRoot, ["rm", "-f", gitIndexPath], context);
+  }
+}
+
+function discardWorkingTreeSnapshot(repoPath: string, snapshotDir: string, context: string): void {
+  assertCommandOk(repoPath, ["rm", "-rf", snapshotDir], context);
+}
+
+function resolveAvailableBranchName(repoPath: string, baseBranch: string): string {
+  if (
+    runGit(repoPath, ["show-ref", "--verify", "--quiet", `refs/heads/${baseBranch}`]).exitCode !== 0
+  ) {
+    return baseBranch;
+  }
+
+  return `${baseBranch}-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`;
+}
+
+function createWorktreePath(sourceProjectPath: string, worktreeId: string): string {
+  return join(
+    getProjectWorktreesDir(CONFIG_DIR, sourceProjectPath),
+    `${worktreeId}-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`
+  );
+}
+
+function resolveAgentProjectPath(
+  sourceRepoPath: string,
+  sourceProjectPath: string,
+  worktreeProjectPath: string
+): string {
+  const projectSubpath = relative(sourceRepoPath, sourceProjectPath);
+  return projectSubpath ? join(worktreeProjectPath, projectSubpath) : worktreeProjectPath;
+}
+
 function resolveStashTop(repoPath: string): string | undefined {
   const result = runGit(repoPath, ["rev-parse", "--verify", "refs/stash"]);
   if (result.exitCode !== 0) {
@@ -217,47 +340,181 @@ function toAbsolutePath(basePath: string, path: string): string {
 }
 
 function createSnapshotCheckpoint(repoPath: string, normalizedId: string): GitCheckpoint {
-  const repoRoot = assertGitOk(
+  const snapshotDir = createWorkingTreeSnapshot(
     repoPath,
-    ["rev-parse", "--show-toplevel"],
-    "Failed to resolve repository root"
-  );
-  const gitDir = assertGitOk(
-    repoRoot,
-    ["rev-parse", "--git-dir"],
-    "Failed to resolve git directory"
-  );
-  const absoluteGitDir = toAbsolutePath(repoRoot, gitDir);
-  const uniqueSuffix = `${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
-  const snapshotDir = join(
-    absoluteGitDir,
-    CHECKPOINT_SNAPSHOT_DIR,
-    `${normalizedId}-${uniqueSuffix}`
-  );
-  const archivePath = join(snapshotDir, CHECKPOINT_SNAPSHOT_ARCHIVE);
-  const gitIndexPath = join(absoluteGitDir, "index");
-  const snapshotIndexPath = join(snapshotDir, CHECKPOINT_SNAPSHOT_INDEX);
-
-  assertCommandOk(repoRoot, ["mkdir", "-p", snapshotDir], "Failed to create snapshot checkpoint");
-  assertCommandOk(
-    repoRoot,
-    ["tar", "-C", repoRoot, "--exclude=.git", "-cf", archivePath, "."],
+    normalizedId,
     "Failed to capture checkpoint snapshot"
   );
-
-  if (runCommand(repoRoot, ["test", "-f", gitIndexPath]).exitCode === 0) {
-    assertCommandOk(
-      repoRoot,
-      ["cp", gitIndexPath, snapshotIndexPath],
-      "Failed to capture checkpoint index snapshot"
-    );
-  }
 
   return {
     kind: "snapshot",
     id: normalizedId,
     snapshotDir,
   };
+}
+
+export function createSessionWorktree(
+  sourceProjectPath: string,
+  worktreeId: string
+): GitSessionWorktree {
+  const normalizedId = normalizeCheckpointId(worktreeId);
+  const sourceRepoPath = assertGitOk(
+    sourceProjectPath,
+    ["rev-parse", "--show-toplevel"],
+    "Failed to resolve source repository root"
+  );
+  const worktreeProjectPath = createWorktreePath(sourceProjectPath, normalizedId);
+  const retainedBranch = resolveAvailableBranchName(
+    sourceProjectPath,
+    `rr-worktree-${normalizedId}`
+  );
+  const headKind: GitSessionWorktree["headKind"] = hasInitialCommit(sourceProjectPath)
+    ? "detached"
+    : "orphan";
+  const worktree: GitSessionWorktree = {
+    sourceProjectPath,
+    sourceRepoPath,
+    worktreeProjectPath,
+    agentProjectPath: resolveAgentProjectPath(
+      sourceRepoPath,
+      sourceProjectPath,
+      worktreeProjectPath
+    ),
+    retainedBranch,
+    headKind,
+    preserveBranchOnDiscard: false,
+  };
+
+  try {
+    assertCommandOk(
+      sourceRepoPath,
+      ["mkdir", "-p", getProjectWorktreesDir(CONFIG_DIR, sourceProjectPath)],
+      "Failed to prepare session worktree directory"
+    );
+
+    if (headKind === "detached") {
+      assertGitOk(
+        sourceProjectPath,
+        ["worktree", "add", "--detach", worktreeProjectPath, "HEAD"],
+        "Failed to create detached session worktree"
+      );
+    } else {
+      assertGitOk(
+        sourceProjectPath,
+        ["worktree", "add", "--orphan", "-b", retainedBranch, worktreeProjectPath],
+        "Failed to create orphan session worktree"
+      );
+    }
+
+    const snapshotDir = createWorkingTreeSnapshot(
+      sourceProjectPath,
+      `worktree-${normalizedId}`,
+      "Failed to capture session worktree snapshot"
+    );
+
+    try {
+      restoreWorkingTreeSnapshot(
+        worktreeProjectPath,
+        snapshotDir,
+        "Failed to hydrate session worktree"
+      );
+    } finally {
+      discardWorkingTreeSnapshot(
+        sourceProjectPath,
+        snapshotDir,
+        "Failed to discard session worktree snapshot"
+      );
+    }
+
+    return worktree;
+  } catch (error) {
+    try {
+      discardSessionWorktree(worktree);
+    } catch (cleanupError) {
+      throw new Error(`${error} Cleanup also failed: ${cleanupError}`);
+    }
+    throw error;
+  }
+}
+
+export function finalizeSessionWorktree(worktree: GitSessionWorktree): RetainedSessionWorktree {
+  let worktreeBranch = worktree.retainedBranch;
+
+  if (worktree.headKind === "detached") {
+    if (
+      runGit(worktree.worktreeProjectPath, [
+        "show-ref",
+        "--verify",
+        "--quiet",
+        `refs/heads/${worktreeBranch}`,
+      ]).exitCode === 0
+    ) {
+      worktreeBranch = resolveAvailableBranchName(worktree.worktreeProjectPath, worktreeBranch);
+    }
+
+    assertGitOk(
+      worktree.worktreeProjectPath,
+      ["switch", "-c", worktreeBranch],
+      "Failed to retain session worktree on a branch"
+    );
+  } else {
+    worktreeBranch =
+      runGitForStdout(worktree.worktreeProjectPath, ["branch", "--show-current"]) || worktreeBranch;
+  }
+
+  worktree.retainedBranch = worktreeBranch;
+  worktree.preserveBranchOnDiscard = true;
+
+  return {
+    worktreeProjectPath: worktree.worktreeProjectPath,
+    worktreeBranch,
+  };
+}
+
+export function discardSessionWorktree(worktree: GitSessionWorktree): void {
+  const worktreeList = runGit(worktree.sourceRepoPath, ["worktree", "list", "--porcelain"]);
+  const hasRegisteredWorktree =
+    worktreeList.exitCode === 0 &&
+    worktreeList.stdout.includes(`worktree ${worktree.worktreeProjectPath}`);
+
+  if (hasRegisteredWorktree) {
+    const removeResult = runGit(worktree.sourceRepoPath, [
+      "worktree",
+      "remove",
+      "--force",
+      worktree.worktreeProjectPath,
+    ]);
+    if (removeResult.exitCode !== 0) {
+      throw new Error(
+        `Failed to discard session worktree ${worktree.worktreeProjectPath}: ${removeResult.stderr || removeResult.stdout}`
+      );
+    }
+  }
+
+  assertCommandOk(
+    worktree.sourceRepoPath,
+    ["rm", "-rf", worktree.worktreeProjectPath],
+    `Failed to remove worktree directory ${worktree.worktreeProjectPath}`
+  );
+
+  if (worktree.headKind === "orphan" && worktree.preserveBranchOnDiscard !== true) {
+    const deleteBranch = runGit(worktree.sourceRepoPath, ["branch", "-D", worktree.retainedBranch]);
+    if (
+      deleteBranch.exitCode !== 0 &&
+      !deleteBranch.stderr.includes(`branch '${worktree.retainedBranch}' not found`)
+    ) {
+      throw new Error(
+        `Failed to discard worktree branch ${worktree.retainedBranch}: ${deleteBranch.stderr || deleteBranch.stdout}`
+      );
+    }
+  }
+
+  const pruneResult = runGit(worktree.sourceRepoPath, ["worktree", "prune"]);
+  if (pruneResult.exitCode !== 0) {
+    throw new Error(
+      `Failed to prune session worktree metadata: ${pruneResult.stderr || pruneResult.stdout}`
+    );
+  }
 }
 
 export function createCheckpoint(repoPath: string, checkpointId: string): GitCheckpoint {
@@ -314,12 +571,9 @@ export function createCheckpoint(repoPath: string, checkpointId: string): GitChe
 
 export function discardCheckpoint(repoPath: string, checkpoint: GitCheckpoint): void {
   if (checkpoint.kind === "snapshot") {
-    if (runCommand(repoPath, ["test", "-d", checkpoint.snapshotDir]).exitCode !== 0) {
-      return;
-    }
-    assertCommandOk(
+    discardWorkingTreeSnapshot(
       repoPath,
-      ["rm", "-rf", checkpoint.snapshotDir],
+      checkpoint.snapshotDir,
       `Failed to discard snapshot checkpoint ${checkpoint.snapshotDir}`
     );
     return;
@@ -345,60 +599,11 @@ export function discardCheckpoint(repoPath: string, checkpoint: GitCheckpoint): 
 
 export function rollbackToCheckpoint(repoPath: string, checkpoint: GitCheckpoint): void {
   if (checkpoint.kind === "snapshot") {
-    const repoRoot = assertGitOk(
+    restoreWorkingTreeSnapshot(
       repoPath,
-      ["rev-parse", "--show-toplevel"],
-      "Failed to resolve repository root during rollback"
-    );
-    const archivePath = join(checkpoint.snapshotDir, CHECKPOINT_SNAPSHOT_ARCHIVE);
-    const snapshotIndexPath = join(checkpoint.snapshotDir, CHECKPOINT_SNAPSHOT_INDEX);
-    const gitDir = assertGitOk(
-      repoRoot,
-      ["rev-parse", "--git-dir"],
-      "Failed to resolve git directory during rollback"
-    );
-    const gitIndexPath = join(toAbsolutePath(repoRoot, gitDir), "index");
-
-    assertCommandOk(
-      repoRoot,
-      [
-        "find",
-        repoRoot,
-        "-mindepth",
-        "1",
-        "-maxdepth",
-        "1",
-        "!",
-        "-name",
-        ".git",
-        "-exec",
-        "rm",
-        "-rf",
-        "{}",
-        "+",
-      ],
-      "Failed to clear working tree during rollback"
-    );
-    assertCommandOk(
-      repoRoot,
-      ["tar", "-C", repoRoot, "-xf", archivePath],
+      checkpoint.snapshotDir,
       "Failed to restore working tree snapshot"
     );
-
-    if (runCommand(repoRoot, ["test", "-f", snapshotIndexPath]).exitCode === 0) {
-      assertCommandOk(
-        repoRoot,
-        ["cp", snapshotIndexPath, gitIndexPath],
-        "Failed to restore git index snapshot"
-      );
-    } else {
-      assertCommandOk(
-        repoRoot,
-        ["rm", "-f", gitIndexPath],
-        "Failed to reset git index during rollback"
-      );
-    }
-
     discardCheckpoint(repoPath, checkpoint);
     return;
   }
