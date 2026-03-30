@@ -67,12 +67,12 @@ describe("logger", () => {
   });
 
   describe("getProjectName", () => {
-    test("uses full path for uniqueness", () => {
-      expect(getProjectName("/Users/ken/projects/my-app")).toBe("users-ken-projects-my-app");
+    test("uses basename with a stable hash suffix", () => {
+      expect(getProjectName("/Users/ken/projects/my-app")).toMatch(/^my-app-[0-9a-f]{8}$/);
     });
 
-    test("sanitizes the full path", () => {
-      expect(getProjectName("/path/to/My Project")).toBe("path-to-my-project");
+    test("sanitizes the basename portion", () => {
+      expect(getProjectName("/path/to/My Project")).toMatch(/^my-project-[0-9a-f]{8}$/);
     });
 
     test("returns unknown-project for root path", () => {
@@ -83,8 +83,8 @@ describe("logger", () => {
       const a = getProjectName("/work/api");
       const b = getProjectName("/personal/api");
       expect(a).not.toBe(b);
-      expect(a).toBe("work-api");
-      expect(b).toBe("personal-api");
+      expect(a).toMatch(/^api-[0-9a-f]{8}$/);
+      expect(b).toMatch(/^api-[0-9a-f]{8}$/);
     });
   });
 
@@ -130,9 +130,10 @@ describe("logger", () => {
   });
 
   describe("createLogSession", () => {
-    test("creates project directory and returns log file path", async () => {
-      const logPath = await createLogSession(tempDir, "/path/to/my-project");
-      expect(logPath).toContain("my-project");
+    test("creates project logs directory and returns log file path", async () => {
+      const projectPath = "/path/to/my-project";
+      const logPath = await createLogSession(tempDir, projectPath);
+      expect(logPath).toContain(join(tempDir, getProjectName(projectPath), "logs"));
       expect(logPath).toEndWith(".jsonl");
     });
 
@@ -517,6 +518,21 @@ describe("logger", () => {
       }
 
       expect(leftovers.length).toBe(0);
+    });
+
+    test("derives summary project name from project directory when log has no system entry", async () => {
+      const projectPath = "/path/to/project";
+      const logPath = join(tempDir, getProjectName(projectPath), "logs", "manual.jsonl");
+
+      await appendLog(logPath, {
+        type: "iteration",
+        timestamp: Date.now(),
+        iteration: 1,
+      } as IterationEntry);
+
+      const summary = await readSessionSummary(logPath);
+      expect(summary).not.toBeNull();
+      expect(summary?.projectName).toBe(getProjectName(projectPath));
     });
 
     test("uses empty-summary initialization when an existing log file is zero bytes", async () => {
@@ -979,7 +995,7 @@ describe("logger", () => {
       const sessions = await listLogSessions(tempDir);
       expect(sessions.length).toBe(2);
       // Most recent first - now uses full sanitized path
-      expect(sessions[0]?.projectName).toBe("path-to-project-b");
+      expect(sessions[0]?.projectName).toBe(getProjectName("/path/to/project-b"));
     });
 
     test("returns empty array when no sessions", async () => {
@@ -1035,7 +1051,9 @@ describe("logger", () => {
       const sessions = await listProjectLogSessions(tempDir, "/path/to/project-a");
       expect(sessions.length).toBe(2);
       // Now uses full sanitized path
-      expect(sessions.every((s) => s.projectName === "path-to-project-a")).toBe(true);
+      expect(sessions.every((s) => s.projectName === getProjectName("/path/to/project-a"))).toBe(
+        true
+      );
     });
 
     test("returns empty array when logsDir is not a directory", async () => {
@@ -1135,7 +1153,7 @@ describe("logger", () => {
       const session = {
         path: logPath,
         name: "test.jsonl",
-        projectName: "path-to-project",
+        projectName: getProjectName("/path/to/project"),
         timestamp: Date.now(),
       };
       const stats = await computeSessionStats(session);
@@ -1180,7 +1198,7 @@ describe("logger", () => {
       const session = {
         path: logPath,
         name: "test.jsonl",
-        projectName: "path-to-project",
+        projectName: getProjectName("/path/to/project"),
         timestamp: Date.now(),
       };
       const stats = await computeSessionStats(session);
@@ -1223,7 +1241,7 @@ describe("logger", () => {
       const session = {
         path: logPath,
         name: "test.jsonl",
-        projectName: "path-to-project",
+        projectName: getProjectName("/path/to/project"),
         timestamp: Date.now(),
       };
       const stats = await computeSessionStats(session);
@@ -1238,7 +1256,7 @@ describe("logger", () => {
       const session = {
         path: logPath,
         name: "test.jsonl",
-        projectName: "path-to-project",
+        projectName: getProjectName("/path/to/project"),
         timestamp: Date.now(),
       };
       const stats = await computeSessionStats(session);
@@ -1291,7 +1309,7 @@ describe("logger", () => {
       const session = {
         path: logPath,
         name: "test.jsonl",
-        projectName: "path-to-project",
+        projectName: getProjectName("/path/to/project"),
         timestamp: Date.now(),
       };
       const stats = await computeSessionStats(session);
@@ -1332,7 +1350,7 @@ describe("logger", () => {
       const session = {
         path: logPath,
         name: "test.jsonl",
-        projectName: "path-to-project",
+        projectName: getProjectName("/path/to/project"),
         timestamp: Date.now(),
       };
       const stats = await computeSessionStats(session);
@@ -1365,7 +1383,7 @@ describe("logger", () => {
       const session = {
         path: logPath,
         name: "test.jsonl",
-        projectName: "path-to-project",
+        projectName: getProjectName("/path/to/project"),
         timestamp: Date.now(),
       };
       const stats = await computeSessionStats(session);
@@ -1429,7 +1447,7 @@ describe("logger", () => {
       const session = {
         path: logPath,
         name: "test.jsonl",
-        projectName: "path-to-project",
+        projectName: getProjectName("/path/to/project"),
         timestamp: Date.now(),
       };
       const stats = await computeSessionStats(session);
@@ -1471,7 +1489,7 @@ describe("logger", () => {
       const session = {
         path: logPath,
         name: "test.jsonl",
-        projectName: "path-to-project",
+        projectName: getProjectName("/path/to/project"),
         timestamp: Date.now(),
       };
       const stats = await computeSessionStats(session);
@@ -1513,7 +1531,7 @@ describe("logger", () => {
       const session = {
         path: logPath,
         name: "test.jsonl",
-        projectName: "path-to-project",
+        projectName: getProjectName("/path/to/project"),
         timestamp: Date.now(),
       };
       const stats = await computeSessionStats(session);
@@ -1550,7 +1568,7 @@ describe("logger", () => {
       const session = {
         path: logPath,
         name: "test.jsonl",
-        projectName: "path-to-project",
+        projectName: getProjectName("/path/to/project"),
         timestamp: Date.now(),
       };
       const stats = await computeSessionStats(session);
@@ -1589,7 +1607,7 @@ describe("logger", () => {
       const session = {
         path: logPath,
         name: "test.jsonl",
-        projectName: "path-to-project",
+        projectName: getProjectName("/path/to/project"),
         timestamp: Date.now(),
       };
       const stats = await computeSessionStats(session);
@@ -1629,7 +1647,7 @@ describe("logger", () => {
       const session = {
         path: logPath,
         name: "test.jsonl",
-        projectName: "path-to-project",
+        projectName: getProjectName("/path/to/project"),
         timestamp: Date.now(),
       };
       const stats = await computeSessionStats(session);
@@ -1715,7 +1733,7 @@ describe("logger", () => {
       } as IterationEntry);
 
       const sessions = await listProjectLogSessions(tempDir, "/path/to/project");
-      const projectStats = await computeProjectStats("path-to-project", sessions);
+      const projectStats = await computeProjectStats(getProjectName("/path/to/project"), sessions);
 
       expect(projectStats.totalFixes).toBe(3);
       expect(projectStats.totalSkipped).toBe(1);
@@ -1756,7 +1774,7 @@ describe("logger", () => {
       } as IterationEntry);
 
       const sessions = await listProjectLogSessions(tempDir, projectPath);
-      const projectStats = await computeProjectStats("path-to-project", sessions);
+      const projectStats = await computeProjectStats(getProjectName("/path/to/project"), sessions);
 
       expect(projectStats.displayName).toBe("project");
     });
@@ -1838,7 +1856,7 @@ describe("logger", () => {
 
       const dashboard = await buildDashboardData(tempDir, "/work/project-a");
 
-      expect(dashboard.currentProject).toBe("work-project-a");
+      expect(dashboard.currentProject).toBe(getProjectName("/work/project-a"));
       expect(dashboard.globalStats.totalFixes).toBe(3);
       expect(dashboard.globalStats.totalSessions).toBe(2);
       expect(dashboard.globalStats.priorityCounts.P0).toBe(2);

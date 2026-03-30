@@ -1,7 +1,7 @@
 import { rename } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { getAgentDisplayName, getAgentModelStatsKey, getModelDisplayName } from "./agents/models";
-import { LOGS_DIR } from "./config";
+import { CONFIG_DIR } from "./config";
 import type {
   AgentStats,
   AgentType,
@@ -85,9 +85,60 @@ export function sanitizeForFilename(input: string): string {
     .toLowerCase();
 }
 
+function normalizeProjectPath(projectPath: string): string {
+  const normalized = projectPath.replace(/\\/g, "/").replace(/\/+/g, "/");
+  if (normalized === "/") {
+    return normalized;
+  }
+
+  return normalized.replace(/\/+$/g, "");
+}
+
+function hashProjectPath(projectPath: string): string {
+  let hash = 0x811c9dc5;
+
+  for (const byte of new TextEncoder().encode(projectPath)) {
+    hash ^= byte;
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+
+  return hash.toString(16).padStart(8, "0");
+}
+
 export function getProjectName(projectPath: string): string {
-  const sanitized = sanitizeForFilename(projectPath);
-  return sanitized || "unknown-project";
+  const normalizedPath = normalizeProjectPath(projectPath);
+  if (!normalizedPath || normalizedPath === "/") {
+    return "unknown-project";
+  }
+
+  const basenameSegment = normalizedPath.split("/").at(-1) ?? "";
+  const basenameSlug = sanitizeForFilename(basenameSegment);
+  if (!basenameSlug) {
+    return "unknown-project";
+  }
+
+  return `${basenameSlug}-${hashProjectPath(normalizedPath)}`;
+}
+
+export function getProjectStorageDir(
+  storageRoot: string = CONFIG_DIR,
+  projectPath: string
+): string {
+  return join(storageRoot, getProjectName(projectPath));
+}
+
+export function getProjectLogsDir(storageRoot: string = CONFIG_DIR, projectPath: string): string {
+  return join(getProjectStorageDir(storageRoot, projectPath), "logs");
+}
+
+export function getProjectNameFromLogPath(logPath: string): string {
+  const logDir = dirname(logPath);
+  if (basename(logDir) === "logs") {
+    const projectDir = dirname(logDir);
+    return basename(projectDir) || "unknown-project";
+  }
+
+  return basename(logDir) || "unknown-project";
 }
 
 export async function getGitBranch(cwd?: string): Promise<string | undefined> {
@@ -117,13 +168,12 @@ export function generateLogFilename(timestamp: Date, gitBranch?: string): string
 }
 
 export async function createLogSession(
-  logsDir: string = LOGS_DIR,
+  storageRoot: string = CONFIG_DIR,
   projectPath: string,
   gitBranch?: string
 ): Promise<string> {
-  const projectName = getProjectName(projectPath);
   const filename = generateLogFilename(new Date(), gitBranch);
-  return join(logsDir, projectName, filename);
+  return join(getProjectLogsDir(storageRoot, projectPath), filename);
 }
 
 export function getHtmlPath(logPath: string): string {
@@ -341,7 +391,7 @@ function buildSessionSummary(logPath: string, entries: LogEntry[]): SessionSumma
     .find((entry) => entry.timestamp !== undefined)?.timestamp;
   const projectName = systemEntry?.projectPath
     ? getProjectName(systemEntry.projectPath)
-    : basename(dirname(logPath));
+    : getProjectNameFromLogPath(logPath);
 
   return {
     schemaVersion: SUMMARY_SCHEMA_VERSION,
@@ -373,7 +423,7 @@ function createEmptySessionSummary(logPath: string): SessionSummary {
     schemaVersion: SUMMARY_SCHEMA_VERSION,
     logPath,
     summaryPath: getSummaryPath(logPath),
-    projectName: basename(dirname(logPath)),
+    projectName: getProjectNameFromLogPath(logPath),
     status: "unknown",
     iterations: 0,
     hasIteration: false,
@@ -772,7 +822,7 @@ export interface LogSession {
 
 async function buildSessionsFromDir(logsDir: string): Promise<LogSession[]> {
   const sessions: LogSession[] = [];
-  const pattern = `**/*${LOG_FILE_EXTENSION}`;
+  const pattern = `*/logs/*${LOG_FILE_EXTENSION}`;
   const glob = new Bun.Glob(pattern);
 
   for await (const relativePath of glob.scan({ cwd: logsDir })) {
@@ -781,13 +831,11 @@ async function buildSessionsFromDir(logsDir: string): Promise<LogSession[]> {
     }
 
     const filePath = join(logsDir, relativePath);
-    const inferredProjectName = relativePath.split("/")[0];
-    const resolvedProjectName = inferredProjectName || basename(dirname(filePath));
     const timestamp = Bun.file(filePath).lastModified;
     sessions.push({
       path: filePath,
       name: basename(filePath),
-      projectName: resolvedProjectName,
+      projectName: getProjectNameFromLogPath(filePath),
       timestamp,
     });
   }
@@ -796,22 +844,22 @@ async function buildSessionsFromDir(logsDir: string): Promise<LogSession[]> {
   return sessions;
 }
 
-export async function listLogSessions(logsDir: string = LOGS_DIR): Promise<LogSession[]> {
+export async function listLogSessions(storageRoot: string = CONFIG_DIR): Promise<LogSession[]> {
   try {
-    return await buildSessionsFromDir(logsDir);
+    return await buildSessionsFromDir(storageRoot);
   } catch {
     return [];
   }
 }
 
 export async function listProjectLogSessions(
-  logsDir: string = LOGS_DIR,
+  storageRoot: string = CONFIG_DIR,
   projectPath: string
 ): Promise<LogSession[]> {
   const projectName = getProjectName(projectPath);
 
   try {
-    const sessions = await buildSessionsFromDir(logsDir);
+    const sessions = await buildSessionsFromDir(storageRoot);
     return sessions.filter((session) => session.projectName === projectName);
   } catch {
     return [];
@@ -819,10 +867,10 @@ export async function listProjectLogSessions(
 }
 
 export async function getLatestProjectLogSession(
-  logsDir: string = LOGS_DIR,
+  storageRoot: string = CONFIG_DIR,
   projectPath: string
 ): Promise<LogSession | null> {
-  const sessions = await listProjectLogSessions(logsDir, projectPath);
+  const sessions = await listProjectLogSessions(storageRoot, projectPath);
   return sessions.length > 0 ? (sessions[0] ?? null) : null;
 }
 
@@ -1043,12 +1091,12 @@ export function buildModelStats(
 }
 
 export async function buildDashboardData(
-  logsDir: string = LOGS_DIR,
+  storageRoot: string = CONFIG_DIR,
   currentProjectPath?: string
 ): Promise<DashboardData> {
   const requestedProject = currentProjectPath ? getProjectName(currentProjectPath) : undefined;
 
-  const allSessions = await listLogSessions(logsDir);
+  const allSessions = await listLogSessions(storageRoot);
   const sessionsByProject = new Map<string, LogSession[]>();
 
   for (const session of allSessions) {

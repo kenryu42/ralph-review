@@ -4,8 +4,13 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import * as p from "@clack/prompts";
 import { runLog } from "@/commands/log";
-import { LOGS_DIR } from "@/lib/config";
-import { getProjectName, getSummaryPath } from "@/lib/logger";
+import { CONFIG_DIR } from "@/lib/config";
+import {
+  getProjectLogsDir,
+  getProjectName,
+  getProjectStorageDir,
+  getSummaryPath,
+} from "@/lib/logger";
 import type { FixEntry, IterationEntry, LogEntry, SessionEndEntry, SystemEntry } from "@/lib/types";
 import { buildFixEntry, buildFixSummary, buildSkippedEntry } from "../test-utils/fix-summary";
 
@@ -176,8 +181,7 @@ async function createProjectFixture(): Promise<ProjectFixture> {
 }
 
 async function cleanupProjectFixture(fixture: ProjectFixture): Promise<void> {
-  const logsProjectDir = join(LOGS_DIR, fixture.projectName);
-  const lockPath = join(LOGS_DIR, `${fixture.projectName}.lock`);
+  const projectStorageDir = getProjectStorageDir(CONFIG_DIR, fixture.projectPath);
 
   await Promise.all(
     fixture.logPaths.flatMap((logPath) => [
@@ -189,10 +193,7 @@ async function cleanupProjectFixture(fixture: ProjectFixture): Promise<void> {
         .catch(() => {}),
     ])
   );
-  await rm(logsProjectDir, { recursive: true, force: true });
-  await Bun.file(lockPath)
-    .delete()
-    .catch(() => {});
+  await rm(projectStorageDir, { recursive: true, force: true });
   await rm(fixture.rootPath, { recursive: true, force: true });
 }
 
@@ -281,7 +282,7 @@ describe("runLog integration", () => {
   test("prints empty project JSON when all discovered sessions are unknown and empty", async () => {
     const fixture = await createProjectFixture();
     fixtures.push(fixture);
-    const logsProjectDir = join(LOGS_DIR, fixture.projectName);
+    const logsProjectDir = getProjectLogsDir(CONFIG_DIR, fixture.projectPath);
     const unknownLog = join(logsProjectDir, "unknown.jsonl");
     fixture.logPaths.push(unknownLog);
 
@@ -300,7 +301,7 @@ describe("runLog integration", () => {
   test("prints terminal guidance when all discovered sessions are unknown and empty", async () => {
     const fixture = await createProjectFixture();
     fixtures.push(fixture);
-    const logsProjectDir = join(LOGS_DIR, fixture.projectName);
+    const logsProjectDir = getProjectLogsDir(CONFIG_DIR, fixture.projectPath);
     const unknownLog = join(logsProjectDir, "unknown.jsonl");
     fixture.logPaths.push(unknownLog);
 
@@ -321,7 +322,7 @@ describe("runLog integration", () => {
   test("renders rollback summary when rollback attempts are recorded", async () => {
     const fixture = await createProjectFixture();
     fixtures.push(fixture);
-    const logsProjectDir = join(LOGS_DIR, fixture.projectName);
+    const logsProjectDir = getProjectLogsDir(CONFIG_DIR, fixture.projectPath);
     const rollbackLog = join(logsProjectDir, "rollback.jsonl");
     fixture.logPaths.push(rollbackLog);
 
@@ -345,7 +346,7 @@ describe("runLog integration", () => {
   test("renders and outputs project JSON after filtering unknown-empty sessions", async () => {
     const fixture = await createProjectFixture();
     fixtures.push(fixture);
-    const logsProjectDir = join(LOGS_DIR, fixture.projectName);
+    const logsProjectDir = getProjectLogsDir(CONFIG_DIR, fixture.projectPath);
 
     const unknownLog = join(logsProjectDir, "unknown.jsonl");
     const richLog = join(logsProjectDir, "rich.jsonl");
@@ -390,7 +391,7 @@ describe("runLog integration", () => {
   test("prints global JSON payload", async () => {
     const fixture = await createProjectFixture();
     fixtures.push(fixture);
-    const logPath = join(LOGS_DIR, fixture.projectName, "global.jsonl");
+    const logPath = join(getProjectLogsDir(CONFIG_DIR, fixture.projectPath), "global.jsonl");
     fixture.logPaths.push(logPath);
 
     await writeLogEntries(logPath, [

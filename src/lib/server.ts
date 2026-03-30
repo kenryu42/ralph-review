@@ -1,6 +1,6 @@
 import { removeSession } from "@/commands/dashboard";
 import { normalizeBranch } from "@/commands/log";
-import { LOGS_DIR } from "@/lib/config";
+import { CONFIG_DIR } from "@/lib/config";
 import { generateDashboardHtml } from "@/lib/html";
 import { listAllActiveSessions } from "@/lib/lockfile";
 import { deleteSessionFiles, getProjectName } from "@/lib/logger";
@@ -73,7 +73,7 @@ function createEventEmitter(
 }
 
 export function startDashboardServer(options: ServerOptions): ReturnType<typeof Bun.serve> {
-  const { data, logsDir = LOGS_DIR } = options;
+  const { data, logsDir = CONFIG_DIR } = options;
   const emit = createEventEmitter(options.onEvent);
 
   return Bun.serve({

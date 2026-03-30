@@ -2,7 +2,7 @@ import { platform } from "node:os";
 import * as p from "@clack/prompts";
 import { $ } from "bun";
 import { isUnknownEmptySession, normalizeBranch } from "@/commands/log";
-import { LOGS_DIR } from "@/lib/config";
+import { CONFIG_DIR } from "@/lib/config";
 import { type ActiveSession, listAllActiveSessions } from "@/lib/lockfile";
 import {
   buildAgentStats,
@@ -278,9 +278,9 @@ export async function runDashboard(
   s.start("Building dashboard...");
 
   const currentProjectPath = runtime.cwd;
-  const data = await runtime.buildDashboardData(LOGS_DIR, currentProjectPath);
+  const data = await runtime.buildDashboardData(CONFIG_DIR, currentProjectPath);
 
-  const activeSessions = await runtime.listAllActiveSessions(LOGS_DIR);
+  const activeSessions = await runtime.listAllActiveSessions(CONFIG_DIR);
   markRunningSessions(data, activeSessions);
   const removed = pruneUnknownEmptySessions(data);
 

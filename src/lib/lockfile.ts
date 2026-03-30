@@ -1,7 +1,7 @@
-import { access, readdir, readFile, unlink, writeFile } from "node:fs/promises";
+import { access, mkdir, readdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { LOGS_DIR } from "./config";
-import { getProjectName } from "./logger";
+import { CONFIG_DIR } from "./config";
+import { getProjectName, getProjectStorageDir } from "./logger";
 import { sessionExists } from "./tmux";
 import type { ReviewSummary } from "./types";
 
@@ -170,18 +170,18 @@ function isTerminalState(state: LockState): boolean {
   return TERMINAL_STATES.includes(state);
 }
 
-export function getLockPath(logsDir: string = LOGS_DIR, projectPath: string): string {
+export function getLockPath(storageRoot: string = CONFIG_DIR, projectPath: string): string {
   const projectName = getProjectName(projectPath);
-  return join(logsDir, `${projectName}.lock`);
+  return join(getProjectStorageDir(storageRoot, projectPath), `${projectName}.lock`);
 }
 
 export async function createLockfile(
-  logsDir: string = LOGS_DIR,
+  storageRoot: string = CONFIG_DIR,
   projectPath: string,
   sessionName: string,
   branchOrOptions?: string | CreateLockfileOptions
 ): Promise<void> {
-  const lockPath = getLockPath(logsDir, projectPath);
+  const lockPath = getLockPath(storageRoot, projectPath);
   const options = parseCreateLockfileOptions(branchOrOptions);
   const now = Date.now();
   const state = options.state ?? "pending";
@@ -205,34 +205,35 @@ export async function createLockfile(
   };
 
   await queueLockWrite(lockPath, async () => {
+    await mkdir(getProjectStorageDir(storageRoot, projectPath), { recursive: true });
     await writeFile(lockPath, JSON.stringify(lockData, null, 2));
   });
 }
 
 export async function readLockfile(
-  logsDir: string = LOGS_DIR,
+  storageRoot: string = CONFIG_DIR,
   projectPath: string
 ): Promise<LockData | null> {
-  const lockPath = getLockPath(logsDir, projectPath);
+  const lockPath = getLockPath(storageRoot, projectPath);
   return readLockfileByPath(lockPath);
 }
 
 export async function removeLockfile(
-  logsDir: string = LOGS_DIR,
+  storageRoot: string = CONFIG_DIR,
   projectPath: string,
   options: LockfileGuardOptions = {}
 ): Promise<boolean> {
-  const lockPath = getLockPath(logsDir, projectPath);
+  const lockPath = getLockPath(storageRoot, projectPath);
   return removeLockfileByPath(lockPath, options);
 }
 
 export async function updateLockfile(
-  logsDir: string = LOGS_DIR,
+  storageRoot: string = CONFIG_DIR,
   projectPath: string,
   updates: Partial<LockData>,
   options: LockfileGuardOptions = {}
 ): Promise<boolean> {
-  const lockPath = getLockPath(logsDir, projectPath);
+  const lockPath = getLockPath(storageRoot, projectPath);
 
   return queueLockWrite(lockPath, async () => {
     const existing = await readLockfileByPath(lockPath);
@@ -261,12 +262,12 @@ export async function updateLockfile(
 }
 
 export async function touchHeartbeat(
-  logsDir: string = LOGS_DIR,
+  storageRoot: string = CONFIG_DIR,
   projectPath: string,
   expectedSessionId?: string
 ): Promise<boolean> {
   return updateLockfile(
-    logsDir,
+    storageRoot,
     projectPath,
     {
       lastHeartbeat: Date.now(),
@@ -278,10 +279,10 @@ export async function touchHeartbeat(
 }
 
 export async function lockfileExists(
-  logsDir: string = LOGS_DIR,
+  storageRoot: string = CONFIG_DIR,
   projectPath: string
 ): Promise<boolean> {
-  const lockPath = getLockPath(logsDir, projectPath);
+  const lockPath = getLockPath(storageRoot, projectPath);
   try {
     await access(lockPath);
     return true;
@@ -343,26 +344,28 @@ async function isLockDataStale(lockData: LockData): Promise<boolean> {
 }
 
 export async function cleanupStaleLockfile(
-  logsDir: string = LOGS_DIR,
+  storageRoot: string = CONFIG_DIR,
   projectPath: string
 ): Promise<boolean> {
-  const lockData = await readLockfile(logsDir, projectPath);
+  const lockData = await readLockfile(storageRoot, projectPath);
   if (!lockData) {
     return false;
   }
 
   if (await isLockDataStale(lockData)) {
-    return await removeLockfile(logsDir, projectPath, { expectedSessionId: lockData.sessionId });
+    return await removeLockfile(storageRoot, projectPath, {
+      expectedSessionId: lockData.sessionId,
+    });
   }
 
   return false;
 }
 
 export async function hasActiveLockfile(
-  logsDir: string = LOGS_DIR,
+  storageRoot: string = CONFIG_DIR,
   projectPath: string
 ): Promise<boolean> {
-  const lockData = await readLockfile(logsDir, projectPath);
+  const lockData = await readLockfile(storageRoot, projectPath);
   if (!lockData) {
     return false;
   }
@@ -372,25 +375,45 @@ export async function hasActiveLockfile(
   }
 
   if (await isLockDataStale(lockData)) {
-    await removeLockfile(logsDir, projectPath, { expectedSessionId: lockData.sessionId });
+    await removeLockfile(storageRoot, projectPath, {
+      expectedSessionId: lockData.sessionId,
+    });
     return false;
   }
 
   return true;
 }
 
-export async function listAllActiveSessions(logsDir: string = LOGS_DIR): Promise<ActiveSession[]> {
-  const sessions: ActiveSession[] = [];
+async function listProjectLockPaths(storageRoot: string): Promise<string[]> {
+  const lockPaths: string[] = [];
+  const entries = await readdir(storageRoot, { withFileTypes: true });
 
-  try {
-    const entries = await readdir(logsDir, { withFileTypes: true });
+  for (const entry of entries) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
 
-    for (const entry of entries) {
-      if (!entry.isFile() || !entry.name.endsWith(".lock")) {
+    const projectDir = join(storageRoot, entry.name);
+    const projectEntries = await readdir(projectDir, { withFileTypes: true }).catch(() => []);
+    for (const projectEntry of projectEntries) {
+      if (!projectEntry.isFile() || !projectEntry.name.endsWith(".lock")) {
         continue;
       }
 
-      const lockPath = join(logsDir, entry.name);
+      lockPaths.push(join(projectDir, projectEntry.name));
+    }
+  }
+
+  return lockPaths;
+}
+
+export async function listAllActiveSessions(
+  storageRoot: string = CONFIG_DIR
+): Promise<ActiveSession[]> {
+  const sessions: ActiveSession[] = [];
+
+  try {
+    for (const lockPath of await listProjectLockPaths(storageRoot)) {
       const lockData = await readLockfileByPath(lockPath);
       if (!lockData) {
         continue;
@@ -417,16 +440,9 @@ export async function listAllActiveSessions(logsDir: string = LOGS_DIR): Promise
   return sessions;
 }
 
-export async function removeAllLockfiles(logsDir: string = LOGS_DIR): Promise<void> {
+export async function removeAllLockfiles(storageRoot: string = CONFIG_DIR): Promise<void> {
   try {
-    const entries = await readdir(logsDir, { withFileTypes: true });
-
-    for (const entry of entries) {
-      if (!entry.isFile() || !entry.name.endsWith(".lock")) {
-        continue;
-      }
-
-      const lockPath = join(logsDir, entry.name);
+    for (const lockPath of await listProjectLockPaths(storageRoot)) {
       const lockData = await readLockfileByPath(lockPath);
 
       if (lockData?.sessionId) {
@@ -440,6 +456,6 @@ export async function removeAllLockfiles(logsDir: string = LOGS_DIR): Promise<vo
       }
     }
   } catch {
-    // Logs dir doesn't exist
+    // Storage root doesn't exist.
   }
 }

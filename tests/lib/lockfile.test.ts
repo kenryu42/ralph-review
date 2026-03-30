@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { chmod, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
   cleanupStaleLockfile,
   createLockfile,
@@ -20,6 +20,7 @@ import {
   touchHeartbeat,
   updateLockfile,
 } from "@/lib/lockfile";
+import { getProjectName } from "@/lib/logger";
 
 describe("lockfile", () => {
   let tempLogsDir: string;
@@ -34,10 +35,12 @@ describe("lockfile", () => {
   });
 
   describe("getLockPath", () => {
-    test("returns flattened project lock path", () => {
-      const result = getLockPath(tempLogsDir, "/Users/foo/my-project");
-      expect(result).toContain("users-foo-my-project.lock");
-      expect(result).toBe(`${tempLogsDir}/users-foo-my-project.lock`);
+    test("returns per-project lock path", () => {
+      const projectPath = "/Users/foo/my-project";
+      const projectName = getProjectName(projectPath);
+      const result = getLockPath(tempLogsDir, projectPath);
+      expect(result).toContain(`${projectName}.lock`);
+      expect(result).toBe(`${tempLogsDir}/${projectName}/${projectName}.lock`);
     });
   });
 
@@ -256,14 +259,15 @@ describe("lockfile", () => {
 
     test("returns false when deleting lockfile throws", async () => {
       const projectPath = "/Users/test/project-delete-failure";
+      const lockDir = dirname(getLockPath(tempLogsDir, projectPath));
       await createLockfile(tempLogsDir, projectPath, "rr-test-delete-failure", "main");
 
       const lock = await readLockfile(tempLogsDir, projectPath);
       const sessionId = lock?.sessionId ?? "";
       expect(sessionId).not.toBe("");
 
-      // Remove write permission from directory so unlink fails
-      await chmod(tempLogsDir, 0o555);
+      // Remove write permission from the lockfile directory so unlink fails
+      await chmod(lockDir, 0o555);
 
       try {
         const removed = await removeLockfile(tempLogsDir, projectPath, {
@@ -271,7 +275,7 @@ describe("lockfile", () => {
         });
         expect(removed).toBe(false);
       } finally {
-        await chmod(tempLogsDir, 0o755);
+        await chmod(lockDir, 0o755);
       }
 
       expect(await readLockfile(tempLogsDir, projectPath)).not.toBeNull();
@@ -491,7 +495,9 @@ describe("lockfile", () => {
     });
 
     test("deletes invalid .lock files via fallback path", async () => {
-      const invalidLockPath = join(tempLogsDir, "invalid.lock");
+      const invalidProjectDir = join(tempLogsDir, "invalid-project");
+      await mkdir(invalidProjectDir, { recursive: true });
+      const invalidLockPath = join(invalidProjectDir, "invalid.lock");
       await Bun.write(invalidLockPath, "{ not json");
 
       await removeAllLockfiles(tempLogsDir);
@@ -499,9 +505,9 @@ describe("lockfile", () => {
       expect(await Bun.file(invalidLockPath).exists()).toBe(false);
     });
 
-    test("ignores missing logs directory", async () => {
-      const missingLogsDir = join(tempLogsDir, "missing-logs-dir");
-      await expect(removeAllLockfiles(missingLogsDir)).resolves.toBeUndefined();
+    test("ignores missing storage root", async () => {
+      const missingStorageRoot = join(tempLogsDir, "missing-storage-root");
+      await expect(removeAllLockfiles(missingStorageRoot)).resolves.toBeUndefined();
     });
   });
 });

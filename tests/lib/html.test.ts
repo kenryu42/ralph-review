@@ -344,9 +344,9 @@ describe("html", () => {
   });
 
   describe("getDashboardPath", () => {
-    test("returns dashboard.html path in logs directory", () => {
-      const path = getDashboardPath("/path/to/logs");
-      expect(path).toBe("/path/to/logs/dashboard.html");
+    test("returns dashboard.html path in storage root", () => {
+      const path = getDashboardPath("/path/to/config-root");
+      expect(path).toBe("/path/to/config-root/dashboard.html");
     });
   });
 

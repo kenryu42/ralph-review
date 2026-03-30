@@ -21,9 +21,8 @@ import {
   type RunOverrideConfig,
 } from "./types";
 
-const CONFIG_DIR = join(homedir(), ".config", "ralph-review");
+export const CONFIG_DIR = join(homedir(), ".config", "ralph-review");
 export const CONFIG_PATH = join(CONFIG_DIR, "config.json");
-export const LOGS_DIR = join(CONFIG_DIR, "logs");
 const LOCAL_CONFIG_DIRNAME = ".ralph-review";
 const LOCAL_CONFIG_FILENAME = "config.json";
 const VALID_AGENT_VALUES = ["codex", "claude", "opencode", "droid", "gemini", "pi"] as const;

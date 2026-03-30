@@ -1,11 +1,12 @@
 import * as p from "@clack/prompts";
 import { getCommandDef } from "@/cli";
 import { parseCommand } from "@/lib/cli-parser";
-import { LOGS_DIR } from "@/lib/config";
+import { CONFIG_DIR } from "@/lib/config";
 import { type ActiveSession, listAllActiveSessions } from "@/lib/lockfile";
 import {
   computeSessionStats,
   getProjectName,
+  getProjectNameFromLogPath,
   listLogSessions,
   listProjectLogSessions,
 } from "@/lib/logger";
@@ -44,9 +45,7 @@ export function markSessionStatsRunning(
   activeSessions: ActiveSession[]
 ): void {
   for (const session of sessions) {
-    // Extract project name from session path (e.g., /logs/project-name/session.jsonl)
-    const pathParts = session.sessionPath.split("/");
-    const sessionProjectName = pathParts[pathParts.length - 2];
+    const sessionProjectName = getProjectNameFromLogPath(session.sessionPath);
 
     for (const active of activeSessions) {
       if (session.sessionId && active.sessionId) {
@@ -193,8 +192,9 @@ export function buildProjectSessionsJson(
 export function buildGlobalSessionsJson(sessions: SessionStats[]): GlobalSessionsJson {
   const sessionJsons = sessions.map((session) => {
     const systemEntry = extractSystemEntry(session);
-    const projectPath = systemEntry?.projectPath ?? "unknown";
-    const projectName = getProjectName(projectPath);
+    const projectName = systemEntry?.projectPath
+      ? getProjectName(systemEntry.projectPath)
+      : "unknown";
     const { fixes, skipped } = extractFixesAndSkipped(session);
     return buildSessionJson(projectName, session, fixes, skipped);
   });
@@ -330,7 +330,7 @@ export async function runLog(args: string[]): Promise<void> {
   }
 
   if (options.json && options.global) {
-    const allLogSessions = await listLogSessions(LOGS_DIR);
+    const allLogSessions = await listLogSessions(CONFIG_DIR);
 
     if (allLogSessions.length === 0) {
       console.log(JSON.stringify({ sessions: [] }, null, 2));
@@ -338,7 +338,7 @@ export async function runLog(args: string[]): Promise<void> {
     }
 
     const sessionStats = await Promise.all(allLogSessions.map(computeSessionStats));
-    const activeSessions = await listAllActiveSessions(LOGS_DIR);
+    const activeSessions = await listAllActiveSessions(CONFIG_DIR);
     markSessionStatsRunning(sessionStats, activeSessions);
     const filtered = sessionStats.filter((session) => !isUnknownEmptySession(session));
     const jsonOutput = buildGlobalSessionsJson(filtered);
@@ -348,7 +348,7 @@ export async function runLog(args: string[]): Promise<void> {
 
   const currentProjectPath = process.cwd();
   const projectName = getProjectName(currentProjectPath);
-  const projectSessions = await listProjectLogSessions(LOGS_DIR, currentProjectPath);
+  const projectSessions = await listProjectLogSessions(CONFIG_DIR, currentProjectPath);
 
   if (projectSessions.length === 0) {
     if (options.json) {
@@ -374,7 +374,7 @@ export async function runLog(args: string[]): Promise<void> {
   }
 
   // Mark running sessions BEFORE filtering
-  const activeSessions = await listAllActiveSessions(LOGS_DIR);
+  const activeSessions = await listAllActiveSessions(CONFIG_DIR);
   markSessionStatsRunning(allStats, activeSessions);
 
   // Now filter and apply limit

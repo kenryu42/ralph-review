@@ -399,8 +399,8 @@ describe("buildGlobalSessionsJson", () => {
 
     expect(result.sessions).toHaveLength(2);
     // Project names are derived from paths
-    expect(result.sessions[0]?.project).toBe("work-project-a");
-    expect(result.sessions[1]?.project).toBe("work-project-b");
+    expect(result.sessions[0]?.project).toBe(getProjectName("/work/project-a"));
+    expect(result.sessions[1]?.project).toBe(getProjectName("/work/project-b"));
   });
 
   test("returns empty sessions array when no sessions", () => {
