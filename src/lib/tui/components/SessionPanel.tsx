@@ -25,6 +25,8 @@ import {
   formatPriorityBreakdown,
   formatProjectStatsSummary,
   formatRelativeTime,
+  formatRetainedWorktreeMergeCommand,
+  formatRetainedWorktreeOutcome,
   formatSessionIdentityDisplay,
   PRIORITY_COLORS,
   resolveIssuesFoundDisplay,
@@ -400,6 +402,14 @@ export function SessionPanel({
     const statusDisplay = getStatusDisplay(lastSessionStats.status, null);
     const lastSessionFixes = extractFixesFromStats(lastSessionStats);
     const lastSessionSkipped = extractSkippedFromStats(lastSessionStats);
+    const lastRunMergeCommand = formatRetainedWorktreeMergeCommand(
+      lastSessionStats.worktreeBranch,
+      lastSessionStats.mergeReady
+    );
+    const lastRunWorktreeOutcome = formatRetainedWorktreeOutcome(
+      lastSessionStats.reviewOutcome,
+      lastSessionStats.mergeReady
+    );
 
     return (
       <box
@@ -471,9 +481,16 @@ export function SessionPanel({
               <text fg={TUI_COLORS.text.muted}>Worktree branch:</text>
               <text fg={TUI_COLORS.status.success}>{lastSessionStats.worktreeBranch}</text>
             </box>
-            <text fg={TUI_COLORS.text.dim} paddingLeft={2}>
-              git merge {lastSessionStats.worktreeBranch}
-            </text>
+            {lastRunMergeCommand && (
+              <text fg={TUI_COLORS.text.dim} paddingLeft={2}>
+                {lastRunMergeCommand}
+              </text>
+            )}
+            {lastRunWorktreeOutcome && (
+              <text fg={TUI_COLORS.status.warning} paddingLeft={2}>
+                {lastRunWorktreeOutcome}
+              </text>
+            )}
           </box>
         )}
 
@@ -521,6 +538,14 @@ export function SessionPanel({
   const appliedCount = fixes.length;
   const skippedCount = skipped.length;
   const sessionIdentity = formatSessionIdentityDisplay(session, activeSessionCount);
+  const sessionMergeCommand = formatRetainedWorktreeMergeCommand(
+    session.worktreeBranch,
+    session.worktreeMergeReady
+  );
+  const sessionWorktreeOutcome = formatRetainedWorktreeOutcome(
+    session.reviewOutcome,
+    session.worktreeMergeReady
+  );
 
   // Reserve extra rows for header/status and panel chrome to avoid clipping app top rows.
   const listHeightBudget = Math.max(8, terminalHeight - 25);
@@ -583,10 +608,19 @@ export function SessionPanel({
         ))}
       </box>
 
-      {session.state === "completed" && session.worktreeBranch && (
-        <box flexDirection="row" gap={1}>
-          <text fg={TUI_COLORS.text.muted}>Merge fixes:</text>
-          <text fg={TUI_COLORS.text.dim}>git merge {session.worktreeBranch}</text>
+      {session.worktreeBranch && (sessionMergeCommand || sessionWorktreeOutcome) && (
+        <box flexDirection="column">
+          {sessionMergeCommand && (
+            <box flexDirection="row" gap={1}>
+              <text fg={TUI_COLORS.text.muted}>Merge fixes:</text>
+              <text fg={TUI_COLORS.text.dim}>{sessionMergeCommand}</text>
+            </box>
+          )}
+          {sessionWorktreeOutcome && (
+            <text fg={TUI_COLORS.status.warning} paddingLeft={2}>
+              {sessionWorktreeOutcome}
+            </text>
+          )}
         </box>
       )}
 

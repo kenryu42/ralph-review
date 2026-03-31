@@ -1,5 +1,5 @@
 import type { AgentSettings } from "./config";
-import type { DerivedRunStatus, Priority } from "./domain";
+import type { DerivedRunStatus, Priority, ReviewOutcome } from "./domain";
 import type { FixSummary } from "./fix";
 import type { CodexReviewSummary, ReviewSummary } from "./review";
 import type { IterationError, ReviewOptions } from "./run";
@@ -43,6 +43,12 @@ export interface SessionEndEntry {
   status: "completed" | "failed" | "interrupted";
   reason: string;
   iterations: number;
+  reviewOutcome?: ReviewOutcome;
+  mergeReady?: boolean;
+  commitSha?: string;
+  worktreeBranch?: string;
+  worktreeProjectPath?: string;
+  terminalReview?: ReviewSummary;
 }
 
 export interface SessionSummary {
@@ -67,6 +73,10 @@ export interface SessionSummary {
   totalDuration?: number;
   rollbackCount: number;
   rollbackFailures: number;
+  reviewOutcome?: ReviewOutcome;
+  mergeReady?: boolean;
+  commitSha?: string;
+  worktreeBranch?: string;
 }
 
 export type LogEntry = SystemEntry | IterationEntry | SessionEndEntry;

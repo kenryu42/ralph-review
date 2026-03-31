@@ -422,6 +422,10 @@ function buildSessionSummary(logPath: string, entries: LogEntry[]): SessionSumma
     totalDuration: metrics.totalDuration,
     rollbackCount: metrics.rollbackCount,
     rollbackFailures: metrics.rollbackFailures,
+    reviewOutcome: sessionEnd?.reviewOutcome,
+    mergeReady: sessionEnd?.mergeReady,
+    commitSha: sessionEnd?.commitSha,
+    worktreeBranch: sessionEnd ? sessionEnd.worktreeBranch : systemEntry?.worktreeBranch,
   };
 }
 
@@ -479,6 +483,7 @@ function applyEntryToSummary(
     next.sessionId = entry.sessionId;
     next.projectPath = entry.projectPath;
     next.gitBranch = entry.gitBranch;
+    next.worktreeBranch = entry.worktreeBranch ?? next.worktreeBranch;
     next.startedAt = summary.startedAt ?? entry.timestamp;
     return next;
   }
@@ -522,6 +527,10 @@ function applyEntryToSummary(
   next.status = entry.status;
   next.reason = entry.reason;
   next.endedAt = entry.timestamp;
+  next.reviewOutcome = entry.reviewOutcome;
+  next.mergeReady = entry.mergeReady;
+  next.commitSha = entry.commitSha;
+  next.worktreeBranch = entry.worktreeBranch;
   return next;
 }
 
@@ -903,7 +912,10 @@ export async function computeSessionStats(session: LogSession): Promise<SessionS
     sessionId: summary?.sessionId ?? systemEntry?.sessionId,
     timestamp: session.timestamp,
     gitBranch: summary?.gitBranch ?? systemEntry?.gitBranch,
-    worktreeBranch: systemEntry?.worktreeBranch,
+    worktreeBranch: summary ? summary.worktreeBranch : systemEntry?.worktreeBranch,
+    mergeReady: summary?.mergeReady,
+    commitSha: summary?.commitSha,
+    reviewOutcome: summary?.reviewOutcome,
     status: summary?.status ?? deriveRunStatusFromEntries(entries, metrics),
     stop_iteration: summary?.stop_iteration ?? metrics.lastIteration?.fixes?.stop_iteration,
     totalFixes: summary?.totalFixes ?? metrics.totalFixes,

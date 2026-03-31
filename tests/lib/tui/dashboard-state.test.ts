@@ -115,6 +115,63 @@ describe("selectLatestReviewFromEntries", () => {
     expect(latestReview.iterationFindings).toEqual([]);
     expect(latestReview.codexReviewText).toBe("Second codex review output");
   });
+
+  test("prefers the terminal session review when it is newer than iteration reviews", () => {
+    const entries: LogEntry[] = [
+      {
+        type: "iteration",
+        timestamp: 100,
+        iteration: 1,
+        review: {
+          findings: [
+            {
+              title: "Earlier finding",
+              body: "Found during the iteration review.",
+              confidence_score: 0.8,
+              priority: 2,
+              code_location: {
+                absolute_file_path: "/tmp/iteration.ts",
+                line_range: { start: 12, end: 14 },
+              },
+            },
+          ],
+          overall_correctness: "patch is incorrect",
+          overall_explanation: "An earlier issue remains.",
+          overall_confidence_score: 0.8,
+        },
+      },
+      {
+        type: "session_end",
+        timestamp: 200,
+        status: "completed",
+        reason: "Max iterations (1) reached - some issues may remain",
+        iterations: 1,
+        terminalReview: {
+          findings: [
+            {
+              title: "Terminal finding",
+              body: "Still present after the final reviewer classification.",
+              confidence_score: 0.9,
+              priority: 1,
+              code_location: {
+                absolute_file_path: "/tmp/terminal.ts",
+                line_range: { start: 21, end: 23 },
+              },
+            },
+          ],
+          overall_correctness: "patch is incorrect",
+          overall_explanation: "A finding remained after the terminal review.",
+          overall_confidence_score: 0.9,
+        },
+      },
+    ];
+
+    const latestReview = selectLatestReviewFromEntries(entries);
+    expect(latestReview.latestReviewIteration).toBeNull();
+    expect(latestReview.iterationFindings).toHaveLength(1);
+    expect(latestReview.iterationFindings[0]?.title).toBe("Terminal finding");
+    expect(latestReview.codexReviewText).toBeNull();
+  });
 });
 
 describe("mergeHeavyDashboardState", () => {

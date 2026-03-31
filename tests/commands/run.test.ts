@@ -28,6 +28,7 @@ function createCycleResult(overrides: Partial<CycleResult> = {}): CycleResult {
   return {
     success: true,
     finalStatus: "completed",
+    reviewOutcome: "clean",
     iterations: 2,
     reason: "No issues found - code is clean",
     sessionPath: "/tmp/session",
@@ -1523,10 +1524,13 @@ describe("run command", () => {
     test("surfaces the retained worktree path and branch after a successful run", async () => {
       const harness = createRunHarness({
         runReviewCycleResult: createCycleResult({
+          reviewOutcome: "incomplete",
           retainedWorktree: {
             worktreeProjectPath:
               "/Users/test/.config/ralph-review/test-project-12345678/worktrees/session-123",
             worktreeBranch: "rr-worktree-session-123",
+            mergeReady: true,
+            commitSha: "retained-commit-sha",
           },
         }),
       });
@@ -1545,6 +1549,11 @@ describe("run command", () => {
       );
       expect(harness.updateSessionStateCalls[1]?.updates.worktreeBranch).toBe(
         "rr-worktree-session-123"
+      );
+      expect(harness.updateSessionStateCalls[1]?.updates.reviewOutcome).toBe("incomplete");
+      expect(harness.updateSessionStateCalls[1]?.updates.worktreeMergeReady).toBe(true);
+      expect(harness.updateSessionStateCalls[1]?.updates.worktreeCommitSha).toBe(
+        "retained-commit-sha"
       );
     });
 

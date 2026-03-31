@@ -73,6 +73,7 @@ interface HarnessState {
   createSessionWorktreeError: Error | null;
   discardSessionWorktreeError: Error | null;
   finalizeSessionWorktreeError: Error | null;
+  finalizeSessionWorktreeResult: RetainedSessionWorktree | null;
   updateSessionStateFailuresRemaining: number;
   onRunAgent?: (role: AgentRole) => void;
   onAppendLog?: (entry: LogEntry) => void;
@@ -99,6 +100,12 @@ function createHarnessState(): HarnessState {
     createSessionWorktreeError: null,
     discardSessionWorktreeError: null,
     finalizeSessionWorktreeError: null,
+    finalizeSessionWorktreeResult: {
+      worktreeProjectPath: TEST_WORKTREE_PROJECT_PATH,
+      worktreeBranch: "rr-worktree-test",
+      mergeReady: true,
+      commitSha: "retained-commit-sha",
+    },
     updateSessionStateFailuresRemaining: 0,
     onRunAgent: undefined,
     onAppendLog: undefined,
@@ -201,6 +208,15 @@ function buildReviewSummary(): ReviewSummary {
     overall_correctness: "patch is incorrect",
     overall_explanation: "Review summary explanation",
     overall_confidence_score: 0.82,
+  };
+}
+
+function buildCleanReviewSummary(): ReviewSummary {
+  return {
+    findings: [],
+    overall_correctness: "patch is correct",
+    overall_explanation: "No remaining issues detected",
+    overall_confidence_score: 0.96,
   };
 }
 
@@ -328,16 +344,13 @@ function createDependencies(state: HarnessState): RunReviewCycleDeps {
         throw state.discardSessionWorktreeError;
       }
     },
-    finalizeSessionWorktree: (worktree: GitSessionWorktree): RetainedSessionWorktree => {
+    finalizeSessionWorktree: (worktree: GitSessionWorktree): RetainedSessionWorktree | null => {
       state.finalizeSessionWorktreeCalls.push(worktree);
       if (state.finalizeSessionWorktreeError) {
         throw state.finalizeSessionWorktreeError;
       }
 
-      return {
-        worktreeProjectPath: worktree.worktreeProjectPath,
-        worktreeBranch: worktree.retainedBranch,
-      };
+      return state.finalizeSessionWorktreeResult;
     },
     createCheckpoint: (projectPath: string, label: string): GitCheckpoint => {
       state.createCheckpointCalls.push({ projectPath, label });
@@ -460,11 +473,14 @@ describe("runReviewCycle", () => {
 
       expect(result.success).toBe(true);
       expect(result.finalStatus).toBe("completed");
+      expect(result.reviewOutcome).toBe("clean");
       expect(result.iterations).toBe(1);
       expect(result.reason).toContain("No issues found");
       expect(result.sessionPath).toBe(TEST_SESSION_PATH);
       expect(result.retainedWorktree?.worktreeProjectPath).toBe(TEST_WORKTREE_PROJECT_PATH);
       expect(result.retainedWorktree?.worktreeBranch).toBe("rr-worktree-test");
+      expect(result.retainedWorktree?.mergeReady).toBe(true);
+      expect(result.retainedWorktree?.commitSha).toBe("retained-commit-sha");
 
       expect(state.runAgentCalls.map((call) => call.role)).toEqual(["reviewer", "fixer"]);
       expect(state.runAgentCalls.map((call) => call.cwd)).toEqual([
@@ -536,7 +552,46 @@ describe("runReviewCycle", () => {
     });
   });
 
-  test("discards the worktree when fixer fails", async () => {
+  test("discards the worktree when finalization finds no diff to retain", async () => {
+    await withHarness(async (state, deps) => {
+      state.finalizeSessionWorktreeResult = null;
+      queueRunAgentSteps(
+        state,
+        resultStep(successResult("review output")),
+        resultStep(successResult("fix output"))
+      );
+      queueReviewParses(state, parseReviewSuccess(buildReviewSummary()));
+      queueFixParses(
+        state,
+        parseFixSuccess(
+          buildFixSummary({
+            decision: "NO_CHANGES_NEEDED",
+            stop_iteration: true,
+            fixes: [],
+            skipped: [],
+          })
+        )
+      );
+
+      const result = await runReviewCycle(
+        createConfig(),
+        undefined,
+        undefined,
+        {
+          projectPath: TEST_PROJECT_PATH,
+          sessionId: TEST_SESSION_ID,
+        },
+        deps
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.retainedWorktree).toBeUndefined();
+      expect(state.finalizeSessionWorktreeCalls).toHaveLength(1);
+      expect(state.discardSessionWorktreeCalls).toHaveLength(1);
+    });
+  });
+
+  test("rolls back to the last promotable snapshot and retains a mergeable worktree when fixer fails", async () => {
     await withHarness(async (state, deps) => {
       queueRunAgentSteps(
         state,
@@ -558,9 +613,56 @@ describe("runReviewCycle", () => {
       );
 
       expect(result.success).toBe(false);
+      expect(result.finalStatus).toBe("failed");
+      expect(result.reviewOutcome).toBe("incomplete");
+      expect(result.retainedWorktree?.mergeReady).toBe(true);
       expect(state.createSessionWorktreeCalls).toHaveLength(1);
-      expect(state.discardSessionWorktreeCalls).toHaveLength(1);
-      expect(state.finalizeSessionWorktreeCalls).toHaveLength(0);
+      expect(state.rollbackCalls).toHaveLength(1);
+      expect(state.discardSessionWorktreeCalls).toHaveLength(0);
+      expect(state.finalizeSessionWorktreeCalls).toHaveLength(1);
+    });
+  });
+
+  test("retains the last promotable snapshot as incomplete when a later reviewer fails", async () => {
+    await withHarness(async (state, deps) => {
+      queueRunAgentSteps(
+        state,
+        resultStep(successResult("review output 1")),
+        resultStep(successResult("fix output 1")),
+        resultStep(failureResult("reviewer failed later", 23))
+      );
+      queueReviewParses(state, parseReviewSuccess(buildReviewSummary()));
+      queueFixParses(
+        state,
+        parseFixSuccess(
+          buildFixSummary({
+            decision: "APPLY_SELECTIVELY",
+            stop_iteration: false,
+            fixes: [],
+            skipped: [],
+          })
+        )
+      );
+
+      const result = await runReviewCycle(
+        createConfig({
+          maxIterations: 2,
+        }),
+        undefined,
+        undefined,
+        {
+          projectPath: TEST_PROJECT_PATH,
+          sessionId: TEST_SESSION_ID,
+        },
+        deps
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.finalStatus).toBe("failed");
+      expect(result.reviewOutcome).toBe("incomplete");
+      expect(result.retainedWorktree?.mergeReady).toBe(true);
+      expect(state.rollbackCalls).toHaveLength(0);
+      expect(state.finalizeSessionWorktreeCalls).toHaveLength(1);
     });
   });
 
@@ -969,7 +1071,13 @@ describe("runReviewCycle", () => {
 
   test("returns failure when creating pre-fixer checkpoint throws", async () => {
     await withHarness(async (state, deps) => {
-      state.createCheckpointError = new Error("checkpoint failed");
+      const originalCreateCheckpoint = deps.createCheckpoint;
+      deps.createCheckpoint = (projectPath, label) => {
+        if (label.includes("-fixer-")) {
+          throw new Error("checkpoint failed");
+        }
+        return originalCreateCheckpoint(projectPath, label);
+      };
       queueRunAgentSteps(state, resultStep(successResult("review output")));
       queueReviewParses(state, parseReviewSuccess(buildReviewSummary()));
 
@@ -1065,9 +1173,91 @@ describe("runReviewCycle", () => {
     });
   });
 
-  test("fails fast when simplifier is enabled and simplifier run fails", async () => {
+  test("rolls back simplifier failures and continues the review cycle from the last promotable snapshot", async () => {
     await withHarness(async (state, deps) => {
-      queueRunAgentSteps(state, resultStep(failureResult("simplifier failed", 5)));
+      queueRunAgentSteps(
+        state,
+        resultStep(failureResult("simplifier failed", 5)),
+        resultStep(successResult("review output")),
+        resultStep(successResult("fix output"))
+      );
+      queueReviewParses(state, parseReviewSuccess(buildReviewSummary()));
+      queueFixParses(
+        state,
+        parseFixSuccess(
+          buildFixSummary({
+            decision: "NO_CHANGES_NEEDED",
+            stop_iteration: true,
+            fixes: [],
+            skipped: [],
+          })
+        )
+      );
+
+      const result = await runReviewCycle(
+        createConfig(),
+        undefined,
+        {
+          simplifier: true,
+        },
+        {
+          projectPath: TEST_PROJECT_PATH,
+          sessionId: TEST_SESSION_ID,
+        },
+        deps
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.reviewOutcome).toBe("clean");
+      expect(result.iterations).toBe(1);
+      expect(state.rollbackCalls).toHaveLength(1);
+      expect(state.runAgentCalls.map((call) => call.role)).toEqual([
+        "code-simplifier",
+        "reviewer",
+        "fixer",
+      ]);
+    });
+  });
+
+  test("returns failure when capturing the initial promotable checkpoint throws", async () => {
+    await withHarness(async (state, deps) => {
+      const originalCreateCheckpoint = deps.createCheckpoint;
+      deps.createCheckpoint = (projectPath, label) => {
+        if (label.includes("promotable-initial")) {
+          throw new Error("checkpoint failed");
+        }
+        return originalCreateCheckpoint(projectPath, label);
+      };
+
+      const result = await runReviewCycle(
+        createConfig(),
+        undefined,
+        undefined,
+        {
+          projectPath: TEST_PROJECT_PATH,
+          sessionId: TEST_SESSION_ID,
+        },
+        deps
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.finalStatus).toBe("failed");
+      expect(result.reason).toContain(
+        "Failed to capture initial promotable checkpoint: Error: checkpoint failed"
+      );
+      expect(state.runAgentCalls).toHaveLength(0);
+    });
+  });
+
+  test("returns failure when creating the pre-simplifier checkpoint throws", async () => {
+    await withHarness(async (state, deps) => {
+      const originalCreateCheckpoint = deps.createCheckpoint;
+      deps.createCheckpoint = (projectPath, label) => {
+        if (label.includes("-simplifier-")) {
+          throw new Error("checkpoint failed");
+        }
+        return originalCreateCheckpoint(projectPath, label);
+      };
 
       const result = await runReviewCycle(
         createConfig(),
@@ -1083,9 +1273,11 @@ describe("runReviewCycle", () => {
       );
 
       expect(result.success).toBe(false);
-      expect(result.iterations).toBe(0);
-      expect(result.reason).toContain("Code simplifier failed with exit code 5");
-      expect(state.runAgentCalls.map((call) => call.role)).toEqual(["code-simplifier"]);
+      expect(result.finalStatus).toBe("failed");
+      expect(result.reason).toContain(
+        "Failed to create pre-simplifier checkpoint: Error: checkpoint failed"
+      );
+      expect(state.runAgentCalls).toHaveLength(0);
     });
   });
 
@@ -1281,12 +1473,14 @@ describe("runReviewCycle", () => {
         resultStep(successResult("review output 1")),
         resultStep(successResult("fix output 1")),
         resultStep(successResult("review output 2")),
-        resultStep(successResult("fix output 2"))
+        resultStep(successResult("fix output 2")),
+        resultStep(successResult("terminal review output"))
       );
       queueReviewParses(
         state,
         parseReviewSuccess(buildReviewSummary()),
-        parseReviewSuccess(buildReviewSummary())
+        parseReviewSuccess(buildReviewSummary()),
+        parseReviewSuccess(buildCleanReviewSummary())
       );
       queueFixParses(
         state,
@@ -1325,8 +1519,9 @@ describe("runReviewCycle", () => {
 
       expect(result.success).toBe(true);
       expect(result.finalStatus).toBe("completed");
+      expect(result.reviewOutcome).toBe("clean");
       expect(result.iterations).toBe(2);
-      expect(state.runAgentCalls).toHaveLength(4);
+      expect(state.runAgentCalls).toHaveLength(5);
     });
   });
 
@@ -1335,7 +1530,59 @@ describe("runReviewCycle", () => {
       queueRunAgentSteps(
         state,
         resultStep(successResult("review output")),
-        resultStep(successResult("fix output"))
+        resultStep(successResult("fix output")),
+        resultStep(successResult("terminal review output"))
+      );
+      queueReviewParses(
+        state,
+        parseReviewSuccess(buildReviewSummary()),
+        parseReviewSuccess(buildReviewSummary())
+      );
+      queueFixParses(
+        state,
+        parseFixSuccess(
+          buildFixSummary({
+            decision: "APPLY_SELECTIVELY",
+            stop_iteration: false,
+            fixes: [],
+            skipped: [],
+          })
+        )
+      );
+
+      const result = await runReviewCycle(
+        createConfig({
+          maxIterations: 1,
+        }),
+        undefined,
+        undefined,
+        {
+          projectPath: TEST_PROJECT_PATH,
+          sessionId: TEST_SESSION_ID,
+        },
+        deps
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.finalStatus).toBe("completed");
+      expect(result.reviewOutcome).toBe("incomplete");
+      expect(result.retainedWorktree?.mergeReady).toBe(true);
+      expect(result.reason).toContain("Max iterations (1) reached");
+      expect(state.runAgentCalls.map((call) => call.role)).toEqual([
+        "reviewer",
+        "fixer",
+        "reviewer",
+      ]);
+    });
+  });
+
+  test("marks max-iteration result incomplete when terminal reviewer classification fails", async () => {
+    await withHarness(async (state, deps) => {
+      queueRunAgentSteps(
+        state,
+        resultStep(successResult("review output")),
+        resultStep(successResult("fix output")),
+        resultStep(failureResult("terminal reviewer failed", 19))
       );
       queueReviewParses(state, parseReviewSuccess(buildReviewSummary()));
       queueFixParses(
@@ -1365,7 +1612,154 @@ describe("runReviewCycle", () => {
 
       expect(result.success).toBe(false);
       expect(result.finalStatus).toBe("completed");
-      expect(result.reason).toContain("Max iterations (1) reached");
+      expect(result.reviewOutcome).toBe("incomplete");
+      expect(result.terminalReview).toBeUndefined();
+    });
+  });
+
+  test("preserves interrupted status when terminal reviewer finishes clean after SIGINT", async () => {
+    await withHarness(async (state, deps) => {
+      state.onRunAgent = (role) => {
+        if (role === "reviewer" && state.runAgentCalls.length === 3) {
+          triggerInterrupt(state);
+        }
+      };
+      queueRunAgentSteps(
+        state,
+        resultStep(successResult("review output")),
+        resultStep(successResult("fix output")),
+        resultStep(successResult("terminal review output"))
+      );
+      queueReviewParses(
+        state,
+        parseReviewSuccess(buildReviewSummary()),
+        parseReviewSuccess(buildCleanReviewSummary())
+      );
+      queueFixParses(
+        state,
+        parseFixSuccess(
+          buildFixSummary({
+            decision: "APPLY_SELECTIVELY",
+            stop_iteration: false,
+            fixes: [],
+            skipped: [],
+          })
+        )
+      );
+
+      const result = await runReviewCycle(
+        createConfig({
+          maxIterations: 1,
+        }),
+        undefined,
+        undefined,
+        {
+          projectPath: TEST_PROJECT_PATH,
+          sessionId: TEST_SESSION_ID,
+        },
+        deps
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.finalStatus).toBe("interrupted");
+      expect(result.reviewOutcome).toBe("clean");
+      expect(result.reason).toBe("Review cycle was interrupted");
+    });
+  });
+
+  test("retries terminal reviewer classification when the structured summary is invalid", async () => {
+    await withHarness(async (state, deps) => {
+      queueRunAgentSteps(
+        state,
+        resultStep(successResult("review output")),
+        resultStep(successResult("fix output")),
+        resultStep(successResult("terminal review output invalid")),
+        resultStep(successResult("terminal review output repaired"))
+      );
+      queueReviewParses(
+        state,
+        parseReviewSuccess(buildReviewSummary()),
+        parseReviewFailure("invalid terminal summary"),
+        parseReviewSuccess(buildCleanReviewSummary())
+      );
+      queueFixParses(
+        state,
+        parseFixSuccess(
+          buildFixSummary({
+            decision: "APPLY_SELECTIVELY",
+            stop_iteration: false,
+            fixes: [],
+            skipped: [],
+          })
+        )
+      );
+
+      const result = await runReviewCycle(
+        createConfig({
+          maxIterations: 1,
+        }),
+        undefined,
+        undefined,
+        {
+          projectPath: TEST_PROJECT_PATH,
+          sessionId: TEST_SESSION_ID,
+        },
+        deps
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.finalStatus).toBe("completed");
+      expect(result.reviewOutcome).toBe("clean");
+      expect(result.terminalReview?.findings).toEqual([]);
+      expect(state.runAgentCalls[3]?.prompt).toContain("REVIEWER_SUMMARY_RETRY_REMINDER");
+    });
+  });
+
+  test("marks max-iteration result incomplete when terminal reviewer summary is invalid", async () => {
+    await withHarness(async (state, deps) => {
+      queueRunAgentSteps(
+        state,
+        resultStep(successResult("review output")),
+        resultStep(successResult("fix output")),
+        resultStep(successResult("terminal review output")),
+        resultStep(successResult("terminal review output still invalid"))
+      );
+      queueReviewParses(
+        state,
+        parseReviewSuccess(buildReviewSummary()),
+        parseReviewFailure("invalid terminal summary"),
+        parseReviewFailure("still invalid terminal summary")
+      );
+      queueFixParses(
+        state,
+        parseFixSuccess(
+          buildFixSummary({
+            decision: "APPLY_SELECTIVELY",
+            stop_iteration: false,
+            fixes: [],
+            skipped: [],
+          })
+        )
+      );
+
+      const result = await runReviewCycle(
+        createConfig({
+          maxIterations: 1,
+        }),
+        undefined,
+        undefined,
+        {
+          projectPath: TEST_PROJECT_PATH,
+          sessionId: TEST_SESSION_ID,
+        },
+        deps
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.finalStatus).toBe("completed");
+      expect(result.reviewOutcome).toBe("incomplete");
+      expect(result.terminalReview).toBeUndefined();
+      expect(state.runAgentCalls[3]?.prompt).toContain("REVIEWER_SUMMARY_RETRY_REMINDER");
     });
   });
 
@@ -1494,7 +1888,7 @@ describe("runReviewCycle", () => {
       );
 
       expect(result.success).toBe(true);
-      expect(state.discardCalls).toHaveLength(1);
+      expect(state.discardCalls.length).toBeGreaterThan(0);
     });
   });
 

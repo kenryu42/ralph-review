@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { CONFIG_DIR } from "./config";
 import { getProjectStorageDir } from "./logger";
 import { sessionExists } from "./tmux";
-import type { ReviewSummary } from "./types";
+import type { ReviewOutcome, ReviewSummary } from "./types";
 
 const DEFAULT_BRANCH = "default";
 
@@ -49,8 +49,11 @@ interface CreateSessionStateOptions {
   sessionPath?: string;
   worktreeProjectPath?: string;
   worktreeBranch?: string;
+  worktreeMergeReady?: boolean;
+  worktreeCommitSha?: string;
   endTime?: number;
   reason?: string;
+  reviewOutcome?: ReviewOutcome;
 }
 
 export interface SessionState {
@@ -67,8 +70,11 @@ export interface SessionState {
   sessionPath?: string;
   worktreeProjectPath?: string;
   worktreeBranch?: string;
+  worktreeMergeReady?: boolean;
+  worktreeCommitSha?: string;
   endTime?: number;
   reason?: string;
+  reviewOutcome?: ReviewOutcome;
   iteration?: number;
   currentAgent?: "reviewer" | "fixer" | "code-simplifier" | null;
   reviewSummary?: ReviewSummary;
@@ -270,8 +276,11 @@ export async function createSessionState(
     sessionPath: options.sessionPath,
     worktreeProjectPath: options.worktreeProjectPath,
     worktreeBranch: options.worktreeBranch,
+    worktreeMergeReady: options.worktreeMergeReady,
+    worktreeCommitSha: options.worktreeCommitSha,
     endTime: options.endTime,
     reason: options.reason,
+    reviewOutcome: options.reviewOutcome,
     currentAgent: null,
   };
 

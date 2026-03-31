@@ -26,13 +26,11 @@ import type {
   AgentRole,
   Finding,
   FixEntry,
-  IterationEntry,
   LogEntry,
   ProjectStats,
   ReviewOptions,
   SessionStats,
   SkippedEntry,
-  SystemEntry,
 } from "@/lib/types";
 import type { DashboardState } from "./types";
 
@@ -105,19 +103,27 @@ export function selectLatestReviewFromEntries(logEntries: LogEntry[]): LatestRev
   let latestReviewIteration: number | null = null;
 
   for (const entry of logEntries) {
-    if (entry.type !== "iteration") {
+    if (entry.type === "iteration") {
+      const timestamp = entry.timestamp ?? 0;
+      const hasReview = Boolean(entry.review) || Boolean(entry.codexReview?.text);
+
+      if (hasReview && timestamp >= latestReviewTimestamp) {
+        latestReviewTimestamp = timestamp;
+        iterationFindings = entry.review?.findings ?? [];
+        codexReviewText = entry.codexReview?.text ?? null;
+        latestReviewIteration = entry.iteration;
+      }
       continue;
     }
 
-    const iterEntry = entry as IterationEntry;
-    const timestamp = iterEntry.timestamp ?? 0;
-    const hasReview = Boolean(iterEntry.review) || Boolean(iterEntry.codexReview?.text);
-
-    if (hasReview && timestamp >= latestReviewTimestamp) {
-      latestReviewTimestamp = timestamp;
-      iterationFindings = iterEntry.review?.findings ?? [];
-      codexReviewText = iterEntry.codexReview?.text ?? null;
-      latestReviewIteration = iterEntry.iteration;
+    if (entry.type === "session_end") {
+      const timestamp = entry.timestamp ?? 0;
+      if (entry.terminalReview && timestamp >= latestReviewTimestamp) {
+        latestReviewTimestamp = timestamp;
+        iterationFindings = entry.terminalReview.findings;
+        codexReviewText = null;
+        latestReviewIteration = null;
+      }
     }
   }
 
@@ -270,22 +276,19 @@ export function useDashboardState(
 
       for (const entry of logEntries) {
         if (entry.type === "system") {
-          const systemEntry = entry as SystemEntry;
-          maxIterations = systemEntry.maxIterations;
-          reviewOptions = systemEntry.reviewOptions;
+          maxIterations = entry.maxIterations;
+          reviewOptions = entry.reviewOptions;
         } else if (entry.type === "iteration") {
-          const iterEntry = entry as IterationEntry;
+          const timestamp = entry.timestamp ?? 0;
 
-          const timestamp = iterEntry.timestamp ?? 0;
-
-          if (iterEntry.fixes) {
-            fixes.push(...iterEntry.fixes.fixes);
-            skipped.push(...iterEntry.fixes.skipped);
+          if (entry.fixes) {
+            fixes.push(...entry.fixes.fixes);
+            skipped.push(...entry.fixes.skipped);
 
             if (timestamp >= latestFixesTimestamp) {
               latestFixesTimestamp = timestamp;
-              iterationFixes = iterEntry.fixes.fixes;
-              iterationSkipped = iterEntry.fixes.skipped;
+              iterationFixes = entry.fixes.fixes;
+              iterationSkipped = entry.fixes.skipped;
             }
           }
         }

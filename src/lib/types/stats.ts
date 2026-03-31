@@ -1,5 +1,5 @@
 import type { ReasoningLevel } from "./config";
-import type { AgentType, DerivedRunStatus, Priority } from "./domain";
+import type { AgentType, DerivedRunStatus, Priority, ReviewOutcome } from "./domain";
 import type { LogEntry } from "./log";
 
 /** Stats breakdown per agent */
@@ -32,6 +32,9 @@ export interface SessionStats {
   timestamp: number;
   gitBranch?: string;
   worktreeBranch?: string;
+  mergeReady?: boolean;
+  commitSha?: string;
+  reviewOutcome?: ReviewOutcome;
   status: DerivedRunStatus;
   stop_iteration?: boolean;
   totalFixes: number;

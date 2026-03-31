@@ -176,6 +176,8 @@ export interface GitSessionWorktree {
 export interface RetainedSessionWorktree {
   worktreeProjectPath: string;
   worktreeBranch: string;
+  mergeReady: boolean;
+  commitSha?: string;
 }
 
 export type GitCheckpoint =
@@ -437,7 +439,27 @@ export function createSessionWorktree(
   }
 }
 
-export function finalizeSessionWorktree(worktree: GitSessionWorktree): RetainedSessionWorktree {
+function resolveRetainedCommitMessage(worktree: GitSessionWorktree): string {
+  return `rr: apply reviewed patch for ${worktree.retainedBranch}`;
+}
+
+function hasStagedRetainedChanges(repoPath: string): boolean {
+  const result = runGit(repoPath, ["diff", "--cached", "--quiet", "--exit-code"]);
+
+  if (result.exitCode === 0) {
+    return false;
+  }
+
+  if (result.exitCode === 1) {
+    return true;
+  }
+
+  throw new Error(
+    `Failed to inspect staged retained session worktree changes: ${result.stderr || `git exited with code ${result.exitCode}`}`
+  );
+}
+
+function ensureRetainedWorktreeBranch(worktree: GitSessionWorktree): string {
   let worktreeBranch = worktree.retainedBranch;
 
   if (worktree.headKind === "detached") {
@@ -463,11 +485,51 @@ export function finalizeSessionWorktree(worktree: GitSessionWorktree): RetainedS
   }
 
   worktree.retainedBranch = worktreeBranch;
+  return worktreeBranch;
+}
+
+export function finalizeSessionWorktree(
+  worktree: GitSessionWorktree
+): RetainedSessionWorktree | null {
+  assertGitOk(
+    worktree.worktreeProjectPath,
+    ["add", "-A"],
+    "Failed to stage retained session worktree"
+  );
+
+  if (!hasStagedRetainedChanges(worktree.worktreeProjectPath)) {
+    return null;
+  }
+
+  const worktreeBranch = ensureRetainedWorktreeBranch(worktree);
+
+  assertGitOk(
+    worktree.worktreeProjectPath,
+    [
+      "-c",
+      "user.name=Ralph Review",
+      "-c",
+      "user.email=ralph-review@local",
+      "commit",
+      "-m",
+      resolveRetainedCommitMessage(worktree),
+    ],
+    "Failed to commit retained session worktree"
+  );
+
+  const commitSha = assertGitOk(
+    worktree.worktreeProjectPath,
+    ["rev-parse", "--verify", "HEAD"],
+    "Failed to resolve retained session commit"
+  );
+
   worktree.preserveBranchOnDiscard = true;
 
   return {
     worktreeProjectPath: worktree.worktreeProjectPath,
     worktreeBranch,
+    mergeReady: true,
+    commitSha,
   };
 }
 

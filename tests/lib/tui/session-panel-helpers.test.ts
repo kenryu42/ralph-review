@@ -8,6 +8,8 @@ import {
   formatPriorityBreakdown,
   formatProjectStatsSummary,
   formatRelativeTime,
+  formatRetainedWorktreeMergeCommand,
+  formatRetainedWorktreeOutcome,
   formatSessionIdentityDisplay,
 } from "@/lib/tui/session-panel-utils";
 import type {
@@ -351,6 +353,24 @@ describe("SessionPanel helpers", () => {
         primary: "rr-single",
         details: [],
       });
+    });
+  });
+
+  describe("retained worktree guidance", () => {
+    test("returns merge command only when the retained worktree is merge-ready", () => {
+      expect(formatRetainedWorktreeMergeCommand("rr-worktree-session-1", true)).toBe(
+        "git merge rr-worktree-session-1"
+      );
+      expect(formatRetainedWorktreeMergeCommand("rr-worktree-session-1", false)).toBeNull();
+      expect(formatRetainedWorktreeMergeCommand(undefined, true)).toBeNull();
+    });
+
+    test("shows remaining-findings copy for incomplete mergeable sessions", () => {
+      expect(formatRetainedWorktreeOutcome("incomplete", true)).toBe(
+        "Remaining findings may still exist"
+      );
+      expect(formatRetainedWorktreeOutcome("clean", true)).toBeNull();
+      expect(formatRetainedWorktreeOutcome("incomplete", false)).toBeNull();
     });
   });
 
