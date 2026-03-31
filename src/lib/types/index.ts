@@ -25,6 +25,7 @@ export {
   isAgentRole,
   isAgentType,
   type Priority,
+  type ReviewOutcome,
 } from "./domain";
 export { type FixEntry, type FixSummary, isFixSummary, type SkippedEntry } from "./fix";
 export type {
