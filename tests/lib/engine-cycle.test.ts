@@ -1617,6 +1617,56 @@ describe("runReviewCycle", () => {
     });
   });
 
+  test("preserves interrupted status when terminal reviewer finishes clean after SIGINT", async () => {
+    await withHarness(async (state, deps) => {
+      state.onRunAgent = (role) => {
+        if (role === "reviewer" && state.runAgentCalls.length === 3) {
+          triggerInterrupt(state);
+        }
+      };
+      queueRunAgentSteps(
+        state,
+        resultStep(successResult("review output")),
+        resultStep(successResult("fix output")),
+        resultStep(successResult("terminal review output"))
+      );
+      queueReviewParses(
+        state,
+        parseReviewSuccess(buildReviewSummary()),
+        parseReviewSuccess(buildCleanReviewSummary())
+      );
+      queueFixParses(
+        state,
+        parseFixSuccess(
+          buildFixSummary({
+            decision: "APPLY_SELECTIVELY",
+            stop_iteration: false,
+            fixes: [],
+            skipped: [],
+          })
+        )
+      );
+
+      const result = await runReviewCycle(
+        createConfig({
+          maxIterations: 1,
+        }),
+        undefined,
+        undefined,
+        {
+          projectPath: TEST_PROJECT_PATH,
+          sessionId: TEST_SESSION_ID,
+        },
+        deps
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.finalStatus).toBe("interrupted");
+      expect(result.reviewOutcome).toBe("clean");
+      expect(result.reason).toBe("Review cycle was interrupted");
+    });
+  });
+
   test("retries terminal reviewer classification when the structured summary is invalid", async () => {
     await withHarness(async (state, deps) => {
       queueRunAgentSteps(

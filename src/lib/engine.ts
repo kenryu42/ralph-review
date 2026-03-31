@@ -424,10 +424,9 @@ function applyReviewOutcome(
   if (terminalReview) {
     result.terminalReview = terminalReview;
   }
-  result.success = reviewOutcome === "clean";
+  result.success = result.success && reviewOutcome === "clean";
   return result;
 }
-
 function applyWorktreeCleanupFailure(
   result: CycleResult | undefined,
   sessionPath: string,

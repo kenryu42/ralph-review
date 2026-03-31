@@ -912,7 +912,7 @@ export async function computeSessionStats(session: LogSession): Promise<SessionS
     sessionId: summary?.sessionId ?? systemEntry?.sessionId,
     timestamp: session.timestamp,
     gitBranch: summary?.gitBranch ?? systemEntry?.gitBranch,
-    worktreeBranch: summary?.worktreeBranch ?? systemEntry?.worktreeBranch,
+    worktreeBranch: summary ? summary.worktreeBranch : systemEntry?.worktreeBranch,
     mergeReady: summary?.mergeReady,
     commitSha: summary?.commitSha,
     reviewOutcome: summary?.reviewOutcome,

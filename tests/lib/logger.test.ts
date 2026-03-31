@@ -1296,6 +1296,42 @@ describe("logger", () => {
       expect(stats.worktreeBranch).toBe("rr-worktree-incomplete");
     });
 
+    test("does not revive a transient worktree branch once session_end omits it", async () => {
+      const logPath = await createLogSession(tempDir, "/path/to/project");
+
+      const systemEntry: SystemEntry = {
+        type: "system",
+        timestamp: Date.now(),
+        projectPath: "/path/to/project",
+        worktreeBranch: "rr-worktree-transient",
+        reviewer: { agent: "codex" },
+        fixer: { agent: "claude" },
+        maxIterations: 5,
+      };
+
+      const sessionEndEntry: SessionEndEntry = {
+        type: "session_end",
+        timestamp: Date.now(),
+        status: "completed",
+        reason: "No issues found - code is clean",
+        iterations: 0,
+        reviewOutcome: "clean",
+      };
+
+      await appendLog(logPath, systemEntry);
+      await appendLog(logPath, sessionEndEntry);
+
+      const session = {
+        path: logPath,
+        name: "test.jsonl",
+        projectName: getProjectName("/path/to/project"),
+        timestamp: Date.now(),
+      };
+      const stats = await computeSessionStats(session);
+
+      expect(stats.worktreeBranch).toBeUndefined();
+    });
+
     test("handles empty log", async () => {
       const logPath = await createLogSession(tempDir, "/path/to/project");
 
