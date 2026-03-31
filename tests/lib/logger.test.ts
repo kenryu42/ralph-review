@@ -312,6 +312,10 @@ describe("logger", () => {
         status: "completed",
         reason: "No issues found - code is clean",
         iterations: 1,
+        reviewOutcome: "incomplete",
+        mergeReady: true,
+        commitSha: "retained-commit-sha",
+        worktreeBranch: "rr-worktree-test",
       };
 
       await appendLog(logPath, systemEntry);
@@ -325,6 +329,10 @@ describe("logger", () => {
       expect(summary?.hasIteration).toBe(true);
       expect(summary?.gitBranch).toBe("main");
       expect(summary?.reason).toContain("code is clean");
+      expect(summary?.reviewOutcome).toBe("incomplete");
+      expect(summary?.mergeReady).toBe(true);
+      expect(summary?.commitSha).toBe("retained-commit-sha");
+      expect(summary?.worktreeBranch).toBe("rr-worktree-test");
     });
 
     test("applies incremental summary updates for each appended event", async () => {
@@ -364,6 +372,10 @@ describe("logger", () => {
         status: "completed",
         reason: "No issues found - code is clean",
         iterations: 1,
+        reviewOutcome: "clean",
+        mergeReady: true,
+        commitSha: "clean-commit-sha",
+        worktreeBranch: "rr-worktree-clean",
       };
 
       await appendLog(logPath, systemEntry);
@@ -397,6 +409,10 @@ describe("logger", () => {
       expect(summaryAfterEnd?.iterations).toBe(1);
       expect(summaryAfterEnd?.totalFixes).toBe(1);
       expect(summaryAfterEnd?.totalSkipped).toBe(1);
+      expect(summaryAfterEnd?.reviewOutcome).toBe("clean");
+      expect(summaryAfterEnd?.mergeReady).toBe(true);
+      expect(summaryAfterEnd?.commitSha).toBe("clean-commit-sha");
+      expect(summaryAfterEnd?.worktreeBranch).toBe("rr-worktree-clean");
     });
 
     test("tracks rollback aggregates in summary", async () => {
@@ -1254,6 +1270,10 @@ describe("logger", () => {
         status: "interrupted",
         reason: "Review cycle was interrupted",
         iterations: 1,
+        reviewOutcome: "incomplete",
+        mergeReady: true,
+        commitSha: "retained-commit-sha",
+        worktreeBranch: "rr-worktree-incomplete",
       };
 
       await appendLog(logPath, systemEntry);
@@ -1270,6 +1290,10 @@ describe("logger", () => {
 
       expect(stats.status).toBe("interrupted");
       expect(stats.iterations).toBe(1);
+      expect(stats.reviewOutcome).toBe("incomplete");
+      expect(stats.mergeReady).toBe(true);
+      expect(stats.commitSha).toBe("retained-commit-sha");
+      expect(stats.worktreeBranch).toBe("rr-worktree-incomplete");
     });
 
     test("handles empty log", async () => {

@@ -535,6 +535,9 @@ export async function runForeground(
           lastHeartbeat: runtime.timer.now(),
           worktreeProjectPath: cycleResult.retainedWorktree?.worktreeProjectPath,
           worktreeBranch: cycleResult.retainedWorktree?.worktreeBranch,
+          worktreeMergeReady: cycleResult.retainedWorktree?.mergeReady,
+          worktreeCommitSha: cycleResult.retainedWorktree?.commitSha,
+          reviewOutcome: cycleResult.reviewOutcome,
         },
         {
           expectedSessionId: sessionId,
@@ -553,6 +556,9 @@ export async function runForeground(
           lastHeartbeat: runtime.timer.now(),
           worktreeProjectPath: undefined,
           worktreeBranch: undefined,
+          worktreeMergeReady: undefined,
+          worktreeCommitSha: undefined,
+          reviewOutcome: undefined,
         },
         {
           expectedSessionId: sessionId,
