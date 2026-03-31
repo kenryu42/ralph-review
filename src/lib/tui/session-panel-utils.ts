@@ -3,9 +3,9 @@ import { TUI_COLORS } from "@/lib/tui/colors";
 import {
   type Finding,
   type FixEntry,
-  type IterationEntry,
   isReviewSummary,
   type Priority,
+  type ReviewOutcome,
   type ReviewSummary,
   type SessionStats,
   type SkippedEntry,
@@ -58,13 +58,34 @@ export function formatSessionIdentityDisplay(
   };
 }
 
+export function formatRetainedWorktreeMergeCommand(
+  worktreeBranch: string | undefined,
+  mergeReady: boolean | undefined
+): string | null {
+  if (!worktreeBranch || mergeReady !== true) {
+    return null;
+  }
+
+  return `git merge ${worktreeBranch}`;
+}
+
+export function formatRetainedWorktreeOutcome(
+  reviewOutcome: ReviewOutcome | undefined,
+  mergeReady: boolean | undefined
+): string | null {
+  if (reviewOutcome === "incomplete" && mergeReady === true) {
+    return "Remaining findings may still exist";
+  }
+
+  return null;
+}
+
 export function extractFixesFromStats(stats: SessionStats): FixEntry[] {
   const fixes: FixEntry[] = [];
   for (const entry of stats.entries) {
     if (entry.type === "iteration") {
-      const iterEntry = entry as IterationEntry;
-      if (iterEntry.fixes?.fixes) {
-        fixes.push(...iterEntry.fixes.fixes);
+      if (entry.fixes?.fixes) {
+        fixes.push(...entry.fixes.fixes);
       }
     }
   }
@@ -75,9 +96,8 @@ export function extractSkippedFromStats(stats: SessionStats): SkippedEntry[] {
   const skipped: SkippedEntry[] = [];
   for (const entry of stats.entries) {
     if (entry.type === "iteration") {
-      const iterEntry = entry as IterationEntry;
-      if (iterEntry.fixes?.skipped) {
-        skipped.push(...iterEntry.fixes.skipped);
+      if (entry.fixes?.skipped) {
+        skipped.push(...entry.fixes.skipped);
       }
     }
   }
