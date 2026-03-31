@@ -592,6 +592,22 @@ describe("config command helpers", () => {
       }
     });
 
+    test("deletes non-pi model fields in full config updates instead of storing null", () => {
+      const config = createBaseConfig();
+      config.reviewer = {
+        agent: "codex",
+        model: "gpt-5.3-codex",
+        reasoning: "high",
+      };
+
+      const updated = setConfigValue(config, "reviewer.model", null);
+
+      expect(updated.reviewer.agent).toBe("codex");
+      expect(updated.reviewer.model).toBeUndefined();
+      expect("model" in updated.reviewer).toBe(false);
+      expect(updated.reviewer.reasoning).toBe("high");
+    });
+
     test("validates model updates", () => {
       expect(() => setConfigValue(createBaseConfig(), "fixer.model", true)).toThrow(
         "string or null"
@@ -2088,6 +2104,38 @@ describe("config command execution", () => {
         reviewer: {
           agent: "codex",
           model: "gpt-5.3-codex",
+        },
+      },
+    ]);
+    expect(harness.errors).toEqual([]);
+    expect(harness.exits).toEqual([]);
+  });
+
+  test("set --local preserves explicit null model overrides when effective config is broken", async () => {
+    const harness = createBrokenLocalOverrideHarness(
+      {
+        reviewer: {
+          agent: "codex",
+          model: "gpt-5.3-codex",
+          reasoning: "low",
+        },
+      },
+      {
+        buildConfigOverride: () => {
+          throw new Error("buildConfigOverride should not be called for broken effective config");
+        },
+      }
+    );
+    const runConfig = createRunConfig(harness.deps);
+
+    await runConfig(["set", "--local", "reviewer.model", "null"]);
+
+    expect(harness.savedOverrides).toEqual([
+      {
+        reviewer: {
+          agent: "codex",
+          model: null,
+          reasoning: "low",
         },
       },
     ]);
