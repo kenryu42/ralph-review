@@ -1694,6 +1694,26 @@ describe("config command execution", () => {
     expect(harness.exits).toEqual([1]);
   });
 
+  test("show --global reports invariant errors from a parsed global config", async () => {
+    const invalidConfig = createBaseConfig();
+    invalidConfig.maxIterations = 0;
+
+    const harness = createCommandHarness({
+      loadConfigWithDiagnostics: async () => ({
+        exists: true,
+        config: invalidConfig,
+        errors: [],
+      }),
+    });
+    const runConfig = createRunConfig(harness.deps);
+
+    await runConfig(["show", "--global"]);
+
+    expect(harness.errors[0]).toContain("Invalid configuration: /tmp/ralph-test-config.json");
+    expect(harness.errors[0]).toContain("- maxIterations must be an integer greater than 0.");
+    expect(harness.exits).toEqual([1]);
+  });
+
   test("show reports global-source invariant errors with the global config header", async () => {
     const invalidConfig = createBaseConfig();
     invalidConfig.maxIterations = 0;
@@ -1718,6 +1738,36 @@ describe("config command execution", () => {
     await runConfig(["show"]);
 
     expect(harness.errors[0]).toContain("Invalid configuration: /tmp/ralph-test-config.json");
+    expect(harness.errors[0]).toContain("- maxIterations must be an integer greater than 0.");
+    expect(harness.exits).toEqual([1]);
+  });
+
+  test("show reports local-source invariant errors with the repo-local header", async () => {
+    const invalidConfig = createBaseConfig();
+    invalidConfig.maxIterations = 0;
+
+    const harness = createCommandHarness({
+      loadEffectiveConfigWithDiagnostics: async () => ({
+        exists: true,
+        config: invalidConfig,
+        errors: [],
+        source: "local",
+        globalPath: "/tmp/ralph-test-config.json",
+        localPath: "/repo/.ralph-review/config.json",
+        repoRoot: "/repo",
+        globalExists: true,
+        localExists: true,
+        globalErrors: [],
+        localErrors: [],
+      }),
+    });
+    const runConfig = createRunConfig(harness.deps);
+
+    await runConfig(["show"]);
+
+    expect(harness.errors[0]).toContain(
+      "Invalid repo-local configuration: /repo/.ralph-review/config.json"
+    );
     expect(harness.errors[0]).toContain("- maxIterations must be an integer greater than 0.");
     expect(harness.exits).toEqual([1]);
   });

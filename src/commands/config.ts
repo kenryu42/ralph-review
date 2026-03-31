@@ -5,13 +5,23 @@ import {
   parseConfigUpdate,
   setConfigOverrideValue,
   setConfigValue,
-  validateConfigInvariants,
 } from "@/commands/config-model";
+import {
+  collectConfigValidationErrors,
+  collectEffectiveConfigValidationErrors,
+  formatConfigValidationMessage,
+  getEffectiveConfigErrorHeader,
+  loadDisplayLayers,
+  loadExistingConfig,
+  loadExistingEffectiveConfig,
+  loadExistingRawConfig,
+  loadExistingRawOverride,
+  resolveLocalConfigPathOrThrow,
+} from "@/commands/config-runtime";
 import {
   buildConfigOverride,
   CONFIG_PATH,
   configExists,
-  type EffectiveConfigDiagnostics,
   ensureConfigDir,
   loadConfig,
   loadConfigOverrideWithDiagnostics,
@@ -29,8 +39,7 @@ import {
   formatConfigRawLayersDisplay,
   formatReadableConfigSection,
 } from "@/lib/config-display";
-import { loadConfigDisplayLayers } from "@/lib/config-layers";
-import type { Config, ConfigOverride } from "@/lib/types";
+import type { Config } from "@/lib/types";
 
 export {
   getConfigValue,
@@ -84,29 +93,6 @@ export type ConfigCommandDeps = {
 
 type ConfigScope = "global" | "local";
 
-function getEffectiveConfigErrorHeader(loaded: EffectiveConfigDiagnostics): string {
-  const hasLocalErrors = loaded.localErrors.length > 0;
-  const hasGlobalErrors = loaded.globalErrors.length > 0;
-
-  if (hasLocalErrors && !hasGlobalErrors && loaded.localPath) {
-    return `Invalid repo-local configuration: ${loaded.localPath}`;
-  }
-
-  if (hasGlobalErrors && !hasLocalErrors) {
-    return `Invalid configuration: ${loaded.globalPath}`;
-  }
-
-  if (loaded.source === "local" && loaded.localPath) {
-    return `Invalid repo-local configuration: ${loaded.localPath}`;
-  }
-
-  if (loaded.source === "global") {
-    return `Invalid configuration: ${loaded.globalPath}`;
-  }
-
-  return "Invalid effective configuration.";
-}
-
 function shellQuote(value: string): string {
   return `'${value.replaceAll("'", `'"'"'`)}'`;
 }
@@ -133,34 +119,6 @@ export function parseConfigSubcommand(value: string): ConfigSubcommand {
   }
 
   throw new Error(`Unknown config subcommand "${value}". Use: show, get, set, edit.`);
-}
-
-function formatConfigValidationMessage(header: string, errors: string[], footer?: string): string {
-  const uniqueErrors = [...new Set(errors)];
-  const lines = [header];
-  for (const error of uniqueErrors) {
-    lines.push(`- ${error}`);
-  }
-  if (footer) {
-    lines.push(footer);
-  }
-  return lines.join("\n");
-}
-
-function collectConfigValidationErrors(config: Config | null, errors: string[]): string[] {
-  const combined = [...errors];
-  if (config) {
-    combined.push(...validateConfigInvariants(config));
-  }
-  return [...new Set(combined)];
-}
-
-function collectEffectiveConfigValidationErrors(loaded: EffectiveConfigDiagnostics): string[] {
-  const combined = loaded.config ? [] : [...loaded.errors];
-  if (loaded.config) {
-    combined.push(...validateConfigInvariants(loaded.config));
-  }
-  return [...new Set(combined)];
 }
 
 type ResolvedReadScope = "effective" | ConfigScope;
@@ -249,114 +207,6 @@ function parseShowArgs(args: string[]): ParsedShowArgs {
   }
 
   return { scope, positional, json, verbose };
-}
-
-async function resolveLocalConfigPathOrThrow(deps: ConfigCommandDeps): Promise<string> {
-  const resolved = await deps.resolveRepoConfigPath(deps.cwd());
-  if (!resolved) {
-    throw new Error("Cannot use --local outside a git repository.");
-  }
-
-  return resolved.path;
-}
-
-async function loadExistingRawConfig(path: string, deps: ConfigCommandDeps): Promise<Config> {
-  if (!(await deps.configExists(path))) {
-    throw new Error('Configuration not found. Run "rr init" first.');
-  }
-
-  const loaded = await deps.loadConfigWithDiagnostics(path);
-  if (!loaded.exists) {
-    throw new Error('Configuration not found. Run "rr init" first.');
-  }
-
-  const errors = collectConfigValidationErrors(loaded.config, loaded.errors);
-  if (!loaded.config || errors.length > 0) {
-    throw new Error(
-      formatConfigValidationMessage(
-        `Invalid configuration: ${path}`,
-        errors.length > 0 ? errors : ["Configuration format is invalid."],
-        'Run "rr init" to regenerate the file, or fix it manually.'
-      )
-    );
-  }
-
-  return loaded.config;
-}
-
-async function loadExistingEffectiveConfig(deps: ConfigCommandDeps): Promise<Config> {
-  const loaded = await deps.loadEffectiveConfigWithDiagnostics(deps.cwd());
-  if (!loaded.exists) {
-    throw new Error('Configuration not found. Run "rr init" first.');
-  }
-
-  const errors = collectEffectiveConfigValidationErrors(loaded);
-  if (!loaded.config || errors.length > 0) {
-    throw new Error(
-      formatConfigValidationMessage(
-        getEffectiveConfigErrorHeader(loaded),
-        errors.length > 0 ? errors : ["Configuration format is invalid."],
-        'Run "rr init" to regenerate the file, or fix it manually.'
-      )
-    );
-  }
-
-  return loaded.config;
-}
-
-async function loadExistingRawOverride(
-  path: string,
-  deps: ConfigCommandDeps
-): Promise<ConfigOverride> {
-  if (!(await deps.configExists(path))) {
-    throw new Error('Configuration not found. Run "rr init" and choose Repo-local config first.');
-  }
-
-  const loaded = await deps.loadConfigOverrideWithDiagnostics(path);
-  if (!loaded.exists) {
-    throw new Error('Configuration not found. Run "rr init" and choose Repo-local config first.');
-  }
-
-  if (!loaded.config || loaded.errors.length > 0) {
-    throw new Error(
-      formatConfigValidationMessage(
-        `Invalid repo-local configuration: ${path}`,
-        loaded.errors.length > 0 ? loaded.errors : ["Configuration format is invalid."],
-        'Run "rr init" and choose Repo-local config to regenerate the file, or fix it manually.'
-      )
-    );
-  }
-
-  return loaded.config;
-}
-
-async function loadExistingConfig(deps: ConfigCommandDeps): Promise<Config> {
-  return await loadExistingRawConfig(deps.configPath, deps);
-}
-
-async function loadDisplayLayers(deps: ConfigCommandDeps) {
-  const layers = await loadConfigDisplayLayers(deps.cwd(), {
-    loadEffectiveConfigWithDiagnostics: deps.loadEffectiveConfigWithDiagnostics,
-    loadConfigWithDiagnostics: deps.loadConfigWithDiagnostics,
-    loadConfigOverrideWithDiagnostics: deps.loadConfigOverrideWithDiagnostics,
-  });
-  const { effective } = layers;
-  if (!effective.exists) {
-    throw new Error('Configuration not found. Run "rr init" first.');
-  }
-
-  const errors = collectEffectiveConfigValidationErrors(effective);
-  if (!effective.config || errors.length > 0) {
-    throw new Error(
-      formatConfigValidationMessage(
-        getEffectiveConfigErrorHeader(effective),
-        errors.length > 0 ? errors : ["Configuration format is invalid."],
-        'Run "rr init" to regenerate the file, or fix it manually.'
-      )
-    );
-  }
-
-  return layers;
 }
 
 async function runShow(args: string[], deps: ConfigCommandDeps): Promise<void> {
