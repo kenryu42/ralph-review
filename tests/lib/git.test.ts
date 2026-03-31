@@ -699,10 +699,27 @@ describe("session worktree management", () => {
     await Bun.write(join(worktree.worktreeProjectPath, "base.txt"), "worktree change");
 
     const retained = finalizeSessionWorktree(worktree);
+    expect(retained).not.toBeNull();
+    if (!retained) {
+      throw new Error("Expected retained worktree to be created");
+    }
     expect(retained.worktreeBranch).toBe("rr-worktree-session-2");
+    expect(retained.mergeReady).toBe(true);
+    expect(retained.commitSha).toBeString();
+    const retainedCommitSha = retained.commitSha;
+    if (!retainedCommitSha) {
+      throw new Error("Expected retained worktree commit sha");
+    }
     expect(runGitStdout(worktree.worktreeProjectPath, ["branch", "--show-current"])).toBe(
       retained.worktreeBranch
     );
+    expect(runGitStdout(worktree.worktreeProjectPath, ["rev-parse", "HEAD"])).toBe(
+      retainedCommitSha
+    );
+    expect(runGitStdout(tempDir, ["merge", retained.worktreeBranch])).not.toBe(
+      "Already up to date."
+    );
+    expect(await Bun.file(join(tempDir, "base.txt")).text()).toBe("worktree change");
 
     discardSessionWorktree(worktree);
     createdWorktrees = createdWorktrees.filter(
@@ -712,6 +729,48 @@ describe("session worktree management", () => {
     expect(await Bun.file(worktree.worktreeProjectPath).exists()).toBe(false);
     const worktreeList = runGitStdout(tempDir, ["worktree", "list", "--porcelain"]);
     expect(worktreeList).not.toContain(worktree.worktreeProjectPath);
+  });
+
+  test("does not retain a detached worktree when there is nothing to commit", async () => {
+    initTestRepo(tempDir);
+    commit(tempDir, "base.txt", "base commit");
+
+    const worktree = createSessionWorktree(tempDir, "session-empty");
+    createdWorktrees.push(worktree);
+
+    const retained = finalizeSessionWorktree(worktree);
+    expect(retained).toBeNull();
+  });
+
+  test("finalizes a dirty worktree without relying on git status pre-checks", async () => {
+    initTestRepo(tempDir);
+    commit(tempDir, "base.txt", "base commit");
+
+    const worktree = createSessionWorktree(tempDir, "session-statusless");
+    createdWorktrees.push(worktree);
+
+    await Bun.write(join(worktree.worktreeProjectPath, "base.txt"), "worktree change");
+
+    const restoreSpawnSync = patchSpawnSyncFailure(
+      (command) =>
+        command[0] === "git" &&
+        command[1] === "status" &&
+        command[2] === "--porcelain" &&
+        command[3] === "--untracked-files=all"
+    );
+
+    try {
+      const retained = finalizeSessionWorktree(worktree);
+      expect(retained).not.toBeNull();
+      if (!retained) {
+        throw new Error("Expected retained worktree to be created");
+      }
+      expect(retained.worktreeBranch).toBe("rr-worktree-session-statusless");
+      expect(retained.mergeReady).toBe(true);
+      expect(retained.commitSha).toBeString();
+    } finally {
+      restoreSpawnSync();
+    }
   });
 
   test("creates an unborn worktree that preserves staged and untracked state", async () => {
