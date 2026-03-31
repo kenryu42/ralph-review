@@ -1001,6 +1001,16 @@ describe("config command execution", () => {
     expect(harness.notes[0]?.message).not.toContain('"reviewer"');
   });
 
+  test("show --global does not load the effective config", async () => {
+    const harness = createCommandHarness();
+    const runConfig = createRunConfig(harness.deps);
+
+    await runConfig(["show", "--global"]);
+
+    expect(harness.effectiveLoadCalls).toEqual([]);
+    expect(harness.exits).toEqual([]);
+  });
+
   test("show --global --json prints raw global config JSON", async () => {
     const harness = createCommandHarness();
     const runConfig = createRunConfig(harness.deps);
