@@ -1472,7 +1472,7 @@ describe("run command", () => {
       expect(harness.runReviewCycleCalls[0]?.maxIterations).toBe(9);
       expect(harness.runReviewCycleCalls[0]?.options.forceMaxIterations).toBe(true);
       expect(harness.runReviewCycleCalls[0]?.options.simplifier).toBe(true);
-      expect(harness.updateSessionStateCalls[0]?.updates.currentAgent).toBe("code-simplifier");
+      expect(harness.updateSessionStateCalls[0]?.updates.currentAgent).toBeNull();
     });
 
     test("ignores internal parser failures and continues with defaults", async () => {
@@ -1485,7 +1485,7 @@ describe("run command", () => {
       expect(harness.runReviewCycleCalls[0]?.maxIterations).toBe(5);
       expect(harness.runReviewCycleCalls[0]?.options.forceMaxIterations).toBe(false);
       expect(harness.runReviewCycleCalls[0]?.options.simplifier).toBe(false);
-      expect(harness.updateSessionStateCalls[0]?.updates.currentAgent).toBe("reviewer");
+      expect(harness.updateSessionStateCalls[0]?.updates.currentAgent).toBeNull();
     });
 
     test("runs even when _run-foreground command definition is missing", async () => {

@@ -488,7 +488,7 @@ export async function runForeground(
       state: "running",
       mode: "foreground",
       lastHeartbeat: runtime.timer.now(),
-      currentAgent: runSimplifier ? "code-simplifier" : "reviewer",
+      currentAgent: null,
       branch: branch ?? sessionState?.branch,
     },
     {
