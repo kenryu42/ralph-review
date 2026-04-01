@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import type { ActiveSession } from "@/lib/session-state";
-import { STOP_SESSION_GRACE_PERIOD_MS, stopActiveSession } from "@/lib/stop-session";
+import type { ActiveSession, SessionState } from "@/lib/session-state";
+import {
+  STOP_SESSION_GRACE_PERIOD_MS,
+  STOP_SESSION_POLL_INTERVAL_MS,
+  stopActiveSession,
+} from "@/lib/stop-session";
 
 function createActiveSession(overrides: Partial<ActiveSession> = {}): ActiveSession {
   return {
@@ -20,7 +24,7 @@ function createActiveSession(overrides: Partial<ActiveSession> = {}): ActiveSess
 }
 
 describe("stopActiveSession", () => {
-  test("marks the session as stopping before interrupting, killing, and removing it", async () => {
+  test("force kills the tmux session when it does not stop within the grace period", async () => {
     const session = createActiveSession();
     const steps: string[] = [];
     const now = 123_456_789;
@@ -54,6 +58,8 @@ describe("stopActiveSession", () => {
         sendInterrupt: async (sessionName) => {
           steps.push(`interrupt:${sessionName}`);
         },
+        readSessionState: async (): Promise<SessionState> => session,
+        sessionExists: async () => true,
         sleep: async (ms) => {
           steps.push(`sleep:${ms}`);
         },
@@ -74,13 +80,13 @@ describe("stopActiveSession", () => {
       Date.now = originalNow;
     }
 
-    expect(steps).toEqual([
-      "update",
-      "interrupt:rr-project-main",
-      `sleep:${STOP_SESSION_GRACE_PERIOD_MS}`,
-      "kill:rr-project-main",
-      "remove",
-    ]);
+    expect(steps[0]).toBe("update");
+    expect(steps[1]).toBe("interrupt:rr-project-main");
+    expect(steps.filter((step) => step === `sleep:${STOP_SESSION_POLL_INTERVAL_MS}`)).toHaveLength(
+      Math.ceil(STOP_SESSION_GRACE_PERIOD_MS / STOP_SESSION_POLL_INTERVAL_MS)
+    );
+    expect(steps.at(-2)).toBe("kill:rr-project-main");
+    expect(steps.at(-1)).toBe("remove");
     expect(updateSessionStateCalls).toEqual([
       {
         projectPath: "/repo/project",
@@ -99,5 +105,40 @@ describe("stopActiveSession", () => {
         expectedSessionId: "session-123",
       },
     ]);
+  });
+
+  test("waits for terminal session state and skips force killing when cleanup completes", async () => {
+    const session = createActiveSession();
+    const steps: string[] = [];
+    const sessionStates: Array<SessionState | null> = [
+      session,
+      { ...session, state: "interrupted" },
+    ];
+
+    await stopActiveSession(session, {
+      updateSessionState: async () => true,
+      sendInterrupt: async (sessionName) => {
+        steps.push(`interrupt:${sessionName}`);
+      },
+      readSessionState: async () => sessionStates.shift() ?? null,
+      sessionExists: async () => true,
+      sleep: async (ms) => {
+        steps.push(`sleep:${ms}`);
+      },
+      killSession: async (sessionName) => {
+        steps.push(`kill:${sessionName}`);
+      },
+      removeSessionState: async () => {
+        steps.push("remove");
+        return true;
+      },
+    });
+
+    expect(steps).toEqual([
+      `interrupt:${session.sessionName}`,
+      `sleep:${STOP_SESSION_POLL_INTERVAL_MS}`,
+      "remove",
+    ]);
+    expect(steps).not.toContain(`kill:${session.sessionName}`);
   });
 });

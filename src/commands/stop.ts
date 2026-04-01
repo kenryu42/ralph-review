@@ -5,12 +5,13 @@ import {
   type ActiveSession,
   listAllActiveSessions,
   listProjectActiveSessions,
+  readSessionState,
   removeAllSessionStates,
   removeSessionState,
   updateSessionState,
 } from "@/lib/session-state";
 import { stopActiveSession } from "@/lib/stop-session";
-import { killSession, listRalphSessions, sendInterrupt } from "@/lib/tmux";
+import { killSession, listRalphSessions, sendInterrupt, sessionExists } from "@/lib/tmux";
 
 interface StopOptions {
   all: boolean;
@@ -119,6 +120,8 @@ async function stopSession(session: ActiveSession): Promise<void> {
   await stopActiveSession(session, {
     updateSessionState,
     sendInterrupt,
+    readSessionState,
+    sessionExists,
     killSession,
     removeSessionState,
   });
@@ -126,6 +129,7 @@ async function stopSession(session: ActiveSession): Promise<void> {
 }
 
 async function stopAllSessions(): Promise<void> {
+  const orphanStopGracePeriod = 1_000;
   const activeSessions = await listAllActiveSessions();
   const tmuxSessions = await listRalphSessions();
   const sessionNames = [
@@ -140,36 +144,43 @@ async function stopAllSessions(): Promise<void> {
 
   p.log.step(`Stopping ${sessionNames.length} session(s)...`);
 
-  for (const session of activeSessions) {
-    await updateSessionState(
-      undefined,
-      session.projectPath,
-      session.sessionId,
-      {
-        state: "stopping",
-        lastHeartbeat: Date.now(),
-      },
-      {
-        expectedSessionId: session.sessionId,
-      }
-    );
-  }
+  const activeSessionsByName = new Map(
+    activeSessions.map((session) => [session.sessionName, session] as const)
+  );
+  const orphanSessionNames = sessionNames.filter(
+    (sessionName) => !activeSessionsByName.has(sessionName)
+  );
+  const activeStopPromise = Promise.all(
+    activeSessions.map((session) =>
+      stopActiveSession(session, {
+        updateSessionState,
+        sendInterrupt,
+        readSessionState,
+        sessionExists,
+        killSession,
+        removeSessionState,
+      })
+    )
+  );
 
-  for (const sessionName of sessionNames) {
+  for (const sessionName of orphanSessionNames) {
     await sendInterrupt(sessionName);
   }
 
-  await new Promise((resolve) => setTimeout(resolve, 1000));
+  await activeStopPromise;
 
-  for (const sessionName of sessionNames) {
-    await killSession(sessionName);
-    p.log.message(`  Stopped: ${sessionName}`);
+  if (orphanSessionNames.length > 0) {
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, orphanStopGracePeriod);
+    });
   }
 
-  for (const session of activeSessions) {
-    await removeSessionState(undefined, session.projectPath, session.sessionId, {
-      expectedSessionId: session.sessionId,
-    });
+  for (const sessionName of orphanSessionNames) {
+    await killSession(sessionName);
+  }
+
+  for (const sessionName of sessionNames) {
+    p.log.message(`  Stopped: ${sessionName}`);
   }
 
   await removeAllSessionStates();

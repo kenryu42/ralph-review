@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
-import type { ActiveSession } from "@/lib/session-state";
+import type { ActiveSession, SessionState } from "@/lib/session-state";
 
 const EXIT_PREFIX = "__FORCED_EXIT__:";
 
@@ -10,6 +10,8 @@ interface StopHarnessOptions {
   hasStopCommandDef?: boolean;
   isTTY?: boolean;
   selectValues?: unknown[];
+  readSessionState?: (projectPath: string, sessionId: string) => Promise<SessionState | null>;
+  sessionExists?: (sessionName: string) => Promise<boolean>;
 }
 
 interface StopHarnessResult {
@@ -53,6 +55,8 @@ async function runStopWithHarness(
   args: string[],
   options: StopHarnessOptions = {}
 ): Promise<StopHarnessResult> {
+  const actualSessionState = await import("@/lib/session-state");
+  const actualTmux = await import("@/lib/tmux");
   const listProjectActiveSessionsCalls: string[] = [];
   const updateSessionStateCalls: Array<{
     projectPath: string;
@@ -74,18 +78,31 @@ async function runStopWithHarness(
   const hasStopCommandDef = options.hasStopCommandDef ?? true;
   const selectValues = [...(options.selectValues ?? [])];
   const selectMessages: string[] = [];
+  const readSessionState =
+    options.readSessionState ??
+    (async (projectPath: string, sessionId: string) => {
+      return (
+        activeSessions.find(
+          (session) => session.projectPath === projectPath && session.sessionId === sessionId
+        ) ?? null
+      );
+    });
+  const sessionExists = options.sessionExists ?? (async (_sessionName: string) => true);
 
   mock.module("@/lib/session-state", () => ({
-    SESSION_STATE_SCHEMA_VERSION: 2,
-    HEARTBEAT_INTERVAL_MS: 5_000,
-    RUNNING_STALE_AFTER_MS: 20_000,
-    PENDING_STARTUP_TIMEOUT_MS: 45_000,
-    STOPPING_STALE_AFTER_MS: 20_000,
+    ...actualSessionState,
     createSessionId: () => "mock-session-id",
     listAllActiveSessions: async () => activeSessions,
     listProjectActiveSessions: async (_logsDir: string | undefined, projectPath: string) => {
       listProjectActiveSessionsCalls.push(projectPath);
       return activeSessions.filter((session) => session.projectPath === projectPath);
+    },
+    readSessionState: async (
+      _logsDir: string | undefined,
+      projectPath: string,
+      sessionId: string
+    ) => {
+      return await readSessionState(projectPath, sessionId);
     },
     removeAllSessionStates: async () => {
       removeAllSessionStatesCalls += 1;
@@ -119,20 +136,9 @@ async function runStopWithHarness(
   }));
 
   mock.module("@/lib/tmux", () => ({
-    TMUX_CAPTURE_MIN_INTERVAL_MS: 250,
-    TMUX_CAPTURE_MAX_INTERVAL_MS: 2_000,
-    shouldCaptureTmux: () => false,
-    computeNextTmuxCaptureInterval: () => 250,
-    sanitizeBasename: (basename: string) => basename,
-    isTmuxInstalled: () => true,
-    isInsideTmux: () => false,
-    generateSessionName: () => "rr-mock-session",
-    sessionExists: async () => false,
-    createSession: async () => {},
+    ...actualTmux,
+    sessionExists: async (sessionName: string) => await sessionExists(sessionName),
     listRalphSessions: async () => tmuxSessions,
-    listSessions: async () => [],
-    normalizeSessionOutput: (output: string) => output,
-    getSessionOutput: async () => "",
     sendInterrupt: async (sessionName: string) => {
       sendInterruptCalls.push(sessionName);
     },
@@ -302,8 +308,8 @@ describe("runStop", () => {
     expect(typeof result.updateSessionStateCalls[1]?.updates.lastHeartbeat).toBe("number");
     expect(result.updateSessionStateCalls[1]?.expectedSessionId).toBe("session-b");
 
-    expect(result.sendInterruptCalls).toEqual(["rr-bravo", "rr-charlie", "rr-alpha"]);
-    expect(result.killSessionCalls).toEqual(["rr-bravo", "rr-charlie", "rr-alpha"]);
+    expect([...result.sendInterruptCalls].sort()).toEqual(["rr-alpha", "rr-bravo", "rr-charlie"]);
+    expect([...result.killSessionCalls].sort()).toEqual(["rr-alpha", "rr-bravo", "rr-charlie"]);
     expect(result.messages).toEqual([
       "  Stopped: rr-bravo",
       "  Stopped: rr-charlie",
@@ -317,6 +323,31 @@ describe("runStop", () => {
     expect(result.removeAllSessionStatesCalls).toBe(1);
     expect(result.successes).toEqual(["Stopped 3 session(s)."]);
     expect(result.exitCode).toBeUndefined();
+  });
+
+  test("stop --all lets interrupted sessions reach terminal state before skipping kill", async () => {
+    const session = createActiveSession({
+      sessionId: "session-a",
+      sessionName: "rr-alpha",
+      projectPath: "/repo/alpha",
+    });
+    const result = await runStopWithHarness(["--all"], {
+      fastTimeout: true,
+      activeSessions: [session],
+      tmuxSessions: ["rr-alpha"],
+      readSessionState: async () => ({ ...session, state: "interrupted" }),
+      sessionExists: async () => true,
+    });
+
+    expect(result.steps).toEqual(["Stopping 1 session(s)..."]);
+    expect(result.updateSessionStateCalls).toHaveLength(1);
+    expect(result.sendInterruptCalls).toEqual(["rr-alpha"]);
+    expect(result.killSessionCalls).toEqual([]);
+    expect(result.removeSessionStateCalls).toEqual([
+      { projectPath: "/repo/alpha", expectedSessionId: "session-a" },
+    ]);
+    expect(result.messages).toEqual(["  Stopped: rr-alpha"]);
+    expect(result.successes).toEqual(["Stopped 1 session(s)."]);
   });
 
   test("stop without active session state shows empty state for current project", async () => {
