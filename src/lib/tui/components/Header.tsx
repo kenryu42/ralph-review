@@ -1,5 +1,6 @@
 import { getVersion } from "@/cli-core";
 import { getAgentDisplayInfo } from "@/lib/agents/display";
+import { formatReviewType } from "@/lib/format";
 import type { SessionState } from "@/lib/session-state";
 import { TUI_COLORS } from "@/lib/tui/colors";
 import type { Config } from "@/lib/types";
@@ -70,6 +71,13 @@ export function Header({ branch, elapsed, session, projectPath, config }: Header
       : projectPath;
 
   const { reviewerDisplay, fixerDisplay, simplifierDisplay } = getHeaderAgentDisplays(config);
+  const defaultReviewDisplay = config
+    ? formatReviewType(
+        config.defaultReview.type === "base"
+          ? { baseBranch: config.defaultReview.branch }
+          : undefined
+      )
+    : null;
 
   return (
     <box
@@ -117,6 +125,11 @@ export function Header({ branch, elapsed, session, projectPath, config }: Header
             <text>
               <span fg={TUI_COLORS.text.subtle}>Simplifier: </span>
               <span fg={TUI_COLORS.text.subtle}>{simplifierDisplay}</span>
+            </text>
+          )}
+          {defaultReviewDisplay && (
+            <text>
+              <span fg={TUI_COLORS.text.subtle}>Default review: {defaultReviewDisplay}</span>
             </text>
           )}
           <text>

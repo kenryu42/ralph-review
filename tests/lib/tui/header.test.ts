@@ -127,9 +127,43 @@ describe("Header", () => {
     expect(frame).toContain("[feature/header-tests]");
   });
 
+  test("renders uncommitted default review on the last line", async () => {
+    const frame = await renderFrame({
+      config: {
+        ...createConfig(),
+        defaultReview: { type: "uncommitted" },
+      },
+    });
+
+    expect(frame).toContain("Default review: uncommitted changes");
+  });
+
+  test("renders base-branch default review on the last line", async () => {
+    const frame = await renderFrame({
+      config: {
+        ...createConfig(),
+        defaultReview: { type: "base", branch: "main" },
+      },
+    });
+
+    expect(frame).toContain("Default review: base (main)");
+  });
+
   test("omits branch when branch is not provided", async () => {
     const frame = await renderFrame({ branch: undefined });
     expect(frame).not.toContain("[feature/header-tests]");
+  });
+
+  test("omits default review when config is missing", async () => {
+    const frame = await renderFrame({ config: null });
+    expect(frame).not.toContain("Default review:");
+  });
+
+  test("keeps the project path aligned when config is missing", async () => {
+    const frame = await renderFrame({ config: null });
+    const lines = frame.split("\n");
+
+    expect(lines[3]).toContain("/tmp/ralph-review");
   });
 
   test("replaces home directory prefix with tilde when path is under HOME", async () => {
