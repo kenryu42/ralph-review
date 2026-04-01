@@ -537,6 +537,76 @@ describe("useDashboardState hook", () => {
     }
   });
 
+  test("reads logs from the active session path when a different log file is newest", async () => {
+    const activeSession = createActiveSession({
+      sessionId: "session-current",
+      sessionName: "rr-current",
+      sessionPath: "/tmp/logs/repo-project/current-session.jsonl",
+    });
+    const newerLogSession: LogSession = {
+      path: "/tmp/logs/repo-project/older-session.jsonl",
+      name: "older-session.jsonl",
+      projectName: "repo-project",
+      timestamp: 20_000,
+    };
+    const activeFinding = createFinding("Active session finding");
+    const staleFinding = createFinding("Stale session finding");
+
+    const harness = await mountDashboardHarness({
+      listAllActiveSessions: async () => [activeSession],
+      getLatestProjectActiveSession: async () => activeSession,
+      getLatestProjectLogSession: async () => newerLogSession,
+      readLogIncremental: async (logPath: string) => ({
+        mode: "reset",
+        entries:
+          logPath === activeSession.sessionPath
+            ? [
+                createSystemEntry(),
+                createIterationEntry({
+                  timestamp: 250,
+                  iteration: 2,
+                  review: {
+                    findings: [activeFinding],
+                    overall_correctness: "patch is incorrect",
+                    overall_explanation: "Active session review",
+                    overall_confidence_score: 0.9,
+                  },
+                }),
+              ]
+            : [
+                createSystemEntry(),
+                createIterationEntry({
+                  timestamp: 150,
+                  iteration: 1,
+                  review: {
+                    findings: [staleFinding],
+                    overall_correctness: "patch is incorrect",
+                    overall_explanation: "Stale session review",
+                    overall_confidence_score: 0.8,
+                  },
+                }),
+              ],
+        state: {
+          logPath,
+          offsetBytes: 100,
+          lastModified: 111,
+          trailingPartialLine: "",
+        },
+      }),
+      shouldCaptureTmux: () => false,
+    });
+
+    try {
+      const state = harness.getState();
+      expect(state?.currentSession?.sessionId).toBe("session-current");
+      expect(state?.logEntries).toHaveLength(2);
+      expect(state?.iterationFindings).toEqual([activeFinding]);
+      expect(harness.readLogIncrementalCalls[0]?.logPath).toBe(activeSession.sessionPath);
+    } finally {
+      await harness.destroy();
+    }
+  });
+
   test("reuses incremental parser state when log session path stays the same", async () => {
     const logSession: LogSession = {
       path: "/tmp/logs/repo-project/session.jsonl",

@@ -244,19 +244,23 @@ export function useDashboardState(
       let logEntries = stateRef.current.logEntries;
       let nextLogIncrementalState = logIncrementalStateRef.current;
       let nextLogSessionPath = lastLogSessionPathRef.current;
-      if (logSession) {
-        const logSessionChanged = logSession.path !== lastLogSessionPathRef.current;
+      const logPath = currentSession
+        ? (currentSession.sessionPath ?? null)
+        : (logSession?.path ?? null);
+      if (logPath) {
+        const logSessionChanged = logPath !== lastLogSessionPathRef.current;
 
         const incrementalResult = await readLogIncremental(
-          logSession.path,
+          logPath,
           logSessionChanged ? undefined : logIncrementalStateRef.current
         );
         nextLogIncrementalState = incrementalResult.state;
-        nextLogSessionPath = logSession.path;
+        nextLogSessionPath = logPath;
         logEntries = mergeIncrementalLogEntries(stateRef.current.logEntries, incrementalResult);
       } else {
         nextLogIncrementalState = undefined;
         nextLogSessionPath = null;
+        logEntries = [];
       }
 
       const fixes: FixEntry[] = [];
