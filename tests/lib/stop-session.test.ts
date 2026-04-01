@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { ActiveSession, SessionState } from "@/lib/session-state";
 import {
   STOP_SESSION_GRACE_PERIOD_MS,
+  STOP_SESSION_NO_SUCCESSFUL_ITERATION_GRACE_PERIOD_MS,
   STOP_SESSION_POLL_INTERVAL_MS,
   stopActiveSession,
 } from "@/lib/stop-session";
@@ -140,5 +141,48 @@ describe("stopActiveSession", () => {
       "remove",
     ]);
     expect(steps).not.toContain(`kill:${session.sessionName}`);
+  });
+
+  test("force kills quickly and discards the worktree when no successful review iteration exists", async () => {
+    const session = createActiveSession({
+      sessionPath: "/tmp/session-123.jsonl",
+      worktreeProjectPath: "/tmp/worktrees/session-123",
+      worktreeBranch: "rr-worktree-session-123",
+    });
+    const steps: string[] = [];
+
+    await stopActiveSession(session, {
+      updateSessionState: async () => true,
+      sendInterrupt: async (sessionName) => {
+        steps.push(`interrupt:${sessionName}`);
+      },
+      readLog: async () => [],
+      readSessionState: async (): Promise<SessionState> => session,
+      sessionExists: async () => true,
+      sleep: async (ms) => {
+        steps.push(`sleep:${ms}`);
+      },
+      killSession: async (sessionName) => {
+        steps.push(`kill:${sessionName}`);
+      },
+      discardSessionWorktree: (worktree) => {
+        steps.push(`discard:${worktree.worktreeProjectPath}`);
+      },
+      resolveSourceRepoPath: () => "/repo/project",
+      removeSessionState: async () => {
+        steps.push("remove");
+        return true;
+      },
+    });
+
+    expect(steps[0]).toBe(`interrupt:${session.sessionName}`);
+    expect(steps.filter((step) => step === `sleep:${STOP_SESSION_POLL_INTERVAL_MS}`)).toHaveLength(
+      Math.ceil(
+        STOP_SESSION_NO_SUCCESSFUL_ITERATION_GRACE_PERIOD_MS / STOP_SESSION_POLL_INTERVAL_MS
+      )
+    );
+    expect(steps).toContain(`kill:${session.sessionName}`);
+    expect(steps).toContain(`discard:${session.worktreeProjectPath}`);
+    expect(steps.at(-1)).toBe("remove");
   });
 });
