@@ -7,6 +7,7 @@ import { stopActiveSession } from "@/lib/stop-session";
 import { TUI_COLORS } from "@/lib/tui/colors";
 import type { DashboardProps } from "../types";
 import { useDashboardState } from "../use-dashboard-state";
+import { stopSelectedDashboardSession } from "./dashboard-stop";
 import { Header } from "./Header";
 import { HelpOverlay } from "./HelpOverlay";
 import { OutputPanel } from "./OutputPanel";
@@ -45,14 +46,11 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
   }, [state.currentSession, state.projectSessions]);
 
   const stopSelectedSession = useCallback(async (session: ActiveSession) => {
-    setIsStoppingRun(true);
-    setShowStopPicker(false);
-
-    try {
-      await stopActiveSession(session);
-    } catch {
-      setIsStoppingRun(false);
-    }
+    await stopSelectedDashboardSession(session, {
+      setIsStoppingRun,
+      setShowStopPicker,
+      stopActiveSession,
+    });
   }, []);
 
   const shutdown = useCallback(
