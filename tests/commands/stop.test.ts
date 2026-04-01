@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
+import type { PendingHandoffArtifact } from "@/lib/handoff";
 import type { ActiveSession, SessionState } from "@/lib/session-state";
+import type { SessionStats } from "@/lib/types";
 
 const EXIT_PREFIX = "__FORCED_EXIT__:";
 
@@ -12,10 +14,17 @@ interface StopHarnessOptions {
   selectValues?: unknown[];
   readSessionState?: (projectPath: string, sessionId: string) => Promise<SessionState | null>;
   sessionExists?: (sessionName: string) => Promise<boolean>;
+  computeSessionStats?: (sessionPath: string) => Promise<SessionStats>;
+  readPendingHandoff?: (
+    projectPath: string,
+    sessionId: string
+  ) => Promise<PendingHandoffArtifact | null>;
 }
 
 interface StopHarnessResult {
   listProjectActiveSessionsCalls: string[];
+  computeSessionStatsCalls: string[];
+  readPendingHandoffCalls: Array<{ projectPath: string; sessionId: string }>;
   updateSessionStateCalls: Array<{
     projectPath: string;
     updates: Record<string, unknown>;
@@ -51,13 +60,66 @@ function createActiveSession(overrides: Partial<ActiveSession> = {}): ActiveSess
   };
 }
 
+function createSessionStats(overrides: Partial<SessionStats> = {}): SessionStats {
+  return {
+    sessionPath: "/tmp/session.jsonl",
+    sessionName: "session.jsonl",
+    sessionId: "session-id",
+    timestamp: 1,
+    status: "completed",
+    totalFixes: 0,
+    totalSkipped: 0,
+    priorityCounts: {
+      P0: 0,
+      P1: 0,
+      P2: 0,
+      P3: 0,
+    },
+    iterations: 1,
+    entries: [],
+    reviewer: "claude",
+    reviewerModel: "mock-reviewer",
+    reviewerDisplayName: "Claude",
+    reviewerModelDisplayName: "Mock Reviewer",
+    fixer: "claude",
+    fixerModel: "mock-fixer",
+    fixerDisplayName: "Claude",
+    fixerModelDisplayName: "Mock Fixer",
+    ...overrides,
+  };
+}
+
+function createPendingHandoff(
+  overrides: Partial<PendingHandoffArtifact> = {}
+): PendingHandoffArtifact {
+  const projectPath = process.cwd();
+  return {
+    sessionId: "session-id",
+    projectPath,
+    sourceRepoPath: projectPath,
+    logPath: `${projectPath}/.ralph-review/logs/session.jsonl`,
+    hiddenRef: "refs/ralph-review/handoffs/session-id",
+    patchPath: `${projectPath}/.ralph-review/handoffs/session-id.patch`,
+    sourceFingerprint: "fingerprint-1",
+    commitSha: "commit-sha-1",
+    state: "pending-apply",
+    createdAt: 1,
+    updatedAt: 1,
+    ...overrides,
+  };
+}
+
 async function runStopWithHarness(
   args: string[],
   options: StopHarnessOptions = {}
 ): Promise<StopHarnessResult> {
   const actualSessionState = await import("@/lib/session-state");
+  const actualLogger = await import("@/lib/logger");
+  const actualHandoff = await import("@/lib/handoff");
   const actualTmux = await import("@/lib/tmux");
   const listProjectActiveSessionsCalls: string[] = [];
+  const computeSessionStatsCalls: string[] = [];
+  const readPendingHandoffCalls: Array<{ projectPath: string; sessionId: string }> = [];
   const updateSessionStateCalls: Array<{
     projectPath: string;
     updates: Record<string, unknown>;
@@ -88,6 +150,15 @@ async function runStopWithHarness(
       );
     });
   const sessionExists = options.sessionExists ?? (async (_sessionName: string) => true);
+  const computeSessionStats =
+    options.computeSessionStats ??
+    (async (sessionPath: string) => {
+      return createSessionStats({
+        sessionPath,
+        sessionName: sessionPath.split("/").at(-1) ?? "session.jsonl",
+      });
+    });
+  const readPendingHandoff = options.readPendingHandoff ?? (async () => null);
 
   mock.module("@/lib/session-state", () => ({
     ...actualSessionState,
@@ -132,6 +203,26 @@ async function runStopWithHarness(
         expectedSessionId: sessionStateOptions?.expectedSessionId,
       });
       return true;
+    },
+  }));
+
+  mock.module("@/lib/logger", () => ({
+    ...actualLogger,
+    computeSessionStats: async (session: { path: string }) => {
+      computeSessionStatsCalls.push(session.path);
+      return await computeSessionStats(session.path);
+    },
+  }));
+
+  mock.module("@/lib/handoff", () => ({
+    ...actualHandoff,
+    readPendingHandoff: async (
+      _storageRoot: string | undefined,
+      projectPath: string,
+      sessionId: string
+    ) => {
+      readPendingHandoffCalls.push({ projectPath, sessionId });
+      return await readPendingHandoff(projectPath, sessionId);
     },
   }));
 
@@ -221,6 +312,8 @@ async function runStopWithHarness(
 
   return {
     listProjectActiveSessionsCalls,
+    computeSessionStatsCalls,
+    readPendingHandoffCalls,
     updateSessionStateCalls,
     removeSessionStateCalls,
     removeAllSessionStatesCalls,
@@ -409,6 +502,116 @@ describe("runStop", () => {
     ]);
     expect(result.successes).toEqual(["Review stopped."]);
     expect(result.exitCode).toBeUndefined();
+  });
+
+  test("prints an auto-applied handoff note after stopping a session", async () => {
+    const cwd = process.cwd();
+    const sessionPath = `${cwd}/.ralph-review/logs/session.jsonl`;
+    const result = await runStopWithHarness([], {
+      fastTimeout: true,
+      activeSessions: [
+        createActiveSession({
+          sessionId: "current-session-id",
+          sessionName: "rr-current-session",
+          projectPath: cwd,
+          sessionPath,
+        }),
+      ],
+      computeSessionStats: async (path) =>
+        createSessionStats({
+          sessionPath: path,
+          sessionId: "current-session-id",
+          handoffStatus: "applied-auto",
+          commitSha: "commit-sha-1",
+        }),
+    });
+
+    expect(result.computeSessionStatsCalls).toEqual([sessionPath]);
+    expect(result.messages).toContain(
+      "Handoff:\nApplied reviewed fixes to the working tree.\nCommit: commit-sha-1"
+    );
+  });
+
+  test("prints manual handoff commands after stopping a session with pending fixes", async () => {
+    const cwd = process.cwd();
+    const result = await runStopWithHarness([], {
+      fastTimeout: true,
+      activeSessions: [
+        createActiveSession({
+          sessionId: "current-session-id",
+          sessionName: "rr-current-session",
+          projectPath: cwd,
+        }),
+      ],
+      readPendingHandoff: async () =>
+        createPendingHandoff({
+          sessionId: "current-session-id",
+          projectPath: cwd,
+          commitSha: "commit-sha-2",
+        }),
+    });
+
+    expect(result.readPendingHandoffCalls).toEqual([
+      { projectPath: cwd, sessionId: "current-session-id" },
+    ]);
+    expect(result.messages).toContain(
+      "Handoff:\nReviewed fixes are ready to apply.\nCommit: commit-sha-2\nApply: rr apply --session current-session-id\nDiscard: rr discard --session current-session-id"
+    );
+  });
+
+  test("prints project-qualified handoff commands for pending fixes when stopping all sessions", async () => {
+    const otherProject = "/repo/other";
+    const result = await runStopWithHarness(["--all"], {
+      fastTimeout: true,
+      activeSessions: [
+        createActiveSession({
+          sessionId: "session-a",
+          sessionName: "rr-alpha",
+          projectPath: otherProject,
+        }),
+      ],
+      readPendingHandoff: async (projectPath, sessionId) =>
+        projectPath === otherProject
+          ? createPendingHandoff({
+              sessionId,
+              projectPath,
+              sourceRepoPath: projectPath,
+              logPath: `${projectPath}/.ralph-review/logs/${sessionId}.jsonl`,
+              patchPath: `${projectPath}/.ralph-review/handoffs/${sessionId}.patch`,
+              commitSha: "commit-sha-3",
+            })
+          : null,
+    });
+
+    expect(result.messages).toContain(
+      "Handoff:\nReviewed fixes are ready to apply.\nCommit: commit-sha-3\nApply: cd /repo/other && rr apply --session session-a\nDiscard: cd /repo/other && rr discard --session session-a"
+    );
+  });
+
+  test("does not print a handoff note when stopping a session without handoff state", async () => {
+    const cwd = process.cwd();
+    const sessionPath = `${cwd}/.ralph-review/logs/session-no-handoff.jsonl`;
+    const result = await runStopWithHarness([], {
+      fastTimeout: true,
+      activeSessions: [
+        createActiveSession({
+          sessionId: "current-session-id",
+          sessionName: "rr-current-session",
+          projectPath: cwd,
+          sessionPath,
+        }),
+      ],
+      computeSessionStats: async (path) =>
+        createSessionStats({
+          sessionPath: path,
+          sessionId: "current-session-id",
+          handoffStatus: undefined,
+          commitSha: undefined,
+        }),
+    });
+
+    expect(result.computeSessionStatsCalls).toEqual([sessionPath]);
+    expect(result.messages).toEqual([]);
   });
 
   test("stop with multiple current-project sessions prompts for a target and stops the selection", async () => {

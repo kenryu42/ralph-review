@@ -1,6 +1,9 @@
 import * as p from "@clack/prompts";
 import { getCommandDef } from "@/cli";
 import { parseCommand } from "@/lib/cli-parser";
+import { readPendingHandoff } from "@/lib/handoff";
+import { formatHandoffNote } from "@/lib/handoff-note";
+import { computeSessionStats, getProjectName, type LogSession } from "@/lib/logger";
 import {
   type ActiveSession,
   listAllActiveSessions,
@@ -12,6 +15,7 @@ import {
 } from "@/lib/session-state";
 import { stopActiveSession } from "@/lib/stop-session";
 import { killSession, listRalphSessions, sendInterrupt, sessionExists } from "@/lib/tmux";
+import type { HandoffStatus } from "@/lib/types";
 
 interface StopOptions {
   all: boolean;
@@ -30,6 +34,11 @@ const DEFAULT_STOP_DEPS: StopDeps = {
   logError: (message: string) => p.log.error(message),
   exit: (code: number) => process.exit(code),
   isTTY: () => process.stdout.isTTY === true,
+};
+
+type ResolvedStopHandoff = {
+  handoffStatus: Extract<HandoffStatus, "applied-auto" | "pending-apply">;
+  commitSha?: string;
 };
 
 function getCurrentProjectSessions(
@@ -57,6 +66,125 @@ function formatSessionSelectorHint(session: ActiveSession): string {
 
 function branchOrProjectHint(session: ActiveSession): string {
   return session.worktreeBranch ?? session.branch ?? session.projectPath;
+}
+
+function shellEscape(str: string): string {
+  return `'${str.replace(/'/g, "'\\''")}'`;
+}
+
+function formatShellPath(path: string): string {
+  return /[^A-Za-z0-9_./-]/u.test(path) ? shellEscape(path) : path;
+}
+
+function isReportedStopHandoffStatus(
+  status: HandoffStatus | undefined
+): status is Extract<HandoffStatus, "applied-auto" | "pending-apply"> {
+  return status === "applied-auto" || status === "pending-apply";
+}
+
+function createLogSessionFromPath(session: ActiveSession): LogSession | null {
+  if (!session.sessionPath) {
+    return null;
+  }
+
+  return {
+    path: session.sessionPath,
+    name: session.sessionPath.split("/").at(-1) ?? session.sessionId,
+    projectName: getProjectName(session.projectPath),
+    timestamp: Bun.file(session.sessionPath).lastModified,
+  };
+}
+
+async function resolveStoppedSessionHandoff(
+  session: ActiveSession
+): Promise<ResolvedStopHandoff | null> {
+  const logSession = createLogSessionFromPath(session);
+  if (logSession) {
+    try {
+      const stats = await computeSessionStats(logSession);
+      if (
+        (!stats.sessionId || stats.sessionId === session.sessionId) &&
+        isReportedStopHandoffStatus(stats.handoffStatus)
+      ) {
+        return {
+          handoffStatus: stats.handoffStatus,
+          commitSha: stats.commitSha,
+        };
+      }
+    } catch {
+      // Fall back to pending handoff metadata when the session log is unavailable.
+    }
+  }
+
+  try {
+    const pendingHandoff = await readPendingHandoff(
+      undefined,
+      session.projectPath,
+      session.sessionId
+    );
+    if (!pendingHandoff) {
+      return null;
+    }
+
+    return {
+      handoffStatus: "pending-apply",
+      commitSha: pendingHandoff.commitSha,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function formatProjectScopedCommand(
+  currentProjectPath: string,
+  session: ActiveSession,
+  action: "apply" | "discard"
+): string {
+  const baseCommand = `rr ${action} --session ${session.sessionId}`;
+  if (session.projectPath === currentProjectPath) {
+    return baseCommand;
+  }
+
+  return `cd ${formatShellPath(session.projectPath)} && ${baseCommand}`;
+}
+
+async function resolveStoppedSessionHandoffNote(
+  session: ActiveSession,
+  currentProjectPath: string
+): Promise<string | null> {
+  const handoff = await resolveStoppedSessionHandoff(session);
+  if (!handoff) {
+    return null;
+  }
+
+  return formatHandoffNote({
+    handoffStatus: handoff.handoffStatus,
+    commitSha: handoff.commitSha,
+    applyCommand:
+      handoff.handoffStatus === "pending-apply"
+        ? `Apply: ${formatProjectScopedCommand(currentProjectPath, session, "apply")}`
+        : undefined,
+    discardCommand:
+      handoff.handoffStatus === "pending-apply"
+        ? `Discard: ${formatProjectScopedCommand(currentProjectPath, session, "discard")}`
+        : undefined,
+  });
+}
+
+async function stopSessionWithHandoff(
+  session: ActiveSession,
+  currentProjectPath: string
+): Promise<string | null> {
+  await stopActiveSession(session, {
+    updateSessionState,
+    sendInterrupt,
+    readSessionState,
+    sessionExists,
+    killSession,
+    removeSessionState,
+  });
+
+  return await resolveStoppedSessionHandoffNote(session, currentProjectPath);
 }
 
 function findSessionBySelector(
@@ -117,19 +245,16 @@ async function chooseProjectSession(
 
 async function stopSession(session: ActiveSession): Promise<void> {
   p.log.step(`Stopping session: ${session.sessionName}`);
-  await stopActiveSession(session, {
-    updateSessionState,
-    sendInterrupt,
-    readSessionState,
-    sessionExists,
-    killSession,
-    removeSessionState,
-  });
+  const handoffNote = await stopSessionWithHandoff(session, process.cwd());
   p.log.success("Review stopped.");
+  if (handoffNote) {
+    p.log.message(`Handoff:\n${handoffNote}`);
+  }
 }
 
 async function stopAllSessions(): Promise<void> {
   const orphanStopGracePeriod = 1_000;
+  const currentProjectPath = process.cwd();
   const activeSessions = await listAllActiveSessions();
   const tmuxSessions = await listRalphSessions();
   const sessionNames = [
@@ -151,23 +276,16 @@ async function stopAllSessions(): Promise<void> {
     (sessionName) => !activeSessionsByName.has(sessionName)
   );
   const activeStopPromise = Promise.all(
-    activeSessions.map((session) =>
-      stopActiveSession(session, {
-        updateSessionState,
-        sendInterrupt,
-        readSessionState,
-        sessionExists,
-        killSession,
-        removeSessionState,
-      })
-    )
+    activeSessions.map(async (session) => ({
+      handoffNote: await stopSessionWithHandoff(session, currentProjectPath),
+    }))
   );
 
   for (const sessionName of orphanSessionNames) {
     await sendInterrupt(sessionName);
   }
 
-  await activeStopPromise;
+  const stoppedActiveSessions = await activeStopPromise;
 
   if (orphanSessionNames.length > 0) {
     await new Promise<void>((resolve) => {
@@ -181,6 +299,12 @@ async function stopAllSessions(): Promise<void> {
 
   for (const sessionName of sessionNames) {
     p.log.message(`  Stopped: ${sessionName}`);
+  }
+
+  for (const stoppedSession of stoppedActiveSessions) {
+    if (stoppedSession.handoffNote) {
+      p.log.message(`Handoff:\n${stoppedSession.handoffNote}`);
+    }
   }
 
   await removeAllSessionStates();
