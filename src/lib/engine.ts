@@ -146,6 +146,51 @@ function createIterationEntry(
   };
 }
 
+function isInterruptLikeFailure(result: IterationResult): boolean {
+  return !result.success && (wasInterrupted() || result.exitCode === 130);
+}
+
+function createInterruptedCycleResult(
+  sessionPath: string,
+  iteration: number,
+  rollback?: RollbackActionResult
+): CycleResult {
+  return {
+    success: false,
+    finalStatus: "interrupted",
+    iterations: iteration,
+    reason: `Review cycle was interrupted${rollbackReasonSuffix(rollback)}`,
+    sessionPath,
+  };
+}
+
+async function handleInterruptedAgentFailure(
+  role: AgentRole,
+  exitCode: number,
+  iteration: number,
+  startTime: number,
+  sessionPath: string,
+  deps: RunReviewCycleDependencies,
+  options: {
+    review?: ReviewSummary;
+    codexReview?: CodexReviewSummary;
+    rollback?: RollbackActionResult;
+  } = {}
+): Promise<CycleResult> {
+  const entry = createIterationEntry(iteration, startTime, {
+    error: {
+      phase: role,
+      message: `${role.charAt(0).toUpperCase() + role.slice(1)} interrupted`,
+      exitCode,
+    },
+    review: options.review,
+    codexReview: options.codexReview,
+    rollback: options.rollback,
+  });
+  await deps.appendLog(sessionPath, entry);
+  return createInterruptedCycleResult(sessionPath, iteration, options.rollback);
+}
+
 async function handleAgentFailure(
   role: AgentRole,
   exitCode: number,
@@ -218,7 +263,7 @@ async function runAgentWithRetry(
 
   let result = await deps.runAgent(role, config, prompt, timeout, reviewOptions, cwd);
 
-  if (result.success) {
+  if (result.success || isInterruptLikeFailure(result)) {
     return result;
   }
 
@@ -233,7 +278,7 @@ async function runAgentWithRetry(
 
     result = await deps.runAgent(role, config, prompt, timeout, reviewOptions, cwd);
 
-    if (result.success) {
+    if (result.success || isInterruptLikeFailure(result)) {
       return result;
     }
 
@@ -614,6 +659,7 @@ export async function runReviewCycle(
   let worktree: GitSessionWorktree | null = null;
   let lastPromotableCheckpoint: GitCheckpoint | null = null;
   let currentTreeMatchesPromotable = false;
+  let hasSuccessfulReviewIteration = false;
   let agentProjectPath: string | null = null;
   const updateCurrentSessionState = async (updates: Partial<SessionState>): Promise<void> => {
     if (!sessionId) {
@@ -788,12 +834,18 @@ export async function runReviewCycle(
 
       if (!simplifierResult.success) {
         const exitCode = simplifierResult.exitCode;
-        console.log(formatAgentFailureWarning("code-simplifier", exitCode, retryConfig.maxRetries));
         const rollback = simplifierCheckpoint
           ? applyRollback(agentProjectPath, simplifierCheckpoint, deps)
           : undefined;
         discardCheckpointSafe(simplifierCheckpoint);
         currentTreeMatchesPromotable = rollback?.success === true;
+        if (isInterruptLikeFailure(simplifierResult)) {
+          const interruptedResult = createInterruptedCycleResult(sessionPath, iteration, rollback);
+          return finish(
+            rollback?.success ? terminalIncompleteResult(interruptedResult) : interruptedResult
+          );
+        }
+        console.log(formatAgentFailureWarning("code-simplifier", exitCode, retryConfig.maxRetries));
         if (!rollback?.success) {
           return finish({
             success: false,
@@ -876,6 +928,20 @@ export async function runReviewCycle(
       const reviewResult = reviewerExecution.reviewResult;
 
       if (!reviewResult.success) {
+        if (isInterruptLikeFailure(reviewResult)) {
+          return finish(
+            terminalIncompleteResult(
+              await handleInterruptedAgentFailure(
+                "reviewer",
+                reviewResult.exitCode,
+                iteration,
+                iterationStartTime,
+                sessionPath,
+                deps
+              )
+            )
+          );
+        }
         return finish(
           terminalIncompleteResult(
             await handleAgentFailure(
@@ -989,7 +1055,10 @@ export async function runReviewCycle(
       if (fixResult.success && !fixSummary) {
         for (
           let attempt = 1;
-          attempt <= FIXER_SUMMARY_RETRY_COUNT && fixResult.success && !fixSummary;
+          attempt <= FIXER_SUMMARY_RETRY_COUNT &&
+          fixResult.success &&
+          !fixSummary &&
+          !wasInterrupted();
           attempt++
         ) {
           console.log(
@@ -1050,6 +1119,24 @@ export async function runReviewCycle(
         const rollback = checkpoint ? applyRollback(agentProjectPath, checkpoint, deps) : undefined;
         discardCheckpointSafe(checkpoint);
         currentTreeMatchesPromotable = rollback?.success === true;
+        if (isInterruptLikeFailure(fixResult)) {
+          const interruptedResult = await handleInterruptedAgentFailure(
+            "fixer",
+            fixResult.exitCode,
+            iteration,
+            iterationStartTime,
+            sessionPath,
+            deps,
+            {
+              review: reviewSummary ?? undefined,
+              codexReview: codexReviewSummary ?? undefined,
+              rollback,
+            }
+          );
+          return finish(
+            rollback?.success ? terminalIncompleteResult(interruptedResult) : interruptedResult
+          );
+        }
         const failureResult = await handleAgentFailure(
           "fixer",
           fixResult.exitCode,
@@ -1088,6 +1175,7 @@ export async function runReviewCycle(
           sessionPath,
         });
       }
+      hasSuccessfulReviewIteration = true;
       discardCheckpointSafe(checkpoint);
 
       if (fixSummary?.stop_iteration === true) {
@@ -1152,7 +1240,11 @@ export async function runReviewCycle(
             }
           }
 
-          if (finalResult?.reviewOutcome && currentTreeMatchesPromotable) {
+          if (
+            finalResult?.reviewOutcome &&
+            currentTreeMatchesPromotable &&
+            (hasSuccessfulReviewIteration || finalResult.finalStatus !== "interrupted")
+          ) {
             const handoff = await deps.createOrAutoApplyHandoff(undefined, {
               sessionId: sessionId ?? "session",
               projectPath,

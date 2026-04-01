@@ -649,6 +649,53 @@ describe("runReviewCycle", () => {
     });
   });
 
+  test("does not retain a handoff when interrupted before any successful fixer iteration", async () => {
+    await withHarness(async (state, deps) => {
+      state.createOrAutoApplyHandoffResult = {
+        handoffStatus: "pending-apply",
+        commitSha: "retained-commit-sha",
+        handoffUpdatedAt: 1_700_000_000_000,
+      };
+      state.onRunAgent = (role) => {
+        if (role === "fixer") {
+          triggerInterrupt(state);
+        }
+      };
+      queueRunAgentSteps(
+        state,
+        resultStep(successResult("review output")),
+        resultStep(failureResult("fixer interrupted", 130))
+      );
+      queueReviewParses(state, parseReviewSuccess(buildReviewSummary()));
+
+      const result = await runReviewCycle(
+        createConfig({
+          retry: {
+            maxRetries: 2,
+            baseDelayMs: 0,
+            maxDelayMs: 0,
+          },
+        }),
+        undefined,
+        undefined,
+        {
+          projectPath: TEST_PROJECT_PATH,
+          sessionId: TEST_SESSION_ID,
+        },
+        deps
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.finalStatus).toBe("interrupted");
+      expect(result.reviewOutcome).toBe("incomplete");
+      expect(result.handoffStatus).toBeUndefined();
+      expect(state.runAgentCalls.map((call) => call.role)).toEqual(["reviewer", "fixer"]);
+      expect(state.rollbackCalls).toHaveLength(1);
+      expect(state.createOrAutoApplyHandoffCalls).toHaveLength(0);
+      expect(state.discardSessionWorktreeCalls).toHaveLength(1);
+    });
+  });
+
   test("keeps the last promotable snapshot as a pending handoff when a later reviewer fails", async () => {
     await withHarness(async (state, deps) => {
       state.createOrAutoApplyHandoffResult = {
@@ -840,6 +887,47 @@ describe("runReviewCycle", () => {
         expect(iterationEntry.error?.phase).toBe("reviewer");
         expect(iterationEntry.error?.exitCode).toBe(9);
       }
+    });
+  });
+
+  test("does not retry reviewer failures after an interrupt", async () => {
+    await withHarness(async (state, deps) => {
+      state.createOrAutoApplyHandoffResult = {
+        handoffStatus: "pending-apply",
+        commitSha: "retained-commit-sha",
+        handoffUpdatedAt: 1_700_000_000_000,
+      };
+      state.onRunAgent = (role) => {
+        if (role === "reviewer" && state.runAgentCalls.length === 1) {
+          triggerInterrupt(state);
+        }
+      };
+      queueRunAgentSteps(state, resultStep(failureResult("reviewer interrupted", 130)));
+
+      const result = await runReviewCycle(
+        createConfig({
+          retry: {
+            maxRetries: 2,
+            baseDelayMs: 0,
+            maxDelayMs: 0,
+          },
+        }),
+        undefined,
+        undefined,
+        {
+          projectPath: TEST_PROJECT_PATH,
+          sessionId: TEST_SESSION_ID,
+        },
+        deps
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.finalStatus).toBe("interrupted");
+      expect(result.iterations).toBe(1);
+      expect(result.handoffStatus).toBeUndefined();
+      expect(state.runAgentCalls.map((call) => call.role)).toEqual(["reviewer"]);
+      expect(state.createOrAutoApplyHandoffCalls).toHaveLength(0);
+      expect(state.discardSessionWorktreeCalls).toHaveLength(1);
     });
   });
 
@@ -1405,6 +1493,11 @@ describe("runReviewCycle", () => {
 
   test("returns interrupted result when signal arrives after simplifier succeeds", async () => {
     await withHarness(async (state, deps) => {
+      state.createOrAutoApplyHandoffResult = {
+        handoffStatus: "pending-apply",
+        commitSha: "retained-commit-sha",
+        handoffUpdatedAt: 1_700_000_000_000,
+      };
       state.onRunAgent = (role) => {
         if (role === "code-simplifier") {
           triggerInterrupt(state);
@@ -1428,6 +1521,45 @@ describe("runReviewCycle", () => {
       expect(result.success).toBe(false);
       expect(result.finalStatus).toBe("interrupted");
       expect(result.iterations).toBe(0);
+      expect(result.handoffStatus).toBeUndefined();
+      expect(state.createOrAutoApplyHandoffCalls).toHaveLength(0);
+      expect(state.discardSessionWorktreeCalls).toHaveLength(1);
+    });
+  });
+
+  test("does not retry simplifier failures after an interrupt", async () => {
+    await withHarness(async (state, deps) => {
+      state.onRunAgent = (role) => {
+        if (role === "code-simplifier") {
+          triggerInterrupt(state);
+        }
+      };
+      queueRunAgentSteps(state, resultStep(failureResult("simplifier interrupted", 130)));
+
+      const result = await runReviewCycle(
+        createConfig({
+          retry: {
+            maxRetries: 2,
+            baseDelayMs: 0,
+            maxDelayMs: 0,
+          },
+        }),
+        undefined,
+        {
+          simplifier: true,
+        },
+        {
+          projectPath: TEST_PROJECT_PATH,
+          sessionId: TEST_SESSION_ID,
+        },
+        deps
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.finalStatus).toBe("interrupted");
+      expect(result.iterations).toBe(0);
+      expect(state.runAgentCalls.map((call) => call.role)).toEqual(["code-simplifier"]);
+      expect(state.rollbackCalls).toHaveLength(1);
     });
   });
 
