@@ -1,6 +1,10 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
+import { testRender } from "@opentui/react/test-utils";
+import { act, createElement } from "react";
+import type { SessionState } from "@/lib/session-state";
+import { SessionPanel } from "@/lib/tui/components/SessionPanel";
 import { resolveIssuesFoundDisplay } from "@/lib/tui/session-panel-utils";
-import type { ReviewSummary } from "@/lib/types";
+import type { AgentRole, ReviewSummary, SessionStats } from "@/lib/types";
 
 describe("SessionPanel behavior", () => {
   const finding = {
@@ -194,5 +198,177 @@ describe("SessionPanel behavior", () => {
 
     expect(result.findings).toEqual([]);
     expect(result.codexText).toBe("raw codex output");
+  });
+});
+
+describe("SessionPanel status rendering", () => {
+  let testSetup: Awaited<ReturnType<typeof testRender>> | null = null;
+
+  afterEach(async () => {
+    if (testSetup) {
+      await act(async () => {
+        testSetup?.renderer.destroy();
+      });
+      testSetup = null;
+    }
+  });
+
+  function createSession(overrides: Partial<SessionState> = {}): SessionState {
+    return {
+      schemaVersion: 2,
+      sessionId: "session-1",
+      sessionName: "rr-test-123",
+      startTime: Date.now(),
+      lastHeartbeat: Date.now(),
+      pid: process.pid,
+      projectPath: "/test/project",
+      branch: "main",
+      state: "running",
+      mode: "background",
+      ...overrides,
+    };
+  }
+
+  function createLastSessionStats(overrides: Partial<SessionStats> = {}): SessionStats {
+    return {
+      sessionPath: "/logs/test-project/2024-01-15T14-30-00.jsonl",
+      sessionName: "2024-01-15T14-30-00.jsonl",
+      timestamp: Date.now(),
+      gitBranch: "main",
+      status: "completed",
+      totalFixes: 0,
+      totalSkipped: 0,
+      priorityCounts: { P0: 0, P1: 0, P2: 0, P3: 0 },
+      iterations: 1,
+      entries: [],
+      reviewer: "claude",
+      reviewerModel: "claude-sonnet-4-20250514",
+      reviewerDisplayName: "Claude",
+      reviewerModelDisplayName: "claude-sonnet-4-20250514",
+      fixer: "claude",
+      fixerModel: "claude-sonnet-4-20250514",
+      fixerDisplayName: "Claude",
+      fixerModelDisplayName: "claude-sonnet-4-20250514",
+      ...overrides,
+    };
+  }
+
+  async function renderFrame({
+    session = createSession(),
+    currentAgent = null,
+    lastSessionStats = null,
+  }: {
+    session?: SessionState | null;
+    currentAgent?: AgentRole | null;
+    lastSessionStats?: SessionStats | null;
+  } = {}): Promise<string> {
+    testSetup = await testRender(
+      createElement(SessionPanel, {
+        session,
+        fixes: [],
+        skipped: [],
+        findings: [],
+        latestReviewIteration: null,
+        codexReviewText: null,
+        tmuxOutput: "",
+        maxIterations: 5,
+        isLoading: false,
+        lastSessionStats,
+        projectStats: null,
+        isGitRepo: true,
+        currentAgent,
+        reviewOptions: undefined,
+        isStarting: false,
+        isStopping: false,
+        activeSessionCount: 1,
+        focused: false,
+      }),
+      {
+        width: 120,
+        height: 40,
+      }
+    );
+    await act(async () => {
+      await testSetup?.renderOnce();
+    });
+    return testSetup.captureCharFrame();
+  }
+
+  test("renders preparing session worktree before the first agent starts", async () => {
+    const frame = await renderFrame({
+      session: createSession({
+        state: "running",
+        currentAgent: null,
+        iteration: undefined,
+      }),
+      currentAgent: null,
+    });
+
+    expect(frame).toContain("preparing session worktree");
+  });
+
+  test("renders starting review for pending sessions", async () => {
+    const frame = await renderFrame({
+      session: createSession({
+        state: "pending",
+        currentAgent: null,
+      }),
+      currentAgent: null,
+    });
+
+    expect(frame).toContain("starting review");
+  });
+
+  test("renders the active agent once the review is underway", async () => {
+    const frame = await renderFrame({
+      session: createSession({
+        state: "running",
+        iteration: 1,
+        currentAgent: "reviewer",
+      }),
+      currentAgent: "reviewer",
+    });
+
+    expect(frame).toContain("running reviewer agent");
+  });
+
+  test("renders the code simplifier label when that agent is active", async () => {
+    const frame = await renderFrame({
+      session: createSession({
+        state: "running",
+        iteration: 1,
+        currentAgent: "code-simplifier",
+      }),
+      currentAgent: "code-simplifier",
+    });
+
+    expect(frame).toContain("running code simplifier agent");
+  });
+
+  test("renders a generic running status once iteration one has started", async () => {
+    const frame = await renderFrame({
+      session: createSession({
+        state: "running",
+        iteration: 1,
+        currentAgent: null,
+      }),
+      currentAgent: null,
+    });
+
+    expect(frame).toContain("running");
+    expect(frame).not.toContain("preparing session worktree");
+  });
+
+  test("keeps last-run running status when there is no active session", async () => {
+    const frame = await renderFrame({
+      session: null,
+      lastSessionStats: createLastSessionStats({
+        status: "running",
+      }),
+    });
+
+    expect(frame).toContain("Last run:");
+    expect(frame).toContain("running");
+    expect(frame).not.toContain("preparing session worktree");
   });
 });

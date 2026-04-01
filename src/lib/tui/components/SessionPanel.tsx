@@ -60,7 +60,8 @@ interface SessionPanelProps {
 
 function getStatusDisplay(
   status: string,
-  currentAgent: AgentRole | null
+  currentAgent: AgentRole | null,
+  isPreparing = false
 ): { text: string; color: string } {
   switch (status) {
     case "completed":
@@ -76,9 +77,12 @@ function getStatusDisplay(
         }
         return { text: `running ${currentAgent} agent`, color: TUI_COLORS.status.success };
       }
+      if (isPreparing) {
+        return { text: "preparing session worktree", color: TUI_COLORS.status.pending };
+      }
       return { text: "running", color: TUI_COLORS.status.success };
     case "pending":
-      return { text: "pending", color: TUI_COLORS.status.pending };
+      return { text: "starting review", color: TUI_COLORS.status.pending };
     default:
       return { text: "unknown", color: TUI_COLORS.status.inactive };
   }
@@ -536,7 +540,11 @@ export function SessionPanel({
   }
 
   const iteration = sessionIteration;
-  const statusDisplay = getStatusDisplay(session.state ?? "unknown", currentAgent);
+  const statusDisplay = getStatusDisplay(
+    session.state ?? "unknown",
+    currentAgent,
+    session.state === "running" && currentAgent === null && session.iteration === undefined
+  );
   const cachedLiveReviewSummary =
     lastLiveReviewSummaryRef.current?.iteration === iteration
       ? lastLiveReviewSummaryRef.current.summary
