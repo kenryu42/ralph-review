@@ -8,6 +8,7 @@ import { getTmuxInstallHint } from "@/lib/diagnostics/tmux-install";
 import type { DiagnosticsReport } from "@/lib/diagnostics/types";
 import { type CycleResult, runReviewCycle } from "@/lib/engine";
 import { formatReviewType } from "@/lib/format";
+import { formatHandoffNote } from "@/lib/handoff-note";
 import { getGitBranch } from "@/lib/logger";
 import { playCompletionSound, resolveSoundEnabled, type SoundOverride } from "@/lib/notify/sound";
 import { CLI_PATH } from "@/lib/paths";
@@ -49,30 +50,6 @@ export function classifyRunCompletion(result: CycleResult): "success" | "warning
   }
 
   return "error";
-}
-
-function formatHandoffNote(
-  result: Pick<CycleResult, "handoffStatus" | "commitSha">,
-  sessionId: string | undefined
-): string | null {
-  const commitLine = result.commitSha ? `Commit: ${result.commitSha}` : null;
-
-  if (result.handoffStatus === "applied-auto") {
-    return ["Applied reviewed fixes to the working tree.", commitLine].filter(Boolean).join("\n");
-  }
-
-  if (result.handoffStatus === "pending-apply") {
-    return [
-      "Reviewed fixes are ready to apply.",
-      commitLine,
-      sessionId ? `Apply: rr apply --session ${sessionId}` : null,
-      sessionId ? `Discard: rr discard --session ${sessionId}` : null,
-    ]
-      .filter(Boolean)
-      .join("\n");
-  }
-
-  return null;
 }
 
 function shellEscape(str: string): string {
@@ -533,7 +510,12 @@ export async function runForeground(
       );
     }
 
-    const handoffNote = formatHandoffNote(cycleResult, sessionId);
+    const handoffNote = formatHandoffNote({
+      handoffStatus: cycleResult.handoffStatus,
+      commitSha: cycleResult.commitSha,
+      applyCommand: sessionId ? `Apply: rr apply --session ${sessionId}` : undefined,
+      discardCommand: sessionId ? `Discard: rr discard --session ${sessionId}` : undefined,
+    });
     if (handoffNote) {
       runtime.prompt.note(handoffNote, "Handoff");
     } else if (cycleResult.retainedWorktree) {
