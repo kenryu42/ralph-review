@@ -1,5 +1,6 @@
 import type { ReasoningLevel } from "./config";
 import type { AgentType, DerivedRunStatus, Priority, ReviewOutcome } from "./domain";
+import type { HandoffStatus } from "./handoff";
 import type { LogEntry } from "./log";
 
 /** Stats breakdown per agent */
@@ -35,6 +36,8 @@ export interface SessionStats {
   mergeReady?: boolean;
   commitSha?: string;
   reviewOutcome?: ReviewOutcome;
+  handoffStatus?: HandoffStatus;
+  handoffUpdatedAt?: number;
   status: DerivedRunStatus;
   stop_iteration?: boolean;
   totalFixes: number;

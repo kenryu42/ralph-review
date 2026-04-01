@@ -4,6 +4,8 @@ import {
   extractLatestReviewSummary,
   extractSkippedFromStats,
   findLatestReviewerPhaseStart,
+  formatHandoffCommands,
+  formatHandoffSummary,
   formatLastRunIssueSummary,
   formatPriorityBreakdown,
   formatProjectStatsSummary,
@@ -371,6 +373,36 @@ describe("SessionPanel helpers", () => {
       );
       expect(formatRetainedWorktreeOutcome("clean", true)).toBeNull();
       expect(formatRetainedWorktreeOutcome("incomplete", false)).toBeNull();
+    });
+  });
+
+  describe("handoff guidance", () => {
+    test("formats a concise summary for auto-applied handoffs", () => {
+      expect(formatHandoffSummary("applied-auto", "commit-sha-1")).toBe(
+        "Applied to working tree · commit-sha-1"
+      );
+    });
+
+    test("formats a concise summary for pending handoffs", () => {
+      expect(formatHandoffSummary("pending-apply", "commit-sha-1")).toBe(
+        "Pending apply · commit-sha-1"
+      );
+    });
+
+    test("formats a concise summary for manual and discarded handoffs", () => {
+      expect(formatHandoffSummary("applied-manual", "commit-sha-1")).toBe(
+        "Applied manually · commit-sha-1"
+      );
+      expect(formatHandoffSummary("discarded", "commit-sha-1")).toBe("Discarded · commit-sha-1");
+    });
+
+    test("returns manual commands only for pending handoffs", () => {
+      expect(formatHandoffCommands("session-123", "pending-apply")).toEqual([
+        "rr apply --session session-123",
+        "rr discard --session session-123",
+      ]);
+      expect(formatHandoffCommands("session-123", "applied-auto")).toEqual([]);
+      expect(formatHandoffCommands(undefined, "pending-apply")).toEqual([]);
     });
   });
 

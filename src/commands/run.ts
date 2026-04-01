@@ -51,6 +51,30 @@ export function classifyRunCompletion(result: CycleResult): "success" | "warning
   return "error";
 }
 
+function formatHandoffNote(
+  result: Pick<CycleResult, "handoffStatus" | "commitSha">,
+  sessionId: string | undefined
+): string | null {
+  const commitLine = result.commitSha ? `Commit: ${result.commitSha}` : null;
+
+  if (result.handoffStatus === "applied-auto") {
+    return ["Applied reviewed fixes to the working tree.", commitLine].filter(Boolean).join("\n");
+  }
+
+  if (result.handoffStatus === "pending-apply") {
+    return [
+      "Reviewed fixes are ready to apply.",
+      commitLine,
+      sessionId ? `Apply: rr apply --session ${sessionId}` : null,
+      sessionId ? `Discard: rr discard --session ${sessionId}` : null,
+    ]
+      .filter(Boolean)
+      .join("\n");
+  }
+
+  return null;
+}
+
 function shellEscape(str: string): string {
   return `'${str.replace(/'/g, "'\\''")}'`;
 }
@@ -509,7 +533,10 @@ export async function runForeground(
       );
     }
 
-    if (cycleResult.retainedWorktree) {
+    const handoffNote = formatHandoffNote(cycleResult, sessionId);
+    if (handoffNote) {
+      runtime.prompt.note(handoffNote, "Handoff");
+    } else if (cycleResult.retainedWorktree) {
       runtime.prompt.note(
         `Retained worktree for review:\n` +
           `Path: ${cycleResult.retainedWorktree.worktreeProjectPath}\n` +
@@ -538,6 +565,9 @@ export async function runForeground(
           worktreeMergeReady: cycleResult.retainedWorktree?.mergeReady,
           worktreeCommitSha: cycleResult.retainedWorktree?.commitSha,
           reviewOutcome: cycleResult.reviewOutcome,
+          handoffStatus: cycleResult.handoffStatus,
+          handoffUpdatedAt: cycleResult.handoffUpdatedAt,
+          commitSha: cycleResult.commitSha,
         },
         {
           expectedSessionId: sessionId,
@@ -559,6 +589,9 @@ export async function runForeground(
           worktreeMergeReady: undefined,
           worktreeCommitSha: undefined,
           reviewOutcome: undefined,
+          handoffStatus: undefined,
+          handoffUpdatedAt: undefined,
+          commitSha: undefined,
         },
         {
           expectedSessionId: sessionId,

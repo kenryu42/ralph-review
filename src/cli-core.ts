@@ -134,6 +134,32 @@ export const COMMANDS: CommandDef[] = [
     examples: ["rr run", "rr run --base main", "rr run --no-interactive"],
   },
   {
+    name: "apply",
+    description: "Apply a pending review handoff",
+    options: [
+      {
+        name: "session",
+        alias: "s",
+        type: "string",
+        description: "Apply a specific pending handoff in the current project",
+      },
+    ],
+    examples: ["rr apply", "rr apply --session session-123"],
+  },
+  {
+    name: "discard",
+    description: "Discard a pending review handoff",
+    options: [
+      {
+        name: "session",
+        alias: "s",
+        type: "string",
+        description: "Discard a specific pending handoff in the current project",
+      },
+    ],
+    examples: ["rr discard", "rr discard --session session-123"],
+  },
+  {
     name: "list",
     aliases: ["ls"],
     description: "List active review sessions",

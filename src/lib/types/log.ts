@@ -1,6 +1,7 @@
 import type { AgentSettings } from "./config";
 import type { DerivedRunStatus, Priority, ReviewOutcome } from "./domain";
 import type { FixSummary } from "./fix";
+import type { HandoffStatus } from "./handoff";
 import type { CodexReviewSummary, ReviewSummary } from "./review";
 import type { IterationError, ReviewOptions } from "./run";
 
@@ -44,6 +45,8 @@ export interface SessionEndEntry {
   reason: string;
   iterations: number;
   reviewOutcome?: ReviewOutcome;
+  handoffStatus?: HandoffStatus;
+  handoffUpdatedAt?: number;
   mergeReady?: boolean;
   commitSha?: string;
   worktreeBranch?: string;
@@ -51,8 +54,15 @@ export interface SessionEndEntry {
   terminalReview?: ReviewSummary;
 }
 
+export interface HandoffEntry {
+  type: "handoff";
+  timestamp: number;
+  handoffStatus: Extract<HandoffStatus, "applied-manual" | "discarded">;
+  commitSha?: string;
+}
+
 export interface SessionSummary {
-  schemaVersion: 1;
+  schemaVersion: 2;
   logPath: string;
   summaryPath: string;
   sessionId?: string;
@@ -74,9 +84,11 @@ export interface SessionSummary {
   rollbackCount: number;
   rollbackFailures: number;
   reviewOutcome?: ReviewOutcome;
+  handoffStatus?: HandoffStatus;
+  handoffUpdatedAt?: number;
   mergeReady?: boolean;
   commitSha?: string;
   worktreeBranch?: string;
 }
 
-export type LogEntry = SystemEntry | IterationEntry | SessionEndEntry;
+export type LogEntry = SystemEntry | IterationEntry | SessionEndEntry | HandoffEntry;

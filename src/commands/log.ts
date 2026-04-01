@@ -14,6 +14,7 @@ import type {
   AgentSettings,
   DerivedRunStatus,
   FixEntry,
+  HandoffStatus,
   IterationEntry,
   Priority,
   SessionStats,
@@ -127,6 +128,9 @@ export interface SessionJson {
   stop_iteration?: boolean;
   reviewer?: AgentSettings;
   fixer?: AgentSettings;
+  handoffStatus?: HandoffStatus;
+  handoffUpdatedAt?: number;
+  commitSha?: string;
   summary: {
     totalFixes: number;
     totalSkipped: number;
@@ -166,6 +170,9 @@ export function buildSessionJson(
     stop_iteration: session.stop_iteration,
     reviewer: systemEntry?.reviewer,
     fixer: systemEntry?.fixer,
+    handoffStatus: session.handoffStatus,
+    handoffUpdatedAt: session.handoffUpdatedAt,
+    commitSha: session.commitSha,
     summary: {
       totalFixes: session.totalFixes,
       totalSkipped: session.totalSkipped,
@@ -236,6 +243,17 @@ function formatAgent(settings: AgentSettings): string {
   return settings.model ? `${settings.agent} (${settings.model})` : settings.agent;
 }
 
+function formatHandoffSummary(
+  handoffStatus: HandoffStatus | undefined,
+  commitSha: string | undefined
+): string | null {
+  if (!handoffStatus) {
+    return null;
+  }
+
+  return commitSha ? `Handoff: ${handoffStatus} · ${commitSha}` : `Handoff: ${handoffStatus}`;
+}
+
 function renderTerminalSession(
   projectName: string,
   session: SessionStats,
@@ -280,6 +298,10 @@ function renderTerminalSession(
   const rollbackFailures = session.rollbackFailures ?? 0;
   if (rollbackCount > 0) {
     p.log.message(`Rollback: ${rollbackCount} attempts (${rollbackFailures} failed)`);
+  }
+  const handoffSummary = formatHandoffSummary(session.handoffStatus, session.commitSha);
+  if (handoffSummary) {
+    p.log.message(handoffSummary);
   }
 
   if (fixes.length > 0) {

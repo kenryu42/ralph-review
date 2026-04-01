@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { CONFIG_DIR } from "./config";
 import { getProjectStorageDir } from "./logger";
 import { sessionExists } from "./tmux";
-import type { ReviewOutcome, ReviewSummary } from "./types";
+import type { HandoffStatus, ReviewOutcome, ReviewSummary } from "./types";
 
 const DEFAULT_BRANCH = "default";
 
@@ -54,6 +54,9 @@ interface CreateSessionStateOptions {
   endTime?: number;
   reason?: string;
   reviewOutcome?: ReviewOutcome;
+  handoffStatus?: HandoffStatus;
+  handoffUpdatedAt?: number;
+  commitSha?: string;
 }
 
 export interface SessionState {
@@ -75,6 +78,9 @@ export interface SessionState {
   endTime?: number;
   reason?: string;
   reviewOutcome?: ReviewOutcome;
+  handoffStatus?: HandoffStatus;
+  handoffUpdatedAt?: number;
+  commitSha?: string;
   iteration?: number;
   currentAgent?: "reviewer" | "fixer" | "code-simplifier" | null;
   reviewSummary?: ReviewSummary;
@@ -281,6 +287,9 @@ export async function createSessionState(
     endTime: options.endTime,
     reason: options.reason,
     reviewOutcome: options.reviewOutcome,
+    handoffStatus: options.handoffStatus,
+    handoffUpdatedAt: options.handoffUpdatedAt,
+    commitSha: options.commitSha,
     currentAgent: null,
   };
 

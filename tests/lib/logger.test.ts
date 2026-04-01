@@ -25,7 +25,7 @@ import {
   readSessionSummary,
   sanitizeForFilename,
 } from "@/lib/logger";
-import type { IterationEntry, SessionEndEntry, SystemEntry } from "@/lib/types";
+import type { HandoffEntry, IterationEntry, SessionEndEntry, SystemEntry } from "@/lib/types";
 import { buildFixEntry, buildFixSummary } from "../test-utils/fix-summary";
 
 describe("logger", () => {
@@ -680,6 +680,56 @@ describe("logger", () => {
 
       const summary = await readSessionSummary(logPath);
       expect(summary?.status).toBe("interrupted");
+    });
+  });
+
+  describe("handoff summary tracking", () => {
+    test("records handoff status from session_end and later handoff events", async () => {
+      const logPath = await createLogSession(tempDir, "/path/to/project");
+
+      const systemEntry: SystemEntry = {
+        type: "system",
+        timestamp: 1_700_000_000_000,
+        projectPath: "/path/to/project",
+        reviewer: { agent: "codex" },
+        fixer: { agent: "claude" },
+        maxIterations: 5,
+      };
+      const sessionEnd: SessionEndEntry = {
+        type: "session_end",
+        timestamp: 1_700_000_001_000,
+        status: "completed",
+        reason: "Review complete",
+        iterations: 1,
+        reviewOutcome: "incomplete",
+        handoffStatus: "pending-apply",
+        handoffUpdatedAt: 1_700_000_001_000,
+        commitSha: "retained-commit-sha",
+      };
+      const handoffEntry: HandoffEntry = {
+        type: "handoff",
+        timestamp: 1_700_000_002_000,
+        handoffStatus: "applied-manual",
+        commitSha: "retained-commit-sha",
+      };
+
+      await appendLog(logPath, systemEntry);
+      await appendLog(logPath, sessionEnd);
+      await appendLog(logPath, handoffEntry);
+
+      const summary = await readSessionSummary(logPath);
+      expect(summary?.handoffStatus).toBe("applied-manual");
+      expect(summary?.handoffUpdatedAt).toBe(1_700_000_002_000);
+      expect(summary?.commitSha).toBe("retained-commit-sha");
+
+      const stats = await computeSessionStats({
+        path: logPath,
+        name: "session.jsonl",
+        projectName: getProjectName("/path/to/project"),
+        timestamp: Bun.file(logPath).lastModified,
+      });
+      expect(stats.handoffStatus).toBe("applied-manual");
+      expect(stats.handoffUpdatedAt).toBe(1_700_000_002_000);
     });
   });
 

@@ -201,6 +201,30 @@ describe("session-state", () => {
     expect(session?.state).toBe("running");
   });
 
+  test("stores handoff metadata on create and update", async () => {
+    const projectPath = "/Users/test/project-handoff";
+
+    await createSessionState(tempLogsDir, projectPath, "rr-handoff", {
+      sessionId: "session-handoff",
+      branch: "main",
+      state: "running",
+      handoffStatus: "pending-apply",
+      handoffUpdatedAt: 1_700_000_000_000,
+      commitSha: "commit-sha-1",
+    });
+
+    await updateSessionState(tempLogsDir, projectPath, "session-handoff", {
+      handoffStatus: "applied-auto",
+      handoffUpdatedAt: 1_700_000_000_100,
+    });
+
+    const session = await readSessionState(tempLogsDir, projectPath, "session-handoff");
+
+    expect(session?.handoffStatus).toBe("applied-auto");
+    expect(session?.handoffUpdatedAt).toBe(1_700_000_000_100);
+    expect(session?.commitSha).toBe("commit-sha-1");
+  });
+
   test("removes fields when updateSessionState receives undefined values", async () => {
     const projectPath = "/Users/test/project-undefined-update";
 

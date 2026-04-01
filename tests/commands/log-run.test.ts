@@ -106,6 +106,7 @@ interface CapturedClackLogs {
   info: string[];
   message: string[];
   success: string[];
+  step: string[];
 }
 
 async function captureClackLogs<T>(
@@ -115,10 +116,12 @@ async function captureClackLogs<T>(
     info: [],
     message: [],
     success: [],
+    step: [],
   };
   const originalInfo = p.log.info;
   const originalMessage = p.log.message;
   const originalSuccess = p.log.success;
+  const originalStep = p.log.step;
 
   p.log.info = ((message: string) => {
     logs.info.push(message);
@@ -129,6 +132,9 @@ async function captureClackLogs<T>(
   p.log.success = ((message: string) => {
     logs.success.push(message);
   }) as typeof p.log.success;
+  p.log.step = ((message: string) => {
+    logs.step.push(message);
+  }) as typeof p.log.step;
 
   try {
     const result = await run();
@@ -137,6 +143,7 @@ async function captureClackLogs<T>(
     p.log.info = originalInfo;
     p.log.message = originalMessage;
     p.log.success = originalSuccess;
+    p.log.step = originalStep;
   }
 }
 
@@ -341,6 +348,35 @@ describe("runLog integration", () => {
     );
 
     expect(logs.message).toContain("Rollback: 1 attempts (1 failed)");
+  });
+
+  test("renders handoff summary when reviewed fixes are pending apply", async () => {
+    const fixture = await createProjectFixture();
+    fixtures.push(fixture);
+    const logsProjectDir = getProjectLogsDir(CONFIG_DIR, fixture.projectPath);
+    const handoffLog = join(logsProjectDir, "handoff.jsonl");
+    fixture.logPaths.push(handoffLog);
+
+    await writeLogEntries(handoffLog, [
+      createSystemEntry(fixture.projectPath),
+      createIterationEntry(1),
+      {
+        ...createSessionEndEntry("completed"),
+        handoffStatus: "pending-apply",
+        handoffUpdatedAt: 1_700_000_000_000,
+        commitSha: "commit-sha-1",
+      },
+    ]);
+
+    const { logs } = await withProjectCwd(fixture.projectPath, async () =>
+      withMutedTerminalLogs(async () =>
+        captureClackLogs(async () => {
+          await runLog([]);
+        })
+      )
+    );
+
+    expect(logs.message).toContain("Handoff: pending-apply · commit-sha-1");
   });
 
   test("renders and outputs project JSON after filtering unknown-empty sessions", async () => {

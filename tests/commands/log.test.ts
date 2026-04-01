@@ -368,6 +368,19 @@ describe("buildSessionJson", () => {
     const result = buildSessionJson("project", session, [], []);
     expect(result.duration).toBeUndefined();
   });
+
+  test("includes handoff metadata when present", () => {
+    const session = createSessionStats({
+      handoffStatus: "pending-apply",
+      handoffUpdatedAt: 1_700_000_000_000,
+      commitSha: "commit-sha-1",
+    });
+    const result = buildSessionJson("project", session, [], []);
+
+    expect(result.handoffStatus).toBe("pending-apply");
+    expect(result.handoffUpdatedAt).toBe(1_700_000_000_000);
+    expect(result.commitSha).toBe("commit-sha-1");
+  });
 });
 
 describe("buildProjectSessionsJson", () => {

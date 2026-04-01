@@ -1557,6 +1557,56 @@ describe("run command", () => {
       );
     });
 
+    test("surfaces automatic handoff apply after a successful run", async () => {
+      const harness = createRunHarness({
+        env: {
+          RR_SESSION_ID: "session-123",
+        },
+        runReviewCycleResult: createCycleResult({
+          reviewOutcome: "incomplete",
+          handoffStatus: "applied-auto",
+          commitSha: "retained-commit-sha",
+          handoffUpdatedAt: 1_700_000_000_000,
+        }),
+      });
+
+      await runForeground([], harness.overrides);
+
+      expect(harness.notes).toContainEqual({
+        title: "Handoff",
+        message: "Applied reviewed fixes to the working tree.\nCommit: retained-commit-sha",
+      });
+      expect(harness.updateSessionStateCalls[1]?.updates.handoffStatus).toBe("applied-auto");
+      expect(harness.updateSessionStateCalls[1]?.updates.commitSha).toBe("retained-commit-sha");
+    });
+
+    test("surfaces manual handoff commands when fixes are pending", async () => {
+      const harness = createRunHarness({
+        env: {
+          RR_SESSION_ID: "session-123",
+        },
+        runReviewCycleResult: createCycleResult({
+          reviewOutcome: "incomplete",
+          handoffStatus: "pending-apply",
+          commitSha: "retained-commit-sha",
+          handoffUpdatedAt: 1_700_000_000_000,
+        }),
+      });
+
+      await runForeground([], harness.overrides);
+
+      expect(harness.notes).toContainEqual({
+        title: "Handoff",
+        message:
+          "Reviewed fixes are ready to apply.\n" +
+          "Commit: retained-commit-sha\n" +
+          "Apply: rr apply --session session-123\n" +
+          "Discard: rr discard --session session-123",
+      });
+      expect(harness.updateSessionStateCalls[1]?.updates.handoffStatus).toBe("pending-apply");
+      expect(harness.updateSessionStateCalls[1]?.updates.commitSha).toBe("retained-commit-sha");
+    });
+
     test("logs error completion for failed result", async () => {
       const harness = createRunHarness({
         runReviewCycleResult: createCycleResult({

@@ -21,6 +21,8 @@ import {
   extractLatestReviewSummary,
   extractSkippedFromStats,
   findLatestReviewerPhaseStart,
+  formatHandoffCommands,
+  formatHandoffSummary,
   formatLastRunIssueSummary,
   formatPriorityBreakdown,
   formatProjectStatsSummary,
@@ -402,6 +404,14 @@ export function SessionPanel({
     const statusDisplay = getStatusDisplay(lastSessionStats.status, null);
     const lastSessionFixes = extractFixesFromStats(lastSessionStats);
     const lastSessionSkipped = extractSkippedFromStats(lastSessionStats);
+    const lastRunHandoffSummary = formatHandoffSummary(
+      lastSessionStats.handoffStatus,
+      lastSessionStats.commitSha
+    );
+    const lastRunHandoffCommands = formatHandoffCommands(
+      lastSessionStats.sessionId,
+      lastSessionStats.handoffStatus
+    );
     const lastRunMergeCommand = formatRetainedWorktreeMergeCommand(
       lastSessionStats.worktreeBranch,
       lastSessionStats.mergeReady
@@ -475,23 +485,37 @@ export function SessionPanel({
           </text>
         </box>
 
-        {lastSessionStats.worktreeBranch && (
+        {lastRunHandoffSummary ? (
           <box flexDirection="column">
             <box flexDirection="row" gap={1}>
-              <text fg={TUI_COLORS.text.muted}>Worktree branch:</text>
-              <text fg={TUI_COLORS.status.success}>{lastSessionStats.worktreeBranch}</text>
+              <text fg={TUI_COLORS.text.muted}>Handoff:</text>
+              <text fg={TUI_COLORS.status.success}>{lastRunHandoffSummary}</text>
             </box>
-            {lastRunMergeCommand && (
-              <text fg={TUI_COLORS.text.dim} paddingLeft={2}>
-                {lastRunMergeCommand}
+            {lastRunHandoffCommands.map((command) => (
+              <text key={command} fg={TUI_COLORS.text.dim} paddingLeft={2}>
+                {command}
               </text>
-            )}
-            {lastRunWorktreeOutcome && (
-              <text fg={TUI_COLORS.status.warning} paddingLeft={2}>
-                {lastRunWorktreeOutcome}
-              </text>
-            )}
+            ))}
           </box>
+        ) : (
+          lastSessionStats.worktreeBranch && (
+            <box flexDirection="column">
+              <box flexDirection="row" gap={1}>
+                <text fg={TUI_COLORS.text.muted}>Worktree branch:</text>
+                <text fg={TUI_COLORS.status.success}>{lastSessionStats.worktreeBranch}</text>
+              </box>
+              {lastRunMergeCommand && (
+                <text fg={TUI_COLORS.text.dim} paddingLeft={2}>
+                  {lastRunMergeCommand}
+                </text>
+              )}
+              {lastRunWorktreeOutcome && (
+                <text fg={TUI_COLORS.status.warning} paddingLeft={2}>
+                  {lastRunWorktreeOutcome}
+                </text>
+              )}
+            </box>
+          )
         )}
 
         {lastSessionFixes.length > 0 && (
@@ -538,6 +562,8 @@ export function SessionPanel({
   const appliedCount = fixes.length;
   const skippedCount = skipped.length;
   const sessionIdentity = formatSessionIdentityDisplay(session, activeSessionCount);
+  const sessionHandoffSummary = formatHandoffSummary(session.handoffStatus, session.commitSha);
+  const sessionHandoffCommands = formatHandoffCommands(session.sessionId, session.handoffStatus);
   const sessionMergeCommand = formatRetainedWorktreeMergeCommand(
     session.worktreeBranch,
     session.worktreeMergeReady
@@ -608,20 +634,35 @@ export function SessionPanel({
         ))}
       </box>
 
-      {session.worktreeBranch && (sessionMergeCommand || sessionWorktreeOutcome) && (
+      {sessionHandoffSummary ? (
         <box flexDirection="column">
-          {sessionMergeCommand && (
-            <box flexDirection="row" gap={1}>
-              <text fg={TUI_COLORS.text.muted}>Merge fixes:</text>
-              <text fg={TUI_COLORS.text.dim}>{sessionMergeCommand}</text>
-            </box>
-          )}
-          {sessionWorktreeOutcome && (
-            <text fg={TUI_COLORS.status.warning} paddingLeft={2}>
-              {sessionWorktreeOutcome}
+          <box flexDirection="row" gap={1}>
+            <text fg={TUI_COLORS.text.muted}>Handoff:</text>
+            <text fg={TUI_COLORS.status.success}>{sessionHandoffSummary}</text>
+          </box>
+          {sessionHandoffCommands.map((command) => (
+            <text key={command} fg={TUI_COLORS.text.dim} paddingLeft={2}>
+              {command}
             </text>
-          )}
+          ))}
         </box>
+      ) : (
+        session.worktreeBranch &&
+        (sessionMergeCommand || sessionWorktreeOutcome) && (
+          <box flexDirection="column">
+            {sessionMergeCommand && (
+              <box flexDirection="row" gap={1}>
+                <text fg={TUI_COLORS.text.muted}>Merge fixes:</text>
+                <text fg={TUI_COLORS.text.dim}>{sessionMergeCommand}</text>
+              </box>
+            )}
+            {sessionWorktreeOutcome && (
+              <text fg={TUI_COLORS.status.warning} paddingLeft={2}>
+                {sessionWorktreeOutcome}
+              </text>
+            )}
+          </box>
+        )
       )}
 
       <ProgressBar current={iteration} max={maxIterations} />

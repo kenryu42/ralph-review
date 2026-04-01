@@ -11,12 +11,12 @@ import {
   createSessionWorktree,
   discardCheckpoint,
   discardSessionWorktree,
-  finalizeSessionWorktree,
   type GitCheckpoint,
   type GitSessionWorktree,
   type RetainedSessionWorktree,
   rollbackToCheckpoint,
 } from "./git";
+import { createOrAutoApplyHandoff, type SessionHandoffResult } from "./handoff";
 import { appendLog, createLogSession, getGitBranch } from "./logger";
 import type { SessionState } from "./session-state";
 import { updateSessionState } from "./session-state";
@@ -32,6 +32,7 @@ import type {
   CodexReviewSummary,
   Config,
   FixSummary,
+  HandoffStatus,
   IterationEntry,
   IterationResult,
   RetryConfig,
@@ -56,7 +57,7 @@ interface RunReviewCycleDependencies {
   createSessionWorktree: typeof createSessionWorktree;
   discardCheckpoint: typeof discardCheckpoint;
   discardSessionWorktree: typeof discardSessionWorktree;
-  finalizeSessionWorktree: typeof finalizeSessionWorktree;
+  createOrAutoApplyHandoff: typeof createOrAutoApplyHandoff;
   rollbackToCheckpoint: typeof rollbackToCheckpoint;
   updateSessionState: typeof updateSessionState;
   appendLog: typeof appendLog;
@@ -78,7 +79,7 @@ const DEFAULT_RUN_REVIEW_CYCLE_DEPENDENCIES: RunReviewCycleDependencies = {
   createSessionWorktree,
   discardCheckpoint,
   discardSessionWorktree,
-  finalizeSessionWorktree,
+  createOrAutoApplyHandoff,
   rollbackToCheckpoint,
   updateSessionState,
   appendLog,
@@ -346,6 +347,9 @@ export interface CycleResult {
   sessionPath: string;
   reviewOutcome?: ReviewOutcome;
   terminalReview?: ReviewSummary;
+  handoffStatus?: HandoffStatus;
+  handoffUpdatedAt?: number;
+  commitSha?: string;
   retainedWorktree?: RetainedSessionWorktree;
 }
 
@@ -427,6 +431,18 @@ function applyReviewOutcome(
   result.success = result.success && reviewOutcome === "clean";
   return result;
 }
+
+function applyHandoffResult(
+  result: CycleResult,
+  handoff: SessionHandoffResult | null
+): CycleResult {
+  result.handoffStatus = handoff?.handoffStatus;
+  result.handoffUpdatedAt = handoff?.handoffUpdatedAt;
+  result.commitSha = handoff?.commitSha;
+  result.retainedWorktree = undefined;
+  return result;
+}
+
 function applyWorktreeCleanupFailure(
   result: CycleResult | undefined,
   sessionPath: string,
@@ -447,6 +463,9 @@ function applyWorktreeCleanupFailure(
   result.success = false;
   result.finalStatus = "failed";
   result.reason = `${result.reason} Session worktree ${phase} failed (${detail}).`;
+  result.handoffStatus = undefined;
+  result.handoffUpdatedAt = undefined;
+  result.commitSha = undefined;
   result.retainedWorktree = undefined;
   return result;
 }
@@ -540,8 +559,10 @@ function createSessionEndEntry(
     reason,
     iterations: result?.iterations ?? iterationsFallback,
     reviewOutcome: result?.reviewOutcome,
+    handoffStatus: result?.handoffStatus,
+    handoffUpdatedAt: result?.handoffUpdatedAt,
+    commitSha: result?.commitSha ?? result?.retainedWorktree?.commitSha,
     mergeReady: result?.retainedWorktree?.mergeReady,
-    commitSha: result?.retainedWorktree?.commitSha,
     worktreeBranch: result?.retainedWorktree?.worktreeBranch,
     worktreeProjectPath: result?.retainedWorktree?.worktreeProjectPath,
     terminalReview: result?.terminalReview,
@@ -1132,12 +1153,23 @@ export async function runReviewCycle(
           }
 
           if (finalResult?.reviewOutcome && currentTreeMatchesPromotable) {
-            const retainedWorktree = deps.finalizeSessionWorktree(worktree);
-            if (retainedWorktree) {
-              finalResult.retainedWorktree = retainedWorktree;
-            } else {
-              finalResult.retainedWorktree = undefined;
+            const handoff = await deps.createOrAutoApplyHandoff(undefined, {
+              sessionId: sessionId ?? "session",
+              projectPath,
+              logPath: sessionPath,
+              worktree,
+            });
+            finalResult = applyHandoffResult(finalResult, handoff);
+            try {
               deps.discardSessionWorktree(worktree);
+            } catch (discardError) {
+              finalResult = applyWorktreeCleanupFailure(
+                finalResult,
+                sessionPath,
+                iteration,
+                "discard",
+                discardError
+              );
             }
           } else if (finalResult) {
             try {

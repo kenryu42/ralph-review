@@ -3,6 +3,7 @@ import { TUI_COLORS } from "@/lib/tui/colors";
 import {
   type Finding,
   type FixEntry,
+  type HandoffStatus,
   isReviewSummary,
   type Priority,
   type ReviewOutcome,
@@ -78,6 +79,39 @@ export function formatRetainedWorktreeOutcome(
   }
 
   return null;
+}
+
+export function formatHandoffSummary(
+  handoffStatus: HandoffStatus | undefined,
+  commitSha: string | undefined
+): string | null {
+  if (!handoffStatus) {
+    return null;
+  }
+
+  switch (handoffStatus) {
+    case "applied-auto":
+      return commitSha ? `Applied to working tree · ${commitSha}` : "Applied to working tree";
+    case "pending-apply":
+      return commitSha ? `Pending apply · ${commitSha}` : "Pending apply";
+    case "applied-manual":
+      return commitSha ? `Applied manually · ${commitSha}` : "Applied manually";
+    case "discarded":
+      return commitSha ? `Discarded · ${commitSha}` : "Discarded";
+    default:
+      return null;
+  }
+}
+
+export function formatHandoffCommands(
+  sessionId: string | undefined,
+  handoffStatus: HandoffStatus | undefined
+): string[] {
+  if (!sessionId || handoffStatus !== "pending-apply") {
+    return [];
+  }
+
+  return [`rr apply --session ${sessionId}`, `rr discard --session ${sessionId}`];
 }
 
 export function extractFixesFromStats(stats: SessionStats): FixEntry[] {

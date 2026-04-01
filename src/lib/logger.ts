@@ -7,6 +7,7 @@ import type {
   AgentType,
   DashboardData,
   DerivedRunStatus,
+  HandoffEntry,
   IterationEntry,
   LogEntry,
   ModelStats,
@@ -20,7 +21,7 @@ import type {
 
 const LOG_FILE_EXTENSION = ".jsonl";
 const SUMMARY_FILE_SUFFIX = ".summary.json";
-const SUMMARY_SCHEMA_VERSION = 1 as const;
+const SUMMARY_SCHEMA_VERSION = 2 as const;
 const SUMMARY_TEMP_SUFFIX = ".tmp";
 
 export type LogIncrementalMode = "reset" | "incremental" | "unchanged";
@@ -389,10 +390,15 @@ function deriveRunStatusFromEntries(
   return "completed";
 }
 
+function getLastHandoffEntry(entries: LogEntry[]): HandoffEntry | undefined {
+  return entries.filter((entry): entry is HandoffEntry => entry.type === "handoff").at(-1);
+}
+
 function buildSessionSummary(logPath: string, entries: LogEntry[]): SessionSummary {
   const metrics = computeIterationMetrics(entries);
   const systemEntry = entries.find((entry): entry is SystemEntry => entry.type === "system");
   const sessionEnd = getLastSessionEnd(entries);
+  const handoffEntry = getLastHandoffEntry(entries);
   const lastTimestamp = [...entries]
     .reverse()
     .find((entry) => entry.timestamp !== undefined)?.timestamp;
@@ -423,8 +429,10 @@ function buildSessionSummary(logPath: string, entries: LogEntry[]): SessionSumma
     rollbackCount: metrics.rollbackCount,
     rollbackFailures: metrics.rollbackFailures,
     reviewOutcome: sessionEnd?.reviewOutcome,
+    handoffStatus: handoffEntry?.handoffStatus ?? sessionEnd?.handoffStatus,
+    handoffUpdatedAt: handoffEntry?.timestamp ?? sessionEnd?.handoffUpdatedAt,
     mergeReady: sessionEnd?.mergeReady,
-    commitSha: sessionEnd?.commitSha,
+    commitSha: handoffEntry?.commitSha ?? sessionEnd?.commitSha,
     worktreeBranch: sessionEnd ? sessionEnd.worktreeBranch : systemEntry?.worktreeBranch,
   };
 }
@@ -524,10 +532,21 @@ function applyEntryToSummary(
     return next;
   }
 
+  if (entry.type === "handoff") {
+    next.handoffStatus = entry.handoffStatus;
+    next.handoffUpdatedAt = entry.timestamp;
+    if (entry.commitSha !== undefined) {
+      next.commitSha = entry.commitSha;
+    }
+    return next;
+  }
+
   next.status = entry.status;
   next.reason = entry.reason;
   next.endedAt = entry.timestamp;
   next.reviewOutcome = entry.reviewOutcome;
+  next.handoffStatus = entry.handoffStatus;
+  next.handoffUpdatedAt = entry.handoffUpdatedAt;
   next.mergeReady = entry.mergeReady;
   next.commitSha = entry.commitSha;
   next.worktreeBranch = entry.worktreeBranch;
@@ -585,11 +604,16 @@ export async function readSessionSummary(logPath: string): Promise<SessionSummar
 
   try {
     const content = await file.text();
-    const parsed = JSON.parse(content) as SessionSummary;
-    if (parsed.schemaVersion !== SUMMARY_SCHEMA_VERSION) {
+    const parsed = JSON.parse(content) as Omit<SessionSummary, "schemaVersion"> & {
+      schemaVersion?: number;
+    };
+    if (parsed.schemaVersion !== 1 && parsed.schemaVersion !== SUMMARY_SCHEMA_VERSION) {
       return null;
     }
-    return parsed;
+    return {
+      ...parsed,
+      schemaVersion: SUMMARY_SCHEMA_VERSION,
+    };
   } catch {
     return null;
   }
@@ -916,6 +940,8 @@ export async function computeSessionStats(session: LogSession): Promise<SessionS
     mergeReady: summary?.mergeReady,
     commitSha: summary?.commitSha,
     reviewOutcome: summary?.reviewOutcome,
+    handoffStatus: summary?.handoffStatus,
+    handoffUpdatedAt: summary?.handoffUpdatedAt,
     status: summary?.status ?? deriveRunStatusFromEntries(entries, metrics),
     stop_iteration: summary?.stop_iteration ?? metrics.lastIteration?.fixes?.stop_iteration,
     totalFixes: summary?.totalFixes ?? metrics.totalFixes,

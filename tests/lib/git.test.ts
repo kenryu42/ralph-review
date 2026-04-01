@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CONFIG_DIR } from "@/lib/config";
 import {
   createCheckpoint,
   createSessionWorktree,
@@ -15,7 +14,7 @@ import {
   mergeBaseWithHead,
   rollbackToCheckpoint,
 } from "@/lib/git";
-import { getProjectStorageDir, getProjectWorktreesDir } from "@/lib/logger";
+import { getProjectWorktreesDir } from "@/lib/logger";
 
 /**
  * Helper to run git commands in a directory
@@ -622,10 +621,12 @@ describe("checkpoint management on unborn HEAD", () => {
 
 describe("session worktree management", () => {
   let tempDir: string;
+  let storageRoot: string;
   let createdWorktrees: GitSessionWorktree[];
 
   beforeEach(async () => {
     tempDir = await mkdtemp(join(tmpdir(), "git-session-worktree-test-"));
+    storageRoot = await mkdtemp(join(tmpdir(), "git-session-worktree-storage-"));
     createdWorktrees = [];
   });
 
@@ -640,7 +641,7 @@ describe("session worktree management", () => {
         }
       }
     }
-    await rm(getProjectStorageDir(CONFIG_DIR, tempDir), { recursive: true, force: true });
+    await rm(storageRoot, { recursive: true, force: true });
     await rm(tempDir, { recursive: true, force: true });
   });
 
@@ -657,11 +658,11 @@ describe("session worktree management", () => {
     await Bun.write(join(tempDir, "untracked.txt"), "untracked content");
     await Bun.write(join(tempDir, ".env"), "ignored content");
 
-    const worktree = createSessionWorktree(tempDir, "session-1");
+    const worktree = createSessionWorktree(tempDir, "session-1", storageRoot);
     createdWorktrees.push(worktree);
 
     expect(
-      worktree.worktreeProjectPath.startsWith(`${getProjectWorktreesDir(CONFIG_DIR, tempDir)}/`)
+      worktree.worktreeProjectPath.startsWith(`${getProjectWorktreesDir(storageRoot, tempDir)}/`)
     ).toBe(true);
     expect(worktree.worktreeProjectPath).not.toContain(
       join(process.env.TMPDIR || "/tmp", "ralph-review", "sandboxes")
@@ -689,11 +690,65 @@ describe("session worktree management", () => {
     expect(await Bun.file(join(worktree.worktreeProjectPath, "late.txt")).exists()).toBe(false);
   });
 
+  test("captures the source fingerprint when the session worktree is created", async () => {
+    initTestRepo(tempDir);
+    commit(tempDir, "base.txt", "base commit");
+
+    let fingerprintCalls = 0;
+    const originalSpawnSync = Bun.spawnSync;
+    type SpawnSyncArgs =
+      | [command: string[], options?: { cwd?: string }]
+      | [options: { cmd: string[]; cwd?: string }];
+
+    Bun.spawnSync = ((...args: SpawnSyncArgs) => {
+      const firstArg = args[0];
+      const command = Array.isArray(firstArg) ? firstArg : firstArg.cmd;
+
+      if (
+        command[0] === "sh" &&
+        command[1] === "-lc" &&
+        typeof command[2] === "string" &&
+        command[2].includes("git hash-object")
+      ) {
+        fingerprintCalls += 1;
+      }
+
+      if (Array.isArray(firstArg)) {
+        return originalSpawnSync(firstArg, args[1]);
+      }
+
+      return originalSpawnSync(firstArg);
+    }) as typeof Bun.spawnSync;
+
+    try {
+      const worktree = createSessionWorktree(tempDir, "session-deferred-fingerprint", storageRoot);
+      createdWorktrees.push(worktree);
+
+      expect(worktree.sourceSnapshotDir).toBeString();
+      expect(worktree.sourceSnapshotPath).toBeUndefined();
+      expect(worktree.sourceFingerprint).toBeString();
+      expect(fingerprintCalls).toBe(1);
+    } finally {
+      Bun.spawnSync = originalSpawnSync;
+    }
+  });
+
+  test("keeps the source snapshot as archive metadata instead of materializing a second tree", () => {
+    initTestRepo(tempDir);
+    commit(tempDir, "base.txt", "base commit");
+
+    const worktree = createSessionWorktree(tempDir, "session-archive-snapshot", storageRoot);
+    createdWorktrees.push(worktree);
+
+    expect(worktree.sourceSnapshotDir).toBeString();
+    expect(worktree.sourceSnapshotPath).toBeUndefined();
+  });
+
   test("finalizes a detached worktree onto a retained branch and removes it cleanly", async () => {
     initTestRepo(tempDir);
     commit(tempDir, "base.txt", "base commit");
 
-    const worktree = createSessionWorktree(tempDir, "session-2");
+    const worktree = createSessionWorktree(tempDir, "session-2", storageRoot);
     createdWorktrees.push(worktree);
 
     await Bun.write(join(worktree.worktreeProjectPath, "base.txt"), "worktree change");
@@ -735,7 +790,7 @@ describe("session worktree management", () => {
     initTestRepo(tempDir);
     commit(tempDir, "base.txt", "base commit");
 
-    const worktree = createSessionWorktree(tempDir, "session-empty");
+    const worktree = createSessionWorktree(tempDir, "session-empty", storageRoot);
     createdWorktrees.push(worktree);
 
     const retained = finalizeSessionWorktree(worktree);
@@ -746,7 +801,7 @@ describe("session worktree management", () => {
     initTestRepo(tempDir);
     commit(tempDir, "base.txt", "base commit");
 
-    const worktree = createSessionWorktree(tempDir, "session-statusless");
+    const worktree = createSessionWorktree(tempDir, "session-statusless", storageRoot);
     createdWorktrees.push(worktree);
 
     await Bun.write(join(worktree.worktreeProjectPath, "base.txt"), "worktree change");
@@ -783,7 +838,7 @@ describe("session worktree management", () => {
     await Bun.write(join(tempDir, "mixed.txt"), "staged snapshot plus unstaged change");
     await Bun.write(join(tempDir, "untracked.txt"), "untracked content");
 
-    const worktree = createSessionWorktree(tempDir, "unborn-session");
+    const worktree = createSessionWorktree(tempDir, "unborn-session", storageRoot);
     createdWorktrees.push(worktree);
 
     expect(runGitStdout(worktree.worktreeProjectPath, ["branch", "--show-current"])).toBe(
@@ -810,12 +865,12 @@ describe("session worktree management", () => {
         (command[0] === "rm" &&
           command[1] === "-rf" &&
           command.some((part) =>
-            part.includes(join(getProjectWorktreesDir(CONFIG_DIR, tempDir), "cleanup-failure"))
+            part.includes(join(getProjectWorktreesDir(storageRoot, tempDir), "cleanup-failure"))
           ))
     );
 
     try {
-      expect(() => createSessionWorktree(tempDir, "cleanup-failure")).toThrow(
+      expect(() => createSessionWorktree(tempDir, "cleanup-failure", storageRoot)).toThrow(
         "Cleanup also failed"
       );
     } finally {

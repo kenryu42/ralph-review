@@ -60,6 +60,8 @@ describe("cli", () => {
       expect(usage).toContain("init");
       expect(usage).toContain("config");
       expect(usage).toContain("run");
+      expect(usage).toContain("apply");
+      expect(usage).toContain("discard");
       expect(usage).toContain("list");
       expect(usage).toContain("stop");
       expect(usage).toContain("log");
@@ -99,6 +101,8 @@ describe("cli", () => {
       expect(names).toContain("init");
       expect(names).toContain("config");
       expect(names).toContain("run");
+      expect(names).toContain("apply");
+      expect(names).toContain("discard");
       expect(names).toContain("list");
       expect(names).toContain("stop");
       expect(names).toContain("log");

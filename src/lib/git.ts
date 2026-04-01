@@ -1,4 +1,4 @@
-import { isAbsolute, join, relative } from "node:path";
+import { dirname, isAbsolute, join, relative } from "node:path";
 import { CONFIG_DIR } from "./config";
 import { getProjectWorktreesDir } from "./logger";
 
@@ -170,6 +170,9 @@ export interface GitSessionWorktree {
   agentProjectPath: string;
   retainedBranch: string;
   headKind: "detached" | "orphan";
+  sourceSnapshotDir?: string;
+  sourceSnapshotPath?: string;
+  sourceFingerprint?: string;
   preserveBranchOnDiscard?: boolean;
 }
 
@@ -313,9 +316,13 @@ function resolveAvailableBranchName(repoPath: string, baseBranch: string): strin
   return `${baseBranch}-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`;
 }
 
-function createWorktreePath(sourceProjectPath: string, worktreeId: string): string {
+function createWorktreePath(
+  storageRoot: string,
+  sourceProjectPath: string,
+  worktreeId: string
+): string {
   return join(
-    getProjectWorktreesDir(CONFIG_DIR, sourceProjectPath),
+    getProjectWorktreesDir(storageRoot, sourceProjectPath),
     `${worktreeId}-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`
   );
 }
@@ -341,6 +348,187 @@ function toAbsolutePath(basePath: string, path: string): string {
   return isAbsolute(path) ? path : join(basePath, path);
 }
 
+function resolveCanonicalDirectoryPath(path: string): string | undefined {
+  const result = Bun.spawnSync(["pwd", "-P"], {
+    cwd: path,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  if (result.exitCode !== 0) {
+    return undefined;
+  }
+  return result.stdout.toString().trim();
+}
+
+function collectComparableDirectoryPaths(path: string): Set<string> {
+  const comparablePaths = new Set<string>([path]);
+  const canonicalPath = resolveCanonicalDirectoryPath(path);
+  if (canonicalPath) {
+    comparablePaths.add(canonicalPath);
+  }
+  return comparablePaths;
+}
+
+function extractWorkingTreeSnapshot(
+  snapshotDir: string,
+  destinationPath: string,
+  context: string
+): void {
+  const archivePath = join(snapshotDir, CHECKPOINT_SNAPSHOT_ARCHIVE);
+  assertCommandOk(dirname(snapshotDir), ["mkdir", "-p", destinationPath], context);
+  assertCommandOk(destinationPath, ["tar", "-C", destinationPath, "-xf", archivePath], context);
+}
+
+export function materializeWorkingTreeSnapshot(snapshotDir: string, destinationPath: string): void {
+  extractWorkingTreeSnapshot(
+    snapshotDir,
+    destinationPath,
+    "Failed to materialize working tree snapshot"
+  );
+}
+
+export function materializeWorkingTreeCopy(repoPath: string, destinationPath: string): void {
+  const snapshotDir = createWorkingTreeSnapshot(
+    repoPath,
+    `materialized-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`,
+    "Failed to snapshot working tree copy"
+  );
+
+  try {
+    extractWorkingTreeSnapshot(
+      snapshotDir,
+      destinationPath,
+      "Failed to materialize working tree copy"
+    );
+  } finally {
+    discardWorkingTreeSnapshot(
+      repoPath,
+      snapshotDir,
+      "Failed to discard working tree copy snapshot"
+    );
+  }
+}
+
+export function computeWorkingTreeFingerprint(repoPath: string): string {
+  const repoRoot = assertGitOk(
+    repoPath,
+    ["rev-parse", "--show-toplevel"],
+    "Failed to resolve repository root for fingerprint"
+  );
+  const script = `
+git ls-files -z --cached --others --exclude-standard |
+perl -0ne '
+  use strict;
+  use warnings;
+
+  my @paths = sort grep { length $_ } split(/\\0/, $_);
+  my @parts = ();
+
+  for my $path (@paths) {
+    if (-l $path) {
+      my $target = readlink($path);
+      push @parts, "l", $path, defined($target) ? $target : "";
+      next;
+    }
+
+    if (-f $path) {
+      open my $fh, "-|", "git", "hash-object", "--no-filters", "--", $path
+        or die "Failed to hash file $path: $!";
+      my $hash = <$fh>;
+      close $fh or die "Failed to hash file $path";
+      chomp $hash;
+      push @parts, "f", $path, $hash;
+      next;
+    }
+
+    push @parts, "d", $path, "";
+  }
+
+  binmode STDOUT;
+  print join("\\0", @parts);
+' |
+git hash-object --stdin
+`;
+  return assertCommandOk(repoRoot, ["sh", "-lc", script], "Failed to fingerprint working tree");
+}
+
+function normalizePatchPathPrefix(path: string): string {
+  return path.replace(/^\/+/u, "");
+}
+
+function rewriteNoIndexPatchPaths(patch: string, fromPath: string, toPath: string): string {
+  const normalizedFromPath = normalizePatchPathPrefix(fromPath);
+  const normalizedToPath = normalizePatchPathPrefix(toPath);
+
+  return patch
+    .split("\n")
+    .map((line) =>
+      line
+        .replace(`a/${fromPath}/`, "a/")
+        .replace(`b/${toPath}/`, "b/")
+        .replace(`a/${normalizedFromPath}/`, "a/")
+        .replace(`b/${normalizedToPath}/`, "b/")
+    )
+    .join("\n");
+}
+
+export async function createBinaryPatch(
+  fromPath: string,
+  toPath: string,
+  patchPath: string
+): Promise<string> {
+  const result = Bun.spawnSync(
+    ["git", "diff", "--no-index", "--binary", "--no-renames", fromPath, toPath],
+    {
+      cwd: dirname(fromPath),
+      stdout: "pipe",
+      stderr: "pipe",
+    }
+  );
+  const stdout = result.stdout.toString();
+  const stderr = result.stderr.toString().trim();
+
+  if (result.exitCode !== 0 && result.exitCode !== 1) {
+    throw new Error(
+      `Failed to create handoff patch: ${stderr || stdout.trim() || "git diff failed"}`
+    );
+  }
+
+  const patch = rewriteNoIndexPatchPaths(stdout, fromPath, toPath);
+  const patchDir = dirname(patchPath);
+  assertCommandOk(
+    dirname(fromPath),
+    ["mkdir", "-p", patchDir],
+    "Failed to create handoff patch directory"
+  );
+  await Bun.write(patchPath, patch, { createPath: true });
+  return patch;
+}
+
+export function applyBinaryPatch(repoPath: string, patchPath: string): void {
+  assertGitOk(
+    repoPath,
+    ["apply", "--check", "--binary", patchPath],
+    "Failed to validate handoff patch"
+  );
+  assertGitOk(repoPath, ["apply", "--binary", patchPath], "Failed to apply handoff patch");
+}
+
+export function buildHandoffRef(sessionId: string): string {
+  return `refs/ralph-review/handoffs/${normalizeCheckpointId(sessionId)}`;
+}
+
+export function createHandoffRef(repoPath: string, ref: string, commitSha: string): void {
+  assertGitOk(repoPath, ["update-ref", ref, commitSha], `Failed to write handoff ref ${ref}`);
+}
+
+export function removeHandoffRef(repoPath: string, ref: string): void {
+  const result = runGit(repoPath, ["update-ref", "-d", ref]);
+  if (result.exitCode !== 0 && !result.stderr.includes("does not exist")) {
+    throw new Error(`Failed to delete handoff ref ${ref}: ${result.stderr || result.stdout}`);
+  }
+}
+
 function createSnapshotCheckpoint(repoPath: string, normalizedId: string): GitCheckpoint {
   const snapshotDir = createWorkingTreeSnapshot(
     repoPath,
@@ -357,7 +545,8 @@ function createSnapshotCheckpoint(repoPath: string, normalizedId: string): GitCh
 
 export function createSessionWorktree(
   sourceProjectPath: string,
-  worktreeId: string
+  worktreeId: string,
+  storageRoot: string = CONFIG_DIR
 ): GitSessionWorktree {
   const normalizedId = normalizeCheckpointId(worktreeId);
   const sourceRepoPath = assertGitOk(
@@ -365,7 +554,7 @@ export function createSessionWorktree(
     ["rev-parse", "--show-toplevel"],
     "Failed to resolve source repository root"
   );
-  const worktreeProjectPath = createWorktreePath(sourceProjectPath, normalizedId);
+  const worktreeProjectPath = createWorktreePath(storageRoot, sourceProjectPath, normalizedId);
   const retainedBranch = resolveAvailableBranchName(
     sourceProjectPath,
     `rr-worktree-${normalizedId}`
@@ -384,13 +573,14 @@ export function createSessionWorktree(
     ),
     retainedBranch,
     headKind,
+    sourceFingerprint: computeWorkingTreeFingerprint(sourceRepoPath),
     preserveBranchOnDiscard: false,
   };
 
   try {
     assertCommandOk(
       sourceRepoPath,
-      ["mkdir", "-p", getProjectWorktreesDir(CONFIG_DIR, sourceProjectPath)],
+      ["mkdir", "-p", getProjectWorktreesDir(storageRoot, sourceProjectPath)],
       "Failed to prepare session worktree directory"
     );
 
@@ -413,20 +603,12 @@ export function createSessionWorktree(
       `worktree-${normalizedId}`,
       "Failed to capture session worktree snapshot"
     );
-
-    try {
-      restoreWorkingTreeSnapshot(
-        worktreeProjectPath,
-        snapshotDir,
-        "Failed to hydrate session worktree"
-      );
-    } finally {
-      discardWorkingTreeSnapshot(
-        sourceProjectPath,
-        snapshotDir,
-        "Failed to discard session worktree snapshot"
-      );
-    }
+    worktree.sourceSnapshotDir = snapshotDir;
+    restoreWorkingTreeSnapshot(
+      worktreeProjectPath,
+      snapshotDir,
+      "Failed to hydrate session worktree"
+    );
 
     return worktree;
   } catch (error) {
@@ -535,9 +717,17 @@ export function finalizeSessionWorktree(
 
 export function discardSessionWorktree(worktree: GitSessionWorktree): void {
   const worktreeList = runGit(worktree.sourceRepoPath, ["worktree", "list", "--porcelain"]);
+  const comparableWorktreePaths = collectComparableDirectoryPaths(worktree.worktreeProjectPath);
   const hasRegisteredWorktree =
     worktreeList.exitCode === 0 &&
-    worktreeList.stdout.includes(`worktree ${worktree.worktreeProjectPath}`);
+    worktreeList.stdout
+      .split("\n")
+      .filter((line) => line.startsWith("worktree "))
+      .some((line) => {
+        const registeredPath = line.slice("worktree ".length);
+        const comparableRegisteredPaths = collectComparableDirectoryPaths(registeredPath);
+        return [...comparableRegisteredPaths].some((path) => comparableWorktreePaths.has(path));
+      });
 
   if (hasRegisteredWorktree) {
     const removeResult = runGit(worktree.sourceRepoPath, [
@@ -559,7 +749,23 @@ export function discardSessionWorktree(worktree: GitSessionWorktree): void {
     `Failed to remove worktree directory ${worktree.worktreeProjectPath}`
   );
 
-  if (worktree.headKind === "orphan" && worktree.preserveBranchOnDiscard !== true) {
+  if (worktree.sourceSnapshotDir) {
+    discardWorkingTreeSnapshot(
+      worktree.sourceRepoPath,
+      worktree.sourceSnapshotDir,
+      `Failed to remove source snapshot archive ${worktree.sourceSnapshotDir}`
+    );
+  }
+
+  if (worktree.sourceSnapshotPath) {
+    assertCommandOk(
+      worktree.sourceRepoPath,
+      ["rm", "-rf", worktree.sourceSnapshotPath],
+      `Failed to remove source snapshot directory ${worktree.sourceSnapshotPath}`
+    );
+  }
+
+  if (worktree.preserveBranchOnDiscard !== true) {
     const deleteBranch = runGit(worktree.sourceRepoPath, ["branch", "-D", worktree.retainedBranch]);
     if (
       deleteBranch.exitCode !== 0 &&

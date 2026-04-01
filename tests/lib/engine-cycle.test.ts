@@ -2,7 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { join, relative } from "node:path";
 import { CONFIG_DIR } from "@/lib/config";
 import { runReviewCycle } from "@/lib/engine";
-import type { GitCheckpoint, GitSessionWorktree, RetainedSessionWorktree } from "@/lib/git";
+import type { GitCheckpoint, GitSessionWorktree } from "@/lib/git";
+import type { SessionHandoffResult } from "@/lib/handoff";
 import { getProjectWorktreesDir } from "@/lib/logger";
 import type { StructuredParseResult } from "@/lib/structured-output";
 import {
@@ -64,7 +65,13 @@ interface HarnessState {
   discardCalls: Array<{ projectPath: string; checkpoint: GitCheckpoint }>;
   createSessionWorktreeCalls: Array<{ projectPath: string; worktreeId: string }>;
   discardSessionWorktreeCalls: GitSessionWorktree[];
-  finalizeSessionWorktreeCalls: GitSessionWorktree[];
+  createOrAutoApplyHandoffCalls: Array<{
+    storageRoot: string | undefined;
+    sessionId: string;
+    projectPath: string;
+    logPath: string;
+    worktree: GitSessionWorktree;
+  }>;
   reviewParseQueue: Array<StructuredParseResult<ReviewSummary>>;
   fixParseQueue: Array<StructuredParseResult<FixSummary>>;
   createCheckpointError: Error | null;
@@ -72,8 +79,8 @@ interface HarnessState {
   discardError: Error | null;
   createSessionWorktreeError: Error | null;
   discardSessionWorktreeError: Error | null;
-  finalizeSessionWorktreeError: Error | null;
-  finalizeSessionWorktreeResult: RetainedSessionWorktree | null;
+  createOrAutoApplyHandoffError: Error | null;
+  createOrAutoApplyHandoffResult: SessionHandoffResult | null;
   updateSessionStateFailuresRemaining: number;
   onRunAgent?: (role: AgentRole) => void;
   onAppendLog?: (entry: LogEntry) => void;
@@ -91,7 +98,7 @@ function createHarnessState(): HarnessState {
     discardCalls: [],
     createSessionWorktreeCalls: [],
     discardSessionWorktreeCalls: [],
-    finalizeSessionWorktreeCalls: [],
+    createOrAutoApplyHandoffCalls: [],
     reviewParseQueue: [],
     fixParseQueue: [],
     createCheckpointError: null,
@@ -99,12 +106,11 @@ function createHarnessState(): HarnessState {
     discardError: null,
     createSessionWorktreeError: null,
     discardSessionWorktreeError: null,
-    finalizeSessionWorktreeError: null,
-    finalizeSessionWorktreeResult: {
-      worktreeProjectPath: TEST_WORKTREE_PROJECT_PATH,
-      worktreeBranch: "rr-worktree-test",
-      mergeReady: true,
+    createOrAutoApplyHandoffError: null,
+    createOrAutoApplyHandoffResult: {
+      handoffStatus: "applied-auto",
       commitSha: "retained-commit-sha",
+      handoffUpdatedAt: 1_700_000_000_000,
     },
     updateSessionStateFailuresRemaining: 0,
     onRunAgent: undefined,
@@ -336,6 +342,8 @@ function createDependencies(state: HarnessState): RunReviewCycleDeps {
         })(),
         retainedBranch: "rr-worktree-test",
         headKind: "detached",
+        sourceSnapshotPath: `${TEST_WORKTREE_PROJECT_PATH}-snapshot`,
+        sourceFingerprint: "fingerprint-1",
       };
     },
     discardSessionWorktree: (worktree: GitSessionWorktree) => {
@@ -344,13 +352,24 @@ function createDependencies(state: HarnessState): RunReviewCycleDeps {
         throw state.discardSessionWorktreeError;
       }
     },
-    finalizeSessionWorktree: (worktree: GitSessionWorktree): RetainedSessionWorktree | null => {
-      state.finalizeSessionWorktreeCalls.push(worktree);
-      if (state.finalizeSessionWorktreeError) {
-        throw state.finalizeSessionWorktreeError;
+    createOrAutoApplyHandoff: async (
+      storageRoot: string | undefined,
+      options: {
+        sessionId: string;
+        projectPath: string;
+        logPath: string;
+        worktree: GitSessionWorktree;
+      }
+    ): Promise<SessionHandoffResult | null> => {
+      state.createOrAutoApplyHandoffCalls.push({
+        storageRoot,
+        ...options,
+      });
+      if (state.createOrAutoApplyHandoffError) {
+        throw state.createOrAutoApplyHandoffError;
       }
 
-      return state.finalizeSessionWorktreeResult;
+      return state.createOrAutoApplyHandoffResult;
     },
     createCheckpoint: (projectPath: string, label: string): GitCheckpoint => {
       state.createCheckpointCalls.push({ projectPath, label });
@@ -477,10 +496,9 @@ describe("runReviewCycle", () => {
       expect(result.iterations).toBe(1);
       expect(result.reason).toContain("No issues found");
       expect(result.sessionPath).toBe(TEST_SESSION_PATH);
-      expect(result.retainedWorktree?.worktreeProjectPath).toBe(TEST_WORKTREE_PROJECT_PATH);
-      expect(result.retainedWorktree?.worktreeBranch).toBe("rr-worktree-test");
-      expect(result.retainedWorktree?.mergeReady).toBe(true);
-      expect(result.retainedWorktree?.commitSha).toBe("retained-commit-sha");
+      expect(result.handoffStatus).toBe("applied-auto");
+      expect(result.commitSha).toBe("retained-commit-sha");
+      expect(result.handoffUpdatedAt).toBe(1_700_000_000_000);
 
       expect(state.runAgentCalls.map((call) => call.role)).toEqual(["reviewer", "fixer"]);
       expect(state.runAgentCalls.map((call) => call.cwd)).toEqual([
@@ -497,8 +515,8 @@ describe("runReviewCycle", () => {
         )
       ).toBe(true);
       expect(state.createSessionWorktreeCalls).toHaveLength(1);
-      expect(state.finalizeSessionWorktreeCalls).toHaveLength(1);
-      expect(state.discardSessionWorktreeCalls).toHaveLength(0);
+      expect(state.createOrAutoApplyHandoffCalls).toHaveLength(1);
+      expect(state.discardSessionWorktreeCalls).toHaveLength(1);
 
       const iterationEntry = state.appendedEntries.find((entry) => entry.type === "iteration");
       expect(iterationEntry?.type).toBe("iteration");
@@ -511,6 +529,8 @@ describe("runReviewCycle", () => {
       expect(sessionEnd?.type).toBe("session_end");
       if (sessionEnd?.type === "session_end") {
         expect(sessionEnd.status).toBe("completed");
+        expect(sessionEnd.handoffStatus).toBe("applied-auto");
+        expect(sessionEnd.commitSha).toBe("retained-commit-sha");
       }
     });
   });
@@ -554,7 +574,7 @@ describe("runReviewCycle", () => {
 
   test("discards the worktree when finalization finds no diff to retain", async () => {
     await withHarness(async (state, deps) => {
-      state.finalizeSessionWorktreeResult = null;
+      state.createOrAutoApplyHandoffResult = null;
       queueRunAgentSteps(
         state,
         resultStep(successResult("review output")),
@@ -585,14 +605,19 @@ describe("runReviewCycle", () => {
       );
 
       expect(result.success).toBe(true);
-      expect(result.retainedWorktree).toBeUndefined();
-      expect(state.finalizeSessionWorktreeCalls).toHaveLength(1);
+      expect(result.handoffStatus).toBeUndefined();
+      expect(state.createOrAutoApplyHandoffCalls).toHaveLength(1);
       expect(state.discardSessionWorktreeCalls).toHaveLength(1);
     });
   });
 
-  test("rolls back to the last promotable snapshot and retains a mergeable worktree when fixer fails", async () => {
+  test("rolls back to the last promotable snapshot and keeps a pending handoff when fixer fails", async () => {
     await withHarness(async (state, deps) => {
+      state.createOrAutoApplyHandoffResult = {
+        handoffStatus: "pending-apply",
+        commitSha: "retained-commit-sha",
+        handoffUpdatedAt: 1_700_000_000_000,
+      };
       queueRunAgentSteps(
         state,
         resultStep(successResult("review output")),
@@ -615,16 +640,22 @@ describe("runReviewCycle", () => {
       expect(result.success).toBe(false);
       expect(result.finalStatus).toBe("failed");
       expect(result.reviewOutcome).toBe("incomplete");
-      expect(result.retainedWorktree?.mergeReady).toBe(true);
+      expect(result.handoffStatus).toBe("pending-apply");
+      expect(result.commitSha).toBe("retained-commit-sha");
       expect(state.createSessionWorktreeCalls).toHaveLength(1);
       expect(state.rollbackCalls).toHaveLength(1);
-      expect(state.discardSessionWorktreeCalls).toHaveLength(0);
-      expect(state.finalizeSessionWorktreeCalls).toHaveLength(1);
+      expect(state.discardSessionWorktreeCalls).toHaveLength(1);
+      expect(state.createOrAutoApplyHandoffCalls).toHaveLength(1);
     });
   });
 
-  test("retains the last promotable snapshot as incomplete when a later reviewer fails", async () => {
+  test("keeps the last promotable snapshot as a pending handoff when a later reviewer fails", async () => {
     await withHarness(async (state, deps) => {
+      state.createOrAutoApplyHandoffResult = {
+        handoffStatus: "pending-apply",
+        commitSha: "retained-commit-sha",
+        handoffUpdatedAt: 1_700_000_000_000,
+      };
       queueRunAgentSteps(
         state,
         resultStep(successResult("review output 1")),
@@ -660,9 +691,9 @@ describe("runReviewCycle", () => {
       expect(result.success).toBe(false);
       expect(result.finalStatus).toBe("failed");
       expect(result.reviewOutcome).toBe("incomplete");
-      expect(result.retainedWorktree?.mergeReady).toBe(true);
+      expect(result.handoffStatus).toBe("pending-apply");
       expect(state.rollbackCalls).toHaveLength(0);
-      expect(state.finalizeSessionWorktreeCalls).toHaveLength(1);
+      expect(state.createOrAutoApplyHandoffCalls).toHaveLength(1);
     });
   });
 
@@ -1566,7 +1597,7 @@ describe("runReviewCycle", () => {
       expect(result.success).toBe(false);
       expect(result.finalStatus).toBe("completed");
       expect(result.reviewOutcome).toBe("incomplete");
-      expect(result.retainedWorktree?.mergeReady).toBe(true);
+      expect(result.handoffStatus).toBe("applied-auto");
       expect(result.reason).toContain("Max iterations (1) reached");
       expect(state.runAgentCalls.map((call) => call.role)).toEqual([
         "reviewer",
