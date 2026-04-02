@@ -3,6 +3,7 @@ import type { SessionState } from "@/lib/session-state";
 import {
   createStoppingSessionState,
   type StoppingSessionState,
+  settleStoppingSessionState,
   shouldClearStoppingSessionState,
   shouldSuppressLastSessionStats,
 } from "@/lib/tui/dashboard-stop-state";
@@ -65,6 +66,7 @@ describe("dashboard stop state", () => {
     const marker: StoppingSessionState = {
       sessionId: "session-1",
       sessionPath: "/tmp/logs/session-1.jsonl",
+      phase: "settling",
       expiresAt: 2_000,
     };
 
@@ -78,8 +80,25 @@ describe("dashboard stop state", () => {
     ).toBe(true);
   });
 
-  test("keeps the stopping state while the same session is still the latest historical stats", () => {
+  test("suppresses unrelated historical session stats while stop UI is active", () => {
     const marker = createStoppingSessionState(createSession(), 1_000);
+
+    expect(
+      shouldSuppressLastSessionStats(
+        marker,
+        createLastSessionStats({
+          sessionId: "session-older",
+          sessionPath: "/tmp/logs/session-older.jsonl",
+        })
+      )
+    ).toBe(true);
+  });
+
+  test("keeps the stopping state while the same session is still the latest historical stats", () => {
+    const marker = settleStoppingSessionState(
+      createStoppingSessionState(createSession(), 1_000),
+      1_500
+    );
 
     expect(
       shouldClearStoppingSessionState({
@@ -91,7 +110,7 @@ describe("dashboard stop state", () => {
     ).toBe(false);
   });
 
-  test("clears the stopping state once the stopped session disappears from history", () => {
+  test("keeps the stopping state while stop is still in flight even if history is empty", () => {
     const marker = createStoppingSessionState(createSession(), 1_000);
 
     expect(
@@ -101,11 +120,33 @@ describe("dashboard stop state", () => {
         lastSessionStats: null,
         now: 1_100,
       })
-    ).toBe(true);
+    ).toBe(false);
+  });
+
+  test("keeps the settling state while history points at an older failed session", () => {
+    const marker = settleStoppingSessionState(
+      createStoppingSessionState(createSession(), 1_000),
+      1_500
+    );
+
+    expect(
+      shouldClearStoppingSessionState({
+        marker,
+        currentSession: null,
+        lastSessionStats: createLastSessionStats({
+          sessionId: "session-older",
+          sessionPath: "/tmp/logs/session-older.jsonl",
+        }),
+        now: 1_600,
+      })
+    ).toBe(false);
   });
 
   test("clears the stopping state when another session becomes current", () => {
-    const marker = createStoppingSessionState(createSession(), 1_000);
+    const marker = settleStoppingSessionState(
+      createStoppingSessionState(createSession(), 1_000),
+      1_500
+    );
 
     expect(
       shouldClearStoppingSessionState({
@@ -120,13 +161,32 @@ describe("dashboard stop state", () => {
     ).toBe(true);
   });
 
-  test("clears the stopping state when the safety timeout expires", () => {
-    const marker = createStoppingSessionState(createSession(), 1_000);
+  test("starts the settle timeout when stop completes", () => {
+    const marker = settleStoppingSessionState(
+      createStoppingSessionState(createSession(), 1_000),
+      1_500
+    );
 
     expect(
       shouldClearStoppingSessionState({
         marker,
-        currentSession: createSession(),
+        currentSession: null,
+        lastSessionStats: null,
+        now: 3_499,
+      })
+    ).toBe(false);
+  });
+
+  test("clears the stopping state when the safety timeout expires", () => {
+    const marker = settleStoppingSessionState(
+      createStoppingSessionState(createSession(), 1_000),
+      1_500
+    );
+
+    expect(
+      shouldClearStoppingSessionState({
+        marker,
+        currentSession: null,
         lastSessionStats: createLastSessionStats(),
         now: marker.expiresAt,
       })

@@ -3,49 +3,47 @@ import type { SessionStats } from "@/lib/types";
 
 const STOPPING_SESSION_UI_SETTLE_MS = 2_000;
 
+type StoppingSessionPhase = "stopping" | "settling";
+
 export interface StoppingSessionState {
   sessionId: string;
   sessionPath?: string;
-  expiresAt: number;
+  phase: StoppingSessionPhase;
+  expiresAt?: number;
 }
 
 export function createStoppingSessionState(
   session: Pick<SessionState, "sessionId" | "sessionPath">,
-  now: number = Date.now()
+  _now: number = Date.now()
 ): StoppingSessionState {
   return {
     sessionId: session.sessionId,
     sessionPath: session.sessionPath,
+    phase: "stopping",
+  };
+}
+
+export function settleStoppingSessionState(
+  marker: StoppingSessionState,
+  now: number = Date.now()
+): StoppingSessionState {
+  return {
+    ...marker,
+    phase: "settling",
     expiresAt: now + STOPPING_SESSION_UI_SETTLE_MS,
   };
 }
 
-function matchesStoppingSessionState(
-  marker: StoppingSessionState,
-  sessionStats: SessionStats | null
-): boolean {
-  if (!sessionStats) {
-    return false;
-  }
-
-  if (sessionStats.sessionId && sessionStats.sessionId === marker.sessionId) {
-    return true;
-  }
-
-  return marker.sessionPath !== undefined && sessionStats.sessionPath === marker.sessionPath;
-}
-
 export function shouldSuppressLastSessionStats(
   marker: StoppingSessionState | null,
-  sessionStats: SessionStats | null
+  _sessionStats: SessionStats | null
 ): boolean {
-  return marker !== null && matchesStoppingSessionState(marker, sessionStats);
+  return marker !== null;
 }
 
 export function shouldClearStoppingSessionState({
   marker,
   currentSession,
-  lastSessionStats,
   now = Date.now(),
 }: {
   marker: StoppingSessionState;
@@ -53,17 +51,13 @@ export function shouldClearStoppingSessionState({
   lastSessionStats: SessionStats | null;
   now?: number;
 }): boolean {
-  if (now >= marker.expiresAt) {
-    return true;
-  }
-
   if (currentSession && currentSession.sessionId !== marker.sessionId) {
     return true;
   }
 
-  if (!currentSession && !matchesStoppingSessionState(marker, lastSessionStats)) {
-    return true;
+  if (marker.phase === "stopping") {
+    return false;
   }
 
-  return false;
+  return now >= (marker.expiresAt ?? now);
 }

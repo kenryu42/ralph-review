@@ -8,6 +8,7 @@ import { TUI_COLORS } from "@/lib/tui/colors";
 import {
   createStoppingSessionState,
   type StoppingSessionState,
+  settleStoppingSessionState,
   shouldClearStoppingSessionState,
   shouldSuppressLastSessionStats,
 } from "@/lib/tui/dashboard-stop-state";
@@ -67,6 +68,10 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
       return;
     }
 
+    if (stoppingSession.phase !== "settling" || stoppingSession.expiresAt === undefined) {
+      return;
+    }
+
     const timeoutMs = Math.max(0, stoppingSession.expiresAt - Date.now());
     const timeout = setTimeout(() => {
       setStoppingSession(null);
@@ -86,6 +91,13 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
       await stopSelectedDashboardSession(session, {
         setShowStopPicker,
         stopActiveSession,
+      });
+      setStoppingSession((current) => {
+        if (!current || current.sessionId !== session.sessionId) {
+          return current;
+        }
+
+        return settleStoppingSessionState(current);
       });
     } catch (error) {
       setStoppingSession(null);
