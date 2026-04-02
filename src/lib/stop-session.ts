@@ -1,5 +1,5 @@
 import { discardSessionWorktree, type GitSessionWorktree } from "@/lib/git";
-import { readLog } from "@/lib/logger";
+import { deleteSessionFiles, readLog } from "@/lib/logger";
 import {
   type ActiveSession,
   readSessionState,
@@ -27,6 +27,7 @@ interface WaitForGracefulStopDeps {
 
 interface StopActiveSessionDeps {
   readLog: typeof readLog;
+  deleteSessionFiles: typeof deleteSessionFiles;
   updateSessionState: typeof updateSessionState;
   sendInterrupt: typeof sendInterrupt;
   readSessionState: typeof readSessionState;
@@ -40,6 +41,7 @@ interface StopActiveSessionDeps {
 
 const DEFAULT_STOP_ACTIVE_SESSION_DEPS: StopActiveSessionDeps = {
   readLog,
+  deleteSessionFiles,
   updateSessionState,
   sendInterrupt,
   readSessionState,
@@ -123,16 +125,29 @@ function hasSuccessfulReviewIteration(entries: LogEntry[]): boolean {
   return entries.some((entry) => entry.type === "iteration" && entry.fixes !== undefined);
 }
 
-async function resolveSuccessfulReviewIterationState(
+function hasRecordedIteration(entries: LogEntry[]): boolean {
+  return entries.some((entry) => entry.type === "iteration");
+}
+
+interface SessionIterationState {
+  hasRecordedIteration: boolean;
+  hasSuccessfulReviewIteration: boolean;
+}
+
+async function resolveSessionIterationState(
   session: ActiveSession,
   deps: StopActiveSessionDeps
-): Promise<boolean | null> {
+): Promise<SessionIterationState | null> {
   if (!session.sessionPath) {
     return null;
   }
 
   try {
-    return hasSuccessfulReviewIteration(await deps.readLog(session.sessionPath));
+    const entries = await deps.readLog(session.sessionPath);
+    return {
+      hasRecordedIteration: hasRecordedIteration(entries),
+      hasSuccessfulReviewIteration: hasSuccessfulReviewIteration(entries),
+    };
   } catch {
     return null;
   }
@@ -183,12 +198,9 @@ export async function stopActiveSession(
   deps: Partial<StopActiveSessionDeps> = {}
 ): Promise<void> {
   const stopDeps = { ...DEFAULT_STOP_ACTIVE_SESSION_DEPS, ...deps };
-  const successfulReviewIterationState = await resolveSuccessfulReviewIterationState(
-    session,
-    stopDeps
-  );
+  const initialIterationState = await resolveSessionIterationState(session, stopDeps);
   const gracePeriodMs =
-    successfulReviewIterationState === false
+    initialIterationState?.hasSuccessfulReviewIteration === false
       ? STOP_SESSION_NO_SUCCESSFUL_ITERATION_GRACE_PERIOD_MS
       : STOP_SESSION_GRACE_PERIOD_MS;
 
@@ -218,10 +230,26 @@ export async function stopActiveSession(
   if (!stoppedGracefully) {
     await stopDeps.killSession(session.sessionName);
   }
-  if (successfulReviewIterationState === false) {
+
+  const finalIterationState = await resolveSessionIterationState(session, stopDeps);
+  if (finalIterationState?.hasSuccessfulReviewIteration === false) {
     cleanupUnpromotedSessionWorktree(session, stopDeps);
   }
+
+  let deleteSessionFilesError: unknown;
+  if (finalIterationState?.hasRecordedIteration === false && session.sessionPath) {
+    try {
+      await stopDeps.deleteSessionFiles(session.sessionPath);
+    } catch (error) {
+      deleteSessionFilesError = error;
+    }
+  }
+
   await stopDeps.removeSessionState(undefined, session.projectPath, session.sessionId, {
     expectedSessionId: session.sessionId,
   });
+
+  if (deleteSessionFilesError) {
+    throw deleteSessionFilesError;
+  }
 }
