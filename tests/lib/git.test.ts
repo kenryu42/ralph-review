@@ -104,6 +104,15 @@ function listWorktreePaths(repoPath: string): string[] {
     .map((line) => line.slice("worktree ".length));
 }
 
+function directoryExists(path: string): boolean {
+  return (
+    Bun.spawnSync(["test", "-d", path], {
+      stdout: "ignore",
+      stderr: "ignore",
+    }).exitCode === 0
+  );
+}
+
 describe("ensureGitRepository", () => {
   let tempDir: string;
 
@@ -784,6 +793,44 @@ describe("session worktree management", () => {
     expect(await Bun.file(worktree.worktreeProjectPath).exists()).toBe(false);
     const worktreeList = runGitStdout(tempDir, ["worktree", "list", "--porcelain"]);
     expect(worktreeList).not.toContain(worktree.worktreeProjectPath);
+  });
+
+  test("prunes an empty per-project worktrees directory after discarding the last worktree", () => {
+    initTestRepo(tempDir);
+    commit(tempDir, "base.txt", "base commit");
+
+    const worktreesDir = getProjectWorktreesDir(storageRoot, tempDir);
+    const worktree = createSessionWorktree(tempDir, "session-prune-empty-parent", storageRoot);
+    createdWorktrees.push(worktree);
+
+    expect(directoryExists(worktreesDir)).toBe(true);
+
+    discardSessionWorktree(worktree);
+    createdWorktrees = createdWorktrees.filter(
+      (candidate) => candidate.worktreeProjectPath !== worktree.worktreeProjectPath
+    );
+
+    expect(directoryExists(worktreesDir)).toBe(false);
+  });
+
+  test("keeps the per-project worktrees directory when sibling artifacts remain", async () => {
+    initTestRepo(tempDir);
+    commit(tempDir, "base.txt", "base commit");
+
+    const worktreesDir = getProjectWorktreesDir(storageRoot, tempDir);
+    const markerPath = join(worktreesDir, ".keep");
+    const worktree = createSessionWorktree(tempDir, "session-keep-parent", storageRoot);
+    createdWorktrees.push(worktree);
+
+    await Bun.write(markerPath, "marker", { createPath: true });
+
+    discardSessionWorktree(worktree);
+    createdWorktrees = createdWorktrees.filter(
+      (candidate) => candidate.worktreeProjectPath !== worktree.worktreeProjectPath
+    );
+
+    expect(directoryExists(worktreesDir)).toBe(true);
+    expect(await Bun.file(markerPath).exists()).toBe(true);
   });
 
   test("does not retain a detached worktree when there is nothing to commit", async () => {

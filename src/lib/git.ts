@@ -43,6 +43,25 @@ function runCommand(
   };
 }
 
+function pruneEmptyDirectory(cwd: string, directoryPath: string): void {
+  const probe = runCommand(cwd, [
+    "find",
+    directoryPath,
+    "-mindepth",
+    "1",
+    "-maxdepth",
+    "1",
+    "-print",
+    "-quit",
+  ]);
+  if (probe.exitCode !== 0 || probe.stdout.length > 0) {
+    return;
+  }
+
+  // Best-effort parent cleanup: a concurrent session may create siblings at any time.
+  runCommand(cwd, ["rmdir", directoryPath]);
+}
+
 async function runGitForStdoutAsync(cwd: string, args: string[]): Promise<string | undefined> {
   const proc = Bun.spawn(["git", ...args], {
     cwd,
@@ -783,6 +802,8 @@ export function discardSessionWorktree(worktree: GitSessionWorktree): void {
       `Failed to prune session worktree metadata: ${pruneResult.stderr || pruneResult.stdout}`
     );
   }
+
+  pruneEmptyDirectory(worktree.sourceRepoPath, dirname(worktree.worktreeProjectPath));
 }
 
 export function createCheckpoint(repoPath: string, checkpointId: string): GitCheckpoint {
