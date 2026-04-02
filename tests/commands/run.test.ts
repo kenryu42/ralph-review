@@ -100,6 +100,7 @@ interface RunHarnessOptions {
   generatedSessionId?: string;
   generatedSessionName?: string;
   gitBranch?: string | null;
+  logSessionPath?: string;
   touchHeartbeatReject?: boolean;
   stdoutIsTTY?: boolean;
   openSessionPanelError?: Error;
@@ -132,6 +133,7 @@ interface RunHarness {
     expectedSessionId?: string;
   }>;
   touchHeartbeatCalls: Array<{ projectPath: string; sessionId?: string }>;
+  createLogSessionCalls: Array<{ projectPath: string; branch: string | undefined }>;
   runReviewCycleCalls: Array<{
     maxIterations: number;
     options: Record<string, unknown>;
@@ -174,6 +176,7 @@ function createRunHarness(options: RunHarnessOptions = {}): RunHarness {
     expectedSessionId?: string;
   }> = [];
   const touchHeartbeatCalls: Array<{ projectPath: string; sessionId?: string }> = [];
+  const createLogSessionCalls: Array<{ projectPath: string; branch: string | undefined }> = [];
   const runReviewCycleCalls: Array<{
     maxIterations: number;
     options: Record<string, unknown>;
@@ -305,6 +308,13 @@ function createRunHarness(options: RunHarnessOptions = {}): RunHarness {
       }
       return options.runReviewCycleResult ?? createCycleResult();
     },
+    createLogSession: async (_storageRoot, projectPath, branch) => {
+      createLogSessionCalls.push({
+        projectPath,
+        branch,
+      });
+      return options.logSessionPath ?? "/tmp/generated-session-path.jsonl";
+    },
     sessionState: {
       createSessionState: async (_logsDir, projectPath, sessionName, sessionStateOptions) => {
         createSessionStateCalls.push({
@@ -419,6 +429,7 @@ function createRunHarness(options: RunHarnessOptions = {}): RunHarness {
     removeSessionStateCalls,
     updateSessionStateCalls,
     touchHeartbeatCalls,
+    createLogSessionCalls,
     runReviewCycleCalls,
     resolveSoundEnabledCalls,
     playSoundCalls,
@@ -1377,11 +1388,33 @@ describe("run command", () => {
       expect(command).toContain("RR_PROJECT_PATH='/repo/project'");
       expect(command).toContain("RR_GIT_BRANCH='feature/run'");
       expect(command).toContain("RR_SESSION_ID='session-xyz'");
+      expect(command).toContain("RR_SESSION_PATH='/tmp/generated-session-path.jsonl'");
       expect(command).toContain("RR_SOUND_OVERRIDE='on'");
       expect(command).toContain("RR_CUSTOM_PROMPT='check O'\\''Hara path'");
       expect(command).toContain("_run-foreground --max 3 --force --simplifier");
       expect(harness.successes).toContain("Review started in background session: rr-main-xyz");
       expect(harness.notes.map((entry) => entry.title)).toEqual(["Agents", "Commands"]);
+    });
+
+    test("records sessionPath before exposing a background session", async () => {
+      const harness = createRunHarness({
+        gitBranch: "feature/run",
+        generatedSessionId: "session-xyz",
+        logSessionPath: "/tmp/background-session.jsonl",
+      });
+
+      await startReview([], harness.overrides);
+
+      expect(harness.createLogSessionCalls).toEqual([
+        {
+          projectPath: "/repo/project",
+          branch: "feature/run",
+        },
+      ]);
+      expect(
+        (harness.createSessionStateCalls[0]?.options as { sessionPath?: string } | undefined)
+          ?.sessionPath
+      ).toBe("/tmp/background-session.jsonl");
     });
 
     test("includes commit sha in background environment when commit mode is selected", async () => {
@@ -1454,8 +1487,41 @@ describe("run command", () => {
         (harness.createSessionStateCalls[0]?.options as { sessionId?: string } | undefined)
           ?.sessionId
       ).toBe("generated-session-id");
+      expect(
+        (harness.createSessionStateCalls[0]?.options as { sessionPath?: string } | undefined)
+          ?.sessionPath
+      ).toBe("/tmp/generated-session-path.jsonl");
       expect(harness.updateSessionStateCalls[0]?.expectedSessionId).toBe("generated-session-id");
       expect(harness.runReviewCycleCalls[0]?.runtimeInfo.sessionId).toBe("generated-session-id");
+      expect(harness.runReviewCycleCalls[0]?.runtimeInfo.sessionPath).toBe(
+        "/tmp/generated-session-path.jsonl"
+      );
+      expect(harness.createLogSessionCalls).toEqual([
+        {
+          projectPath: "/repo/project",
+          branch: "main",
+        },
+      ]);
+    });
+
+    test("reuses the persisted sessionPath for existing foreground session state", async () => {
+      const harness = createRunHarness({
+        env: {
+          RR_SESSION_ID: "env-session-id",
+        },
+        sessionStateData: {
+          ...createLockData("env-session-id"),
+          sessionPath: "/tmp/persisted-session-path.jsonl",
+        },
+      });
+
+      await runForeground([], harness.overrides);
+
+      expect(harness.runReviewCycleCalls[0]?.runtimeInfo.sessionId).toBe("env-session-id");
+      expect(harness.runReviewCycleCalls[0]?.runtimeInfo.sessionPath).toBe(
+        "/tmp/persisted-session-path.jsonl"
+      );
+      expect(harness.createLogSessionCalls).toEqual([]);
     });
 
     test("parses internal foreground args and sets simplifier/force/max", async () => {

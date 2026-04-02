@@ -448,6 +448,7 @@ export type OnIterationCallback = (
 export interface RunReviewRuntimeContext {
   projectPath?: string;
   sessionId?: string;
+  sessionPath?: string;
 }
 
 function createWorktreeFailureResult(
@@ -644,7 +645,8 @@ export async function runReviewCycle(
   const projectPath = runtimeContext?.projectPath ?? process.cwd();
   const sessionId = runtimeContext?.sessionId;
   const gitBranch = await deps.getGitBranch(projectPath);
-  const sessionPath = await deps.createLogSession(undefined, projectPath, gitBranch);
+  const sessionPath =
+    runtimeContext?.sessionPath ?? (await deps.createLogSession(undefined, projectPath, gitBranch));
 
   let finalResult: CycleResult | undefined;
   let unhandledError: unknown;

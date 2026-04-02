@@ -765,6 +765,51 @@ describe("runReviewCycle", () => {
     });
   });
 
+  test("reuses a precomputed session path from runtime context", async () => {
+    await withHarness(async (state, deps) => {
+      const precomputedSessionPath = "/tmp/precomputed-session-path.jsonl";
+      let createLogSessionCalled = false;
+      deps.createLogSession = async () => {
+        createLogSessionCalled = true;
+        throw new Error("createLogSession should not be called");
+      };
+
+      queueRunAgentSteps(
+        state,
+        resultStep(successResult("review output")),
+        resultStep(successResult("fix output"))
+      );
+      queueReviewParses(state, parseReviewSuccess(buildReviewSummary()));
+      queueFixParses(
+        state,
+        parseFixSuccess(
+          buildFixSummary({
+            decision: "NO_CHANGES_NEEDED",
+            stop_iteration: true,
+            fixes: [],
+            skipped: [],
+          })
+        )
+      );
+
+      const result = await runReviewCycle(
+        createConfig(),
+        undefined,
+        undefined,
+        {
+          projectPath: TEST_PROJECT_PATH,
+          sessionId: TEST_SESSION_ID,
+          sessionPath: precomputedSessionPath,
+        },
+        deps
+      );
+
+      expect(createLogSessionCalled).toBe(false);
+      expect(result.sessionPath).toBe(precomputedSessionPath);
+      expect(state.updateSessionStateCalls[0]?.updates.sessionPath).toBe(precomputedSessionPath);
+    });
+  });
+
   test("retries reviewer once and succeeds when retry budget is available", async () => {
     await withHarness(async (state, deps) => {
       queueRunAgentSteps(

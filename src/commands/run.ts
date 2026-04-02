@@ -9,7 +9,7 @@ import type { DiagnosticsReport } from "@/lib/diagnostics/types";
 import { type CycleResult, runReviewCycle } from "@/lib/engine";
 import { formatReviewType } from "@/lib/format";
 import { formatHandoffNote } from "@/lib/handoff-note";
-import { getGitBranch } from "@/lib/logger";
+import { createLogSession, getGitBranch } from "@/lib/logger";
 import { playCompletionSound, resolveSoundEnabled, type SoundOverride } from "@/lib/notify/sound";
 import { CLI_PATH } from "@/lib/paths";
 import {
@@ -159,6 +159,7 @@ export interface RunRuntime {
   collectIssueItems: typeof collectIssueItems;
   getTmuxInstallHint: typeof getTmuxInstallHint;
   runReviewCycle: typeof runReviewCycle;
+  createLogSession: typeof createLogSession;
   sessionState: {
     createSessionState: typeof createSessionState;
     createSessionId: typeof createSessionId;
@@ -232,6 +233,7 @@ export function createRunRuntime(overrides: RunRuntimeOverrides = {}): RunRuntim
     collectIssueItems,
     getTmuxInstallHint,
     runReviewCycle,
+    createLogSession,
     sessionState: {
       createSessionState,
       createSessionId,
@@ -331,6 +333,7 @@ async function runInBackground(
   const branch = await runtime.getGitBranch(projectPath);
   const sessionName = runtime.tmux.generateSessionName();
   const sessionId = runtime.sessionState.createSessionId();
+  const sessionPath = await runtime.createLogSession(undefined, projectPath, branch ?? undefined);
 
   await runtime.sessionState.createSessionState(undefined, projectPath, sessionName, {
     branch,
@@ -338,12 +341,14 @@ async function runInBackground(
     state: "pending",
     mode: "background",
     lastHeartbeat: runtime.timer.now(),
+    sessionPath,
   });
 
   const envParts = [
     `RR_PROJECT_PATH=${shellEscape(projectPath)}`,
     `RR_GIT_BRANCH=${shellEscape(branch ?? "")}`,
     `RR_SESSION_ID=${shellEscape(sessionId)}`,
+    `RR_SESSION_PATH=${shellEscape(sessionPath)}`,
   ];
   if (baseBranch) {
     envParts.push(`RR_BASE_BRANCH=${shellEscape(baseBranch)}`);
@@ -441,6 +446,10 @@ export async function runForeground(
   let sessionState = sessionId
     ? await runtime.sessionState.readSessionState(undefined, projectPath, sessionId)
     : null;
+  const sessionPath =
+    sessionState?.sessionPath ||
+    runtime.process.env.RR_SESSION_PATH ||
+    (await runtime.createLogSession(undefined, projectPath, branch ?? sessionState?.branch));
 
   if (!sessionId) {
     sessionId = runtime.sessionState.createSessionId();
@@ -452,6 +461,7 @@ export async function runForeground(
       mode: "foreground",
       pid: runtime.process.pid,
       lastHeartbeat: runtime.timer.now(),
+      sessionPath,
     });
     sessionState = await runtime.sessionState.readSessionState(undefined, projectPath, sessionId);
   }
@@ -467,6 +477,7 @@ export async function runForeground(
       lastHeartbeat: runtime.timer.now(),
       currentAgent: null,
       branch: branch ?? sessionState?.branch,
+      sessionPath,
     },
     {
       expectedSessionId: sessionId,
@@ -493,6 +504,7 @@ export async function runForeground(
       {
         projectPath,
         sessionId,
+        sessionPath,
       }
     );
 
