@@ -38,15 +38,11 @@ function createActiveSession(overrides: Partial<ActiveSession> = {}): ActiveSess
 }
 
 describe("stopSelectedDashboardSession", () => {
-  test("clears the stopping indicator when the stop request resolves", async () => {
+  test("closes the stop picker and waits for the stop request to resolve", async () => {
     const stopDeferred = createDeferred<void>();
-    const stoppingStates: boolean[] = [];
     const pickerStates: boolean[] = [];
 
     const stopPromise = stopSelectedDashboardSession(createActiveSession(), {
-      setIsStoppingRun: (value) => {
-        stoppingStates.push(value);
-      },
       setShowStopPicker: (value) => {
         pickerStates.push(value);
       },
@@ -57,12 +53,9 @@ describe("stopSelectedDashboardSession", () => {
 
     await Promise.resolve();
 
-    expect(stoppingStates).toEqual([true]);
     expect(pickerStates).toEqual([false]);
 
     stopDeferred.resolve();
     await stopPromise;
-
-    expect(stoppingStates).toEqual([true, false]);
   });
 });

@@ -54,6 +54,7 @@ interface SessionPanelProps {
   reviewOptions: ReviewOptions | undefined;
   isStarting: boolean;
   isStopping: boolean;
+  suppressLastSessionStats?: boolean;
   activeSessionCount?: number;
   focused?: boolean;
 }
@@ -310,6 +311,7 @@ export function SessionPanel({
   reviewOptions,
   isStarting,
   isStopping,
+  suppressLastSessionStats = false,
   activeSessionCount = 0,
   focused = false,
 }: SessionPanelProps) {
@@ -371,7 +373,9 @@ export function SessionPanel({
   }
 
   if (!session) {
-    if (!lastSessionStats) {
+    const visibleLastSessionStats = suppressLastSessionStats ? null : lastSessionStats;
+
+    if (!visibleLastSessionStats) {
       return (
         <box
           border
@@ -405,24 +409,24 @@ export function SessionPanel({
       );
     }
 
-    const statusDisplay = getStatusDisplay(lastSessionStats.status, null);
-    const lastSessionFixes = extractFixesFromStats(lastSessionStats);
-    const lastSessionSkipped = extractSkippedFromStats(lastSessionStats);
+    const statusDisplay = getStatusDisplay(visibleLastSessionStats.status, null);
+    const lastSessionFixes = extractFixesFromStats(visibleLastSessionStats);
+    const lastSessionSkipped = extractSkippedFromStats(visibleLastSessionStats);
     const lastRunHandoffSummary = formatHandoffSummary(
-      lastSessionStats.handoffStatus,
-      lastSessionStats.commitSha
+      visibleLastSessionStats.handoffStatus,
+      visibleLastSessionStats.commitSha
     );
     const lastRunHandoffCommands = formatHandoffCommands(
-      lastSessionStats.sessionId,
-      lastSessionStats.handoffStatus
+      visibleLastSessionStats.sessionId,
+      visibleLastSessionStats.handoffStatus
     );
     const lastRunMergeCommand = formatRetainedWorktreeMergeCommand(
-      lastSessionStats.worktreeBranch,
-      lastSessionStats.mergeReady
+      visibleLastSessionStats.worktreeBranch,
+      visibleLastSessionStats.mergeReady
     );
     const lastRunWorktreeOutcome = formatRetainedWorktreeOutcome(
-      lastSessionStats.reviewOutcome,
-      lastSessionStats.mergeReady
+      visibleLastSessionStats.reviewOutcome,
+      visibleLastSessionStats.mergeReady
     );
 
     return (
@@ -478,13 +482,15 @@ export function SessionPanel({
           <box flexDirection="row" gap={1}>
             <text fg={TUI_COLORS.text.muted}>Last run:</text>
             <text fg={statusDisplay.color}>{statusDisplay.text}</text>
-            <text fg={TUI_COLORS.text.dim}>({formatRelativeTime(lastSessionStats.timestamp)})</text>
+            <text fg={TUI_COLORS.text.dim}>
+              ({formatRelativeTime(visibleLastSessionStats.timestamp)})
+            </text>
           </box>
           <text fg={TUI_COLORS.text.dim} paddingLeft={2}>
             {formatLastRunIssueSummary(
               lastSessionFixes.length,
               lastSessionSkipped.length,
-              lastSessionStats.iterations
+              visibleLastSessionStats.iterations
             )}
           </text>
         </box>
@@ -502,11 +508,11 @@ export function SessionPanel({
             ))}
           </box>
         ) : (
-          lastSessionStats.worktreeBranch && (
+          visibleLastSessionStats.worktreeBranch && (
             <box flexDirection="column">
               <box flexDirection="row" gap={1}>
                 <text fg={TUI_COLORS.text.muted}>Worktree branch:</text>
-                <text fg={TUI_COLORS.status.success}>{lastSessionStats.worktreeBranch}</text>
+                <text fg={TUI_COLORS.status.success}>{visibleLastSessionStats.worktreeBranch}</text>
               </box>
               {lastRunMergeCommand && (
                 <text fg={TUI_COLORS.text.dim} paddingLeft={2}>

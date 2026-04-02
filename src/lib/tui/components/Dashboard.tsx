@@ -5,6 +5,12 @@ import { CLI_PATH } from "@/lib/paths";
 import type { ActiveSession } from "@/lib/session-state";
 import { stopActiveSession } from "@/lib/stop-session";
 import { TUI_COLORS } from "@/lib/tui/colors";
+import {
+  createStoppingSessionState,
+  type StoppingSessionState,
+  shouldClearStoppingSessionState,
+  shouldSuppressLastSessionStats,
+} from "@/lib/tui/dashboard-stop-state";
 import type { DashboardProps } from "../types";
 import { useDashboardState } from "../use-dashboard-state";
 import { stopSelectedDashboardSession } from "./dashboard-stop";
@@ -21,6 +27,7 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
   const [runError, setRunError] = useState<string | null>(null);
   const [isStartingRun, setIsStartingRun] = useState(false);
   const [isStoppingRun, setIsStoppingRun] = useState(false);
+  const [stoppingSession, setStoppingSession] = useState<StoppingSessionState | null>(null);
   const [focusedPanel, setFocusedPanel] = useState<FocusedPanel>("output");
   const [showHelp, setShowHelp] = useState(false);
   const [showStopPicker, setShowStopPicker] = useState(false);
@@ -37,21 +44,60 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
     if (state.currentSession) {
       setRunError(null);
       setIsStartingRun(false);
-    } else {
-      setIsStoppingRun(false);
     }
     if (state.projectSessions.length <= 1) {
       setShowStopPicker(false);
     }
   }, [state.currentSession, state.projectSessions]);
 
+  useEffect(() => {
+    if (!stoppingSession) {
+      return;
+    }
+
+    if (
+      shouldClearStoppingSessionState({
+        marker: stoppingSession,
+        currentSession: state.currentSession,
+        lastSessionStats: state.lastSessionStats,
+      })
+    ) {
+      setStoppingSession(null);
+      setIsStoppingRun(false);
+      return;
+    }
+
+    const timeoutMs = Math.max(0, stoppingSession.expiresAt - Date.now());
+    const timeout = setTimeout(() => {
+      setStoppingSession(null);
+      setIsStoppingRun(false);
+    }, timeoutMs);
+
+    return () => {
+      clearTimeout(timeout);
+    };
+  }, [stoppingSession, state.currentSession, state.lastSessionStats]);
+
   const stopSelectedSession = useCallback(async (session: ActiveSession) => {
-    await stopSelectedDashboardSession(session, {
-      setIsStoppingRun,
-      setShowStopPicker,
-      stopActiveSession,
-    });
+    setIsStoppingRun(true);
+    setStoppingSession(createStoppingSessionState(session));
+
+    try {
+      await stopSelectedDashboardSession(session, {
+        setShowStopPicker,
+        stopActiveSession,
+      });
+    } catch (error) {
+      setStoppingSession(null);
+      setIsStoppingRun(false);
+      setRunError(error instanceof Error ? error.message : String(error));
+    }
   }, []);
+
+  const suppressLastSessionStats = shouldSuppressLastSessionStats(
+    stoppingSession,
+    state.lastSessionStats
+  );
 
   const shutdown = useCallback(
     async (after?: () => Promise<void>, exitCode: number = 0) => {
@@ -216,6 +262,7 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
           reviewOptions={state.reviewOptions}
           isStarting={isStartingRun}
           isStopping={isStoppingRun}
+          suppressLastSessionStats={suppressLastSessionStats}
           activeSessionCount={state.projectSessions.length}
           focused={focusedPanel === "session" && !showHelp}
         />

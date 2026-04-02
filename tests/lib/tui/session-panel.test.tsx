@@ -129,6 +129,7 @@ describe("SessionPanel", () => {
     reviewOptions = undefined,
     isStarting = false,
     isStopping = false,
+    suppressLastSessionStats = false,
     activeSessionCount = 1,
     focused = false,
   }: {
@@ -148,6 +149,7 @@ describe("SessionPanel", () => {
     reviewOptions?: ReviewOptions | undefined;
     isStarting?: boolean;
     isStopping?: boolean;
+    suppressLastSessionStats?: boolean;
     activeSessionCount?: number;
     focused?: boolean;
   } = {}): Promise<string> {
@@ -169,6 +171,7 @@ describe("SessionPanel", () => {
         reviewOptions,
         isStarting,
         isStopping,
+        suppressLastSessionStats,
         activeSessionCount,
         focused,
       }),
@@ -260,6 +263,21 @@ describe("SessionPanel", () => {
     });
 
     expect(frame).toContain("Stopping review...");
+  });
+
+  test("suppresses matching last-run details while the stopping banner is active", async () => {
+    const frame = await renderFrame({
+      session: null,
+      lastSessionStats: createLastSessionStats({
+        status: "failed",
+      }),
+      isStopping: true,
+      suppressLastSessionStats: true,
+    });
+
+    expect(frame).toContain("Stopping review...");
+    expect(frame).not.toContain("Last run:");
+    expect(frame).not.toContain("failed");
   });
 
   test("renders historical run details with handoff commands and extracted fixes", async () => {
