@@ -1,3 +1,4 @@
+import { readdirSync } from "node:fs";
 import { dirname, isAbsolute, join, relative } from "node:path";
 import { CONFIG_DIR } from "./config";
 import { getProjectWorktreesDir } from "./logger";
@@ -325,6 +326,58 @@ function discardWorkingTreeSnapshot(repoPath: string, snapshotDir: string, conte
   assertCommandOk(repoPath, ["rm", "-rf", snapshotDir], context);
 }
 
+/**
+ * Hydrates `dstRoot` with the full contents of `srcRoot` using a CoW file copy.
+ *
+ * On macOS (APFS), passes `-c` to cp which invokes clonefile(2) — a copy-on-write
+ * clone that shares data blocks until written, making copies nearly instantaneous
+ * regardless of working tree size. Falls back to a standard recursive copy elsewhere.
+ *
+ * The destination is cleared of all non-.git entries before copying, matching the
+ * behaviour previously provided by restoreWorkingTreeSnapshot.
+ */
+function cloneWorkingTree(srcRoot: string, dstRoot: string, context: string): void {
+  assertCommandOk(
+    dstRoot,
+    [
+      "find",
+      dstRoot,
+      "-mindepth",
+      "1",
+      "-maxdepth",
+      "1",
+      "!",
+      "-name",
+      ".git",
+      "-exec",
+      "rm",
+      "-rf",
+      "{}",
+      "+",
+    ],
+    context
+  );
+
+  const entries = readdirSync(srcRoot);
+  const cpArgs = process.platform === "darwin" ? ["-c", "-R"] : ["-R"];
+  for (const entry of entries) {
+    if (entry === ".git") continue;
+    assertCommandOk(srcRoot, ["cp", ...cpArgs, join(srcRoot, entry), dstRoot], context);
+  }
+
+  // Copy the source git index into the worktree's git index to preserve staged state.
+  const srcGitDir = resolveGitDir(srcRoot, context);
+  const srcIndexPath = join(srcGitDir, "index");
+  const dstGitDir = resolveGitDir(dstRoot, context);
+  const dstIndexPath = join(dstGitDir, "index");
+
+  if (runCommand(srcRoot, ["test", "-f", srcIndexPath]).exitCode === 0) {
+    assertCommandOk(srcRoot, ["cp", srcIndexPath, dstIndexPath], context);
+  } else {
+    assertCommandOk(dstRoot, ["rm", "-f", dstIndexPath], context);
+  }
+}
+
 function resolveAvailableBranchName(repoPath: string, baseBranch: string): string {
   if (
     runGit(repoPath, ["show-ref", "--verify", "--quiet", `refs/heads/${baseBranch}`]).exitCode !== 0
@@ -406,25 +459,51 @@ export function materializeWorkingTreeSnapshot(snapshotDir: string, destinationP
   );
 }
 
-export function materializeWorkingTreeCopy(repoPath: string, destinationPath: string): void {
-  const snapshotDir = createWorkingTreeSnapshot(
+/**
+ * Creates a snapshot of the working tree at `repoPath` containing only
+ * git-tracked and untracked (non-gitignored) files.
+ *
+ * This matches the scope of computeWorkingTreeFingerprint so handoff patches
+ * stay consistent: gitignored files (node_modules, .env, etc.) are excluded
+ * and not overwritten when the patch is later applied.
+ */
+function createGitScopedWorkingTreeSnapshot(
+  repoPath: string,
+  snapshotNamespace: string,
+  context: string
+): string {
+  const repoRoot = assertGitOk(repoPath, ["rev-parse", "--show-toplevel"], context);
+  const absoluteGitDir = resolveGitDir(repoRoot, context);
+  const snapshotDir = createSnapshotDir(absoluteGitDir, snapshotNamespace, CHECKPOINT_SNAPSHOT_DIR);
+  const archivePath = join(snapshotDir, CHECKPOINT_SNAPSHOT_ARCHIVE);
+  const escapedArchivePath = archivePath.replace(/'/g, "'\\''");
+
+  assertCommandOk(repoRoot, ["mkdir", "-p", snapshotDir], context);
+  assertCommandOk(
+    repoRoot,
+    [
+      "sh",
+      "-c",
+      `git ls-files -z --cached --others --exclude-standard | tar --null -T - -cf '${escapedArchivePath}'`,
+    ],
+    context
+  );
+
+  return snapshotDir;
+}
+
+export function materializeGitScopedCopy(repoPath: string, destinationPath: string): void {
+  const context = "Failed to materialize git-scoped working tree copy";
+  const snapshotDir = createGitScopedWorkingTreeSnapshot(
     repoPath,
-    `materialized-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`,
-    "Failed to snapshot working tree copy"
+    `git-scoped-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`,
+    context
   );
 
   try {
-    extractWorkingTreeSnapshot(
-      snapshotDir,
-      destinationPath,
-      "Failed to materialize working tree copy"
-    );
+    extractWorkingTreeSnapshot(snapshotDir, destinationPath, context);
   } finally {
-    discardWorkingTreeSnapshot(
-      repoPath,
-      snapshotDir,
-      "Failed to discard working tree copy snapshot"
-    );
+    discardWorkingTreeSnapshot(repoPath, snapshotDir, context);
   }
 }
 
@@ -567,6 +646,7 @@ export function createSessionWorktree(
   worktreeId: string,
   storageRoot: string = CONFIG_DIR
 ): GitSessionWorktree {
+  const tStart = Date.now();
   const normalizedId = normalizeCheckpointId(worktreeId);
   const sourceRepoPath = assertGitOk(
     sourceProjectPath,
@@ -617,18 +697,19 @@ export function createSessionWorktree(
       );
     }
 
-    const snapshotDir = createWorkingTreeSnapshot(
-      sourceProjectPath,
+    cloneWorkingTree(
+      sourceRepoPath,
+      worktreeProjectPath,
+      "Failed to clone working tree into session worktree"
+    );
+
+    worktree.sourceSnapshotDir = createGitScopedWorkingTreeSnapshot(
+      sourceRepoPath,
       `worktree-${normalizedId}`,
       "Failed to capture session worktree snapshot"
     );
-    worktree.sourceSnapshotDir = snapshotDir;
-    restoreWorkingTreeSnapshot(
-      worktreeProjectPath,
-      snapshotDir,
-      "Failed to hydrate session worktree"
-    );
 
+    console.log(`Session worktree prepared in ${Date.now() - tStart}ms`);
     return worktree;
   } catch (error) {
     try {
@@ -816,7 +897,7 @@ export function createCheckpoint(repoPath: string, checkpointId: string): GitChe
   const stashTopBefore = resolveStashTop(repoPath);
   assertGitOk(
     repoPath,
-    ["stash", "push", "--all", "-m", label],
+    ["stash", "push", "--include-untracked", "-m", label],
     "Failed to create checkpoint stash"
   );
   const stashTopAfter = resolveStashTop(repoPath);

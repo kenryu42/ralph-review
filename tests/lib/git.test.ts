@@ -341,25 +341,48 @@ describe("checkpoint management", () => {
     expect(status).toContain("?? untracked.txt");
   });
 
-  test("restores ignored files and removes new ignored files on rollback", async () => {
+  test("does not restore gitignored files when rolling back (--include-untracked skips ignored)", async () => {
     await Bun.write(join(tempDir, ".gitignore"), ".env\n*.local\n");
     runGitIn(tempDir, ["add", ".gitignore"]);
     runGitIn(tempDir, ["commit", "-m", "add ignore rules"]);
 
+    // Gitignored file exists before checkpoint
     await Bun.write(join(tempDir, ".env"), "before");
 
     const checkpoint = createCheckpoint(tempDir, "ignored-ref");
-    expect(checkpoint.kind).toBe("ref");
+    // Gitignored files are not stashed with --include-untracked, so the checkpoint is clean.
+    expect(checkpoint.kind).toBe("clean");
 
     await Bun.write(join(tempDir, ".env"), "after");
     await Bun.write(join(tempDir, "created.local"), "new ignored file");
 
     rollbackToCheckpoint(tempDir, checkpoint);
 
-    expect(await Bun.file(join(tempDir, ".env")).text()).toBe("before");
+    // git clean -fdx (part of clean-checkpoint rollback) removes gitignored files.
+    expect(await Bun.file(join(tempDir, ".env")).exists()).toBe(false);
     expect(await Bun.file(join(tempDir, "created.local")).exists()).toBe(false);
     const status = runGitStdout(tempDir, ["status", "--porcelain"]);
     expect(status).toBe("");
+  });
+
+  test("restores untracked (non-gitignored) files when rolling back", async () => {
+    await Bun.write(join(tempDir, ".gitignore"), "*.log\n");
+    runGitIn(tempDir, ["add", ".gitignore"]);
+    runGitIn(tempDir, ["commit", "-m", "add ignore rules"]);
+
+    await Bun.write(join(tempDir, "untracked.txt"), "untracked content");
+
+    const checkpoint = createCheckpoint(tempDir, "untracked-ref");
+    expect(checkpoint.kind).toBe("ref");
+
+    Bun.spawnSync(["rm", join(tempDir, "untracked.txt")], { stdout: "ignore", stderr: "ignore" });
+
+    rollbackToCheckpoint(tempDir, checkpoint);
+
+    // Non-gitignored untracked files ARE captured by --include-untracked
+    expect(await Bun.file(join(tempDir, "untracked.txt")).text()).toBe("untracked content");
+    const status = runGitStdout(tempDir, ["status", "--porcelain"]);
+    expect(status).toContain("?? untracked.txt");
   });
 
   test("returns clean checkpoint and rolls back to clean tree", async () => {
@@ -742,13 +765,14 @@ describe("session worktree management", () => {
     }
   });
 
-  test("keeps the source snapshot as archive metadata instead of materializing a second tree", () => {
+  test("captures a git-scoped source snapshot for handoff (excludes gitignored files)", () => {
     initTestRepo(tempDir);
     commit(tempDir, "base.txt", "base commit");
 
     const worktree = createSessionWorktree(tempDir, "session-archive-snapshot", storageRoot);
     createdWorktrees.push(worktree);
 
+    // Snapshot is captured for handoff patch creation, but scoped to git-tracked files only.
     expect(worktree.sourceSnapshotDir).toBeString();
     expect(worktree.sourceSnapshotPath).toBeUndefined();
   });
@@ -904,7 +928,8 @@ describe("session worktree management", () => {
 
     const restoreSpawnSync = patchSpawnSyncFailure(
       (command) =>
-        (command[0] === "tar" && command.includes("--exclude=.git")) ||
+        (command[0] === "cp" &&
+          command.some((part) => part.includes(getProjectWorktreesDir(storageRoot, tempDir)))) ||
         (command[0] === "git" &&
           command[1] === "worktree" &&
           command[2] === "remove" &&

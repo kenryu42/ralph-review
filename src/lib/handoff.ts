@@ -8,7 +8,7 @@ import {
   createBinaryPatch,
   createHandoffRef,
   finalizeSessionWorktree,
-  materializeWorkingTreeCopy,
+  materializeGitScopedCopy,
   materializeWorkingTreeSnapshot,
   removeHandoffRef,
 } from "@/lib/git";
@@ -216,10 +216,6 @@ export async function createOrAutoApplyHandoff(
   storageRoot: string = CONFIG_DIR,
   options: CreateOrAutoApplyOptions
 ): Promise<SessionHandoffResult | null> {
-  if (!options.worktree.sourceSnapshotDir && !options.worktree.sourceSnapshotPath) {
-    throw new Error("Session worktree is missing its source snapshot metadata.");
-  }
-
   const retained = finalizeSessionWorktree(options.worktree);
   if (!retained?.commitSha) {
     return null;
@@ -230,7 +226,10 @@ export async function createOrAutoApplyHandoff(
   const finalSnapshotPath = `${patchPath}.final`;
 
   try {
-    if (!options.worktree.sourceSnapshotPath && options.worktree.sourceSnapshotDir) {
+    if (!options.worktree.sourceSnapshotPath) {
+      if (!options.worktree.sourceSnapshotDir) {
+        throw new Error("Session worktree is missing its source snapshot metadata.");
+      }
       materializeWorkingTreeSnapshot(options.worktree.sourceSnapshotDir, sourceSnapshotPath);
       options.worktree.sourceSnapshotPath = sourceSnapshotPath;
     }
@@ -240,7 +239,7 @@ export async function createOrAutoApplyHandoff(
       throw new Error("Session worktree is missing its source fingerprint.");
     }
 
-    materializeWorkingTreeCopy(options.worktree.worktreeProjectPath, finalSnapshotPath);
+    materializeGitScopedCopy(options.worktree.worktreeProjectPath, finalSnapshotPath);
     await createBinaryPatch(sourceSnapshotPath, finalSnapshotPath, patchPath);
 
     const hiddenRef = buildHandoffRef(options.sessionId);
