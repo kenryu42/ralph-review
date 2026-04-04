@@ -1,14 +1,30 @@
 import { TUI_COLORS } from "@/lib/tui/colors";
-
-export type FocusedPanel = "session" | "output";
+import type { FocusedPane } from "./Workspace";
 
 interface StatusBarProps {
   hasSession: boolean;
-  focusedPanel: FocusedPanel;
+  focusedPane: FocusedPane;
+  outputVisible: boolean;
   stopPickerOpen?: boolean;
 }
 
-export function StatusBar({ hasSession, focusedPanel, stopPickerOpen = false }: StatusBarProps) {
+function focusPaneLabel(pane: FocusedPane): string {
+  switch (pane) {
+    case "sidebar":
+      return "Sessions";
+    case "detail":
+      return "Detail";
+    case "output":
+      return "Output";
+  }
+}
+
+export function StatusBar({
+  hasSession,
+  focusedPane,
+  outputVisible,
+  stopPickerOpen = false,
+}: StatusBarProps) {
   if (stopPickerOpen) {
     return (
       <box
@@ -63,17 +79,23 @@ export function StatusBar({ hasSession, focusedPanel, stopPickerOpen = false }: 
           </text>
         )}
         <text>
+          <span fg={TUI_COLORS.accent.key}>[o]</span>
+          <span fg={TUI_COLORS.text.muted}> {outputVisible ? "Hide Output" : "Output"}</span>
+        </text>
+        <text>
           <span fg={TUI_COLORS.accent.key}>[Tab]</span>
           <span fg={TUI_COLORS.text.muted}> Switch</span>
+        </text>
+        <text>
+          <span fg={TUI_COLORS.accent.key}>[l]</span>
+          <span fg={TUI_COLORS.text.muted}> History</span>
         </text>
         <text>
           <span fg={TUI_COLORS.accent.key}>[?]</span>
           <span fg={TUI_COLORS.text.muted}> Help</span>
         </text>
       </box>
-      <text fg={TUI_COLORS.text.dim}>
-        Focus: {focusedPanel === "session" ? "Session" : "Output"}
-      </text>
+      <text fg={TUI_COLORS.text.dim}>Focus: {focusPaneLabel(focusedPane)}</text>
     </box>
   );
 }

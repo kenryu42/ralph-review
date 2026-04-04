@@ -10,38 +10,42 @@ import {
   type StoppingSessionState,
   settleStoppingSessionState,
   shouldClearStoppingSessionState,
-  shouldSuppressLastSessionStats,
 } from "@/lib/tui/dashboard-stop-state";
 import type { DashboardProps } from "../types";
-import { useDashboardState } from "../use-dashboard-state";
+import { useWorkspaceState } from "../use-workspace-state";
 import { stopSelectedDashboardSession } from "./dashboard-stop";
 import { Header } from "./Header";
 import { HelpOverlay } from "./HelpOverlay";
-import { OutputPanel } from "./OutputPanel";
-import { SessionPanel } from "./SessionPanel";
-import { type FocusedPanel, StatusBar } from "./StatusBar";
+import { HistoryOverlay } from "./HistoryOverlay";
+import { StatusBar } from "./StatusBar";
 import { StopSessionPickerOverlay } from "./StopSessionPickerOverlay";
+import { type FocusedPane, Workspace } from "./Workspace";
 
 export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: DashboardProps) {
   const renderer = useRenderer();
-  const state = useDashboardState(projectPath, branch, refreshInterval);
+  const state = useWorkspaceState(projectPath, branch, refreshInterval);
   const [runError, setRunError] = useState<string | null>(null);
   const [isStartingRun, setIsStartingRun] = useState(false);
   const [isStoppingRun, setIsStoppingRun] = useState(false);
   const [stoppingSession, setStoppingSession] = useState<StoppingSessionState | null>(null);
-  const [focusedPanel, setFocusedPanel] = useState<FocusedPanel>("output");
+  const [focusedPane, setFocusedPane] = useState<FocusedPane>("detail");
+  const [outputVisible, setOutputVisible] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
   const [showStopPicker, setShowStopPicker] = useState(false);
 
   const projectName = basename(projectPath);
 
   const currentSessionRef = useRef(state.currentSession);
   const projectSessionsRef = useRef(state.projectSessions);
+  const allSessionsRef = useRef(state.allSessions);
   const isExitingRef = useRef(false);
   const isSpawningRunRef = useRef(false);
+
   useEffect(() => {
     currentSessionRef.current = state.currentSession;
     projectSessionsRef.current = state.projectSessions;
+    allSessionsRef.current = state.allSessions;
     if (state.currentSession) {
       setRunError(null);
       setIsStartingRun(false);
@@ -49,7 +53,7 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
     if (state.projectSessions.length <= 1) {
       setShowStopPicker(false);
     }
-  }, [state.currentSession, state.projectSessions]);
+  }, [state.currentSession, state.projectSessions, state.allSessions]);
 
   useEffect(() => {
     if (!stoppingSession) {
@@ -96,7 +100,6 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
         if (!current || current.sessionId !== session.sessionId) {
           return current;
         }
-
         return settleStoppingSessionState(current);
       });
     } catch (error) {
@@ -105,11 +108,6 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
       setRunError(error instanceof Error ? error.message : String(error));
     }
   }, []);
-
-  const suppressLastSessionStats = shouldSuppressLastSessionStats(
-    stoppingSession,
-    state.lastSessionStats
-  );
 
   const shutdown = useCallback(
     async (after?: () => Promise<void>, exitCode: number = 0) => {
@@ -140,40 +138,60 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
     [renderer]
   );
 
+  const cycleFocus = useCallback(() => {
+    setFocusedPane((current) => {
+      if (outputVisible) {
+        if (current === "sidebar") return "detail";
+        if (current === "detail") return "output";
+        return "sidebar";
+      }
+      return current === "sidebar" ? "detail" : "sidebar";
+    });
+  }, [outputVisible]);
+
   const handleKeyboard = useCallback(
     (key: { name: string }) => {
-      // Handle exit/close keys globally (works even in error state)
       if (key.name === "q" || key.name === "escape") {
         if (showStopPicker) {
           setShowStopPicker(false);
         } else if (showHelp) {
           setShowHelp(false);
+        } else if (showHistory) {
+          setShowHistory(false);
         } else {
           void shutdown();
         }
         return;
       }
 
-      if (showHelp || showStopPicker) {
+      if (showHelp || showHistory || showStopPicker) {
         return;
       }
 
       if (key.name === "tab") {
-        setFocusedPanel((p) => (p === "session" ? "output" : "session"));
+        cycleFocus();
+      }
+
+      if (key.name === "o") {
+        setOutputVisible((v) => !v);
       }
 
       if (key.name === "?" || key.name === "h") {
         setShowHelp(true);
       }
 
-      if (key.name === "s" && currentSessionRef.current) {
-        const projectSessions = projectSessionsRef.current;
-        if (projectSessions.length === 1) {
-          const target = projectSessions[0];
+      if (key.name === "l") {
+        setShowHistory(true);
+      }
+
+      if (key.name === "s") {
+        const allSessions = allSessionsRef.current;
+        if (allSessions.length === 1) {
+          const target = allSessions[0];
           if (target) {
             void stopSelectedSession(target);
           }
-        } else {
+        } else if (allSessions.length > 1) {
           setShowStopPicker(true);
         }
       }
@@ -210,7 +228,7 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
         }
       }
     },
-    [projectPath, showHelp, showStopPicker, shutdown, stopSelectedSession]
+    [projectPath, showHelp, showHistory, showStopPicker, shutdown, stopSelectedSession, cycleFocus]
   );
 
   useKeyboard(handleKeyboard);
@@ -231,11 +249,16 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
         <box flexGrow={1} padding={2}>
           <text fg={TUI_COLORS.status.error}>Error: {displayError}</text>
         </box>
-        <StatusBar hasSession={false} focusedPanel={focusedPanel} stopPickerOpen={showStopPicker} />
+        <StatusBar
+          hasSession={false}
+          focusedPane={focusedPane}
+          outputVisible={outputVisible}
+          stopPickerOpen={showStopPicker}
+        />
         {showHelp && <HelpOverlay onClose={() => setShowHelp(false)} />}
         {showStopPicker && (
           <StopSessionPickerOverlay
-            sessions={state.projectSessions}
+            sessions={state.allSessions}
             onSelectSession={(session) => {
               void stopSelectedSession(session);
             }}
@@ -256,43 +279,39 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
         projectPath={projectPath}
         config={state.config}
       />
-      <box flexDirection="row" flexGrow={1} minHeight={0} gap={1} paddingLeft={1} paddingRight={1}>
-        <SessionPanel
-          session={state.currentSession}
-          fixes={state.fixes}
-          skipped={state.skipped}
-          findings={state.iterationFindings}
-          latestReviewIteration={state.latestReviewIteration}
-          codexReviewText={state.codexReviewText}
-          tmuxOutput={state.tmuxOutput}
-          maxIterations={state.maxIterations}
-          isLoading={state.isLoading}
-          lastSessionStats={state.lastSessionStats}
-          projectStats={state.projectStats}
-          isGitRepo={state.isGitRepo}
-          currentAgent={state.currentAgent}
-          reviewOptions={state.reviewOptions}
-          isStarting={isStartingRun}
-          isStopping={isStoppingRun}
-          suppressLastSessionStats={suppressLastSessionStats}
-          activeSessionCount={state.projectSessions.length}
-          focused={focusedPanel === "session" && !showHelp}
-        />
-        <OutputPanel
-          output={state.tmuxOutput}
-          sessionName={state.currentSession?.sessionName ?? null}
-          focused={focusedPanel === "output" && !showHelp}
-        />
-      </box>
+      <Workspace
+        sessionGroups={state.sessionGroups}
+        selectedSessionId={state.selectedSessionId}
+        session={state.currentSession}
+        fixes={state.fixes}
+        skipped={state.skipped}
+        findings={state.iterationFindings}
+        latestReviewIteration={state.latestReviewIteration}
+        codexReviewText={state.codexReviewText}
+        tmuxOutput={state.tmuxOutput}
+        maxIterations={state.maxIterations}
+        isLoading={state.isLoading}
+        projectStats={state.projectStats}
+        isGitRepo={state.isGitRepo}
+        currentAgent={state.currentAgent}
+        reviewOptions={state.reviewOptions}
+        isStarting={isStartingRun}
+        isStopping={isStoppingRun}
+        activeSessionCount={state.projectSessions.length}
+        outputVisible={outputVisible}
+        focusedPane={focusedPane}
+      />
       <StatusBar
         hasSession={Boolean(state.currentSession)}
-        focusedPanel={focusedPanel}
+        focusedPane={focusedPane}
+        outputVisible={outputVisible}
         stopPickerOpen={showStopPicker}
       />
       {showHelp && <HelpOverlay onClose={() => setShowHelp(false)} />}
+      {showHistory && <HistoryOverlay onClose={() => setShowHistory(false)} />}
       {showStopPicker && (
         <StopSessionPickerOverlay
-          sessions={state.projectSessions}
+          sessions={state.allSessions}
           onSelectSession={(session) => {
             void stopSelectedSession(session);
           }}

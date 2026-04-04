@@ -45,12 +45,20 @@ export function HelpOverlay({ onClose }: HelpOverlayProps) {
             <span fg={TUI_COLORS.text.muted}> Stop review</span>
           </text>
           <text>
+            <span fg={TUI_COLORS.accent.key}>[o]</span>
+            <span fg={TUI_COLORS.text.muted}> Toggle output drawer</span>
+          </text>
+          <text>
             <span fg={TUI_COLORS.accent.key}>[Tab]</span>
             <span fg={TUI_COLORS.text.muted}> Switch panel focus</span>
           </text>
           <text>
             <span fg={TUI_COLORS.accent.key}>[↑/↓]</span>
             <span fg={TUI_COLORS.text.muted}> Scroll focused panel</span>
+          </text>
+          <text>
+            <span fg={TUI_COLORS.accent.key}>[l]</span>
+            <span fg={TUI_COLORS.text.muted}> Review history</span>
           </text>
           <text>
             <span fg={TUI_COLORS.accent.key}>[?]</span>
