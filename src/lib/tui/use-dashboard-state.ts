@@ -43,7 +43,7 @@ export function getCurrentAgentFromSessionState(
   return sessionState?.currentAgent ?? null;
 }
 
-interface LiveRefreshMeta {
+export interface LiveRefreshMeta {
   sessionName: string | null;
   state: SessionState["state"] | null;
   iteration: number | null;
