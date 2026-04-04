@@ -394,9 +394,82 @@ describe("SessionDetailPane", () => {
     expect(frame).toContain("Issues Found");
     expect(frame).toContain("Missing null check");
     expect(frame).toContain("src/lib/foo.ts");
+    expect(frame).toContain("Decision:");
+    expect(frame).toContain("APPLY_SELECTIVELY");
     expect(frame).toContain("Fixes Applied");
-    expect(frame).toContain("Skipped");
-    expect(frame).toContain("Complex refactor");
+  });
+
+  test("renders rich fix details with code location fallback and no ids", async () => {
+    const fix = buildFixEntry({
+      id: 42424242,
+      title: "Guard profile access",
+      priority: "P1",
+      file: "",
+      code_location: {
+        absolute_file_path: "src/lib/profile.ts",
+        line_range: { start: 12, end: 14 },
+      },
+      claim: "Null check is missing before profile.name access",
+      evidence: "profile can be null in loadProfile()",
+      fix: "Return early when profile is null",
+    });
+    const skipped = buildSkippedEntry({
+      id: 31313131,
+      title: "Complex rewrite",
+      reason: "SKIP: out of scope for this session",
+    });
+
+    const iterEntry = buildIterationEntry({
+      iteration: 1,
+      fixes: {
+        decision: "APPLY_SELECTIVELY",
+        fixes: [fix],
+        skipped: [skipped],
+      },
+    });
+
+    const stats = buildSessionStats({
+      entries: [buildSystemEntry(), iterEntry],
+    });
+
+    const setup = await renderDetailPane(stats);
+    const frame = setup.captureCharFrame();
+
+    expect(frame).toContain("Fixes Applied");
+    expect(frame).toContain("Guard profile access");
+    expect(frame).toContain("src/lib/profile.ts:12-14");
+    expect(frame).toContain("Claim:");
+    expect(frame).toContain("Null check is missing before profile.name access");
+    expect(frame).toContain("Evidence:");
+    expect(frame).toContain("profile can be null in loadProfile()");
+    expect(frame).toContain("Fix:");
+    expect(frame).toContain("Return early when profile is null");
+    expect(frame).not.toContain("42424242");
+    expect(frame).not.toContain("31313131");
+  });
+
+  test("renders iteration decision and stop-iteration metadata", async () => {
+    const iterEntry = buildIterationEntry({
+      iteration: 1,
+      fixes: {
+        decision: "NO_CHANGES_NEEDED",
+        stop_iteration: true,
+        fixes: [],
+        skipped: [],
+      },
+    });
+
+    const stats = buildSessionStats({
+      entries: [buildSystemEntry(), iterEntry],
+    });
+
+    const setup = await renderDetailPane(stats);
+    const frame = setup.captureCharFrame();
+
+    expect(frame).toContain("Decision:");
+    expect(frame).toContain("NO_CHANGES_NEEDED");
+    expect(frame).toContain("Stop iteration:");
+    expect(frame).toContain("true");
   });
 
   test("renders empty iteration as no issues found", async () => {
