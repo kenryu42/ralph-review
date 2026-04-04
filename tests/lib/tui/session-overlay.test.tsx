@@ -2,8 +2,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { KeyEvent } from "@opentui/core";
 import { testRender } from "@opentui/react/test-utils";
 import { act, createElement } from "react";
-import { HistoryDetailPane } from "@/lib/tui/components/HistoryDetailPane";
-import { HistoryOverlay } from "@/lib/tui/components/HistoryOverlay";
+import { SessionDetailPane } from "@/lib/tui/components/SessionDetailPane";
+import { SessionOverlay } from "@/lib/tui/components/SessionOverlay";
 import type { IterationEntry, SessionEndEntry, SessionStats, SystemEntry } from "@/lib/types";
 import { buildFixEntry, buildSkippedEntry } from "../../test-utils/fix-summary";
 
@@ -66,7 +66,7 @@ function buildSessionEndEntry(overrides: Partial<SessionEndEntry> = {}): Session
   };
 }
 
-describe("HistoryOverlay", () => {
+describe("SessionOverlay", () => {
   let testSetup: Awaited<ReturnType<typeof testRender>> | null = null;
 
   afterEach(async () => {
@@ -79,14 +79,14 @@ describe("HistoryOverlay", () => {
   });
 
   async function renderOverlay(
-    props: Partial<Parameters<typeof HistoryOverlay>[0]> = {}
+    props: Partial<Parameters<typeof SessionOverlay>[0]> = {}
   ): Promise<Awaited<ReturnType<typeof testRender>>> {
-    const defaultProps: Parameters<typeof HistoryOverlay>[0] = {
+    const defaultProps: Parameters<typeof SessionOverlay>[0] = {
       onClose: () => {},
       ...props,
     };
 
-    testSetup = await testRender(createElement(HistoryOverlay, defaultProps), {
+    testSetup = await testRender(createElement(SessionOverlay, defaultProps), {
       width: 120,
       height: 30,
     });
@@ -98,11 +98,11 @@ describe("HistoryOverlay", () => {
     return testSetup;
   }
 
-  test("renders the History pane title with help hint", async () => {
+  test("renders the Session pane title with help hint", async () => {
     const setup = await renderOverlay();
     const frame = setup.captureCharFrame();
 
-    expect(frame).toContain("History [?]");
+    expect(frame).toContain("Sessions [?]");
   });
 
   test("shows loading state initially", async () => {
@@ -201,7 +201,7 @@ describe("HistoryOverlay", () => {
     expect(frame).toContain("Keyboard Shortcuts");
     expect(frame).toContain("Navigate sessions");
     expect(frame).toContain("Toggle help");
-    expect(frame).toContain("Close history");
+    expect(frame).toContain("Close session");
 
     // Press ? again to hide help
     await pressKeyAndRender(setup, "?");
@@ -253,7 +253,7 @@ describe("HistoryOverlay", () => {
   });
 });
 
-describe("HistoryDetailPane", () => {
+describe("SessionDetailPane", () => {
   let testSetup: Awaited<ReturnType<typeof testRender>> | null = null;
 
   afterEach(async () => {
@@ -268,7 +268,7 @@ describe("HistoryDetailPane", () => {
   async function renderDetailPane(
     stats: SessionStats
   ): Promise<Awaited<ReturnType<typeof testRender>>> {
-    testSetup = await testRender(createElement(HistoryDetailPane, { stats }), {
+    testSetup = await testRender(createElement(SessionDetailPane, { stats }), {
       width: 100,
       height: 40,
     });

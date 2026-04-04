@@ -208,7 +208,7 @@ describe("Header", () => {
         run: { simplifier: true, interactive: true },
       },
     });
-    expect(frame).toContain("S:");
+    expect(frame).toContain("Simplifier:");
     expect(frame).toContain("Droid");
   });
 
@@ -219,11 +219,8 @@ describe("Header", () => {
         run: { simplifier: false, interactive: true },
       },
     });
-    // Only R: and F: should appear, not S:
-    expect(frame).toContain("R:");
-    expect(frame).toContain("F:");
-    // We can't easily check for absence of "S:" since "S" appears in other text,
-    // but the simplifier display line should not be present
-    expect(frame).not.toContain("S: Droid");
+    expect(frame).toContain("Reviewer:");
+    expect(frame).toContain("Fixer:");
+    expect(frame).not.toContain("Simplifier:");
   });
 });
