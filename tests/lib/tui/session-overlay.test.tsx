@@ -4,8 +4,8 @@ import { testRender } from "@opentui/react/test-utils";
 import { act, createElement } from "react";
 import type { LogSession } from "@/lib/logger";
 import * as logger from "@/lib/logger";
-import { SessionDetailPane } from "@/lib/tui/components/SessionDetailPane";
-import { SessionOverlay } from "@/lib/tui/components/SessionOverlay";
+import { SessionDetailPane } from "@/lib/tui/components/SessionListDetailPane";
+import { SessionOverlay } from "@/lib/tui/components/SessionListOverlay";
 import type { IterationEntry, SessionEndEntry, SessionStats, SystemEntry } from "@/lib/types";
 import { buildFixEntry, buildSkippedEntry } from "../../test-utils/fix-summary";
 

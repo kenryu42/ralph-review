@@ -16,7 +16,7 @@ import { useWorkspaceState } from "../use-workspace-state";
 import { stopSelectedDashboardSession } from "./dashboard-stop";
 import { Header } from "./Header";
 import { HelpOverlay } from "./HelpOverlay";
-import { SessionOverlay } from "./SessionOverlay";
+import { SessionOverlay } from "./SessionListOverlay";
 import { StatusBar } from "./StatusBar";
 import { StopSessionPickerOverlay } from "./StopSessionPickerOverlay";
 import { type FocusedPane, Workspace } from "./Workspace";

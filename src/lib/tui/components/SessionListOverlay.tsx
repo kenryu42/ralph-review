@@ -5,7 +5,7 @@ import { computeSessionStats, listLogSessions } from "@/lib/logger";
 import { TUI_COLORS } from "@/lib/tui/colors";
 import type { SessionStats } from "@/lib/types";
 import { formatProjectNameForDisplay, formatRelativeTime } from "../session-panel-utils";
-import { SessionDetailPane } from "./SessionDetailPane";
+import { SessionDetailPane } from "./SessionListDetailPane";
 
 interface SessionOverlayProps {
   onClose: () => void;
