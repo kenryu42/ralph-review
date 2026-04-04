@@ -315,6 +315,38 @@ describe("SessionDetailPane", () => {
     expect(frame).toContain("sonnet-4");
     expect(frame).toContain("clean");
     expect(frame).toContain("Applied to working tree");
+    expect(frame).toContain("Overview");
+    expect(frame).toContain("Run setup");
+  });
+
+  test("shortens very long code locations for readability", async () => {
+    const longPath = `${"/tmp/worktrees"}${"/deeply-nested".repeat(16)}/src/lib/profile.ts`;
+    const fix = buildFixEntry({
+      file: longPath,
+      code_location: {
+        absolute_file_path: longPath,
+        line_range: { start: 12, end: 14 },
+      },
+    });
+
+    const iterEntry = buildIterationEntry({
+      iteration: 1,
+      fixes: {
+        decision: "APPLY_SELECTIVELY",
+        fixes: [fix],
+        skipped: [],
+      },
+    });
+
+    const stats = buildSessionStats({
+      entries: [buildSystemEntry(), iterEntry],
+    });
+
+    const setup = await renderDetailPane(stats);
+    const frame = setup.captureCharFrame();
+
+    expect(frame).toContain("...");
+    expect(frame).toContain("profile.ts:12-14");
   });
 
   test("renders project name without hash suffix", async () => {

@@ -1,5 +1,5 @@
 import type { ScrollBoxRenderable } from "@opentui/core";
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { formatDuration } from "@/lib/format";
 import { getProjectNameFromLogPath } from "@/lib/logger";
 import { TUI_COLORS } from "@/lib/tui/colors";
@@ -21,6 +21,9 @@ import {
 } from "../session-panel-utils";
 import { FindingsList, SectionHeader, SkippedList, toSingleLine } from "./session-detail-parts";
 
+const META_LABEL_WIDTH = 16;
+const LOCATION_MAX_LENGTH = 92;
+
 function statusColor(status: string): string {
   switch (status) {
     case "completed":
@@ -36,14 +39,25 @@ function statusColor(status: string): string {
   }
 }
 
-function IterationDivider({ iteration, duration }: { iteration: number; duration?: number }) {
-  const durationStr = duration !== undefined ? ` (${formatDuration(duration)})` : "";
+function truncateMiddle(value: string, maxLength: number): string {
+  if (value.length <= maxLength || maxLength < 9) {
+    return value;
+  }
+
+  const visible = maxLength - 3;
+  const leftLength = Math.ceil(visible / 2);
+  const rightLength = Math.floor(visible / 2);
+  return `${value.slice(0, leftLength)}...${value.slice(-rightLength)}`;
+}
+
+function IterationHeading({ iteration, duration }: { iteration: number; duration?: number }) {
   return (
-    <text fg={TUI_COLORS.text.muted}>
-      {"── "}Iteration {iteration}
-      {durationStr}
-      {" ──"}
-    </text>
+    <box flexDirection="row" justifyContent="space-between" gap={1}>
+      <text fg={TUI_COLORS.text.faint}>
+        <strong>Iteration {iteration}</strong>
+      </text>
+      {duration !== undefined && <text fg={TUI_COLORS.text.dim}>{formatDuration(duration)}</text>}
+    </box>
   );
 }
 
@@ -54,11 +68,51 @@ function formatLocationLine(fix: FixEntry): string | null {
   }
 
   if (!fix.code_location) {
-    return baseFile;
+    return truncateMiddle(baseFile, LOCATION_MAX_LENGTH);
   }
 
   const range = fix.code_location.line_range;
-  return `${baseFile}:${range.start}-${range.end}`;
+  return truncateMiddle(`${baseFile}:${range.start}-${range.end}`, LOCATION_MAX_LENGTH);
+}
+
+function MetadataRow({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <box flexDirection="row" gap={1} alignItems="flex-start">
+      <box width={META_LABEL_WIDTH} flexShrink={0}>
+        <text fg={TUI_COLORS.text.muted}>{label}</text>
+      </box>
+      <box flexDirection="row" flexShrink={1} flexWrap="wrap">
+        {children}
+      </box>
+    </box>
+  );
+}
+
+function HeaderSectionTitle({ title }: { title: string }) {
+  return (
+    <text fg={TUI_COLORS.text.faint}>
+      <strong>{title}</strong>
+    </text>
+  );
+}
+
+function PrioritySummaryRow({
+  priorityCounts,
+}: {
+  priorityCounts: SessionStats["priorityCounts"];
+}) {
+  return (
+    <box flexDirection="row" flexWrap="wrap" gap={1}>
+      {formatPriorityBreakdown(priorityCounts).map((item) => (
+        <text key={item.priority}>
+          <span fg={TUI_COLORS.text.dim}>[</span>
+          <span fg={PRIORITY_COLORS[item.priority]}>{item.priority}</span>
+          <span fg={TUI_COLORS.text.muted}> {item.count}</span>
+          <span fg={TUI_COLORS.text.dim}>]</span>
+        </text>
+      ))}
+    </box>
+  );
 }
 
 function LabeledFixDetail({ label, value }: { label: string; value: string }) {
@@ -66,9 +120,11 @@ function LabeledFixDetail({ label, value }: { label: string; value: string }) {
   const textColor = value.trim().length > 0 ? TUI_COLORS.text.secondary : TUI_COLORS.text.dim;
 
   return (
-    <box flexDirection="row" gap={1} paddingLeft={5}>
+    <box flexDirection="column" gap={0} paddingLeft={5}>
       <text fg={TUI_COLORS.text.muted}>{label}:</text>
-      <text fg={textColor}>{text}</text>
+      <text fg={textColor} paddingLeft={2}>
+        {text}
+      </text>
     </box>
   );
 }
@@ -83,15 +139,17 @@ function DetailedFixList({ fixes }: { fixes: FixEntry[] }) {
   }
 
   return (
-    <box flexDirection="column" paddingLeft={2}>
+    <box flexDirection="column" paddingLeft={2} gap={1}>
       {fixes.map((fix, index) => {
         const locationLine = formatLocationLine(fix);
         return (
-          <box key={`${index}-${fix.id}`} flexDirection="column">
-            <box flexDirection="row">
+          <box key={`${index}-${fix.id}`} flexDirection="column" paddingLeft={1} gap={0}>
+            <box flexDirection="row" gap={1}>
               <text fg={PRIORITY_COLORS[fix.priority]}>{fix.priority}</text>
-              <text fg={TUI_COLORS.text.dim}> ▸ </text>
-              <text fg={TUI_COLORS.text.secondary}>{toSingleLine(fix.title)}</text>
+              <text fg={TUI_COLORS.text.dim}>▸</text>
+              <text fg={TUI_COLORS.text.secondary}>
+                <strong>{toSingleLine(fix.title)}</strong>
+              </text>
             </box>
             {locationLine && (
               <text fg={TUI_COLORS.text.dim} paddingLeft={5}>
@@ -110,16 +168,35 @@ function DetailedFixList({ fixes }: { fixes: FixEntry[] }) {
 
 function IterationSection({ entry }: { entry: IterationEntry }) {
   const findings: Finding[] = entry.review?.findings ?? [];
+  const displayFindings: Finding[] = findings.map((finding) => ({
+    ...finding,
+    code_location: {
+      ...finding.code_location,
+      absolute_file_path: truncateMiddle(
+        finding.code_location.absolute_file_path,
+        LOCATION_MAX_LENGTH
+      ),
+    },
+  }));
   const fixes: FixEntry[] = entry.fixes?.fixes ?? [];
   const skipped: SkippedEntry[] = entry.fixes?.skipped ?? [];
   const hasContent = findings.length > 0 || fixes.length > 0 || skipped.length > 0;
 
   return (
-    <box flexDirection="column" gap={1}>
-      <IterationDivider iteration={entry.iteration} duration={entry.duration} />
+    <box
+      flexDirection="column"
+      gap={1}
+      border
+      borderStyle="single"
+      borderColor={TUI_COLORS.ui.border}
+      paddingLeft={1}
+      paddingRight={1}
+      paddingBottom={1}
+    >
+      <IterationHeading iteration={entry.iteration} duration={entry.duration} />
 
       {entry.fixes && (
-        <box flexDirection="column" paddingLeft={2}>
+        <box flexDirection="column" gap={0} paddingLeft={2}>
           <box flexDirection="row" gap={1}>
             <text fg={TUI_COLORS.text.muted}>Decision:</text>
             <text fg={TUI_COLORS.text.secondary}>{entry.fixes.decision}</text>
@@ -142,7 +219,7 @@ function IterationSection({ entry }: { entry: IterationEntry }) {
       {findings.length > 0 && (
         <box flexDirection="column">
           <SectionHeader title="Issues Found" count={findings.length} />
-          <FindingsList findings={findings} scrollable={false} />
+          <FindingsList findings={displayFindings} scrollable={false} />
         </box>
       )}
 
@@ -183,12 +260,24 @@ function IterationSection({ entry }: { entry: IterationEntry }) {
 
 function SessionEndSection({ entry }: { entry: SessionEndEntry }) {
   return (
-    <box flexDirection="column" gap={1}>
-      <text fg={TUI_COLORS.text.muted}>
-        {"── "}Result{" ──"}
+    <box
+      flexDirection="column"
+      gap={1}
+      border
+      borderStyle="single"
+      borderColor={TUI_COLORS.ui.border}
+      paddingLeft={1}
+      paddingRight={1}
+      paddingBottom={1}
+    >
+      <text fg={TUI_COLORS.text.faint}>
+        <strong>Result</strong>
+      </text>
+      <text fg={statusColor(entry.status)} paddingLeft={2}>
+        <strong>{entry.status}</strong>
       </text>
       <text fg={TUI_COLORS.text.secondary} paddingLeft={2}>
-        {entry.status} — {entry.reason}
+        {entry.reason}
       </text>
     </box>
   );
@@ -247,6 +336,7 @@ export function SessionDetailPane({ stats }: { stats: SessionStats }) {
   );
 
   const handoffSummary = formatHandoffSummary(stats.handoffStatus, stats.commitSha);
+  const outcomeSummary = [stats.reviewOutcome, handoffSummary].filter(Boolean).join(" · ");
   const projectName = formatProjectNameForDisplay(getProjectNameFromLogPath(stats.sessionPath));
 
   const systemEntry = stats.entries.find((e) => e.type === "system") as SystemEntry | undefined;
@@ -286,76 +376,67 @@ export function SessionDetailPane({ stats }: { stats: SessionStats }) {
         horizontalScrollbarOptions={{ visible: false }}
       >
         <box flexDirection="column" gap={1}>
-          {/* Header section */}
-          <box flexDirection="column">
-            <box flexDirection="row" gap={1}>
-              <text fg={TUI_COLORS.text.muted}>Project:</text>
-              <text fg={TUI_COLORS.text.secondary}>{projectName}</text>
-            </box>
-
-            <box flexDirection="row" gap={1}>
-              <text fg={TUI_COLORS.text.muted}>Status:</text>
-              <text fg={statusColor(stats.status)}>{stats.status}</text>
-              {stats.totalDuration !== undefined && (
-                <text fg={TUI_COLORS.text.dim}>· {formatDuration(stats.totalDuration)}</text>
-              )}
-            </box>
-
-            {stats.gitBranch && (
+          <box flexDirection="column" gap={1}>
+            <HeaderSectionTitle title="Overview" />
+            <MetadataRow label="Project:">
+              <text fg={TUI_COLORS.text.primary}>
+                <strong>{projectName}</strong>
+              </text>
+            </MetadataRow>
+            <MetadataRow label="Status:">
               <box flexDirection="row" gap={1}>
-                <text fg={TUI_COLORS.text.muted}>Branch:</text>
+                <text fg={statusColor(stats.status)}>
+                  <strong>{stats.status}</strong>
+                </text>
+                {stats.totalDuration !== undefined && (
+                  <text fg={TUI_COLORS.text.dim}>· {formatDuration(stats.totalDuration)}</text>
+                )}
+              </box>
+            </MetadataRow>
+            <MetadataRow label="Result:">
+              <text fg={TUI_COLORS.text.secondary}>{issueSummary}</text>
+            </MetadataRow>
+            <MetadataRow label="Priorities:">
+              <PrioritySummaryRow priorityCounts={stats.priorityCounts} />
+            </MetadataRow>
+            {outcomeSummary && (
+              <MetadataRow label="Outcome:">
+                <text fg={TUI_COLORS.text.secondary}>{outcomeSummary}</text>
+              </MetadataRow>
+            )}
+            {stats.commitSha && (
+              <MetadataRow label="Commit:">
+                <text fg={TUI_COLORS.text.secondary}>{stats.commitSha}</text>
+              </MetadataRow>
+            )}
+          </box>
+
+          <box flexDirection="column" gap={1}>
+            <HeaderSectionTitle title="Run setup" />
+            {stats.gitBranch && (
+              <MetadataRow label="Branch:">
                 <text fg={TUI_COLORS.text.secondary}>
                   {stats.gitBranch}
                   {stats.worktreeBranch ? ` (worktree: ${stats.worktreeBranch})` : ""}
                 </text>
-              </box>
+              </MetadataRow>
             )}
-
-            <box flexDirection="row" gap={1}>
-              <text fg={TUI_COLORS.text.muted}>Reviewer:</text>
+            <MetadataRow label="Reviewer:">
               <text fg={TUI_COLORS.text.secondary}>
                 {stats.reviewerDisplayName} ({stats.reviewerModelDisplayName}){" "}
                 {reasoningLabel(stats.reviewerReasoning)}
               </text>
-            </box>
-
-            <box flexDirection="row" gap={1}>
-              <text fg={TUI_COLORS.text.muted}>Fixer:</text>
+            </MetadataRow>
+            <MetadataRow label="Fixer:">
               <text fg={TUI_COLORS.text.secondary}>
                 {stats.fixerDisplayName} ({stats.fixerModelDisplayName}){" "}
                 {reasoningLabel(stats.fixerReasoning)}
               </text>
-            </box>
-
-            {(stats.reviewOutcome || handoffSummary || stats.commitSha) && (
-              <box flexDirection="row" gap={1}>
-                <text fg={TUI_COLORS.text.muted}>Outcome:</text>
-                <text fg={TUI_COLORS.text.secondary}>
-                  {[stats.reviewOutcome, handoffSummary].filter(Boolean).join(" · ")}
-                </text>
-              </box>
-            )}
-
-            <box flexDirection="row" gap={1}>
-              <text fg={TUI_COLORS.text.muted}>Result:</text>
-              <text fg={TUI_COLORS.text.secondary}>{issueSummary}</text>
-            </box>
-
-            <box flexDirection="row" gap={1}>
-              {formatPriorityBreakdown(stats.priorityCounts).map((item, idx, arr) => (
-                <box key={item.priority} flexDirection="row">
-                  <text fg={PRIORITY_COLORS[item.priority]}>{item.priority} </text>
-                  <text fg={TUI_COLORS.text.muted}>{item.count}</text>
-                  {idx < arr.length - 1 && <text fg={TUI_COLORS.text.dim}> · </text>}
-                </box>
-              ))}
-            </box>
-
-            {systemEntry?.reviewOptions && (
-              <box flexDirection="row" gap={1}>
-                <text fg={TUI_COLORS.text.muted}>Max iterations:</text>
+            </MetadataRow>
+            {systemEntry && (
+              <MetadataRow label="Max iterations:">
                 <text fg={TUI_COLORS.text.secondary}>{systemEntry.maxIterations}</text>
-              </box>
+              </MetadataRow>
             )}
           </box>
 
