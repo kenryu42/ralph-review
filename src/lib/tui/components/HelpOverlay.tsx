@@ -58,7 +58,7 @@ export function HelpOverlay({ onClose }: HelpOverlayProps) {
           </text>
           <text>
             <span fg={TUI_COLORS.accent.key}>[l]</span>
-            <span fg={TUI_COLORS.text.muted}> Review history</span>
+            <span fg={TUI_COLORS.text.muted}> Sessions</span>
           </text>
           <text>
             <span fg={TUI_COLORS.accent.key}>[?]</span>

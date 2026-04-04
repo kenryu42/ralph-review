@@ -16,7 +16,7 @@ import { useWorkspaceState } from "../use-workspace-state";
 import { stopSelectedDashboardSession } from "./dashboard-stop";
 import { Header } from "./Header";
 import { HelpOverlay } from "./HelpOverlay";
-import { HistoryOverlay } from "./HistoryOverlay";
+import { SessionOverlay } from "./SessionOverlay";
 import { StatusBar } from "./StatusBar";
 import { StopSessionPickerOverlay } from "./StopSessionPickerOverlay";
 import { type FocusedPane, Workspace } from "./Workspace";
@@ -31,7 +31,7 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
   const [focusedPane, setFocusedPane] = useState<FocusedPane>("detail");
   const [outputVisible, setOutputVisible] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
-  const [showHistory, setShowHistory] = useState(false);
+  const [showSession, setShowSession] = useState(false);
   const [showStopPicker, setShowStopPicker] = useState(false);
 
   const projectName = basename(projectPath);
@@ -156,15 +156,15 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
           setShowStopPicker(false);
         } else if (showHelp) {
           setShowHelp(false);
-        } else if (showHistory) {
-          setShowHistory(false);
+        } else if (showSession) {
+          setShowSession(false);
         } else {
           void shutdown();
         }
         return;
       }
 
-      if (showHelp || showHistory || showStopPicker) {
+      if (showHelp || showSession || showStopPicker) {
         return;
       }
 
@@ -181,7 +181,7 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
       }
 
       if (key.name === "l") {
-        setShowHistory(true);
+        setShowSession(true);
       }
 
       if (key.name === "s") {
@@ -228,7 +228,7 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
         }
       }
     },
-    [projectPath, showHelp, showHistory, showStopPicker, shutdown, stopSelectedSession, cycleFocus]
+    [projectPath, showHelp, showSession, showStopPicker, shutdown, stopSelectedSession, cycleFocus]
   );
 
   useKeyboard(handleKeyboard);
@@ -308,7 +308,7 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
         stopPickerOpen={showStopPicker}
       />
       {showHelp && <HelpOverlay onClose={() => setShowHelp(false)} />}
-      {showHistory && <HistoryOverlay onClose={() => setShowHistory(false)} />}
+      {showSession && <SessionOverlay onClose={() => setShowSession(false)} />}
       {showStopPicker && (
         <StopSessionPickerOverlay
           sessions={state.allSessions}

@@ -5,9 +5,9 @@ import { computeSessionStats, listLogSessions } from "@/lib/logger";
 import { TUI_COLORS } from "@/lib/tui/colors";
 import type { SessionStats } from "@/lib/types";
 import { formatRelativeTime } from "../session-panel-utils";
-import { HistoryDetailPane } from "./HistoryDetailPane";
+import { SessionDetailPane } from "./SessionDetailPane";
 
-interface HistoryOverlayProps {
+interface SessionOverlayProps {
   onClose: () => void;
 }
 
@@ -16,7 +16,7 @@ function sessionLabel(session: LogSession): string {
   return `${session.projectName}: ${name}`;
 }
 
-function HistoryHelpModal({ onClose }: { onClose: () => void }) {
+function SessionHelpModal({ onClose }: { onClose: () => void }) {
   useKeyboard((key) => {
     if (key.name === "escape" || key.name === "?") {
       onClose();
@@ -53,7 +53,7 @@ function HistoryHelpModal({ onClose }: { onClose: () => void }) {
           </text>
           <text>
             <span fg={TUI_COLORS.accent.key}>[Esc/l]</span>
-            <span fg={TUI_COLORS.text.muted}> Close history</span>
+            <span fg={TUI_COLORS.text.muted}> Close session</span>
           </text>
         </box>
       </box>
@@ -61,7 +61,7 @@ function HistoryHelpModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-export function HistoryOverlay({ onClose }: HistoryOverlayProps) {
+export function SessionOverlay({ onClose }: SessionOverlayProps) {
   const renderer = useRenderer();
   const [sessions, setSessions] = useState<LogSession[]>([]);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
@@ -73,7 +73,8 @@ export function HistoryOverlay({ onClose }: HistoryOverlayProps) {
   useEffect(() => {
     listLogSessions().then((s) => {
       setSessions(s);
-      if (s.length > 0) setSelectedPath(s[0]!.path);
+      const firstSession = s[0];
+      if (firstSession) setSelectedPath(firstSession.path);
       setIsLoading(false);
     });
   }, []);
@@ -154,7 +155,7 @@ export function HistoryOverlay({ onClose }: HistoryOverlayProps) {
         <box
           border
           borderStyle="rounded"
-          title="History [?]"
+          title="Sessions [?]"
           titleAlignment="left"
           width={70}
           flexShrink={0}
@@ -194,12 +195,12 @@ export function HistoryOverlay({ onClose }: HistoryOverlayProps) {
           ) : !selectedStats ? (
             <text fg={TUI_COLORS.text.muted}>Select a session to view details</text>
           ) : (
-            <HistoryDetailPane stats={selectedStats} />
+            <SessionDetailPane stats={selectedStats} />
           )}
         </box>
       </box>
 
-      {showHelp && <HistoryHelpModal onClose={() => setShowHelp(false)} />}
+      {showHelp && <SessionHelpModal onClose={() => setShowHelp(false)} />}
     </box>
   );
 }

@@ -114,7 +114,7 @@ function SessionEndSection({ entry }: { entry: SessionEndEntry }) {
   );
 }
 
-export function HistoryDetailPane({ stats }: { stats: SessionStats }) {
+export function SessionDetailPane({ stats }: { stats: SessionStats }) {
   const issueSummary = formatLastRunIssueSummary(
     stats.totalFixes,
     stats.totalSkipped,
