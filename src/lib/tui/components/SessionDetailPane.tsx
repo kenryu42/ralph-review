@@ -1,4 +1,5 @@
 import { formatDuration } from "@/lib/format";
+import { getProjectNameFromLogPath } from "@/lib/logger";
 import { TUI_COLORS } from "@/lib/tui/colors";
 import type {
   Finding,
@@ -13,6 +14,7 @@ import {
   formatHandoffSummary,
   formatLastRunIssueSummary,
   formatPriorityBreakdown,
+  formatProjectNameForDisplay,
   PRIORITY_COLORS,
 } from "../session-panel-utils";
 import { FindingsList, FixList, SectionHeader, SkippedList } from "./session-detail-parts";
@@ -122,6 +124,7 @@ export function SessionDetailPane({ stats }: { stats: SessionStats }) {
   );
 
   const handoffSummary = formatHandoffSummary(stats.handoffStatus, stats.commitSha);
+  const projectName = formatProjectNameForDisplay(getProjectNameFromLogPath(stats.sessionPath));
 
   const systemEntry = stats.entries.find((e) => e.type === "system") as SystemEntry | undefined;
   const iterationEntries = stats.entries.filter((e) => e.type === "iteration") as IterationEntry[];
@@ -135,6 +138,11 @@ export function SessionDetailPane({ stats }: { stats: SessionStats }) {
     <scrollbox flexDirection="column" gap={1}>
       {/* Header section */}
       <box flexDirection="column">
+        <box flexDirection="row" gap={1}>
+          <text fg={TUI_COLORS.text.muted}>Project:</text>
+          <text fg={TUI_COLORS.text.secondary}>{projectName}</text>
+        </box>
+
         <box flexDirection="row" gap={1}>
           <text fg={TUI_COLORS.text.muted}>Status:</text>
           <text fg={statusColor(stats.status)}>{stats.status}</text>
@@ -154,7 +162,7 @@ export function SessionDetailPane({ stats }: { stats: SessionStats }) {
         )}
 
         <box flexDirection="row" gap={1}>
-          <text fg={TUI_COLORS.text.muted}>R:</text>
+          <text fg={TUI_COLORS.text.muted}>Reviewer:</text>
           <text fg={TUI_COLORS.text.secondary}>
             {stats.reviewerDisplayName} ({stats.reviewerModelDisplayName}){" "}
             {reasoningLabel(stats.reviewerReasoning)}
@@ -162,7 +170,7 @@ export function SessionDetailPane({ stats }: { stats: SessionStats }) {
         </box>
 
         <box flexDirection="row" gap={1}>
-          <text fg={TUI_COLORS.text.muted}>F:</text>
+          <text fg={TUI_COLORS.text.muted}>Fixer:</text>
           <text fg={TUI_COLORS.text.secondary}>
             {stats.fixerDisplayName} ({stats.fixerModelDisplayName}){" "}
             {reasoningLabel(stats.fixerReasoning)}
