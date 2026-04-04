@@ -646,7 +646,6 @@ export function createSessionWorktree(
   worktreeId: string,
   storageRoot: string = CONFIG_DIR
 ): GitSessionWorktree {
-  const tStart = Date.now();
   const normalizedId = normalizeCheckpointId(worktreeId);
   const sourceRepoPath = assertGitOk(
     sourceProjectPath,
@@ -708,8 +707,6 @@ export function createSessionWorktree(
       `worktree-${normalizedId}`,
       "Failed to capture session worktree snapshot"
     );
-
-    console.log(`Session worktree prepared in ${Date.now() - tStart}ms`);
     return worktree;
   } catch (error) {
     try {
