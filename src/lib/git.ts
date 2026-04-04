@@ -484,7 +484,7 @@ function createGitScopedWorkingTreeSnapshot(
     [
       "sh",
       "-c",
-      `git ls-files -z --cached --others --exclude-standard | tar --null -T - -cf '${escapedArchivePath}'`,
+      `git ls-files -z --cached --others --exclude-standard | perl -0ne 'print if -e' | tar --null -T - -cf '${escapedArchivePath}'`,
     ],
     context
   );
