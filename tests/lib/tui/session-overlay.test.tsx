@@ -1,7 +1,9 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { KeyEvent } from "@opentui/core";
 import { testRender } from "@opentui/react/test-utils";
 import { act, createElement } from "react";
+import type { LogSession } from "@/lib/logger";
+import * as logger from "@/lib/logger";
 import { SessionDetailPane } from "@/lib/tui/components/SessionDetailPane";
 import { SessionOverlay } from "@/lib/tui/components/SessionOverlay";
 import type { IterationEntry, SessionEndEntry, SessionStats, SystemEntry } from "@/lib/types";
@@ -76,11 +78,24 @@ describe("SessionOverlay", () => {
       });
       testSetup = null;
     }
+    mock.restore();
   });
 
   async function renderOverlay(
-    props: Partial<Parameters<typeof SessionOverlay>[0]> = {}
+    props: Partial<Parameters<typeof SessionOverlay>[0]> = {},
+    options: {
+      sessions?: Promise<LogSession[]>;
+      stats?: Promise<SessionStats>;
+    } = {}
   ): Promise<Awaited<ReturnType<typeof testRender>>> {
+    const {
+      sessions = new Promise<LogSession[]>(() => {}),
+      stats = Promise.resolve(buildSessionStats()),
+    } = options;
+
+    spyOn(logger, "listLogSessions").mockImplementation(() => sessions);
+    spyOn(logger, "computeSessionStats").mockImplementation(() => stats);
+
     const defaultProps: Parameters<typeof SessionOverlay>[0] = {
       onClose: () => {},
       ...props,
@@ -98,11 +113,11 @@ describe("SessionOverlay", () => {
     return testSetup;
   }
 
-  test("renders the Session pane title with help hint", async () => {
+  test("renders the Session pane title", async () => {
     const setup = await renderOverlay();
     const frame = setup.captureCharFrame();
 
-    expect(frame).toContain("Sessions [?]");
+    expect(frame).toContain("Sessions");
   });
 
   test("shows loading state initially", async () => {
@@ -300,6 +315,19 @@ describe("SessionDetailPane", () => {
     expect(frame).toContain("sonnet-4");
     expect(frame).toContain("clean");
     expect(frame).toContain("Applied to working tree");
+  });
+
+  test("renders project name without hash suffix", async () => {
+    const stats = buildSessionStats({
+      sessionPath: "/tmp/.config/ralph-review/ralph-review-75433236/logs/session-a.jsonl",
+    });
+
+    const setup = await renderDetailPane(stats);
+    const frame = setup.captureCharFrame();
+
+    expect(frame).toContain("Project:");
+    expect(frame).toContain("ralph-review");
+    expect(frame).not.toContain("ralph-review-75433236");
   });
 
   test("renders issue summary and priority breakdown", async () => {

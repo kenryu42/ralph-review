@@ -4,7 +4,7 @@ import type { LogSession } from "@/lib/logger";
 import { computeSessionStats, listLogSessions } from "@/lib/logger";
 import { TUI_COLORS } from "@/lib/tui/colors";
 import type { SessionStats } from "@/lib/types";
-import { formatRelativeTime } from "../session-panel-utils";
+import { formatProjectNameForDisplay, formatRelativeTime } from "../session-panel-utils";
 import { SessionDetailPane } from "./SessionDetailPane";
 
 interface SessionOverlayProps {
@@ -12,8 +12,7 @@ interface SessionOverlayProps {
 }
 
 function sessionLabel(session: LogSession): string {
-  const name = session.name.replace(/\.jsonl$/, "");
-  return `${session.projectName}: ${name}`;
+  return session.name.replace(/\.jsonl$/, "");
 }
 
 function SessionHelpModal({ onClose }: { onClose: () => void }) {
@@ -102,13 +101,7 @@ export function SessionOverlay({ onClose }: SessionOverlayProps) {
     const selectOptions: Array<{ name: string; description: string; value: string }> = [];
     const sessionSlots: Array<LogSession | null> = [];
 
-    for (const [projectName, projectSessions] of grouped) {
-      selectOptions.push({
-        name: `── ${projectName} ──`,
-        description: "",
-        value: `__header__${projectName}`,
-      });
-      sessionSlots.push(null);
+    for (const [_, projectSessions] of grouped) {
       for (const s of projectSessions) {
         const name = s.name.replace(/\.jsonl$/, "");
         selectOptions.push({
@@ -148,6 +141,9 @@ export function SessionOverlay({ onClose }: SessionOverlayProps) {
   const selectedSession = selectedPath
     ? (sessions.find((s) => s.path === selectedPath) ?? null)
     : null;
+  const sessionTitle = selectedSession
+    ? `${formatProjectNameForDisplay(selectedSession.projectName)} Sessions`
+    : "Sessions";
 
   return (
     <box position="absolute" left={0} top={0} width="100%" height="100%" backgroundColor="#0d0d1a">
@@ -155,7 +151,7 @@ export function SessionOverlay({ onClose }: SessionOverlayProps) {
         <box
           border
           borderStyle="rounded"
-          title="Sessions [?]"
+          title={sessionTitle}
           titleAlignment="left"
           width={70}
           flexShrink={0}
