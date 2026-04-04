@@ -2,9 +2,9 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { testRender } from "@opentui/react/test-utils";
 import { act, createElement } from "react";
 import type { SessionState } from "@/lib/session-state";
-import { SessionPanel } from "@/lib/tui/components/SessionPanel";
+import { DetailPane } from "@/lib/tui/components/DetailPane";
 import { resolveIssuesFoundDisplay } from "@/lib/tui/session-panel-utils";
-import type { AgentRole, ReviewSummary, SessionStats } from "@/lib/types";
+import type { AgentRole, ReviewSummary } from "@/lib/types";
 
 describe("SessionPanel behavior", () => {
   const finding = {
@@ -201,7 +201,7 @@ describe("SessionPanel behavior", () => {
   });
 });
 
-describe("SessionPanel status rendering", () => {
+describe("DetailPane status rendering", () => {
   let testSetup: Awaited<ReturnType<typeof testRender>> | null = null;
 
   afterEach(async () => {
@@ -229,41 +229,15 @@ describe("SessionPanel status rendering", () => {
     };
   }
 
-  function createLastSessionStats(overrides: Partial<SessionStats> = {}): SessionStats {
-    return {
-      sessionPath: "/logs/test-project/2024-01-15T14-30-00.jsonl",
-      sessionName: "2024-01-15T14-30-00.jsonl",
-      timestamp: Date.now(),
-      gitBranch: "main",
-      status: "completed",
-      totalFixes: 0,
-      totalSkipped: 0,
-      priorityCounts: { P0: 0, P1: 0, P2: 0, P3: 0 },
-      iterations: 1,
-      entries: [],
-      reviewer: "claude",
-      reviewerModel: "claude-sonnet-4-20250514",
-      reviewerDisplayName: "Claude",
-      reviewerModelDisplayName: "claude-sonnet-4-20250514",
-      fixer: "claude",
-      fixerModel: "claude-sonnet-4-20250514",
-      fixerDisplayName: "Claude",
-      fixerModelDisplayName: "claude-sonnet-4-20250514",
-      ...overrides,
-    };
-  }
-
   async function renderFrame({
     session = createSession(),
     currentAgent = null,
-    lastSessionStats = null,
   }: {
     session?: SessionState | null;
     currentAgent?: AgentRole | null;
-    lastSessionStats?: SessionStats | null;
   } = {}): Promise<string> {
     testSetup = await testRender(
-      createElement(SessionPanel, {
+      createElement(DetailPane, {
         session,
         fixes: [],
         skipped: [],
@@ -273,7 +247,6 @@ describe("SessionPanel status rendering", () => {
         tmuxOutput: "",
         maxIterations: 5,
         isLoading: false,
-        lastSessionStats,
         projectStats: null,
         isGitRepo: true,
         currentAgent,
@@ -355,19 +328,6 @@ describe("SessionPanel status rendering", () => {
       currentAgent: null,
     });
 
-    expect(frame).toContain("running");
-    expect(frame).not.toContain("preparing session worktree");
-  });
-
-  test("keeps last-run running status when there is no active session", async () => {
-    const frame = await renderFrame({
-      session: null,
-      lastSessionStats: createLastSessionStats({
-        status: "running",
-      }),
-    });
-
-    expect(frame).toContain("Last run:");
     expect(frame).toContain("running");
     expect(frame).not.toContain("preparing session worktree");
   });

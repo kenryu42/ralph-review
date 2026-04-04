@@ -2,20 +2,18 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { testRender } from "@opentui/react/test-utils";
 import { act, createElement } from "react";
 import type { SessionState } from "@/lib/session-state";
-import { SessionPanel } from "@/lib/tui/components/SessionPanel";
+import { DetailPane } from "@/lib/tui/components/DetailPane";
 import type {
   AgentRole,
   Finding,
   FixEntry,
-  IterationEntry,
   ProjectStats,
   ReviewOptions,
-  SessionStats,
   SkippedEntry,
 } from "@/lib/types";
-import { buildFixEntry, buildFixSummary, buildSkippedEntry } from "../../test-utils/fix-summary";
+import { buildFixEntry, buildSkippedEntry } from "../../test-utils/fix-summary";
 
-describe("SessionPanel", () => {
+describe("DetailPane", () => {
   let testSetup: Awaited<ReturnType<typeof testRender>> | null = null;
 
   afterEach(async () => {
@@ -57,46 +55,6 @@ describe("SessionPanel", () => {
     };
   }
 
-  function createIterationEntry(overrides: Partial<IterationEntry> = {}): IterationEntry {
-    return {
-      type: "iteration",
-      timestamp: Date.now(),
-      iteration: 1,
-      duration: 1_000,
-      fixes: buildFixSummary({
-        decision: "APPLY_MOST",
-        fixes: [buildFixEntry()],
-        skipped: [buildSkippedEntry()],
-      }),
-      ...overrides,
-    };
-  }
-
-  function createLastSessionStats(overrides: Partial<SessionStats> = {}): SessionStats {
-    return {
-      sessionPath: "/logs/test-project/2024-01-15T14-30-00.jsonl",
-      sessionName: "2024-01-15T14-30-00.jsonl",
-      sessionId: "session-1",
-      timestamp: Date.now(),
-      gitBranch: "main",
-      status: "completed",
-      totalFixes: 1,
-      totalSkipped: 1,
-      priorityCounts: { P0: 0, P1: 1, P2: 1, P3: 0 },
-      iterations: 2,
-      entries: [createIterationEntry()],
-      reviewer: "claude",
-      reviewerModel: "claude-sonnet-4-20250514",
-      reviewerDisplayName: "Claude",
-      reviewerModelDisplayName: "claude-sonnet-4-20250514",
-      fixer: "codex",
-      fixerModel: "gpt-5.3-codex",
-      fixerDisplayName: "Codex",
-      fixerModelDisplayName: "gpt-5.3-codex",
-      ...overrides,
-    };
-  }
-
   function createProjectStats(overrides: Partial<ProjectStats> = {}): ProjectStats {
     return {
       projectName: "test-project",
@@ -122,14 +80,12 @@ describe("SessionPanel", () => {
     tmuxOutput = "",
     maxIterations = 5,
     isLoading = false,
-    lastSessionStats = null,
     projectStats = null,
     isGitRepo = true,
     currentAgent = null,
     reviewOptions = undefined,
     isStarting = false,
     isStopping = false,
-    suppressLastSessionStats = false,
     activeSessionCount = 1,
     focused = false,
   }: {
@@ -142,19 +98,17 @@ describe("SessionPanel", () => {
     tmuxOutput?: string;
     maxIterations?: number;
     isLoading?: boolean;
-    lastSessionStats?: SessionStats | null;
     projectStats?: ProjectStats | null;
     isGitRepo?: boolean;
     currentAgent?: AgentRole | null;
     reviewOptions?: ReviewOptions | undefined;
     isStarting?: boolean;
     isStopping?: boolean;
-    suppressLastSessionStats?: boolean;
     activeSessionCount?: number;
     focused?: boolean;
   } = {}): Promise<string> {
     testSetup = await testRender(
-      createElement(SessionPanel, {
+      createElement(DetailPane, {
         session,
         fixes,
         skipped,
@@ -164,14 +118,12 @@ describe("SessionPanel", () => {
         tmuxOutput,
         maxIterations,
         isLoading,
-        lastSessionStats,
         projectStats,
         isGitRepo,
         currentAgent,
         reviewOptions,
         isStarting,
         isStopping,
-        suppressLastSessionStats,
         activeSessionCount,
         focused,
       }),
@@ -235,7 +187,6 @@ describe("SessionPanel", () => {
   test("renders the idle state with git guidance", async () => {
     const frame = await renderFrame({
       session: null,
-      lastSessionStats: null,
       isGitRepo: false,
     });
 
@@ -248,7 +199,6 @@ describe("SessionPanel", () => {
   test("renders the idle starting banner", async () => {
     const frame = await renderFrame({
       session: null,
-      lastSessionStats: null,
       isStarting: true,
     });
 
@@ -258,91 +208,27 @@ describe("SessionPanel", () => {
   test("renders the idle stopping banner", async () => {
     const frame = await renderFrame({
       session: null,
-      lastSessionStats: null,
       isStopping: true,
     });
 
     expect(frame).toContain("Stopping review...");
   });
 
-  test("suppresses matching last-run details while the stopping banner is active", async () => {
+  test("renders project stats in idle state", async () => {
     const frame = await renderFrame({
       session: null,
-      lastSessionStats: createLastSessionStats({
-        status: "failed",
-      }),
-      isStopping: true,
-      suppressLastSessionStats: true,
-    });
-
-    expect(frame).toContain("Stopping review...");
-    expect(frame).not.toContain("Last run:");
-    expect(frame).not.toContain("failed");
-  });
-
-  test("renders historical run details with handoff commands and extracted fixes", async () => {
-    const frame = await renderFrame({
-      session: null,
-      lastSessionStats: createLastSessionStats({
-        handoffStatus: "pending-apply",
-        commitSha: "abc1234",
-      }),
       projectStats: createProjectStats(),
     });
 
     expect(frame).toContain("Project stats:");
     expect(frame).toContain("3 fixes across 2 sessions");
-    expect(frame).toContain('"rr dashboard" for more insights');
-    expect(frame).toContain("Last run:");
-    expect(frame).toContain("Pending apply");
-    expect(frame).toContain("rr apply --session session-1");
-    expect(frame).toContain("Recent fixes:");
-    expect(frame).toContain("Fix title");
-    expect(frame).toContain("src/file.ts");
-    expect(frame).toContain("Recent skipped:");
-    expect(frame).toContain("Skipped title");
   });
 
-  test("renders retained worktree guidance for the previous run when no handoff exists", async () => {
-    const frame = await renderFrame({
-      session: null,
-      lastSessionStats: createLastSessionStats({
-        handoffStatus: undefined,
-        worktreeBranch: "rr-worktree-session-1",
-        mergeReady: true,
-        reviewOutcome: "incomplete",
-        entries: [],
-        totalFixes: 0,
-        totalSkipped: 0,
-      }),
-    });
-
-    expect(frame).toContain("Worktree branch:");
-    expect(frame).toContain("rr-worktree-session-1");
-    expect(frame).toContain("git merge rr-worktree-session-1");
-    expect(frame).toContain("Remaining findings may still exist");
-  });
-
-  test("keeps last-run running status when there is no active session", async () => {
-    const frame = await renderFrame({
-      session: null,
-      lastSessionStats: createLastSessionStats({
-        status: "running",
-      }),
-    });
-
-    expect(frame).toContain("Last run:");
-    expect(frame).toContain("running");
-    expect(frame).not.toContain("preparing session worktree");
-  });
-
-  test("renders an active session summary with findings, fixes, skipped items, and handoff", async () => {
+  test("renders an active session summary with findings, fixes, and skipped items", async () => {
     const frame = await renderFrame({
       session: createSession({
         iteration: 2,
         currentAgent: "reviewer",
-        handoffStatus: "pending-apply",
-        commitSha: "def5678",
         worktreeBranch: "rr-worktree-session-2",
       }),
       currentAgent: "reviewer",
@@ -361,9 +247,6 @@ describe("SessionPanel", () => {
     expect(frame).toContain("rr-test-123");
     expect(frame).toContain("rr-worktree-session-2");
     expect(frame).toContain("2 active sessions");
-    expect(frame).toContain("Handoff:");
-    expect(frame).toContain("Pending apply");
-    expect(frame).toContain("rr apply --session session-1");
     expect(frame).toContain("Issues found");
     expect(frame).toContain("Trailing spaces in title");
     expect(frame).toContain("/test/project/src/file.ts:10-12");
@@ -371,29 +254,6 @@ describe("SessionPanel", () => {
     expect(frame).toContain("Fix title");
     expect(frame).toContain("Skipped");
     expect(frame).toContain("Skipped title");
-  });
-
-  test("renders merge guidance and empty sections for an active retained worktree", async () => {
-    const frame = await renderFrame({
-      session: createSession({
-        state: "completed",
-        iteration: 3,
-        currentAgent: null,
-        handoffStatus: undefined,
-        worktreeBranch: "rr-worktree-session-3",
-        worktreeMergeReady: true,
-        reviewOutcome: "incomplete",
-      }),
-      currentAgent: null,
-      reviewOptions: undefined,
-    });
-
-    expect(frame).toContain("completed");
-    expect(frame).toContain("uncommitted changes");
-    expect(frame).toContain("Merge fixes:");
-    expect(frame).toContain("git merge rr-worktree-session-3");
-    expect(frame).toContain("Remaining findings may still exist");
-    expect(frame).toContain("None yet");
   });
 
   test("renders codex review text when no structured findings are present", async () => {

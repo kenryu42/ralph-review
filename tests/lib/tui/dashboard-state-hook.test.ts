@@ -333,6 +333,7 @@ async function mountDashboardHarness(
     computeSessionStats,
     getLatestProjectLogSession,
     getProjectName,
+    listLogSessions: async () => [],
     listProjectLogSessions,
     readLogIncremental: async (logPath: string, state?: LogIncrementalState) => {
       readLogIncrementalCalls.push({ logPath, state });

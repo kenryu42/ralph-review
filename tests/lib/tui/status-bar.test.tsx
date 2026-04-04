@@ -20,7 +20,8 @@ describe("StatusBar", () => {
   ): Promise<string> {
     const defaultProps: Parameters<typeof StatusBar>[0] = {
       hasSession: true,
-      focusedPanel: "session",
+      focusedPane: "detail",
+      outputVisible: false,
       stopPickerOpen: false,
     };
 

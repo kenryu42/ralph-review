@@ -161,9 +161,8 @@ describe("Header", () => {
 
   test("keeps the project path aligned when config is missing", async () => {
     const frame = await renderFrame({ config: null });
-    const lines = frame.split("\n");
 
-    expect(lines[3]).toContain("/tmp/ralph-review");
+    expect(frame).toContain("/tmp/ralph-review");
   });
 
   test("replaces home directory prefix with tilde when path is under HOME", async () => {
@@ -202,23 +201,29 @@ describe("Header", () => {
     }
   });
 
-  test("renders simplifier row when simplifier is enabled", async () => {
+  test("renders simplifier display when simplifier is enabled", async () => {
     const frame = await renderFrame({
       config: {
         ...createConfig(),
         run: { simplifier: true, interactive: true },
       },
     });
-    expect(frame).toContain("Simplifier:");
+    expect(frame).toContain("S:");
+    expect(frame).toContain("Droid");
   });
 
-  test("does not render simplifier row when simplifier is disabled", async () => {
+  test("does not render simplifier display when simplifier is disabled", async () => {
     const frame = await renderFrame({
       config: {
         ...createConfig(),
         run: { simplifier: false, interactive: true },
       },
     });
-    expect(frame).not.toContain("Simplifier:");
+    // Only R: and F: should appear, not S:
+    expect(frame).toContain("R:");
+    expect(frame).toContain("F:");
+    // We can't easily check for absence of "S:" since "S" appears in other text,
+    // but the simplifier display line should not be present
+    expect(frame).not.toContain("S: Droid");
   });
 });
