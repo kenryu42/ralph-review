@@ -3,31 +3,12 @@ import { useEffect, useMemo, useState } from "react";
 import type { LogSession } from "@/lib/logger";
 import { computeSessionStats, listLogSessions } from "@/lib/logger";
 import { TUI_COLORS } from "@/lib/tui/colors";
-import type { DerivedRunStatus, SessionStats } from "@/lib/types";
-import {
-  formatLastRunIssueSummary,
-  formatPriorityBreakdown,
-  formatRelativeTime,
-  PRIORITY_COLORS,
-} from "../session-panel-utils";
+import type { SessionStats } from "@/lib/types";
+import { formatRelativeTime } from "../session-panel-utils";
+import { HistoryDetailPane } from "./HistoryDetailPane";
 
 interface HistoryOverlayProps {
   onClose: () => void;
-}
-
-function statusColor(status: DerivedRunStatus): string {
-  switch (status) {
-    case "completed":
-      return TUI_COLORS.status.success;
-    case "running":
-      return TUI_COLORS.status.pending;
-    case "failed":
-      return TUI_COLORS.status.error;
-    case "interrupted":
-      return TUI_COLORS.status.warning;
-    default:
-      return TUI_COLORS.status.inactive;
-  }
 }
 
 function sessionLabel(session: LogSession): string {
@@ -35,54 +16,46 @@ function sessionLabel(session: LogSession): string {
   return `${session.projectName}: ${name}`;
 }
 
-function HistoryDetailPane({ stats }: { stats: SessionStats }) {
-  const issueSummary = formatLastRunIssueSummary(
-    stats.totalFixes,
-    stats.totalSkipped,
-    stats.iterations
-  );
+function HistoryHelpModal({ onClose }: { onClose: () => void }) {
+  useKeyboard((key) => {
+    if (key.name === "escape" || key.name === "?") {
+      onClose();
+    }
+  });
 
   return (
-    <box flexDirection="column" gap={1}>
-      <box flexDirection="row" gap={1}>
-        <text fg={TUI_COLORS.text.muted}>Status:</text>
-        <text fg={statusColor(stats.status)}>{stats.status}</text>
-      </box>
-
-      {stats.gitBranch && (
-        <box flexDirection="row" gap={1}>
-          <text fg={TUI_COLORS.text.muted}>Branch:</text>
-          <text fg={TUI_COLORS.text.secondary}>{stats.gitBranch}</text>
+    <box
+      position="absolute"
+      left={0}
+      top={0}
+      width="100%"
+      height="100%"
+      justifyContent="center"
+      alignItems="center"
+    >
+      <box
+        border
+        borderStyle="double"
+        title="Keyboard Shortcuts"
+        titleAlignment="left"
+        padding={2}
+        width={44}
+        backgroundColor="#1a1a2e"
+      >
+        <box flexDirection="column" gap={1}>
+          <text>
+            <span fg={TUI_COLORS.accent.key}>[↑/↓]</span>
+            <span fg={TUI_COLORS.text.muted}> Navigate sessions</span>
+          </text>
+          <text>
+            <span fg={TUI_COLORS.accent.key}>[?]</span>
+            <span fg={TUI_COLORS.text.muted}> Toggle help</span>
+          </text>
+          <text>
+            <span fg={TUI_COLORS.accent.key}>[Esc/l]</span>
+            <span fg={TUI_COLORS.text.muted}> Close history</span>
+          </text>
         </box>
-      )}
-
-      <box flexDirection="row" gap={1}>
-        <text fg={TUI_COLORS.text.muted}>R:</text>
-        <text fg={TUI_COLORS.text.secondary}>
-          {stats.reviewerDisplayName} ({stats.reviewerModelDisplayName})
-        </text>
-      </box>
-
-      <box flexDirection="row" gap={1}>
-        <text fg={TUI_COLORS.text.muted}>F:</text>
-        <text fg={TUI_COLORS.text.secondary}>
-          {stats.fixerDisplayName} ({stats.fixerModelDisplayName})
-        </text>
-      </box>
-
-      <box flexDirection="row" gap={1}>
-        <text fg={TUI_COLORS.text.muted}>Result:</text>
-        <text fg={TUI_COLORS.text.secondary}>{issueSummary}</text>
-      </box>
-
-      <box flexDirection="row" gap={1}>
-        {formatPriorityBreakdown(stats.priorityCounts).map((item, idx, arr) => (
-          <box key={item.priority} flexDirection="row">
-            <text fg={PRIORITY_COLORS[item.priority]}>{item.priority} </text>
-            <text fg={TUI_COLORS.text.muted}>{item.count}</text>
-            {idx < arr.length - 1 && <text fg={TUI_COLORS.text.dim}> · </text>}
-          </box>
-        ))}
       </box>
     </box>
   );
@@ -95,6 +68,7 @@ export function HistoryOverlay({ onClose }: HistoryOverlayProps) {
   const [selectedStats, setSelectedStats] = useState<SessionStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [statsLoading, setStatsLoading] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
 
   useEffect(() => {
     listLogSessions().then((s) => {
@@ -149,6 +123,18 @@ export function HistoryOverlay({ onClose }: HistoryOverlayProps) {
   }, [sessions]);
 
   useKeyboard((key) => {
+    if (key.name === "?") {
+      setShowHelp((prev) => !prev);
+      return;
+    }
+
+    if (showHelp) {
+      if (key.name === "escape") {
+        setShowHelp(false);
+      }
+      return;
+    }
+
     if (key.name === "escape" || key.name === "l") {
       onClose();
       return;
@@ -168,7 +154,7 @@ export function HistoryOverlay({ onClose }: HistoryOverlayProps) {
         <box
           border
           borderStyle="rounded"
-          title="History"
+          title="History [?]"
           titleAlignment="left"
           width={70}
           flexShrink={0}
@@ -183,7 +169,7 @@ export function HistoryOverlay({ onClose }: HistoryOverlayProps) {
             <select
               options={selectOptions}
               height={selectHeight}
-              focused
+              focused={!showHelp}
               showScrollIndicator
               selectedIndex={sessionSlots.findIndex((s) => s?.path === selectedPath)}
               onChange={(idx) => {
@@ -212,6 +198,8 @@ export function HistoryOverlay({ onClose }: HistoryOverlayProps) {
           )}
         </box>
       </box>
+
+      {showHelp && <HistoryHelpModal onClose={() => setShowHelp(false)} />}
     </box>
   );
 }
