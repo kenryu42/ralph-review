@@ -8,6 +8,7 @@ import {
   formatHandoffSummary,
   formatLastRunIssueSummary,
   formatPriorityBreakdown,
+  formatProjectNameForDisplay,
   formatProjectStatsSummary,
   formatRelativeTime,
   formatRetainedWorktreeMergeCommand,
@@ -323,6 +324,18 @@ describe("SessionPanel helpers", () => {
     test("handles zero fixes", () => {
       const result = formatProjectStatsSummary(0, 5);
       expect(result).toBe("0 fixes across 5 sessions");
+    });
+  });
+
+  describe("formatProjectNameForDisplay", () => {
+    test("strips trailing hash suffix from storage project names", () => {
+      expect(formatProjectNameForDisplay("ralph-review-75433236")).toBe("ralph-review");
+      expect(formatProjectNameForDisplay("my-project-abcdef12")).toBe("my-project");
+    });
+
+    test("preserves names that do not use the hash suffix format", () => {
+      expect(formatProjectNameForDisplay("unknown-project")).toBe("unknown-project");
+      expect(formatProjectNameForDisplay("repo-deadbeef-cafe")).toBe("repo-deadbeef-cafe");
     });
   });
 

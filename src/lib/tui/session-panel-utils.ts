@@ -34,6 +34,11 @@ export function formatProjectStatsSummary(totalFixes: number, sessionCount: numb
   return `${totalFixes} ${fixWord} across ${sessionCount} ${sessionWord}`;
 }
 
+export function formatProjectNameForDisplay(projectName: string): string {
+  const strippedName = projectName.replace(/-[0-9a-f]{8}$/i, "");
+  return strippedName.length > 0 ? strippedName : projectName;
+}
+
 interface SessionIdentityDisplay {
   primary: string;
   details: string[];
