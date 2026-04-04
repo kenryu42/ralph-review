@@ -22,6 +22,7 @@ interface FixEntryOverrides {
   title?: string;
   priority?: FixEntry["priority"];
   file?: FixEntry["file"];
+  code_location?: FixEntry["code_location"];
   claim?: string;
   evidence?: string;
   fix?: string;
@@ -32,7 +33,8 @@ export function buildFixEntry(overrides: FixEntryOverrides = {}): FixEntry {
     id: overrides.id ?? 1,
     title: overrides.title ?? "Fix title",
     priority: overrides.priority ?? "P1",
-    file: overrides.file ?? "src/file.ts",
+    file: overrides.file === undefined ? "src/file.ts" : overrides.file,
+    code_location: overrides.code_location,
     claim: overrides.claim ?? "Test claim",
     evidence: overrides.evidence ?? "Test evidence",
     fix: overrides.fix ?? "Test fix",
