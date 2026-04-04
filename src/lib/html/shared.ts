@@ -1,3 +1,7 @@
+import { formatDuration } from "@/lib/format";
+
+export { formatDuration };
+
 const DATE_FORMAT = new Intl.DateTimeFormat(undefined, {
   dateStyle: "medium",
   timeStyle: "short",
@@ -7,23 +11,6 @@ const NUMBER_FORMAT = new Intl.NumberFormat();
 
 export function formatDate(timestamp: number): string {
   return DATE_FORMAT.format(new Date(timestamp));
-}
-
-export function formatDuration(ms: number | null | undefined): string {
-  if (ms === undefined || ms === null) return "—";
-
-  const totalSeconds = Math.floor(ms / 1000);
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-
-  if (hours > 0) {
-    return `${hours}h ${minutes}m ${seconds}s`;
-  }
-  if (minutes > 0) {
-    return `${minutes}m ${seconds}s`;
-  }
-  return `${seconds}s`;
 }
 
 export function formatNumber(value: number): string {

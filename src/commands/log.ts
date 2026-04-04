@@ -2,6 +2,7 @@ import * as p from "@clack/prompts";
 import { getCommandDef } from "@/cli";
 import { parseCommand } from "@/lib/cli-parser";
 import { CONFIG_DIR } from "@/lib/config";
+import { formatDuration } from "@/lib/format";
 import {
   computeSessionStats,
   getProjectName,
@@ -93,20 +94,7 @@ export function formatPriorityCounts(counts: Record<Priority, number>): string {
   return `P0: ${counts.P0}  P1: ${counts.P1}  P2: ${counts.P2}  P3: ${counts.P3}`;
 }
 
-export function formatDuration(ms: number): string {
-  const totalSeconds = Math.floor(ms / 1000);
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-
-  if (hours > 0) {
-    return `${hours}h ${minutes}m ${seconds}s`;
-  }
-  if (minutes > 0) {
-    return `${minutes}m ${seconds}s`;
-  }
-  return `${seconds}s`;
-}
+export { formatDuration } from "@/lib/format";
 
 function extractSystemEntry(session: SessionStats): SystemEntry | undefined {
   for (const entry of session.entries) {
