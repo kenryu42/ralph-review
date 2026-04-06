@@ -16,6 +16,7 @@ import { useWorkspaceState } from "../use-workspace-state";
 import { stopSelectedDashboardSession } from "./dashboard-stop";
 import { Header } from "./Header";
 import { HelpOverlay } from "./HelpOverlay";
+import { SelectionCopyToastBoundary } from "./SelectionCopyToastBoundary";
 import { SessionOverlay } from "./SessionListOverlay";
 import { StatusBar } from "./StatusBar";
 import { StopSessionPickerOverlay } from "./StopSessionPickerOverlay";
@@ -237,6 +238,42 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
 
   if (displayError) {
     return (
+      <SelectionCopyToastBoundary>
+        <box flexDirection="column" width="100%" height="100%">
+          <Header
+            projectName={projectName}
+            branch={branch}
+            elapsed={state.elapsed}
+            session={state.currentSession}
+            projectPath={projectPath}
+            config={state.config}
+          />
+          <box flexGrow={1} padding={2}>
+            <text fg={TUI_COLORS.status.error}>Error: {displayError}</text>
+          </box>
+          <StatusBar
+            hasSession={false}
+            focusedPane={focusedPane}
+            outputVisible={outputVisible}
+            stopPickerOpen={showStopPicker}
+          />
+          {showHelp && <HelpOverlay onClose={() => setShowHelp(false)} />}
+          {showStopPicker && (
+            <StopSessionPickerOverlay
+              sessions={state.allSessions}
+              onSelectSession={(session) => {
+                void stopSelectedSession(session);
+              }}
+              onClose={() => setShowStopPicker(false)}
+            />
+          )}
+        </box>
+      </SelectionCopyToastBoundary>
+    );
+  }
+
+  return (
+    <SelectionCopyToastBoundary>
       <box flexDirection="column" width="100%" height="100%">
         <Header
           projectName={projectName}
@@ -246,16 +283,36 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
           projectPath={projectPath}
           config={state.config}
         />
-        <box flexGrow={1} padding={2}>
-          <text fg={TUI_COLORS.status.error}>Error: {displayError}</text>
-        </box>
+        <Workspace
+          sessionGroups={state.sessionGroups}
+          selectedSessionId={state.selectedSessionId}
+          session={state.currentSession}
+          fixes={state.fixes}
+          skipped={state.skipped}
+          findings={state.iterationFindings}
+          latestReviewIteration={state.latestReviewIteration}
+          codexReviewText={state.codexReviewText}
+          tmuxOutput={state.tmuxOutput}
+          maxIterations={state.maxIterations}
+          isLoading={state.isLoading}
+          projectStats={state.projectStats}
+          isGitRepo={state.isGitRepo}
+          currentAgent={state.currentAgent}
+          reviewOptions={state.reviewOptions}
+          isStarting={isStartingRun}
+          isStopping={isStoppingRun}
+          activeSessionCount={state.projectSessions.length}
+          outputVisible={outputVisible}
+          focusedPane={focusedPane}
+        />
         <StatusBar
-          hasSession={false}
+          hasSession={Boolean(state.currentSession)}
           focusedPane={focusedPane}
           outputVisible={outputVisible}
           stopPickerOpen={showStopPicker}
         />
         {showHelp && <HelpOverlay onClose={() => setShowHelp(false)} />}
+        {showSession && <SessionOverlay onClose={() => setShowSession(false)} />}
         {showStopPicker && (
           <StopSessionPickerOverlay
             sessions={state.allSessions}
@@ -266,58 +323,6 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
           />
         )}
       </box>
-    );
-  }
-
-  return (
-    <box flexDirection="column" width="100%" height="100%">
-      <Header
-        projectName={projectName}
-        branch={branch}
-        elapsed={state.elapsed}
-        session={state.currentSession}
-        projectPath={projectPath}
-        config={state.config}
-      />
-      <Workspace
-        sessionGroups={state.sessionGroups}
-        selectedSessionId={state.selectedSessionId}
-        session={state.currentSession}
-        fixes={state.fixes}
-        skipped={state.skipped}
-        findings={state.iterationFindings}
-        latestReviewIteration={state.latestReviewIteration}
-        codexReviewText={state.codexReviewText}
-        tmuxOutput={state.tmuxOutput}
-        maxIterations={state.maxIterations}
-        isLoading={state.isLoading}
-        projectStats={state.projectStats}
-        isGitRepo={state.isGitRepo}
-        currentAgent={state.currentAgent}
-        reviewOptions={state.reviewOptions}
-        isStarting={isStartingRun}
-        isStopping={isStoppingRun}
-        activeSessionCount={state.projectSessions.length}
-        outputVisible={outputVisible}
-        focusedPane={focusedPane}
-      />
-      <StatusBar
-        hasSession={Boolean(state.currentSession)}
-        focusedPane={focusedPane}
-        outputVisible={outputVisible}
-        stopPickerOpen={showStopPicker}
-      />
-      {showHelp && <HelpOverlay onClose={() => setShowHelp(false)} />}
-      {showSession && <SessionOverlay onClose={() => setShowSession(false)} />}
-      {showStopPicker && (
-        <StopSessionPickerOverlay
-          sessions={state.allSessions}
-          onSelectSession={(session) => {
-            void stopSelectedSession(session);
-          }}
-          onClose={() => setShowStopPicker(false)}
-        />
-      )}
-    </box>
+    </SelectionCopyToastBoundary>
   );
 }
