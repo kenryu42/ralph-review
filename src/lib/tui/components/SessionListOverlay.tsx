@@ -17,7 +17,7 @@ function sessionLabel(session: LogSession): string {
 
 function SessionHelpModal({ onClose }: { onClose: () => void }) {
   useKeyboard((key) => {
-    if (key.name === "escape" || key.name === "?") {
+    if (key.name === "escape" || key.name === "?" || key.name === "h") {
       onClose();
     }
   });
@@ -43,20 +43,20 @@ function SessionHelpModal({ onClose }: { onClose: () => void }) {
       >
         <box flexDirection="column" gap={1}>
           <text>
-            <span fg={TUI_COLORS.accent.key}>[Tab]</span>
+            <span fg={TUI_COLORS.accent.key}>[Tab ←/→]</span>
             <span fg={TUI_COLORS.text.muted}> Switch pane focus</span>
           </text>
           <text>
-            <span fg={TUI_COLORS.accent.key}>[↑/↓]</span>
+            <span fg={TUI_COLORS.accent.key}>[↑/↓ j/k]</span>
             <span fg={TUI_COLORS.text.muted}> Navigate / Scroll</span>
           </text>
           <text>
-            <span fg={TUI_COLORS.accent.key}>[?]</span>
-            <span fg={TUI_COLORS.text.muted}> Toggle help</span>
+            <span fg={TUI_COLORS.accent.key}>[Esc/l]</span>
+            <span fg={TUI_COLORS.text.muted}> Close logs view</span>
           </text>
           <text>
-            <span fg={TUI_COLORS.accent.key}>[Esc/l]</span>
-            <span fg={TUI_COLORS.text.muted}> Close session</span>
+            <span fg={TUI_COLORS.accent.key}>[h/?]</span>
+            <span fg={TUI_COLORS.text.muted}> Toggle help</span>
           </text>
         </box>
       </box>
@@ -128,7 +128,7 @@ export function SessionOverlay({ onClose }: SessionOverlayProps) {
   }, [sessions]);
 
   useKeyboard((key) => {
-    if (key.name === "?") {
+    if (key.name === "?" || key.name === "h") {
       setShowHelp((prev) => !prev);
       return;
     }
@@ -140,7 +140,7 @@ export function SessionOverlay({ onClose }: SessionOverlayProps) {
       return;
     }
 
-    if (key.name === "tab") {
+    if (key.name === "tab" || key.name === "left" || key.name === "right") {
       cycleFocus();
       return;
     }
@@ -158,8 +158,8 @@ export function SessionOverlay({ onClose }: SessionOverlayProps) {
     ? (sessions.find((s) => s.path === selectedPath) ?? null)
     : null;
   const sessionTitle = selectedSession
-    ? `${formatProjectNameForDisplay(selectedSession.projectName)} Sessions`
-    : "Sessions";
+    ? `${formatProjectNameForDisplay(selectedSession.projectName)} Logs`
+    : "Logs";
 
   const listBorderColor =
     focusedPane === "list" ? TUI_COLORS.ui.borderFocused : TUI_COLORS.ui.border;
@@ -241,20 +241,12 @@ export function SessionOverlay({ onClose }: SessionOverlayProps) {
       >
         <box flexDirection="row" gap={2}>
           <text>
-            <span fg={TUI_COLORS.accent.key}>[Tab]</span>
-            <span fg={TUI_COLORS.text.muted}> Switch</span>
-          </text>
-          <text>
-            <span fg={TUI_COLORS.accent.key}>[↑/↓]</span>
-            <span fg={TUI_COLORS.text.muted}> Navigate/Scroll</span>
-          </text>
-          <text>
-            <span fg={TUI_COLORS.accent.key}>[?]</span>
-            <span fg={TUI_COLORS.text.muted}> Help</span>
-          </text>
-          <text>
             <span fg={TUI_COLORS.accent.key}>[Esc/l]</span>
             <span fg={TUI_COLORS.text.muted}> Close</span>
+          </text>
+          <text>
+            <span fg={TUI_COLORS.accent.key}>[h]</span>
+            <span fg={TUI_COLORS.text.muted}> Help</span>
           </text>
         </box>
         <text fg={TUI_COLORS.text.dim}>Focus: {focusedPane === "list" ? "List" : "Detail"}</text>

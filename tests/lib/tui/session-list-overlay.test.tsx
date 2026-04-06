@@ -113,11 +113,11 @@ describe("SessionOverlay", () => {
     return testSetup;
   }
 
-  test("renders the Session pane title", async () => {
+  test("renders the Logs pane title", async () => {
     const setup = await renderOverlay();
     const frame = setup.captureCharFrame();
 
-    expect(frame).toContain("Sessions");
+    expect(frame).toContain("Logs");
   });
 
   test("shows loading state initially", async () => {
@@ -217,7 +217,7 @@ describe("SessionOverlay", () => {
     expect(frame).toContain("Switch pane focus");
     expect(frame).toContain("Navigate / Scroll");
     expect(frame).toContain("Toggle help");
-    expect(frame).toContain("Close session");
+    expect(frame).toContain("Close logs view");
 
     // Press ? again to hide help
     await pressKeyAndRender(setup, "?");
@@ -252,10 +252,8 @@ describe("SessionOverlay", () => {
     const setup = await renderOverlay();
     const frame = setup.captureCharFrame();
 
-    expect(frame).toContain("[Tab] Switch");
-    expect(frame).toContain("[↑/↓] Navigate/Scroll");
-    expect(frame).toContain("[?] Help");
     expect(frame).toContain("[Esc/l] Close");
+    expect(frame).toContain("[h] Help");
     expect(frame).toContain("Focus: List");
   });
 
