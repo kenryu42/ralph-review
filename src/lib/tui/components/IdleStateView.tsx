@@ -45,7 +45,7 @@ export function IdleStateView({
         <text fg={TUI_COLORS.text.muted}>No active session</text>
       )}
 
-      <text fg={TUI_COLORS.text.dim}>Start a review with "rr run"</text>
+      <text fg={TUI_COLORS.text.dim}>Start a review by pressing "r"</text>
 
       {projectStats && projectStats.totalFixes > 0 && (
         <box flexDirection="column">
