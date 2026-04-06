@@ -64,8 +64,6 @@ export function IdleStateView({
           </text>
         </box>
       )}
-
-      <text fg={TUI_COLORS.text.dim}>Press "l" for review history</text>
     </box>
   );
 }
