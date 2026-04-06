@@ -150,6 +150,17 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
     });
   }, [outputVisible]);
 
+  const cycleFocusReverse = useCallback(() => {
+    setFocusedPane((current) => {
+      if (outputVisible) {
+        if (current === "sidebar") return "output";
+        if (current === "output") return "detail";
+        return "sidebar";
+      }
+      return current === "sidebar" ? "detail" : "sidebar";
+    });
+  }, [outputVisible]);
+
   const handleKeyboard = useCallback(
     (key: { name: string }) => {
       if (key.name === "q" || key.name === "escape") {
@@ -169,8 +180,11 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
         return;
       }
 
-      if (key.name === "tab") {
+      if (key.name === "tab" || key.name === "right") {
         cycleFocus();
+      }
+      if (key.name === "left") {
+        cycleFocusReverse();
       }
 
       if (key.name === "o") {
@@ -229,7 +243,16 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
         }
       }
     },
-    [projectPath, showHelp, showSession, showStopPicker, shutdown, stopSelectedSession, cycleFocus]
+    [
+      projectPath,
+      showHelp,
+      showSession,
+      showStopPicker,
+      shutdown,
+      stopSelectedSession,
+      cycleFocus,
+      cycleFocusReverse,
+    ]
   );
 
   useKeyboard(handleKeyboard);
