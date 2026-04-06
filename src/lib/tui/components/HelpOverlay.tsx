@@ -7,7 +7,7 @@ interface HelpOverlayProps {
 
 export function HelpOverlay({ onClose }: HelpOverlayProps) {
   useKeyboard((key) => {
-    if (key.name === "escape" || key.name === "q" || key.name === "?" || key.name === "h") {
+    if (key.name === "?" || key.name === "h") {
       onClose();
     }
   });
@@ -33,35 +33,35 @@ export function HelpOverlay({ onClose }: HelpOverlayProps) {
       >
         <box flexDirection="column" gap={1}>
           <text>
-            <span fg={TUI_COLORS.accent.key}>[q/Esc]</span>
-            <span fg={TUI_COLORS.text.muted}> Quit / Close help</span>
-          </text>
-          <text>
             <span fg={TUI_COLORS.accent.key}>[r]</span>
-            <span fg={TUI_COLORS.text.muted}> Run review</span>
+            <span fg={TUI_COLORS.text.muted}> Run new review session</span>
           </text>
           <text>
             <span fg={TUI_COLORS.accent.key}>[s]</span>
-            <span fg={TUI_COLORS.text.muted}> Stop review</span>
+            <span fg={TUI_COLORS.text.muted}> Stop running review session</span>
           </text>
           <text>
             <span fg={TUI_COLORS.accent.key}>[o]</span>
             <span fg={TUI_COLORS.text.muted}> Toggle output drawer</span>
           </text>
           <text>
-            <span fg={TUI_COLORS.accent.key}>[Tab]</span>
+            <span fg={TUI_COLORS.accent.key}>[Tab ←/→]</span>
             <span fg={TUI_COLORS.text.muted}> Switch panel focus</span>
           </text>
           <text>
-            <span fg={TUI_COLORS.accent.key}>[↑/↓]</span>
+            <span fg={TUI_COLORS.accent.key}>[↑/↓ j/k]</span>
             <span fg={TUI_COLORS.text.muted}> Scroll focused panel</span>
           </text>
           <text>
             <span fg={TUI_COLORS.accent.key}>[l]</span>
-            <span fg={TUI_COLORS.text.muted}> Sessions</span>
+            <span fg={TUI_COLORS.text.muted}> View logs</span>
           </text>
           <text>
-            <span fg={TUI_COLORS.accent.key}>[?]</span>
+            <span fg={TUI_COLORS.accent.key}>[Esc/q]</span>
+            <span fg={TUI_COLORS.text.muted}> Quit TUI (Won't stop review)</span>
+          </text>
+          <text>
+            <span fg={TUI_COLORS.accent.key}>[h/?]</span>
             <span fg={TUI_COLORS.text.muted}> Toggle help</span>
           </text>
         </box>
