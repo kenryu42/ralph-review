@@ -60,6 +60,7 @@ export function StatusBar({
       paddingLeft={1}
       paddingRight={1}
       paddingTop={1}
+      paddingBottom={1}
     >
       <box flexDirection="row" gap={2}>
         <text>
