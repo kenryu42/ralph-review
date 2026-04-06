@@ -42,7 +42,7 @@ describe("StatusBar", () => {
 
     expect(frame).toContain("[s]");
     expect(frame).toContain("Stop Review");
-    expect(frame).toContain("[Tab]");
+    expect(frame).toContain("[Tab ←/→]");
     expect(frame).toContain("Switch");
   });
 

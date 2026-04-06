@@ -64,7 +64,7 @@ export function StatusBar({
     >
       <box flexDirection="row" gap={2}>
         <text>
-          <span fg={TUI_COLORS.accent.key}>[q]</span>
+          <span fg={TUI_COLORS.accent.key}>[Esc/q]</span>
           <span fg={TUI_COLORS.text.muted}> Quit</span>
         </text>
         {!hasSession && (
@@ -84,15 +84,15 @@ export function StatusBar({
           <span fg={TUI_COLORS.text.muted}> {outputVisible ? "Hide Output" : "Output"}</span>
         </text>
         <text>
-          <span fg={TUI_COLORS.accent.key}>[Tab]</span>
+          <span fg={TUI_COLORS.accent.key}>[Tab ←/→]</span>
           <span fg={TUI_COLORS.text.muted}> Switch</span>
         </text>
         <text>
           <span fg={TUI_COLORS.accent.key}>[l]</span>
-          <span fg={TUI_COLORS.text.muted}> Sessions</span>
+          <span fg={TUI_COLORS.text.muted}> Logs</span>
         </text>
         <text>
-          <span fg={TUI_COLORS.accent.key}>[?]</span>
+          <span fg={TUI_COLORS.accent.key}>[h]</span>
           <span fg={TUI_COLORS.text.muted}> Help</span>
         </text>
       </box>
