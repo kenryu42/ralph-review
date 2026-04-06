@@ -295,7 +295,15 @@ const DEFAULT_SCROLL_METRICS: ScrollMetrics = {
   scrollHeight: 1,
 };
 
-export function SessionDetailPane({ stats }: { stats: SessionStats }) {
+export function SessionDetailPane({
+  stats,
+  focused,
+  height,
+}: {
+  stats: SessionStats;
+  focused?: boolean;
+  height?: number;
+}) {
   const scrollboxRef = useRef<ScrollBoxRenderable | null>(null);
   const [scrollMetrics, setScrollMetrics] = useState<ScrollMetrics>(DEFAULT_SCROLL_METRICS);
 
@@ -366,9 +374,10 @@ export function SessionDetailPane({ stats }: { stats: SessionStats }) {
   });
 
   return (
-    <box flexDirection="row" flexGrow={1} minHeight={0}>
+    <box flexDirection="row" flexGrow={1} minHeight={0} height={height}>
       <scrollbox
         ref={scrollboxRef}
+        focused={focused}
         flexDirection="column"
         flexGrow={1}
         height="100%"
