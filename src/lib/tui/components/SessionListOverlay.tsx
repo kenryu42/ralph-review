@@ -1,5 +1,5 @@
 import { useKeyboard, useRenderer } from "@opentui/react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { LogSession } from "@/lib/logger";
 import { computeSessionStats, listLogSessions } from "@/lib/logger";
 import { TUI_COLORS } from "@/lib/tui/colors";
@@ -43,8 +43,12 @@ function SessionHelpModal({ onClose }: { onClose: () => void }) {
       >
         <box flexDirection="column" gap={1}>
           <text>
+            <span fg={TUI_COLORS.accent.key}>[Tab]</span>
+            <span fg={TUI_COLORS.text.muted}> Switch pane focus</span>
+          </text>
+          <text>
             <span fg={TUI_COLORS.accent.key}>[↑/↓]</span>
-            <span fg={TUI_COLORS.text.muted}> Navigate sessions</span>
+            <span fg={TUI_COLORS.text.muted}> Navigate / Scroll</span>
           </text>
           <text>
             <span fg={TUI_COLORS.accent.key}>[?]</span>
@@ -60,6 +64,8 @@ function SessionHelpModal({ onClose }: { onClose: () => void }) {
   );
 }
 
+type OverlayPane = "list" | "detail";
+
 export function SessionOverlay({ onClose }: SessionOverlayProps) {
   const renderer = useRenderer();
   const [sessions, setSessions] = useState<LogSession[]>([]);
@@ -68,6 +74,11 @@ export function SessionOverlay({ onClose }: SessionOverlayProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [statsLoading, setStatsLoading] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  const [focusedPane, setFocusedPane] = useState<OverlayPane>("list");
+
+  const cycleFocus = useCallback(() => {
+    setFocusedPane((prev) => (prev === "list" ? "detail" : "list"));
+  }, []);
 
   useEffect(() => {
     listLogSessions().then((s) => {
@@ -129,14 +140,19 @@ export function SessionOverlay({ onClose }: SessionOverlayProps) {
       return;
     }
 
+    if (key.name === "tab") {
+      cycleFocus();
+      return;
+    }
+
     if (key.name === "escape" || key.name === "l") {
       onClose();
       return;
     }
   });
 
-  // Overhead: outer padding (2) + panel border (2) + panel padding (2) = 6
-  const selectHeight = Math.max(3, renderer.height - 6);
+  // Overhead: outer padding (2) + panel border (2) + panel padding (2) + status bar (2) = 8
+  const selectHeight = Math.max(3, renderer.height - 8);
 
   const selectedSession = selectedPath
     ? (sessions.find((s) => s.path === selectedPath) ?? null)
@@ -145,12 +161,26 @@ export function SessionOverlay({ onClose }: SessionOverlayProps) {
     ? `${formatProjectNameForDisplay(selectedSession.projectName)} Sessions`
     : "Sessions";
 
+  const listBorderColor =
+    focusedPane === "list" ? TUI_COLORS.ui.borderFocused : TUI_COLORS.ui.border;
+  const detailBorderColor =
+    focusedPane === "detail" ? TUI_COLORS.ui.borderFocused : TUI_COLORS.ui.border;
+
   return (
-    <box position="absolute" left={0} top={0} width="100%" height="100%" backgroundColor="#0d0d1a">
-      <box flexDirection="row" width="100%" height="100%" gap={1} padding={1}>
+    <box
+      position="absolute"
+      left={0}
+      top={0}
+      width="100%"
+      height="100%"
+      flexDirection="column"
+      backgroundColor="#0d0d1a"
+    >
+      <box flexDirection="row" width="100%" flexGrow={1} minHeight={0} gap={1} padding={1}>
         <box
           border
           borderStyle="rounded"
+          borderColor={listBorderColor}
           title={sessionTitle}
           titleAlignment="left"
           width={70}
@@ -166,7 +196,7 @@ export function SessionOverlay({ onClose }: SessionOverlayProps) {
             <select
               options={selectOptions}
               height={selectHeight}
-              focused={!showHelp}
+              focused={focusedPane === "list" && !showHelp}
               showScrollIndicator
               selectedIndex={sessionSlots.findIndex((s) => s?.path === selectedPath)}
               onChange={(idx) => {
@@ -180,9 +210,11 @@ export function SessionOverlay({ onClose }: SessionOverlayProps) {
         <box
           border
           borderStyle="rounded"
+          borderColor={detailBorderColor}
           title={selectedSession ? sessionLabel(selectedSession) : "Session Detail"}
           titleAlignment="left"
           flexGrow={1}
+          minHeight={0}
           flexDirection="column"
           padding={1}
         >
@@ -191,9 +223,41 @@ export function SessionOverlay({ onClose }: SessionOverlayProps) {
           ) : !selectedStats ? (
             <text fg={TUI_COLORS.text.muted}>Select a session to view details</text>
           ) : (
-            <SessionDetailPane stats={selectedStats} />
+            <SessionDetailPane
+              stats={selectedStats}
+              focused={focusedPane === "detail"}
+              height={selectHeight}
+            />
           )}
         </box>
+      </box>
+
+      <box
+        flexDirection="row"
+        justifyContent="space-between"
+        paddingLeft={1}
+        paddingRight={1}
+        paddingBottom={1}
+      >
+        <box flexDirection="row" gap={2}>
+          <text>
+            <span fg={TUI_COLORS.accent.key}>[Tab]</span>
+            <span fg={TUI_COLORS.text.muted}> Switch</span>
+          </text>
+          <text>
+            <span fg={TUI_COLORS.accent.key}>[↑/↓]</span>
+            <span fg={TUI_COLORS.text.muted}> Navigate/Scroll</span>
+          </text>
+          <text>
+            <span fg={TUI_COLORS.accent.key}>[?]</span>
+            <span fg={TUI_COLORS.text.muted}> Help</span>
+          </text>
+          <text>
+            <span fg={TUI_COLORS.accent.key}>[Esc/l]</span>
+            <span fg={TUI_COLORS.text.muted}> Close</span>
+          </text>
+        </box>
+        <text fg={TUI_COLORS.text.dim}>Focus: {focusedPane === "list" ? "List" : "Detail"}</text>
       </box>
 
       {showHelp && <SessionHelpModal onClose={() => setShowHelp(false)} />}

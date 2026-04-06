@@ -214,7 +214,8 @@ describe("SessionOverlay", () => {
 
     frame = setup.captureCharFrame();
     expect(frame).toContain("Keyboard Shortcuts");
-    expect(frame).toContain("Navigate sessions");
+    expect(frame).toContain("Switch pane focus");
+    expect(frame).toContain("Navigate / Scroll");
     expect(frame).toContain("Toggle help");
     expect(frame).toContain("Close session");
 
@@ -245,6 +246,49 @@ describe("SessionOverlay", () => {
     expect(closeCount).toBe(0);
     frame = setup.captureCharFrame();
     expect(frame).not.toContain("Keyboard Shortcuts");
+  });
+
+  test("status bar shows shortcuts and initial focus label", async () => {
+    const setup = await renderOverlay();
+    const frame = setup.captureCharFrame();
+
+    expect(frame).toContain("[Tab] Switch");
+    expect(frame).toContain("[↑/↓] Navigate/Scroll");
+    expect(frame).toContain("[?] Help");
+    expect(frame).toContain("[Esc/l] Close");
+    expect(frame).toContain("Focus: List");
+  });
+
+  test("Tab cycles focus between list and detail", async () => {
+    const setup = await renderOverlay();
+
+    let frame = setup.captureCharFrame();
+    expect(frame).toContain("Focus: List");
+
+    // Tab to detail
+    await pressKeyAndRender(setup, "tab");
+    frame = setup.captureCharFrame();
+    expect(frame).toContain("Focus: Detail");
+
+    // Tab back to list
+    await pressKeyAndRender(setup, "tab");
+    frame = setup.captureCharFrame();
+    expect(frame).toContain("Focus: List");
+  });
+
+  test("Tab is ignored while help is showing", async () => {
+    const setup = await renderOverlay();
+
+    // Open help
+    await pressKeyAndRender(setup, "?");
+    let frame = setup.captureCharFrame();
+    expect(frame).toContain("Keyboard Shortcuts");
+    expect(frame).toContain("Focus: List");
+
+    // Tab should not cycle focus while help is open
+    await pressKeyAndRender(setup, "tab");
+    frame = setup.captureCharFrame();
+    expect(frame).toContain("Focus: List");
   });
 
   test("l is ignored while help is showing", async () => {
