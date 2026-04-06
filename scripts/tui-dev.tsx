@@ -14,6 +14,7 @@
 import { createCliRenderer } from "@opentui/core";
 import { createRoot } from "@opentui/react";
 import type { SessionState } from "@/lib/session-state";
+import { SelectionCopyToastBoundary } from "@/lib/tui/components/SelectionCopyToastBoundary";
 import { SessionPanel } from "@/lib/tui/components/SessionPanel";
 import type {
   AgentRole,
@@ -402,24 +403,26 @@ async function main() {
   });
 
   createRoot(renderer).render(
-    <SessionPanel
-      session={mockData.session}
-      fixes={mockData.fixes}
-      skipped={mockData.skipped}
-      findings={mockData.findings}
-      latestReviewIteration={mockData.latestReviewIteration}
-      codexReviewText={mockData.codexReviewText}
-      tmuxOutput={mockData.tmuxOutput}
-      maxIterations={mockData.maxIterations}
-      isLoading={mockData.isLoading}
-      lastSessionStats={mockData.lastSessionStats}
-      projectStats={mockData.projectStats}
-      isGitRepo={mockData.isGitRepo}
-      currentAgent={mockData.currentAgent}
-      reviewOptions={mockData.reviewOptions}
-      isStarting={false}
-      isStopping={false}
-    />
+    <SelectionCopyToastBoundary>
+      <SessionPanel
+        session={mockData.session}
+        fixes={mockData.fixes}
+        skipped={mockData.skipped}
+        findings={mockData.findings}
+        latestReviewIteration={mockData.latestReviewIteration}
+        codexReviewText={mockData.codexReviewText}
+        tmuxOutput={mockData.tmuxOutput}
+        maxIterations={mockData.maxIterations}
+        isLoading={mockData.isLoading}
+        lastSessionStats={mockData.lastSessionStats}
+        projectStats={mockData.projectStats}
+        isGitRepo={mockData.isGitRepo}
+        currentAgent={mockData.currentAgent}
+        reviewOptions={mockData.reviewOptions}
+        isStarting={false}
+        isStopping={false}
+      />
+    </SelectionCopyToastBoundary>
   );
 }
 
