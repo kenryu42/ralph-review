@@ -193,7 +193,7 @@ describe("DetailPane", () => {
     expect(frame).toContain("Not a git repository");
     expect(frame).toContain('Run "git init" to initialize');
     expect(frame).toContain("No active session");
-    expect(frame).toContain('Start a review with "rr run"');
+    expect(frame).toContain('Start a review by pressing "r"');
   });
 
   test("renders the idle starting banner", async () => {
