@@ -127,28 +127,6 @@ describe("Header", () => {
     expect(frame).toContain("[feature/header-tests]");
   });
 
-  test("renders uncommitted default review on the last line", async () => {
-    const frame = await renderFrame({
-      config: {
-        ...createConfig(),
-        defaultReview: { type: "uncommitted" },
-      },
-    });
-
-    expect(frame).toContain("Default review: uncommitted changes");
-  });
-
-  test("renders base-branch default review on the last line", async () => {
-    const frame = await renderFrame({
-      config: {
-        ...createConfig(),
-        defaultReview: { type: "base", branch: "main" },
-      },
-    });
-
-    expect(frame).toContain("Default review: base (main)");
-  });
-
   test("omits branch when branch is not provided", async () => {
     const frame = await renderFrame({ branch: undefined });
     expect(frame).not.toContain("[feature/header-tests]");

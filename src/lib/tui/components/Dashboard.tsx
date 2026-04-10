@@ -17,6 +17,7 @@ import { useWorkspaceState } from "../use-workspace-state";
 import { stopSelectedDashboardSession } from "./dashboard-stop";
 import { Header } from "./Header";
 import { HelpOverlay } from "./HelpOverlay";
+import { ReviewModeOverlay } from "./ReviewModeOverlay";
 import { SelectionCopyToastBoundary } from "./SelectionCopyToastBoundary";
 import { SessionOverlay } from "./SessionListOverlay";
 import { StatusBar } from "./StatusBar";
@@ -34,6 +35,7 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
   const [outputVisible, setOutputVisible] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [showSession, setShowSession] = useState(false);
+  const [showReviewModeOverlay, setShowReviewModeOverlay] = useState(false);
   const [showStopPicker, setShowStopPicker] = useState(false);
 
   const projectName = basename(projectPath);
@@ -51,11 +53,48 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
     if (state.currentSession) {
       setRunError(null);
       setIsStartingRun(false);
+      setShowReviewModeOverlay(false);
     }
     if (state.projectSessions.length <= 1) {
       setShowStopPicker(false);
     }
   }, [state.currentSession, state.projectSessions, state.allSessions]);
+
+  const spawnRunProcess = useCallback(
+    (runArgs: string[]) => {
+      isSpawningRunRef.current = true;
+      setRunError(null);
+      setIsStartingRun(true);
+
+      try {
+        const subprocess = Bun.spawn([process.execPath, CLI_PATH, "run", ...runArgs], {
+          cwd: projectPath,
+          stdin: "ignore",
+          stdout: "ignore",
+          stderr: "pipe",
+        });
+        void subprocess.exited
+          .then(async (exitCode) => {
+            isSpawningRunRef.current = false;
+            if (exitCode !== 0) {
+              const stderr = await new Response(subprocess.stderr).text();
+              setIsStartingRun(false);
+              setRunError(stderr.trim() || `Command failed with exit code ${exitCode}`);
+            }
+          })
+          .catch((error) => {
+            isSpawningRunRef.current = false;
+            setIsStartingRun(false);
+            setRunError(error instanceof Error ? error.message : String(error));
+          });
+      } catch (error) {
+        isSpawningRunRef.current = false;
+        setIsStartingRun(false);
+        setRunError(error instanceof Error ? error.message : String(error));
+      }
+    },
+    [projectPath]
+  );
 
   useEffect(() => {
     if (!stoppingSession) {
@@ -168,6 +207,7 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
         const closeAction = resolveDashboardCloseAction({
           showStopPicker,
           showHelp,
+          showRunOverlay: showReviewModeOverlay,
           showSession,
         });
 
@@ -175,6 +215,8 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
           setShowStopPicker(false);
         } else if (closeAction === "close-help") {
           setShowHelp(false);
+        } else if (closeAction === "delegate-run-overlay") {
+          return;
         } else if (closeAction === "delegate-session-overlay") {
           // SessionOverlay has its own keyboard handlers and modals.
           // Avoid double-handling here so nested overlays can consume Esc/q first.
@@ -185,7 +227,7 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
         return;
       }
 
-      if (showHelp || showSession || showStopPicker) {
+      if (showHelp || showSession || showReviewModeOverlay || showStopPicker) {
         return;
       }
 
@@ -221,40 +263,13 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
       }
 
       if (key.name === "r" && !currentSessionRef.current && !isSpawningRunRef.current) {
-        isSpawningRunRef.current = true;
         setRunError(null);
-        setIsStartingRun(true);
-        try {
-          const subprocess = Bun.spawn([process.execPath, CLI_PATH, "run"], {
-            cwd: projectPath,
-            stdin: "ignore",
-            stdout: "ignore",
-            stderr: "pipe",
-          });
-          void subprocess.exited
-            .then(async (exitCode) => {
-              isSpawningRunRef.current = false;
-              if (exitCode !== 0) {
-                const stderr = await new Response(subprocess.stderr).text();
-                setIsStartingRun(false);
-                setRunError(stderr.trim() || `Command failed with exit code ${exitCode}`);
-              }
-            })
-            .catch((e) => {
-              isSpawningRunRef.current = false;
-              setIsStartingRun(false);
-              setRunError(e instanceof Error ? e.message : String(e));
-            });
-        } catch (e) {
-          isSpawningRunRef.current = false;
-          setIsStartingRun(false);
-          setRunError(e instanceof Error ? e.message : String(e));
-        }
+        setShowReviewModeOverlay(true);
       }
     },
     [
-      projectPath,
       showHelp,
+      showReviewModeOverlay,
       showSession,
       showStopPicker,
       shutdown,
@@ -290,6 +305,16 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
             stopPickerOpen={showStopPicker}
           />
           {showHelp && <HelpOverlay onClose={() => setShowHelp(false)} />}
+          {showReviewModeOverlay && !state.currentSession && (
+            <ReviewModeOverlay
+              defaultReview={state.config?.defaultReview}
+              onClose={() => setShowReviewModeOverlay(false)}
+              onSubmit={(args) => {
+                setShowReviewModeOverlay(false);
+                spawnRunProcess(args);
+              }}
+            />
+          )}
           {showStopPicker && (
             <StopSessionPickerOverlay
               sessions={state.allSessions}
@@ -345,6 +370,16 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
           stopPickerOpen={showStopPicker}
         />
         {showHelp && <HelpOverlay onClose={() => setShowHelp(false)} />}
+        {showReviewModeOverlay && !state.currentSession && (
+          <ReviewModeOverlay
+            defaultReview={state.config?.defaultReview}
+            onClose={() => setShowReviewModeOverlay(false)}
+            onSubmit={(args) => {
+              setShowReviewModeOverlay(false);
+              spawnRunProcess(args);
+            }}
+          />
+        )}
         {showSession && <SessionOverlay onClose={() => setShowSession(false)} />}
         {showStopPicker && (
           <StopSessionPickerOverlay

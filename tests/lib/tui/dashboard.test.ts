@@ -66,6 +66,7 @@ describe("resolveDashboardCloseAction", () => {
     const result = resolveDashboardCloseAction({
       showStopPicker: true,
       showHelp: true,
+      showRunOverlay: true,
       showSession: true,
     });
 
@@ -76,16 +77,29 @@ describe("resolveDashboardCloseAction", () => {
     const result = resolveDashboardCloseAction({
       showStopPicker: false,
       showHelp: true,
+      showRunOverlay: true,
       showSession: true,
     });
 
     expect(result).toBe("close-help");
   });
 
+  test("delegates close key to run overlay when it is visible", () => {
+    const result = resolveDashboardCloseAction({
+      showStopPicker: false,
+      showHelp: false,
+      showRunOverlay: true,
+      showSession: true,
+    });
+
+    expect(result).toBe("delegate-run-overlay");
+  });
+
   test("delegates close key to session overlay when it is visible", () => {
     const result = resolveDashboardCloseAction({
       showStopPicker: false,
       showHelp: false,
+      showRunOverlay: false,
       showSession: true,
     });
 
@@ -96,6 +110,7 @@ describe("resolveDashboardCloseAction", () => {
     const result = resolveDashboardCloseAction({
       showStopPicker: false,
       showHelp: false,
+      showRunOverlay: false,
       showSession: false,
     });
 
