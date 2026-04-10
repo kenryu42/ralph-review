@@ -2,13 +2,20 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createSessionWorktree, discardSessionWorktree } from "@/lib/git";
+import {
+  computeWorkingTreeFingerprint,
+  createSessionWorktree,
+  discardSessionWorktree,
+} from "@/lib/git";
 import {
   applyPendingHandoff,
   createOrAutoApplyHandoff,
   discardPendingHandoff,
+  listProjectArchivedHandoffs,
   listProjectPendingHandoffs,
   readPendingHandoff,
+  reapplyArchivedHandoff,
+  revertArchivedHandoff,
 } from "@/lib/handoff";
 
 function runGitIn(repoPath: string, args: string[]): void {
@@ -84,6 +91,12 @@ describe("handoff", () => {
       expect(handoff?.commitSha).toBeString();
       expect(await Bun.file(join(repoPath, "app.txt")).text()).toBe("fixed draft\n");
       expect(await listProjectPendingHandoffs(storageRoot, repoPath)).toEqual([]);
+      const archived = await listProjectArchivedHandoffs(storageRoot, repoPath);
+      expect(archived).toHaveLength(1);
+      expect(archived[0]?.sessionId).toBe("session-auto");
+      expect(archived[0]?.appliedVia).toBe("auto");
+      expect(archived[0]?.appliedFingerprint).toBe(computeWorkingTreeFingerprint(repoPath));
+      expect(await Bun.file(archived[0]?.patchPath ?? "").exists()).toBe(true);
     } finally {
       discardSessionWorktree(worktree);
     }
@@ -206,6 +219,10 @@ describe("handoff", () => {
     expect(applied.sessionId).toBe("session-manual");
     expect(await Bun.file(join(repoPath, "app.txt")).text()).toBe("fixed draft\n");
     expect(await readPendingHandoff(storageRoot, repoPath, "session-manual")).toBeNull();
+    const archived = await listProjectArchivedHandoffs(storageRoot, repoPath);
+    expect(archived).toHaveLength(1);
+    expect(archived[0]?.sessionId).toBe("session-manual");
+    expect(archived[0]?.appliedVia).toBe("manual");
   });
 
   test("discards a pending handoff without changing the source repo", async () => {
@@ -230,5 +247,76 @@ describe("handoff", () => {
     expect(discarded.sessionId).toBe("session-discard");
     expect(await Bun.file(join(repoPath, "app.txt")).text()).toBe("user changed after start\n");
     expect(await readPendingHandoff(storageRoot, repoPath, "session-discard")).toBeNull();
+    expect(await listProjectArchivedHandoffs(storageRoot, repoPath)).toEqual([]);
+  });
+
+  test("reverts and reapplies an archived handoff only from its matching fingerprints", async () => {
+    await writeFile(join(repoPath, "app.txt"), "draft\n");
+
+    const worktree = createSessionWorktree(repoPath, "session-replay", storageRoot);
+    try {
+      await writeFile(join(worktree.worktreeProjectPath, "app.txt"), "fixed draft\n");
+
+      const handoff = await createOrAutoApplyHandoff(storageRoot, {
+        sessionId: "session-replay",
+        projectPath: repoPath,
+        logPath: join(repoPath, ".ralph-review", "logs", "session-replay.jsonl"),
+        worktree,
+      });
+
+      expect(handoff?.handoffStatus).toBe("applied-auto");
+    } finally {
+      discardSessionWorktree(worktree);
+    }
+
+    await expect(reapplyArchivedHandoff(storageRoot, repoPath, "session-replay")).rejects.toThrow(
+      'Archived review handoff "session-replay" cannot be reapplied because the current repository state does not match its source snapshot.'
+    );
+
+    const reverted = await revertArchivedHandoff(storageRoot, repoPath, "session-replay");
+    expect(reverted.sessionId).toBe("session-replay");
+    expect(await Bun.file(join(repoPath, "app.txt")).text()).toBe("draft\n");
+
+    await expect(revertArchivedHandoff(storageRoot, repoPath, "session-replay")).rejects.toThrow(
+      'Archived review handoff "session-replay" cannot be reverted because the current repository state does not match its applied snapshot.'
+    );
+
+    const reapplied = await reapplyArchivedHandoff(storageRoot, repoPath, "session-replay");
+    expect(reapplied.sessionId).toBe("session-replay");
+    expect(await Bun.file(join(repoPath, "app.txt")).text()).toBe("fixed draft\n");
+  });
+
+  test("keeps only the newest five archived handoffs per project", async () => {
+    for (let index = 1; index <= 6; index++) {
+      await writeFile(join(repoPath, "app.txt"), `draft ${index}\n`);
+
+      const worktree = createSessionWorktree(repoPath, `session-${index}`, storageRoot);
+      try {
+        await writeFile(join(worktree.worktreeProjectPath, "app.txt"), `fixed ${index}\n`);
+
+        const handoff = await createOrAutoApplyHandoff(storageRoot, {
+          sessionId: `session-${index}`,
+          projectPath: repoPath,
+          logPath: join(repoPath, ".ralph-review", "logs", `session-${index}.jsonl`),
+          worktree,
+        });
+
+        expect(handoff?.handoffStatus).toBe("applied-auto");
+      } finally {
+        discardSessionWorktree(worktree);
+      }
+
+      await Bun.sleep(2);
+    }
+
+    const archived = await listProjectArchivedHandoffs(storageRoot, repoPath);
+    expect(archived).toHaveLength(5);
+    expect(archived.map((artifact) => artifact.sessionId)).toEqual([
+      "session-6",
+      "session-5",
+      "session-4",
+      "session-3",
+      "session-2",
+    ]);
   });
 });

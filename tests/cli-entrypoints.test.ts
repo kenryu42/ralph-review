@@ -82,6 +82,18 @@ function createCliHarness(overrides: Partial<CliDeps> = {}): CliHarness {
     startReview: async (argv) => {
       calls.push(`run:${argv.join(",")}`);
     },
+    runApply: async (argv) => {
+      calls.push(`apply:${argv.join(",")}`);
+    },
+    runDiscard: async (argv) => {
+      calls.push(`discard:${argv.join(",")}`);
+    },
+    runRevert: async (argv) => {
+      calls.push(`revert:${argv.join(",")}`);
+    },
+    runReapply: async (argv) => {
+      calls.push(`reapply:${argv.join(",")}`);
+    },
     runForeground: async (argv) => {
       calls.push(`_run-foreground:${argv?.join(",") ?? ""}`);
     },
@@ -274,6 +286,26 @@ describe("cli entrypoints", () => {
   test("dispatches all non-run command handlers", async () => {
     const scenarios = [
       { command: "init", args: [], expectedCall: "init" },
+      {
+        command: "apply",
+        args: ["--session", "session-1"],
+        expectedCall: "apply:--session,session-1",
+      },
+      {
+        command: "discard",
+        args: ["--session", "session-2"],
+        expectedCall: "discard:--session,session-2",
+      },
+      {
+        command: "revert",
+        args: ["--session", "session-3"],
+        expectedCall: "revert:--session,session-3",
+      },
+      {
+        command: "reapply",
+        args: ["--session", "session-4"],
+        expectedCall: "reapply:--session,session-4",
+      },
       { command: "_run-foreground", args: ["--max", "1"], expectedCall: "_run-foreground:--max,1" },
       { command: "stop", args: ["--all"], expectedCall: "stop:--all" },
       { command: "log", args: ["--json"], expectedCall: "log:--json" },
