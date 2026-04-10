@@ -28,7 +28,12 @@ export {
   type ReviewOutcome,
 } from "./domain";
 export { type FixEntry, type FixSummary, isFixSummary, type SkippedEntry } from "./fix";
-export type { HandoffStatus, PendingHandoffArtifact } from "./handoff";
+export type {
+  ArchivedAppliedHandoffArtifact,
+  ArchivedHandoffMatchResult,
+  HandoffStatus,
+  PendingHandoffArtifact,
+} from "./handoff";
 export type {
   HandoffEntry,
   IterationEntry,
