@@ -678,6 +678,20 @@ describe("SessionDetailPane", () => {
     expect(frame).not.toContain("ralph-review-75433236");
   });
 
+  test("renders timestamp below the project metadata", async () => {
+    const stats = buildSessionStats({
+      timestamp: new Date(2026, 3, 10, 14, 54, 0).getTime(),
+    });
+
+    const setup = await renderDetailPane(stats);
+    const frame = setup.captureCharFrame();
+
+    expect(frame).toContain("Project:");
+    expect(frame).toContain("Timestamp:");
+    expect(frame).toContain("2026-04-10 14:54");
+    expect(frame.indexOf("Project:")).toBeLessThan(frame.indexOf("Timestamp:"));
+  });
+
   test("renders issue summary and priority breakdown", async () => {
     const stats = buildSessionStats({
       totalFixes: 3,

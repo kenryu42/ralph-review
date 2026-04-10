@@ -50,6 +50,17 @@ function truncateMiddle(value: string, maxLength: number): string {
   return `${value.slice(0, leftLength)}...${value.slice(-rightLength)}`;
 }
 
+function formatSessionTimestamp(timestamp: number): string {
+  const date = new Date(timestamp);
+  const year = String(date.getFullYear());
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+
+  return `${year}-${month}-${day} ${hours}:${minutes}`;
+}
+
 function IterationHeading({ iteration, duration }: { iteration: number; duration?: number }) {
   return (
     <box flexDirection="row" justifyContent="space-between" gap={1}>
@@ -346,6 +357,7 @@ export function SessionDetailPane({
   const handoffSummary = formatHandoffSummary(stats.handoffStatus, stats.commitSha);
   const outcomeSummary = [stats.reviewOutcome, handoffSummary].filter(Boolean).join(" · ");
   const projectName = formatProjectNameForDisplay(getProjectNameFromLogPath(stats.sessionPath));
+  const sessionTimestamp = formatSessionTimestamp(stats.timestamp);
 
   const systemEntry = stats.entries.find((e) => e.type === "system") as SystemEntry | undefined;
   const iterationEntries = stats.entries.filter((e) => e.type === "iteration") as IterationEntry[];
@@ -391,6 +403,9 @@ export function SessionDetailPane({
               <text fg={TUI_COLORS.text.primary}>
                 <strong>{projectName}</strong>
               </text>
+            </MetadataRow>
+            <MetadataRow label="Timestamp:">
+              <text fg={TUI_COLORS.text.secondary}>{sessionTimestamp}</text>
             </MetadataRow>
             <MetadataRow label="Status:">
               <box flexDirection="row" gap={1}>
