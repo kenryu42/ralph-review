@@ -25,19 +25,8 @@ function getStatusIcon(state: string): { icon: string; color: string } {
   }
 }
 
-function formatElapsed(startTime: number): string {
-  const seconds = Math.max(0, Math.floor((Date.now() - startTime) / 1000));
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  return `${hours}h`;
-}
-
 export function SessionItem({ session, isSelected }: SessionItemProps) {
   const { icon, color } = getStatusIcon(session.state);
-  const branch = session.worktreeBranch ?? session.branch;
-  const elapsed = formatElapsed(session.startTime);
   const bgColor = isSelected ? "#1e293b" : undefined;
   const textColor = isSelected ? TUI_COLORS.text.primary : TUI_COLORS.text.muted;
 
@@ -47,10 +36,6 @@ export function SessionItem({ session, isSelected }: SessionItemProps) {
       <text fg={textColor} wrapMode="none" flexShrink={1}>
         {session.sessionName}
       </text>
-      <text fg={TUI_COLORS.text.dim} wrapMode="none" flexShrink={1}>
-        {branch}
-      </text>
-      <text fg={TUI_COLORS.text.dim}>{elapsed}</text>
     </box>
   );
 }
