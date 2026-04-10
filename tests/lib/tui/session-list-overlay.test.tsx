@@ -4,6 +4,8 @@ import { testRender } from "@opentui/react/test-utils";
 import { act, createElement } from "react";
 import type { LogSession } from "@/lib/logger";
 import * as logger from "@/lib/logger";
+import type { ActiveSession } from "@/lib/session-state";
+import * as sessionState from "@/lib/session-state";
 import { SessionDetailPane } from "@/lib/tui/components/SessionListDetailPane";
 import { SessionOverlay } from "@/lib/tui/components/SessionListOverlay";
 import type { IterationEntry, SessionEndEntry, SessionStats, SystemEntry } from "@/lib/types";
@@ -65,6 +67,47 @@ function buildSessionEndEntry(overrides: Partial<SessionEndEntry> = {}): Session
     reason: "All issues resolved",
     iterations: 2,
     ...overrides,
+  };
+}
+
+function buildLogSession(overrides: Partial<LogSession> = {}): LogSession {
+  return {
+    path: "/tmp/logs/2026-04-10_main.jsonl",
+    name: "2026-04-10_main.jsonl",
+    projectName: "project-12345678",
+    timestamp: Date.now(),
+    ...overrides,
+  };
+}
+
+function buildActiveSession(overrides: Partial<ActiveSession> = {}): ActiveSession {
+  return {
+    schemaVersion: 2,
+    sessionId: "session-1",
+    sessionName: "rr-project-main",
+    startTime: 1,
+    lastHeartbeat: 1,
+    pid: 123,
+    projectPath: "/repo/project",
+    branch: "main",
+    state: "running",
+    mode: "background",
+    sessionStatePath: "/tmp/session-1.json",
+    ...overrides,
+  };
+}
+
+function createDeferred<T>() {
+  let resolve: ((value: T) => void) | undefined;
+  const promise = new Promise<T>((resolver) => {
+    resolve = resolver;
+  });
+
+  return {
+    promise,
+    resolve: (value: T) => {
+      resolve?.(value);
+    },
   };
 }
 
@@ -202,6 +245,15 @@ describe("SessionOverlay", () => {
     });
   }
 
+  async function settleOverlay(setup: Awaited<ReturnType<typeof testRender>>) {
+    await act(async () => {
+      await Promise.resolve();
+      await setup.renderOnce();
+      await Promise.resolve();
+      await setup.renderOnce();
+    });
+  }
+
   test("? toggles help overlay", async () => {
     const setup = await renderOverlay();
 
@@ -216,8 +268,9 @@ describe("SessionOverlay", () => {
     expect(frame).toContain("Keyboard Shortcuts");
     expect(frame).toContain("Switch pane focus");
     expect(frame).toContain("Navigate / Scroll");
+    expect(frame).toContain("Delete selected log");
     expect(frame).toContain("Toggle help");
-    expect(frame).toContain("Close logs view");
+    expect(frame).not.toContain("Close logs view");
 
     // Press ? again to hide help
     await pressKeyAndRender(setup, "?");
@@ -253,6 +306,7 @@ describe("SessionOverlay", () => {
     const frame = setup.captureCharFrame();
 
     expect(frame).toContain("[Esc/l] Close");
+    expect(frame).toContain("[d] Delete");
     expect(frame).toContain("[h] Help");
     expect(frame).toContain("Focus: List");
   });
@@ -307,6 +361,226 @@ describe("SessionOverlay", () => {
 
     const frame = setup.captureCharFrame();
     expect(frame).toContain("Keyboard Shortcuts");
+  });
+
+  test("d opens delete confirmation overlay", async () => {
+    const session = buildLogSession({
+      path: "/tmp/logs/session-a.jsonl",
+      name: "session-a.jsonl",
+    });
+    const sessionsDeferred = createDeferred<LogSession[]>();
+    const statsDeferred = createDeferred<SessionStats>();
+    const setup = await renderOverlay(
+      {},
+      {
+        sessions: sessionsDeferred.promise,
+        stats: statsDeferred.promise,
+      }
+    );
+
+    await act(async () => {
+      sessionsDeferred.resolve([session]);
+      statsDeferred.resolve(buildSessionStats({ sessionPath: session.path }));
+      await setup.renderOnce();
+      await Promise.resolve();
+      await setup.renderOnce();
+    });
+
+    await pressKeyAndRender(setup, "d");
+
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("Delete Session Log");
+    expect(frame).toContain("This cannot be undone");
+  });
+
+  test("Esc closes delete confirmation first, not the overlay", async () => {
+    let closeCount = 0;
+    const session = buildLogSession({
+      path: "/tmp/logs/session-a.jsonl",
+      name: "session-a.jsonl",
+    });
+    const sessionsDeferred = createDeferred<LogSession[]>();
+    const statsDeferred = createDeferred<SessionStats>();
+    const setup = await renderOverlay(
+      {
+        onClose: () => {
+          closeCount += 1;
+        },
+      },
+      {
+        sessions: sessionsDeferred.promise,
+        stats: statsDeferred.promise,
+      }
+    );
+
+    await act(async () => {
+      sessionsDeferred.resolve([session]);
+      statsDeferred.resolve(buildSessionStats({ sessionPath: session.path }));
+      await setup.renderOnce();
+      await Promise.resolve();
+      await setup.renderOnce();
+    });
+
+    await pressKeyAndRender(setup, "d");
+    await pressKeyAndRender(setup, "escape");
+
+    expect(closeCount).toBe(0);
+    const frame = setup.captureCharFrame();
+    expect(frame).not.toContain("Delete Session Log");
+  });
+
+  test("n closes delete confirmation first, not the overlay", async () => {
+    let closeCount = 0;
+    const session = buildLogSession({
+      path: "/tmp/logs/session-a.jsonl",
+      name: "session-a.jsonl",
+    });
+    const sessionsDeferred = createDeferred<LogSession[]>();
+    const statsDeferred = createDeferred<SessionStats>();
+    const setup = await renderOverlay(
+      {
+        onClose: () => {
+          closeCount += 1;
+        },
+      },
+      {
+        sessions: sessionsDeferred.promise,
+        stats: statsDeferred.promise,
+      }
+    );
+
+    await act(async () => {
+      sessionsDeferred.resolve([session]);
+      statsDeferred.resolve(buildSessionStats({ sessionPath: session.path }));
+      await setup.renderOnce();
+      await Promise.resolve();
+      await setup.renderOnce();
+    });
+
+    await pressKeyAndRender(setup, "d");
+    await pressKeyAndRender(setup, "n");
+
+    expect(closeCount).toBe(0);
+    const frame = setup.captureCharFrame();
+    expect(frame).not.toContain("Delete Session Log");
+  });
+
+  test("y confirms deletion and removes the selected session", async () => {
+    const first = buildLogSession({
+      path: "/tmp/logs/session-a.jsonl",
+      name: "session-a.jsonl",
+      timestamp: 200,
+    });
+    const second = buildLogSession({
+      path: "/tmp/logs/session-b.jsonl",
+      name: "session-b.jsonl",
+      timestamp: 100,
+    });
+    const deleteSpy = spyOn(logger, "deleteSessionFiles").mockResolvedValue();
+    spyOn(sessionState, "listAllActiveSessions").mockResolvedValue([]);
+    const sessionsDeferred = createDeferred<LogSession[]>();
+    const statsDeferred = createDeferred<SessionStats>();
+
+    const setup = await renderOverlay(
+      {},
+      {
+        sessions: sessionsDeferred.promise,
+        stats: statsDeferred.promise,
+      }
+    );
+
+    await act(async () => {
+      sessionsDeferred.resolve([first, second]);
+      statsDeferred.resolve(buildSessionStats({ sessionPath: first.path }));
+      await setup.renderOnce();
+      await Promise.resolve();
+      await setup.renderOnce();
+    });
+
+    await pressKeyAndRender(setup, "d");
+    await pressKeyAndRender(setup, "y");
+    await settleOverlay(setup);
+
+    expect(deleteSpy).toHaveBeenCalledTimes(1);
+    expect(deleteSpy).toHaveBeenCalledWith(first.path);
+
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("session-b");
+    expect(frame).not.toContain("Delete Session Log");
+  });
+
+  test("enter and return do not confirm deletion", async () => {
+    const session = buildLogSession({
+      path: "/tmp/logs/session-a.jsonl",
+      name: "session-a.jsonl",
+    });
+    const deleteSpy = spyOn(logger, "deleteSessionFiles").mockResolvedValue();
+    spyOn(sessionState, "listAllActiveSessions").mockResolvedValue([]);
+    const sessionsDeferred = createDeferred<LogSession[]>();
+    const statsDeferred = createDeferred<SessionStats>();
+
+    const setup = await renderOverlay(
+      {},
+      {
+        sessions: sessionsDeferred.promise,
+        stats: statsDeferred.promise,
+      }
+    );
+
+    await act(async () => {
+      sessionsDeferred.resolve([session]);
+      statsDeferred.resolve(buildSessionStats({ sessionPath: session.path }));
+      await setup.renderOnce();
+      await Promise.resolve();
+      await setup.renderOnce();
+    });
+
+    await pressKeyAndRender(setup, "d");
+    await pressKeyAndRender(setup, "enter");
+    await pressKeyAndRender(setup, "return");
+    await settleOverlay(setup);
+
+    expect(deleteSpy).not.toHaveBeenCalled();
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("Delete Session Log");
+  });
+
+  test("blocks deleting an active session", async () => {
+    const session = buildLogSession({
+      path: "/tmp/logs/session-a.jsonl",
+      name: "session-a.jsonl",
+    });
+    const deleteSpy = spyOn(logger, "deleteSessionFiles").mockResolvedValue();
+    spyOn(sessionState, "listAllActiveSessions").mockResolvedValue([
+      buildActiveSession({ sessionPath: session.path }),
+    ]);
+    const sessionsDeferred = createDeferred<LogSession[]>();
+    const statsDeferred = createDeferred<SessionStats>();
+
+    const setup = await renderOverlay(
+      {},
+      {
+        sessions: sessionsDeferred.promise,
+        stats: statsDeferred.promise,
+      }
+    );
+
+    await act(async () => {
+      sessionsDeferred.resolve([session]);
+      statsDeferred.resolve(buildSessionStats({ sessionPath: session.path }));
+      await setup.renderOnce();
+      await Promise.resolve();
+      await setup.renderOnce();
+    });
+
+    await pressKeyAndRender(setup, "d");
+    await pressKeyAndRender(setup, "y");
+    await settleOverlay(setup);
+
+    expect(deleteSpy).not.toHaveBeenCalled();
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("Cannot delete a running session");
+    expect(frame).toContain("Delete Session Log");
   });
 });
 

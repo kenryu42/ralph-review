@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { ActiveSession } from "@/lib/session-state";
 import { stopSelectedDashboardSession } from "@/lib/tui/components/dashboard-stop";
+import { resolveDashboardCloseAction } from "@/lib/tui/dashboard-keyboard";
 
 interface Deferred<T> {
   promise: Promise<T>;
@@ -57,5 +58,47 @@ describe("stopSelectedDashboardSession", () => {
 
     stopDeferred.resolve();
     await stopPromise;
+  });
+});
+
+describe("resolveDashboardCloseAction", () => {
+  test("prioritizes closing stop picker when visible", () => {
+    const result = resolveDashboardCloseAction({
+      showStopPicker: true,
+      showHelp: true,
+      showSession: true,
+    });
+
+    expect(result).toBe("close-stop-picker");
+  });
+
+  test("closes help when stop picker is not visible", () => {
+    const result = resolveDashboardCloseAction({
+      showStopPicker: false,
+      showHelp: true,
+      showSession: true,
+    });
+
+    expect(result).toBe("close-help");
+  });
+
+  test("delegates close key to session overlay when it is visible", () => {
+    const result = resolveDashboardCloseAction({
+      showStopPicker: false,
+      showHelp: false,
+      showSession: true,
+    });
+
+    expect(result).toBe("delegate-session-overlay");
+  });
+
+  test("shuts down when no overlays are visible", () => {
+    const result = resolveDashboardCloseAction({
+      showStopPicker: false,
+      showHelp: false,
+      showSession: false,
+    });
+
+    expect(result).toBe("shutdown");
   });
 });

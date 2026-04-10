@@ -5,6 +5,7 @@ import { CLI_PATH } from "@/lib/paths";
 import type { ActiveSession } from "@/lib/session-state";
 import { stopActiveSession } from "@/lib/stop-session";
 import { TUI_COLORS } from "@/lib/tui/colors";
+import { resolveDashboardCloseAction } from "@/lib/tui/dashboard-keyboard";
 import {
   createStoppingSessionState,
   type StoppingSessionState,
@@ -164,12 +165,20 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
   const handleKeyboard = useCallback(
     (key: { name: string }) => {
       if (key.name === "q" || key.name === "escape") {
-        if (showStopPicker) {
+        const closeAction = resolveDashboardCloseAction({
+          showStopPicker,
+          showHelp,
+          showSession,
+        });
+
+        if (closeAction === "close-stop-picker") {
           setShowStopPicker(false);
-        } else if (showHelp) {
+        } else if (closeAction === "close-help") {
           setShowHelp(false);
-        } else if (showSession) {
-          setShowSession(false);
+        } else if (closeAction === "delegate-session-overlay") {
+          // SessionOverlay has its own keyboard handlers and modals.
+          // Avoid double-handling here so nested overlays can consume Esc/q first.
+          return;
         } else {
           void shutdown();
         }

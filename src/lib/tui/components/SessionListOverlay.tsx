@@ -1,7 +1,8 @@
 import { useKeyboard, useRenderer } from "@opentui/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { LogSession } from "@/lib/logger";
-import { computeSessionStats, listLogSessions } from "@/lib/logger";
+import { computeSessionStats, deleteSessionFiles, listLogSessions } from "@/lib/logger";
+import { listAllActiveSessions } from "@/lib/session-state";
 import { TUI_COLORS } from "@/lib/tui/colors";
 import type { SessionStats } from "@/lib/types";
 import { formatProjectNameForDisplay, formatRelativeTime } from "../session-panel-utils";
@@ -17,7 +18,7 @@ function sessionLabel(session: LogSession): string {
 
 function SessionHelpModal({ onClose }: { onClose: () => void }) {
   useKeyboard((key) => {
-    if (key.name === "escape" || key.name === "?" || key.name === "h") {
+    if (key.name === "escape" || key.name === "q" || key.name === "?" || key.name === "h") {
       onClose();
     }
   });
@@ -51,14 +52,58 @@ function SessionHelpModal({ onClose }: { onClose: () => void }) {
             <span fg={TUI_COLORS.text.muted}> Navigate / Scroll</span>
           </text>
           <text>
-            <span fg={TUI_COLORS.accent.key}>[Esc/l]</span>
-            <span fg={TUI_COLORS.text.muted}> Close logs view</span>
+            <span fg={TUI_COLORS.accent.key}>[d]</span>
+            <span fg={TUI_COLORS.text.muted}> Delete selected log</span>
           </text>
           <text>
             <span fg={TUI_COLORS.accent.key}>[h/?]</span>
             <span fg={TUI_COLORS.text.muted}> Toggle help</span>
           </text>
         </box>
+      </box>
+    </box>
+  );
+}
+
+interface SessionDeleteModalProps {
+  sessionName: string;
+  error: string | null;
+  isDeleting: boolean;
+}
+
+function SessionDeleteModal({ sessionName, error, isDeleting }: SessionDeleteModalProps) {
+  return (
+    <box
+      position="absolute"
+      left={0}
+      top={0}
+      width="100%"
+      height="100%"
+      justifyContent="center"
+      alignItems="center"
+    >
+      <box
+        border
+        borderStyle="double"
+        title="Delete Session Log"
+        titleAlignment="left"
+        padding={2}
+        width={58}
+        backgroundColor="#1a1a2e"
+        flexDirection="column"
+        gap={1}
+      >
+        <text fg={TUI_COLORS.text.primary}>{sessionName}</text>
+        <text fg={TUI_COLORS.status.error}>This cannot be undone.</text>
+        <text>
+          <span fg={TUI_COLORS.accent.key}>[y]</span>
+          <span fg={TUI_COLORS.status.error}> Delete</span>
+          <span fg={TUI_COLORS.text.muted}> </span>
+          <span fg={TUI_COLORS.accent.key}>[n/Esc]</span>
+          <span fg={TUI_COLORS.text.muted}> Cancel</span>
+        </text>
+        {isDeleting && <text fg={TUI_COLORS.text.muted}>Deleting...</text>}
+        {error && <text fg={TUI_COLORS.status.error}>{error}</text>}
       </box>
     </box>
   );
@@ -74,6 +119,9 @@ export function SessionOverlay({ onClose }: SessionOverlayProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [statsLoading, setStatsLoading] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [focusedPane, setFocusedPane] = useState<OverlayPane>("list");
 
   const cycleFocus = useCallback(() => {
@@ -127,15 +175,89 @@ export function SessionOverlay({ onClose }: SessionOverlayProps) {
     return { selectOptions, sessionSlots };
   }, [sessions]);
 
+  const selectedSession = selectedPath
+    ? (sessions.find((s) => s.path === selectedPath) ?? null)
+    : null;
+  const sessionTitle = selectedSession
+    ? `${formatProjectNameForDisplay(selectedSession.projectName)} Logs`
+    : "Logs";
+
+  const confirmDeleteSelectedSession = useCallback(async () => {
+    if (!selectedPath || isDeleting) {
+      return;
+    }
+
+    setIsDeleting(true);
+    setDeleteError(null);
+
+    try {
+      const activeSessions = await listAllActiveSessions();
+      if (activeSessions.some((session) => session.sessionPath === selectedPath)) {
+        setDeleteError("Cannot delete a running session");
+        return;
+      }
+
+      await deleteSessionFiles(selectedPath);
+
+      const removedIndex = sessions.findIndex((session) => session.path === selectedPath);
+      const remainingSessions = sessions.filter((session) => session.path !== selectedPath);
+      const nextSelectedSession =
+        removedIndex >= 0
+          ? (remainingSessions[removedIndex] ?? remainingSessions[Math.max(removedIndex - 1, 0)])
+          : (remainingSessions[0] ?? null);
+
+      setSessions(remainingSessions);
+      setSelectedPath(nextSelectedSession?.path ?? null);
+      setSelectedStats(null);
+      setStatsLoading(false);
+      setShowDeleteConfirm(false);
+    } catch (error) {
+      setDeleteError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsDeleting(false);
+    }
+  }, [isDeleting, selectedPath, sessions]);
+
+  const closeDeleteConfirm = useCallback(() => {
+    if (isDeleting) {
+      return;
+    }
+
+    setShowDeleteConfirm(false);
+    setDeleteError(null);
+  }, [isDeleting]);
+
   useKeyboard((key) => {
+    if (showDeleteConfirm) {
+      if (key.name === "escape" || key.name === "n" || key.name === "q") {
+        closeDeleteConfirm();
+        return;
+      }
+
+      if (key.name === "y") {
+        void confirmDeleteSelectedSession();
+        return;
+      }
+
+      return;
+    }
+
     if (key.name === "?" || key.name === "h") {
       setShowHelp((prev) => !prev);
       return;
     }
 
     if (showHelp) {
-      if (key.name === "escape") {
+      if (key.name === "escape" || key.name === "q") {
         setShowHelp(false);
+      }
+      return;
+    }
+
+    if (key.name === "d") {
+      if (selectedSession) {
+        setDeleteError(null);
+        setShowDeleteConfirm(true);
       }
       return;
     }
@@ -145,7 +267,7 @@ export function SessionOverlay({ onClose }: SessionOverlayProps) {
       return;
     }
 
-    if (key.name === "escape" || key.name === "l") {
+    if (key.name === "escape" || key.name === "l" || key.name === "q") {
       onClose();
       return;
     }
@@ -153,13 +275,7 @@ export function SessionOverlay({ onClose }: SessionOverlayProps) {
 
   // Overhead: outer padding (2) + panel border (2) + panel padding (2) + status bar (2) = 8
   const selectHeight = Math.max(3, renderer.height - 8);
-
-  const selectedSession = selectedPath
-    ? (sessions.find((s) => s.path === selectedPath) ?? null)
-    : null;
-  const sessionTitle = selectedSession
-    ? `${formatProjectNameForDisplay(selectedSession.projectName)} Logs`
-    : "Logs";
+  const isOverlayBlocked = showHelp || showDeleteConfirm;
 
   const listBorderColor =
     focusedPane === "list" ? TUI_COLORS.ui.borderFocused : TUI_COLORS.ui.border;
@@ -196,7 +312,7 @@ export function SessionOverlay({ onClose }: SessionOverlayProps) {
             <select
               options={selectOptions}
               height={selectHeight}
-              focused={focusedPane === "list" && !showHelp}
+              focused={focusedPane === "list" && !isOverlayBlocked}
               showScrollIndicator
               selectedIndex={sessionSlots.findIndex((s) => s?.path === selectedPath)}
               onChange={(idx) => {
@@ -225,7 +341,7 @@ export function SessionOverlay({ onClose }: SessionOverlayProps) {
           ) : (
             <SessionDetailPane
               stats={selectedStats}
-              focused={focusedPane === "detail"}
+              focused={focusedPane === "detail" && !isOverlayBlocked}
               height={selectHeight}
             />
           )}
@@ -245,6 +361,10 @@ export function SessionOverlay({ onClose }: SessionOverlayProps) {
             <span fg={TUI_COLORS.text.muted}> Close</span>
           </text>
           <text>
+            <span fg={TUI_COLORS.accent.key}>[d]</span>
+            <span fg={TUI_COLORS.text.muted}> Delete</span>
+          </text>
+          <text>
             <span fg={TUI_COLORS.accent.key}>[h]</span>
             <span fg={TUI_COLORS.text.muted}> Help</span>
           </text>
@@ -253,6 +373,13 @@ export function SessionOverlay({ onClose }: SessionOverlayProps) {
       </box>
 
       {showHelp && <SessionHelpModal onClose={() => setShowHelp(false)} />}
+      {showDeleteConfirm && (
+        <SessionDeleteModal
+          sessionName={selectedSession ? sessionLabel(selectedSession) : "Unknown session"}
+          error={deleteError}
+          isDeleting={isDeleting}
+        />
+      )}
     </box>
   );
 }
