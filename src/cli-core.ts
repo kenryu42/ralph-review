@@ -160,6 +160,32 @@ export const COMMANDS: CommandDef[] = [
     examples: ["rr discard", "rr discard --session session-123"],
   },
   {
+    name: "revert",
+    description: "Revert an archived applied review handoff",
+    options: [
+      {
+        name: "session",
+        alias: "s",
+        type: "string",
+        description: "Revert a specific archived handoff in the current project",
+      },
+    ],
+    examples: ["rr revert", "rr revert --session session-123"],
+  },
+  {
+    name: "reapply",
+    description: "Reapply an archived review handoff",
+    options: [
+      {
+        name: "session",
+        alias: "s",
+        type: "string",
+        description: "Reapply a specific archived handoff in the current project",
+      },
+    ],
+    examples: ["rr reapply", "rr reapply --session session-123"],
+  },
+  {
     name: "list",
     aliases: ["ls"],
     description: "List active review sessions",
