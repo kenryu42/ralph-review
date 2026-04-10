@@ -149,11 +149,14 @@ rr update
 # Auto-detect installed agents and configure reviewer/fixer
 rr init
 
-# Start a review cycle (runs in tmux)
+# Start a non-interactive review cycle (runs in tmux)
 rr run
 
-# Or use shorthand alias for `rr run`
+# Or use the shorthand alias
 rrr
+
+# Open Interactive Mode separately
+rr
 ```
 
 ---
@@ -164,7 +167,7 @@ rrr
 |---------|-------------|
 | `rr` | Interactive Mode |
 | `rr init` | Configure reviewer, fixer, and simplifier agents (auto-detects installed CLIs) |
-| `rr run` | Start review cycle in a tmux session |
+| `rr run` | Start a non-interactive review cycle in a tmux session |
 | `rr run --base main` | Review changes against a base branch |
 | `rr run --uncommitted` | Review staged, unstaged, and untracked changes |
 | `rr run --commit SHA` | Review changes introduced by a specific commit |
@@ -179,7 +182,8 @@ rrr
 | `rr doctor` | Run environment and configuration diagnostics (`--fix` to auto-resolve) |
 | `rr update` | Check for and install a newer `ralph-review` version |
 
-The `rrr` command is a shorthand alias for `rr run` -- all flags work the same.
+The `rrr` command is a shorthand alias for `rr run`. Both start the review without launching
+Interactive Mode; run `rr` separately to open it.
 
 For update checks without installing, run `rr update --check`. If install-source detection is
 ambiguous, force the package manager with `rr update --manager npm` or

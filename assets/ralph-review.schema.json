@@ -150,9 +150,6 @@
       "properties": {
         "simplifier": {
           "type": "boolean"
-        },
-        "interactive": {
-          "type": "boolean"
         }
       },
       "required": ["simplifier"],

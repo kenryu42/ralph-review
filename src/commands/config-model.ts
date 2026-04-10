@@ -32,7 +32,6 @@ const CONFIG_KEYS = [
   "defaultReview.type",
   "defaultReview.branch",
   "run.simplifier",
-  "run.interactive",
   "retry.maxRetries",
   "retry.baseDelayMs",
   "retry.maxDelayMs",
@@ -74,7 +73,6 @@ type ParsedScalarConfigUpdate =
   | { key: "defaultReview.type"; value: "uncommitted" | "base" }
   | { key: "defaultReview.branch"; value: string | null }
   | { key: "run.simplifier"; value: boolean }
-  | { key: "run.interactive"; value: boolean }
   | { key: "retry.maxRetries"; value: number }
   | { key: "retry.baseDelayMs"; value: number }
   | { key: "retry.maxDelayMs"; value: number }
@@ -272,7 +270,6 @@ export function parseConfigUpdate(key: ConfigKey, rawValue: string): ParsedConfi
       return { key, value: rawValue };
 
     case "run.simplifier":
-    case "run.interactive":
       if (requireNonNullRawValue(key, rawValue) !== "true" && rawValue !== "false") {
         throw new Error(`Value for "${key}" must be "true" or "false".`);
       }
@@ -338,8 +335,6 @@ export function getConfigValue(config: Config | ConfigOverride, key: ConfigKey):
       return config.defaultReview?.type === "base" ? config.defaultReview.branch : undefined;
     case "run.simplifier":
       return config.run?.simplifier;
-    case "run.interactive":
-      return config.run?.interactive;
     case "retry.maxRetries":
       return config.retry?.maxRetries;
     case "retry.baseDelayMs":
@@ -522,13 +517,7 @@ export function setConfigValue(config: Config, key: ConfigKey, value: ConfigValu
       if (typeof value !== "boolean") {
         throw new Error(`Value for "${key}" must be "true" or "false".`);
       }
-      next.run = { simplifier: value, interactive: next.run?.interactive ?? true };
-      return next;
-    case "run.interactive":
-      if (typeof value !== "boolean") {
-        throw new Error(`Value for "${key}" must be "true" or "false".`);
-      }
-      next.run = { simplifier: next.run?.simplifier ?? false, interactive: value };
+      next.run = { simplifier: value };
       return next;
     case "retry.maxRetries":
       next.retry = next.retry ? { ...next.retry } : { ...DEFAULT_RETRY_CONFIG };
@@ -714,12 +703,6 @@ export function setConfigOverrideValue(
         simplifier: update.value,
       };
       return next;
-    case "run.interactive":
-      next.run = {
-        ...(next.run && next.run !== null ? next.run : {}),
-        interactive: update.value,
-      };
-      return next;
     case "retry.maxRetries":
       next.retry = {
         ...(next.retry && next.retry !== null ? next.retry : {}),
@@ -804,9 +787,6 @@ export function validateConfigInvariants(config: Config): string[] {
   }
   if (config.run && typeof config.run.simplifier !== "boolean") {
     errors.push("run.simplifier must be a boolean.");
-  }
-  if (config.run && typeof config.run.interactive !== "boolean") {
-    errors.push("run.interactive must be a boolean.");
   }
 
   return errors;

@@ -50,7 +50,6 @@ export interface NotificationsConfig {
 
 export interface RunConfig {
   simplifier: boolean;
-  interactive: boolean;
 }
 
 export interface RetryOverrideConfig {
@@ -69,7 +68,6 @@ export interface NotificationsOverrideConfig {
 
 export interface RunOverrideConfig {
   simplifier?: boolean;
-  interactive?: boolean;
 }
 
 export const CONFIG_SCHEMA_URI =

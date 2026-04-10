@@ -33,10 +33,10 @@ export async function runRrr(
 ): Promise<void> {
   const rrrDeps = buildRrrDeps(deps);
   if (args.includes("--help") || args.includes("-h")) {
-    rrrDeps.log("rrr - Quick alias for 'rr run'\n");
+    rrrDeps.log("rrr - Start non-interactive review run\n");
     rrrDeps.log("USAGE:");
     rrrDeps.log("  rrr [options]\n");
-    rrrDeps.log("All options are passed through to 'rr run'.\n");
+    rrrDeps.log("Equivalent to 'rr run' without launching Interactive Mode.\n");
     const optionsMatch = rrrDeps
       .printCommandHelp("run")
       ?.match(/OPTIONS:[\s\S]*?(?=\nEXAMPLES:|\n\n|$)/);

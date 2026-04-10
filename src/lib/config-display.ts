@@ -178,7 +178,6 @@ function formatReadableConfigBody(configSection: ReadableConfigSection): string[
 
     pushSection(lines, "Run", [
       { label: "Simplifier", value: formatFeatureState(config.run?.simplifier ?? false) },
-      { label: "Interactive Mode", value: formatFeatureState(config.run?.interactive ?? true) },
     ]);
 
     pushSection(lines, "Limits", [
@@ -244,12 +243,6 @@ function formatReadableConfigBody(configSection: ReadableConfigSection): string[
     runEntries.push({
       label: "Simplifier",
       value: formatFeatureState(config.run.simplifier),
-    });
-  }
-  if (config.run?.interactive !== undefined) {
-    runEntries.push({
-      label: "Interactive Mode",
-      value: formatFeatureState(config.run.interactive),
     });
   }
   pushSection(lines, "Run", runEntries);

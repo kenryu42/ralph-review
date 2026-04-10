@@ -87,12 +87,12 @@ describe("cli", () => {
       const usage = stripAnsi(printUsage());
       const lines = usage.split("\n");
       const bareRrLine = lines.find((line) => line.includes("Launch Interactive Mode"));
-      const rrrLine = lines.find((line) => line.includes("Quick alias for 'rr run'"));
+      const rrrLine = lines.find((line) => line.includes("Start non-interactive review run"));
 
       expect(bareRrLine).toBeDefined();
       expect(rrrLine).toBeDefined();
       expect(bareRrLine?.indexOf("Launch Interactive Mode")).toBe(
-        rrrLine?.indexOf("Quick alias for 'rr run'")
+        rrrLine?.indexOf("Start non-interactive review run")
       );
     });
   });
@@ -129,8 +129,8 @@ describe("cli", () => {
       expect(optionNames).toContain("simplifier");
       expect(optionNames).toContain("sound");
       expect(optionNames).toContain("no-sound");
-      expect(optionNames).toContain("interactive");
-      expect(optionNames).toContain("no-interactive");
+      expect(optionNames).not.toContain("interactive");
+      expect(optionNames).not.toContain("no-interactive");
       expect(optionNames).not.toContain("list");
     });
 

@@ -13,7 +13,7 @@ const baseConfig: Config = {
   reviewer: { agent: "codex", model: "gpt-5.3-codex", reasoning: "high" },
   fixer: { agent: "claude", model: "claude-opus-4-6", reasoning: "medium" },
   "code-simplifier": { agent: "droid", model: "gpt-5.2-codex", reasoning: "low" },
-  run: { simplifier: false, interactive: true },
+  run: { simplifier: false },
   maxIterations: 5,
   iterationTimeout: 1800000,
   defaultReview: { type: "uncommitted" },
@@ -85,6 +85,7 @@ describe("config display", () => {
     expect(output).toContain("Iteration timeout:");
     expect(output).toContain("30m");
     expect(output).toContain("Notifications");
+    expect(output).not.toContain("Interactive Mode");
     expect(output).not.toContain("$schema");
     expect(output).not.toContain("version");
   });
@@ -164,7 +165,7 @@ describe("config display", () => {
         reviewer: { agent: "codex", reasoning: "medium" },
         fixer: { agent: "claude", model: "claude-opus-4-6" },
         "code-simplifier": { agent: "droid", model: "gpt-5.2-codex" },
-        run: { interactive: false },
+        run: { simplifier: false },
         iterationTimeout: 5000,
         retry: { maxRetries: 4, baseDelayMs: 250, maxDelayMs: 5000 },
         notifications: { sound: { enabled: false } },
@@ -176,7 +177,7 @@ describe("config display", () => {
     expect(output).toContain("Reviewer: Codex (Default, medium)");
     expect(output).toContain("Fixer: Claude (Claude Opus 4.6, default)");
     expect(output).toContain("Simplifier: Droid (GPT-5.2-Codex, default)");
-    expect(output).toContain("Interactive Mode: disabled");
+    expect(output).toContain("Simplifier: disabled");
     expect(output).toContain("Iteration timeout: 5,000 ms (5s)");
     expect(output).toContain("Retry");
     expect(output).toContain("Max retries: 4");

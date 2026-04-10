@@ -34,8 +34,6 @@ export interface RunOptions {
   commit?: string;
   custom?: string;
   simplifier?: boolean;
-  interactive?: boolean;
-  "no-interactive"?: boolean;
   sound?: boolean;
   "no-sound"?: boolean;
 }
@@ -81,22 +79,6 @@ export function resolveRunSoundOverride(options: RunOptions): SoundOverride | un
 
 export function resolveRunSimplifierEnabled(options: RunOptions, config: Config | null): boolean {
   return options.simplifier === true || config?.run?.simplifier === true;
-}
-
-export function resolveRunInteractiveEnabled(options: RunOptions, config: Config | null): boolean {
-  if (options.interactive && options["no-interactive"]) {
-    throw new Error("Cannot use --interactive and --no-interactive together");
-  }
-
-  if (options.interactive) {
-    return true;
-  }
-
-  if (options["no-interactive"]) {
-    return false;
-  }
-
-  return config?.run?.interactive ?? true;
 }
 
 export function formatRunAgentsNote(config: Config, reviewOptions: ReviewOptions): string {
@@ -382,7 +364,10 @@ async function runInBackground(
     runtime.prompt.log.success(`Review started in background session: ${sessionName}`);
     const reviewOptions: ReviewOptions = { baseBranch, commitSha, customInstructions, simplifier };
     runtime.prompt.note(formatRunAgentsNote(config, reviewOptions), "Agents");
-    runtime.prompt.note("rr         - Check status\n" + "rr stop    - Stop the review", "Commands");
+    runtime.prompt.note(
+      "rr         - Open Interactive Mode\n" + "rr stop    - Stop the review",
+      "Commands"
+    );
   } catch (error) {
     await runtime.sessionState.removeSessionState(undefined, projectPath, sessionId, {
       expectedSessionId: sessionId,
@@ -390,12 +375,6 @@ async function runInBackground(
     runtime.prompt.log.error(`Failed to start background session: ${error}`);
     runtime.process.exit(1);
   }
-}
-
-function logInteractiveReconnectHint(runtime: RunRuntime): void {
-  runtime.prompt.log.message("Interactive Mode closed.");
-  runtime.prompt.log.message("Launch Interactive Mode: rr");
-  runtime.prompt.log.message("Stop session:   rr stop");
 }
 
 export async function runForeground(
@@ -757,18 +736,6 @@ export async function startReview(
   }
 
   const runSimplifier = resolveRunSimplifierEnabled(options, config);
-  let runInteractive: boolean;
-  try {
-    runInteractive = resolveRunInteractiveEnabled(options, config);
-  } catch (error) {
-    runtime.prompt.log.error(`${error}`);
-    runtime.process.exit(1);
-    return;
-  }
-  if (runInteractive && !runtime.process.stdoutIsTTY) {
-    runtime.prompt.log.warn("Interactive Mode is disabled because stdout is not a TTY.");
-    runInteractive = false;
-  }
 
   // Check if inside tmux - warn about nesting
   if (runtime.tmux.isInsideTmux()) {
@@ -787,17 +754,4 @@ export async function startReview(
     runSimplifier,
     soundOverride
   );
-
-  if (!runInteractive) {
-    return;
-  }
-
-  try {
-    const branch = await runtime.getGitBranch(projectPath);
-    await runtime.openSessionPanel(projectPath, branch ?? undefined);
-  } catch (error) {
-    runtime.prompt.log.warn(`Could not launch Interactive Mode: ${error}`);
-  }
-
-  logInteractiveReconnectHint(runtime);
 }

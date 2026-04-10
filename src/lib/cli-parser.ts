@@ -377,7 +377,7 @@ export function formatMainHelp(commands: CommandDef[], version: string): string 
   const usageEntries: UsageEntry[] = [
     { command: "rr", description: "Launch Interactive Mode" },
     { command: "rr", description: "<command> [options]" },
-    { command: "rrr", description: "Quick alias for 'rr run'" },
+    { command: "rrr", description: "Start non-interactive review run" },
   ];
 
   lines.push(

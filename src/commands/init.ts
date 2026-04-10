@@ -64,7 +64,6 @@ interface InitInput {
   defaultReviewType: "uncommitted" | "base";
   defaultReviewBranch?: string;
   runSimplifierByDefault: boolean;
-  runInteractiveByDefault: boolean;
   soundNotificationsEnabled: boolean;
 }
 
@@ -398,7 +397,6 @@ export function buildConfig(input: InitInput): Config {
     ),
     run: {
       simplifier: input.runSimplifierByDefault,
-      interactive: input.runInteractiveByDefault,
     },
     maxIterations: input.maxIterations,
     iterationTimeout: input.iterationTimeoutMinutes * 60 * 1000,
@@ -801,7 +799,6 @@ export async function buildAutoInitInput(
       iterationTimeoutMinutes,
       defaultReviewType: "uncommitted",
       runSimplifierByDefault: false,
-      runInteractiveByDefault: true,
       soundNotificationsEnabled: true,
     },
     skippedAgents,
@@ -963,21 +960,8 @@ async function promptForCustomInitInput(
     defaultReviewType: defaultReviewType as "uncommitted" | "base",
     defaultReviewBranch: defaultReviewBranch as string | undefined,
     runSimplifierByDefault: runSimplifierByDefault as boolean,
-    runInteractiveByDefault: DEFAULT_CONFIG.run?.interactive ?? true,
     soundNotificationsEnabled: DEFAULT_CONFIG.notifications?.sound.enabled ?? true,
   } satisfies InitInput;
-}
-
-async function promptForRunInteractive(
-  runtime: InitRuntime,
-  defaultValue: boolean
-): Promise<boolean> {
-  const shouldEnable = await runtime.prompt.confirm({
-    message: "Launch Interactive Mode automatically after 'rr run'?",
-    initialValue: defaultValue,
-  });
-  handleCancel(runtime, shouldEnable);
-  return shouldEnable as boolean;
 }
 
 async function promptForSoundNotifications(
@@ -1170,15 +1154,10 @@ export async function runInitWithRuntime(
     setupMode === "auto"
       ? {
           ...resolvedInput,
-          runInteractiveByDefault: true,
           soundNotificationsEnabled: true,
         }
       : {
           ...resolvedInput,
-          runInteractiveByDefault: await promptForRunInteractive(
-            runtime,
-            resolvedInput.runInteractiveByDefault
-          ),
           soundNotificationsEnabled: await promptForSoundNotifications(
             runtime,
             resolvedInput.soundNotificationsEnabled

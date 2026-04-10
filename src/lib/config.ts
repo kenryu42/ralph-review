@@ -28,7 +28,7 @@ const LOCAL_CONFIG_FILENAME = "config.json";
 const VALID_AGENT_VALUES = ["codex", "claude", "opencode", "droid", "gemini", "pi"] as const;
 const VALID_AGENT_CHOICES = VALID_AGENT_VALUES.join(", ");
 const VALID_REASONING_VALUES = ["low", "medium", "high", "xhigh", "max"] as const;
-const RUN_SETTING_KEYS = ["simplifier", "interactive"] as const;
+const RUN_SETTING_KEYS = ["simplifier"] as const;
 const OVERRIDE_TOP_LEVEL_KEYS = [
   "reviewer",
   "fixer",
@@ -252,7 +252,7 @@ function parseRunConfigWithDiagnostics(value: unknown, errors: string[]): RunCon
   const keys = Object.keys(value);
   let hasError = false;
   for (const key of keys) {
-    if (key === "simplifier" || key === "interactive") {
+    if (key === "simplifier") {
       continue;
     }
 
@@ -261,21 +261,15 @@ function parseRunConfigWithDiagnostics(value: unknown, errors: string[]): RunCon
   }
 
   const simplifier = value.simplifier;
-  const interactive = value.interactive === undefined ? true : value.interactive;
 
   if (typeof simplifier !== "boolean") {
     errors.push("run.simplifier must be a boolean.");
     hasError = true;
   }
-  if (typeof interactive !== "boolean") {
-    errors.push("run.interactive must be a boolean.");
-    hasError = true;
-  }
 
-  if (!hasError && typeof simplifier === "boolean" && typeof interactive === "boolean") {
+  if (!hasError && typeof simplifier === "boolean") {
     return {
       simplifier,
-      interactive,
     };
   }
 
@@ -392,7 +386,7 @@ function parseRunConfigOverrideWithDiagnostics(
   const override: RunOverrideConfig = {};
   let hasError = false;
   for (const key of Object.keys(value)) {
-    if (key !== "simplifier" && key !== "interactive") {
+    if (key !== "simplifier") {
       errors.push(`run.${key} is not supported. Available settings: ${formatRunSettingChoices()}.`);
       hasError = true;
     }
@@ -404,15 +398,6 @@ function parseRunConfigOverrideWithDiagnostics(
       hasError = true;
     } else {
       override.simplifier = value.simplifier;
-    }
-  }
-
-  if (hasOwnKey(value, "interactive")) {
-    if (typeof value.interactive !== "boolean") {
-      errors.push("run.interactive must be a boolean.");
-      hasError = true;
-    } else {
-      override.interactive = value.interactive;
     }
   }
 
@@ -847,14 +832,8 @@ function mergeRunSection(
   if (base?.simplifier !== undefined) {
     merged.simplifier = base.simplifier;
   }
-  if (base?.interactive !== undefined) {
-    merged.interactive = base.interactive;
-  }
   if (override?.simplifier !== undefined) {
     merged.simplifier = override.simplifier;
-  }
-  if (override?.interactive !== undefined) {
-    merged.interactive = override.interactive;
   }
 
   return isObjectEmpty(merged) ? undefined : merged;
@@ -1117,9 +1096,6 @@ export function buildConfigOverride(base: Config | null, config: Config): Config
     if (base.run?.simplifier !== config.run.simplifier) {
       runOverride.simplifier = config.run.simplifier;
     }
-    if (base.run?.interactive !== config.run.interactive) {
-      runOverride.interactive = config.run.interactive;
-    }
     if (!isObjectEmpty(runOverride as Record<string, unknown>)) {
       override.run = runOverride;
     }
@@ -1299,6 +1275,6 @@ export async function configExists(path: string = CONFIG_PATH): Promise<boolean>
 export const DEFAULT_CONFIG: Partial<Config> = {
   maxIterations: 5,
   iterationTimeout: 1800000,
-  run: { simplifier: false, interactive: true },
+  run: { simplifier: false },
   notifications: { sound: { enabled: DEFAULT_NOTIFICATIONS_CONFIG.sound.enabled } },
 };

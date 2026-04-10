@@ -119,19 +119,9 @@ export const COMMANDS: CommandDef[] = [
         type: "boolean",
         description: "Disable finish sound for this run (override config)",
       },
-      {
-        name: "interactive",
-        type: "boolean",
-        description: "Launch Interactive Mode after starting the run (override config)",
-      },
-      {
-        name: "no-interactive",
-        type: "boolean",
-        description: "Start run without launching Interactive Mode (override config)",
-      },
       SIMPLIFIER_OPTION,
     ],
-    examples: ["rr run", "rr run --base main", "rr run --no-interactive"],
+    examples: ["rr run", "rr run --base main", "rr run --simplifier"],
   },
   {
     name: "apply",

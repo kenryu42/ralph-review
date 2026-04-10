@@ -45,10 +45,10 @@ describe("cli-rrr", () => {
     await runRrr(["--help"], harness.deps);
 
     expect(harness.logs).toEqual([
-      "rrr - Quick alias for 'rr run'\n",
+      "rrr - Start non-interactive review run\n",
       "USAGE:",
       "  rrr [options]\n",
-      "All options are passed through to 'rr run'.\n",
+      "Equivalent to 'rr run' without launching Interactive Mode.\n",
       "OPTIONS:\n  --max <n>\n  --force",
     ]);
     expect(harness.reviewCalls).toEqual([]);
@@ -62,10 +62,10 @@ describe("cli-rrr", () => {
     await runRrr(["-h"], harness.deps);
 
     expect(harness.logs).toEqual([
-      "rrr - Quick alias for 'rr run'\n",
+      "rrr - Start non-interactive review run\n",
       "USAGE:",
       "  rrr [options]\n",
-      "All options are passed through to 'rr run'.\n",
+      "Equivalent to 'rr run' without launching Interactive Mode.\n",
     ]);
     expect(harness.reviewCalls).toEqual([]);
   });

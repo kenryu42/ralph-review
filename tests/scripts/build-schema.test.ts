@@ -13,14 +13,15 @@ interface JsonSchema {
 }
 
 describe("build-schema script", () => {
-  test("emits run.interactive and not run.watch", () => {
+  test("emits run.simplifier and not run.interactive or run.watch", () => {
     const schema = buildConfigJsonSchema() as JsonSchema;
     const runProperty = schema.properties?.run as
       | { properties?: Record<string, unknown> }
       | undefined;
     const runProperties = runProperty?.properties ?? {};
 
-    expect(runProperties.interactive).toBeDefined();
+    expect(runProperties.simplifier).toBeDefined();
+    expect(runProperties.interactive).toBeUndefined();
     expect(runProperties.watch).toBeUndefined();
   });
 
@@ -50,7 +51,8 @@ describe("build-schema script", () => {
 
     expect(writes).toHaveLength(1);
     expect(writes[0]?.path).toBe("/tmp/ralph-review.schema.json");
-    expect(writes[0]?.text).toContain('"interactive"');
+    expect(writes[0]?.text).toContain('"simplifier"');
+    expect(writes[0]?.text).not.toContain('"interactive"');
     expect(writes[0]?.text).not.toContain('"watch"');
     expect(spawnCalls).toEqual([
       ["/repo/node_modules/.bin/biome", "format", "--write", "/tmp/ralph-review.schema.json"],
@@ -122,7 +124,8 @@ describe("build-schema script", () => {
       await runBuildSchema(outputPath);
 
       const schemaText = await Bun.file(outputPath).text();
-      expect(schemaText).toContain('"interactive"');
+      expect(schemaText).toContain('"simplifier"');
+      expect(schemaText).not.toContain('"interactive"');
       expect(schemaText).not.toContain('"watch"');
       expect(logs).toContain(`Generated schema: ${outputPath}`);
     } finally {

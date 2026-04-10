@@ -8,7 +8,6 @@ import {
   parseSoundOverride,
   type RunOptions,
   type RunRuntimeOverrides,
-  resolveRunInteractiveEnabled,
   resolveRunSimplifierEnabled,
   resolveRunSoundOverride,
   runForeground,
@@ -557,16 +556,6 @@ describe("run command", () => {
       const { values } = parseCommand<RunOptions>(runDef, ["--no-sound"]);
       expect(values["no-sound"]).toBe(true);
     });
-
-    test("parses --interactive option", () => {
-      const { values } = parseCommand<RunOptions>(runDef, ["--interactive"]);
-      expect(values.interactive).toBe(true);
-    });
-
-    test("parses --no-interactive option", () => {
-      const { values } = parseCommand<RunOptions>(runDef, ["--no-interactive"]);
-      expect(values["no-interactive"]).toBe(true);
-    });
   });
 
   describe("sound helpers", () => {
@@ -700,7 +689,7 @@ describe("run command", () => {
     test("returns true when --simplifier is passed even if config is false", () => {
       const config = {
         ...createConfig(),
-        run: { simplifier: false, interactive: true },
+        run: { simplifier: false },
       } satisfies Config;
       expect(resolveRunSimplifierEnabled({ simplifier: true }, config)).toBe(true);
     });
@@ -708,7 +697,7 @@ describe("run command", () => {
     test("uses config default when --simplifier is not passed", () => {
       const config = {
         ...createConfig(),
-        run: { simplifier: true, interactive: true },
+        run: { simplifier: true },
       } satisfies Config;
       expect(resolveRunSimplifierEnabled({}, config)).toBe(true);
     });
@@ -721,38 +710,6 @@ describe("run command", () => {
 
       expect(resolveRunSimplifierEnabled({}, config)).toBe(false);
       expect(resolveRunSimplifierEnabled({}, null)).toBe(false);
-    });
-  });
-
-  describe("resolveRunInteractiveEnabled", () => {
-    test("returns true for --interactive", () => {
-      expect(resolveRunInteractiveEnabled({ interactive: true }, createConfig())).toBe(true);
-    });
-
-    test("returns false for --no-interactive", () => {
-      expect(resolveRunInteractiveEnabled({ "no-interactive": true }, createConfig())).toBe(false);
-    });
-
-    test("uses config default when no interactive override is passed", () => {
-      const config = {
-        ...createConfig(),
-        run: { simplifier: false, interactive: false },
-      } satisfies Config;
-      expect(resolveRunInteractiveEnabled({}, config)).toBe(false);
-    });
-
-    test("defaults to true when config is missing run settings", () => {
-      const config = createConfig();
-      delete config.run;
-
-      expect(resolveRunInteractiveEnabled({}, config)).toBe(true);
-      expect(resolveRunInteractiveEnabled({}, null)).toBe(true);
-    });
-
-    test("throws when both interactive overrides are provided", () => {
-      expect(() =>
-        resolveRunInteractiveEnabled({ interactive: true, "no-interactive": true }, createConfig())
-      ).toThrow("Cannot use --interactive and --no-interactive together");
     });
   });
 
@@ -879,91 +836,14 @@ describe("run command", () => {
       expect(harness.errors[0]).toContain("Cannot use --sound and --no-sound together");
     });
 
-    test("exits when interactive flags conflict", async () => {
-      const harness = createRunHarness({
-        runValues: {
-          interactive: true,
-          "no-interactive": true,
-        },
-      });
-
-      const exitCode = await captureExitCode(async () => {
-        await startReview([], harness.overrides);
-      });
-
-      expect(exitCode).toBe(1);
-      expect(harness.errors[0]).toContain("Cannot use --interactive and --no-interactive together");
-    });
-
-    test("launches Interactive Mode by default and prints reconnect hints when closed", async () => {
+    test("starts the background review without launching Interactive Mode", async () => {
       const harness = createRunHarness();
 
       await startReview([], harness.overrides);
 
-      expect(harness.openSessionPanelCalls).toEqual([
-        {
-          projectPath: "/repo/project",
-          branch: "main",
-        },
-      ]);
-      expect(harness.messages).toContain("Interactive Mode closed.");
-      expect(harness.messages).toContain("Launch Interactive Mode: rr");
-      expect(harness.messages).toContain("Stop session:   rr stop");
-    });
-
-    test("skips Interactive Mode when --no-interactive is passed", async () => {
-      const harness = createRunHarness({
-        runValues: {
-          "no-interactive": true,
-        },
-      });
-
-      await startReview([], harness.overrides);
-
       expect(harness.openSessionPanelCalls).toHaveLength(0);
-    });
-
-    test("launches Interactive Mode when --interactive overrides disabled config", async () => {
-      const config = {
-        ...createConfig(),
-        run: { simplifier: false, interactive: false },
-      } satisfies Config;
-      const harness = createRunHarness({
-        runValues: {
-          interactive: true,
-        },
-        diagnostics: createDiagnosticsReport([], config),
-      });
-
-      await startReview([], harness.overrides);
-
-      expect(harness.openSessionPanelCalls).toHaveLength(1);
-    });
-
-    test("disables interactive mode in non-interactive terminals", async () => {
-      const harness = createRunHarness({
-        stdoutIsTTY: false,
-      });
-
-      await startReview([], harness.overrides);
-
-      expect(harness.warnings).toContain(
-        "Interactive Mode is disabled because stdout is not a TTY."
-      );
-      expect(harness.openSessionPanelCalls).toHaveLength(0);
-    });
-
-    test("warns when Interactive Mode cannot be launched", async () => {
-      const harness = createRunHarness({
-        openSessionPanelError: new Error("tui unavailable"),
-      });
-
-      await startReview([], harness.overrides);
-
-      expect(harness.warnings).toContain(
-        "Could not launch Interactive Mode: Error: tui unavailable"
-      );
-      expect(harness.messages).toContain("Launch Interactive Mode: rr");
+      expect(harness.messages).not.toContain("Interactive Mode closed.");
+      expect(harness.messages).not.toContain("Launch Interactive Mode: rr");
     });
 
     test("fills base branch from defaultReview when no explicit mode is provided", async () => {

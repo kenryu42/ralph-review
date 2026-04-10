@@ -49,7 +49,6 @@ const retrySchema = z
 const runSchema = z
   .object({
     simplifier: z.boolean(),
-    interactive: z.boolean().optional(),
   })
   .strict();
 

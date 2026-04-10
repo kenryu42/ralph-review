@@ -26,7 +26,7 @@ const baseConfig: Config = {
   reviewer: { agent: "codex", model: "gpt-5.3-codex", reasoning: "high" },
   fixer: { agent: "claude", model: "claude-opus-4-6", reasoning: "medium" },
   "code-simplifier": { agent: "droid", model: "gpt-5.2-codex", reasoning: "low" },
-  run: { simplifier: false, interactive: false },
+  run: { simplifier: false },
   maxIterations: 5,
   iterationTimeout: 1800000,
   defaultReview: { type: "uncommitted" },
@@ -249,13 +249,13 @@ describe("config command helpers", () => {
     test("accepts supported keys", () => {
       expect(parseConfigKey("reviewer.agent")).toBe("reviewer.agent");
       expect(parseConfigKey("run.simplifier")).toBe("run.simplifier");
-      expect(parseConfigKey("run.interactive")).toBe("run.interactive");
       expect(parseConfigKey("notifications.sound.enabled")).toBe("notifications.sound.enabled");
     });
 
     test("rejects unknown key", () => {
       expect(() => parseConfigKey("reviewer.unknown")).toThrow("Unknown config key");
       expect(() => parseConfigKey("run.watch")).toThrow("Unknown config key");
+      expect(() => parseConfigKey("run.interactive")).toThrow("Unknown config key");
     });
   });
 
@@ -338,8 +338,6 @@ describe("config command helpers", () => {
       expect(parseConfigValue("notifications.sound.enabled", "false")).toBe(false);
       expect(parseConfigValue("run.simplifier", "true")).toBe(true);
       expect(parseConfigValue("run.simplifier", "false")).toBe(false);
-      expect(parseConfigValue("run.interactive", "true")).toBe(true);
-      expect(parseConfigValue("run.interactive", "false")).toBe(false);
     });
 
     test("rejects invalid boolean strings", () => {
@@ -347,7 +345,6 @@ describe("config command helpers", () => {
         'must be "true" or "false"'
       );
       expect(() => parseConfigValue("run.simplifier", "yes")).toThrow('must be "true" or "false"');
-      expect(() => parseConfigValue("run.interactive", "yes")).toThrow('must be "true" or "false"');
     });
   });
 
@@ -365,7 +362,6 @@ describe("config command helpers", () => {
       expect(getConfigValue(createBaseConfig(), "iterationTimeout")).toBe(1800000);
       expect(getConfigValue(createBaseConfig(), "defaultReview.type")).toBe("uncommitted");
       expect(getConfigValue(createBaseConfig(), "run.simplifier")).toBe(false);
-      expect(getConfigValue(createBaseConfig(), "run.interactive")).toBe(false);
       expect(getConfigValue(createBaseConfig(), "notifications.sound.enabled")).toBe(false);
     });
 
@@ -702,9 +698,6 @@ describe("config command helpers", () => {
       expect(() => setConfigValue(createBaseConfig(), "run.simplifier", "true")).toThrow(
         'must be "true" or "false"'
       );
-      expect(() => setConfigValue(createBaseConfig(), "run.interactive", "true")).toThrow(
-        'must be "true" or "false"'
-      );
       expect(() =>
         setConfigValue(createBaseConfig(), "notifications.sound.enabled", "true")
       ).toThrow('must be "true" or "false"');
@@ -732,12 +725,7 @@ describe("config command helpers", () => {
       expect(withTimeout.iterationTimeout).toBe(1200000);
 
       const withRun = setConfigValue(createBaseConfig(), "run.simplifier", true);
-      expect(withRun.run?.simplifier).toBe(true);
-      expect(withRun.run?.interactive).toBe(false);
-
-      const withInteractive = setConfigValue(createBaseConfig(), "run.interactive", true);
-      expect(withInteractive.run?.interactive).toBe(true);
-      expect(withInteractive.run?.simplifier).toBe(false);
+      expect(withRun.run).toEqual({ simplifier: true });
 
       const withRetries = setConfigValue(createBaseConfig(), "retry.maxRetries", 7);
       expect(withRetries.retry?.maxRetries).toBe(7);
@@ -769,7 +757,7 @@ describe("config command helpers", () => {
           baseDelayMs: 0,
           maxDelayMs: 0,
         },
-        run: { simplifier: "yes", interactive: "yes" },
+        run: { simplifier: "yes" },
         notifications: { sound: { enabled: "yes" } },
       } as unknown as Config;
 
@@ -780,7 +768,6 @@ describe("config command helpers", () => {
       expect(errors.some((error) => error.includes("retry.baseDelayMs"))).toBe(true);
       expect(errors.some((error) => error.includes("retry.maxDelayMs"))).toBe(true);
       expect(errors.some((error) => error.includes("run.simplifier"))).toBe(true);
-      expect(errors.some((error) => error.includes("run.interactive"))).toBe(true);
       expect(errors.some((error) => error.includes("notifications.sound.enabled"))).toBe(true);
     });
 
@@ -870,7 +857,7 @@ describe("config command execution", () => {
         harness.effectiveLoadCalls.push(projectPath);
         return {
           exists: true,
-          config: { ...createBaseConfig(), run: { simplifier: true, interactive: false } },
+          config: { ...createBaseConfig(), run: { simplifier: true } },
           errors: [],
           source: "merged",
           globalPath: "/tmp/ralph-test-config.json",
@@ -916,7 +903,7 @@ describe("config command execution", () => {
         harness.effectiveLoadCalls.push(projectPath);
         return {
           exists: true,
-          config: { ...createBaseConfig(), run: { simplifier: true, interactive: false } },
+          config: { ...createBaseConfig(), run: { simplifier: true } },
           errors: [],
           source: "merged",
           globalPath: "/tmp/ralph-test-config.json",
@@ -935,7 +922,7 @@ describe("config command execution", () => {
 
     const output = JSON.parse(harness.printed[0] ?? "");
     expect(output).toEqual({
-      effective: { ...createBaseConfig(), run: { simplifier: true, interactive: false } },
+      effective: { ...createBaseConfig(), run: { simplifier: true } },
       global: createBaseConfig(),
       local: { run: { simplifier: true } },
     });
@@ -1057,7 +1044,7 @@ describe("config command execution", () => {
         exists: true,
         config: null,
         errors: [
-          "run.watch is not supported. Available settings: run.simplifier, run.interactive.",
+          "run.watch is not supported. Available settings: run.simplifier.",
           "fixer.reasoning must be one of: low, medium, high, xhigh, max.",
         ],
         source: "global",
@@ -1067,7 +1054,7 @@ describe("config command execution", () => {
         globalExists: true,
         localExists: false,
         globalErrors: [
-          "run.watch is not supported. Available settings: run.simplifier, run.interactive.",
+          "run.watch is not supported. Available settings: run.simplifier.",
           "fixer.reasoning must be one of: low, medium, high, xhigh, max.",
         ],
         localErrors: [],
@@ -1079,7 +1066,7 @@ describe("config command execution", () => {
 
     expect(harness.errors[0]).toContain("Invalid configuration: /tmp/ralph-test-config.json");
     expect(harness.errors[0]).toContain(
-      "- run.watch is not supported. Available settings: run.simplifier, run.interactive."
+      "- run.watch is not supported. Available settings: run.simplifier."
     );
     expect(harness.errors[0]).toContain(
       "- fixer.reasoning must be one of: low, medium, high, xhigh, max."
@@ -1352,9 +1339,7 @@ describe("config command execution", () => {
     const harness = createCommandHarness({
       parseConfigWithDiagnostics: () => ({
         config: null,
-        errors: [
-          "run.watch is not supported. Available settings: run.simplifier, run.interactive.",
-        ],
+        errors: ["run.watch is not supported. Available settings: run.simplifier."],
       }),
     });
     const runConfig = createRunConfig(harness.deps);
@@ -1363,7 +1348,7 @@ describe("config command execution", () => {
 
     expect(harness.errors[0]).toContain("Updated configuration is invalid.");
     expect(harness.errors[0]).toContain(
-      "- run.watch is not supported. Available settings: run.simplifier, run.interactive."
+      "- run.watch is not supported. Available settings: run.simplifier."
     );
     expect(harness.saved).toHaveLength(0);
     expect(harness.exits).toEqual([1]);
@@ -1425,7 +1410,7 @@ describe("config command execution", () => {
         exists: true,
         config: {
           ...createBaseConfig(),
-          run: { simplifier: true, interactive: false },
+          run: { simplifier: true },
         },
         errors: [],
         source: "merged",
@@ -1461,7 +1446,7 @@ describe("config command execution", () => {
   test("set --local updates a complete raw override when the global layer is broken", async () => {
     const localConfig = {
       ...createBaseConfig(),
-      run: { simplifier: true, interactive: false },
+      run: { simplifier: true },
     };
     const harness = createCommandHarness({
       loadEffectiveConfigWithDiagnostics: async () => ({
@@ -2396,7 +2381,6 @@ describe("config command execution", () => {
     await runConfig(["set", "--local", "defaultReview.type", "uncommitted"]);
     await runConfig(["set", "--local", "defaultReview.branch", "main"]);
     await runConfig(["set", "--local", "run.simplifier", "true"]);
-    await runConfig(["set", "--local", "run.interactive", "false"]);
     await runConfig(["set", "--local", "retry.maxRetries", "4"]);
     await runConfig(["set", "--local", "retry.baseDelayMs", "500"]);
     await runConfig(["set", "--local", "retry.maxDelayMs", "2000"]);
@@ -2747,9 +2731,7 @@ describe("config command execution", () => {
       loadConfigWithDiagnostics: async () => ({
         exists: true,
         config: null,
-        errors: [
-          "run.watch is not supported. Available settings: run.simplifier, run.interactive.",
-        ],
+        errors: ["run.watch is not supported. Available settings: run.simplifier."],
       }),
     });
     const runConfig = createRunConfig(harness.deps);
@@ -2758,7 +2740,7 @@ describe("config command execution", () => {
 
     expect(harness.warnings[0]).toContain("Invalid configuration: /tmp/ralph-test-config.json");
     expect(harness.warnings[0]).toContain(
-      "- run.watch is not supported. Available settings: run.simplifier, run.interactive."
+      "- run.watch is not supported. Available settings: run.simplifier."
     );
     expect(harness.saved).toHaveLength(0);
     expect(harness.exits).toEqual([]);
