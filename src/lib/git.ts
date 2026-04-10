@@ -44,6 +44,28 @@ function runCommand(
   };
 }
 
+async function runCommandAsync(
+  cwd: string,
+  command: string[]
+): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+  const proc = Bun.spawn(command, {
+    cwd,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const [exitCode, stdout, stderr] = await Promise.all([
+    proc.exited,
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+  ]);
+
+  return {
+    exitCode,
+    stdout: stdout.trim(),
+    stderr: stderr.trim(),
+  };
+}
+
 function pruneEmptyDirectory(cwd: string, directoryPath: string): void {
   const probe = runCommand(cwd, [
     "find",
@@ -231,6 +253,19 @@ function assertGitOk(cwd: string, args: string[], context: string): string {
 
 function assertCommandOk(cwd: string, command: string[], context: string): string {
   const result = runCommand(cwd, command);
+  if (result.exitCode !== 0) {
+    const details = result.stderr || result.stdout || "unknown command error";
+    throw new Error(`${context}: ${command.join(" ")} failed: ${details}`);
+  }
+  return result.stdout;
+}
+
+async function assertCommandOkAsync(
+  cwd: string,
+  command: string[],
+  context: string
+): Promise<string> {
+  const result = await runCommandAsync(cwd, command);
   if (result.exitCode !== 0) {
     const details = result.stderr || result.stdout || "unknown command error";
     throw new Error(`${context}: ${command.join(" ")} failed: ${details}`);
@@ -546,8 +581,55 @@ perl -0ne '
   print join("\\0", @parts);
 ' |
 git hash-object --stdin
-`;
+  `;
   return assertCommandOk(repoRoot, ["sh", "-lc", script], "Failed to fingerprint working tree");
+}
+
+export async function computeWorkingTreeFingerprintAsync(repoPath: string): Promise<string> {
+  const repoRoot = assertGitOk(
+    repoPath,
+    ["rev-parse", "--show-toplevel"],
+    "Failed to resolve repository root for fingerprint"
+  );
+  const script = `
+git ls-files -z --cached --others --exclude-standard |
+perl -0ne '
+  use strict;
+  use warnings;
+
+  my @paths = sort grep { length $_ } split(/\\0/, $_);
+  my @parts = ();
+
+  for my $path (@paths) {
+    if (-l $path) {
+      my $target = readlink($path);
+      push @parts, "l", $path, defined($target) ? $target : "";
+      next;
+    }
+
+    if (-f $path) {
+      open my $fh, "-|", "git", "hash-object", "--no-filters", "--", $path
+        or die "Failed to hash file $path: $!";
+      my $hash = <$fh>;
+      close $fh or die "Failed to hash file $path";
+      chomp $hash;
+      push @parts, "f", $path, $hash;
+      next;
+    }
+
+    push @parts, "d", $path, "";
+  }
+
+  binmode STDOUT;
+  print join("\\0", @parts);
+' |
+git hash-object --stdin
+`;
+  return await assertCommandOkAsync(
+    repoRoot,
+    ["sh", "-lc", script],
+    "Failed to fingerprint working tree"
+  );
 }
 
 function normalizePatchPathPrefix(path: string): string {
@@ -603,13 +685,47 @@ export async function createBinaryPatch(
   return patch;
 }
 
-export function applyBinaryPatch(repoPath: string, patchPath: string): void {
-  assertGitOk(
-    repoPath,
-    ["apply", "--check", "--binary", patchPath],
-    "Failed to validate handoff patch"
-  );
-  assertGitOk(repoPath, ["apply", "--binary", patchPath], "Failed to apply handoff patch");
+interface ApplyBinaryPatchOptions {
+  reverse?: boolean;
+}
+
+export function applyBinaryPatch(
+  repoPath: string,
+  patchPath: string,
+  options: ApplyBinaryPatchOptions = {}
+): void {
+  const applyArgs = ["apply"];
+  if (options.reverse) {
+    applyArgs.push("--reverse");
+  }
+  applyArgs.push("--check", "--binary", patchPath);
+  assertGitOk(repoPath, applyArgs, "Failed to validate handoff patch");
+  const writeArgs = ["apply"];
+  if (options.reverse) {
+    writeArgs.push("--reverse");
+  }
+  writeArgs.push("--binary", patchPath);
+  assertGitOk(repoPath, writeArgs, "Failed to apply handoff patch");
+}
+
+export async function applyBinaryPatchAsync(
+  repoPath: string,
+  patchPath: string,
+  options: ApplyBinaryPatchOptions = {}
+): Promise<void> {
+  const applyArgs = ["git", "apply"];
+  if (options.reverse) {
+    applyArgs.push("--reverse");
+  }
+  applyArgs.push("--check", "--binary", patchPath);
+  await assertCommandOkAsync(repoPath, applyArgs, "Failed to validate handoff patch");
+
+  const writeArgs = ["git", "apply"];
+  if (options.reverse) {
+    writeArgs.push("--reverse");
+  }
+  writeArgs.push("--binary", patchPath);
+  await assertCommandOkAsync(repoPath, writeArgs, "Failed to apply handoff patch");
 }
 
 export function buildHandoffRef(sessionId: string): string {
