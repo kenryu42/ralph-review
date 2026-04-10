@@ -6,6 +6,7 @@ import type {
   FixEntry,
   ProjectStats,
   ReviewOptions,
+  SessionStats,
   SkippedEntry,
 } from "@/lib/types";
 import { IdleStateView } from "./IdleStateView";
@@ -21,6 +22,7 @@ interface DetailPaneProps {
   tmuxOutput: string;
   maxIterations: number;
   isLoading: boolean;
+  lastSessionStats?: SessionStats | null;
   projectStats: ProjectStats | null;
   isGitRepo: boolean;
   currentAgent: AgentRole | null;
@@ -41,6 +43,7 @@ export function DetailPane({
   tmuxOutput,
   maxIterations,
   isLoading,
+  lastSessionStats = null,
   projectStats,
   isGitRepo,
   currentAgent,
@@ -100,6 +103,7 @@ export function DetailPane({
           isGitRepo={isGitRepo}
           isStarting={isStarting}
           isStopping={isStopping}
+          lastSessionStats={lastSessionStats}
           projectStats={projectStats}
         />
       )}

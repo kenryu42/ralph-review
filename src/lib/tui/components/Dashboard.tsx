@@ -327,6 +327,7 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
           tmuxOutput={state.tmuxOutput}
           maxIterations={state.maxIterations}
           isLoading={state.isLoading}
+          lastSessionStats={state.lastSessionStats}
           projectStats={state.projectStats}
           isGitRepo={state.isGitRepo}
           currentAgent={state.currentAgent}

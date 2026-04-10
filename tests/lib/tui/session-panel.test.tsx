@@ -7,11 +7,14 @@ import type {
   AgentRole,
   Finding,
   FixEntry,
+  IterationEntry,
   ProjectStats,
   ReviewOptions,
+  SessionStats,
   SkippedEntry,
+  SystemEntry,
 } from "@/lib/types";
-import { buildFixEntry, buildSkippedEntry } from "../../test-utils/fix-summary";
+import { buildFixEntry, buildFixSummary, buildSkippedEntry } from "../../test-utils/fix-summary";
 
 describe("DetailPane", () => {
   let testSetup: Awaited<ReturnType<typeof testRender>> | null = null;
@@ -70,6 +73,92 @@ describe("DetailPane", () => {
     };
   }
 
+  function createSystemEntry(overrides: Partial<SystemEntry> = {}): SystemEntry {
+    return {
+      type: "system",
+      timestamp: Date.now(),
+      projectPath: "/test/project",
+      reviewer: { agent: "claude", model: "sonnet-4" },
+      fixer: { agent: "claude", model: "sonnet-4" },
+      maxIterations: 3,
+      ...overrides,
+    };
+  }
+
+  function createIterationEntry(overrides: Partial<IterationEntry> = {}): IterationEntry {
+    return {
+      type: "iteration",
+      timestamp: Date.now(),
+      iteration: 1,
+      fixes: buildFixSummary({
+        fixes: [buildFixEntry()],
+      }),
+      ...overrides,
+    };
+  }
+
+  function createLastSessionStats(overrides: Partial<SessionStats> = {}): SessionStats {
+    return {
+      sessionPath: "/tmp/logs/session.jsonl",
+      sessionName: "session.jsonl",
+      sessionId: "session-123",
+      timestamp: Date.now() - 60_000,
+      status: "completed",
+      totalFixes: 3,
+      totalSkipped: 1,
+      priorityCounts: { P0: 1, P1: 1, P2: 1, P3: 1 },
+      iterations: 2,
+      totalDuration: 258_000,
+      entries: [
+        createSystemEntry(),
+        createIterationEntry({
+          iteration: 1,
+          fixes: buildFixSummary({
+            fixes: [
+              buildFixEntry({
+                id: 1,
+                title: "Guard missing config before dereference",
+                priority: "P1",
+              }),
+              buildFixEntry({
+                id: 2,
+                title: "Avoid stale review summary after restart",
+                priority: "P2",
+              }),
+            ],
+          }),
+        }),
+        createIterationEntry({
+          iteration: 2,
+          fixes: buildFixSummary({
+            fixes: [
+              buildFixEntry({
+                id: 3,
+                title: "Stop leaking tmux pane handles on refresh",
+                priority: "P1",
+              }),
+              buildFixEntry({ id: 4, title: "Normalize lock timestamp parsing", priority: "P3" }),
+            ],
+            skipped: [
+              buildSkippedEntry({ id: 5, title: "Low-priority style note", priority: "P3" }),
+            ],
+          }),
+        }),
+      ],
+      reviewer: "claude",
+      reviewerModel: "sonnet-4",
+      reviewerReasoning: "high",
+      reviewerDisplayName: "claude",
+      reviewerModelDisplayName: "sonnet-4",
+      fixer: "claude",
+      fixerModel: "sonnet-4",
+      fixerReasoning: "medium",
+      fixerDisplayName: "claude",
+      fixerModelDisplayName: "sonnet-4",
+      ...overrides,
+    };
+  }
+
   async function renderFrame({
     session = createSession(),
     fixes = [],
@@ -87,6 +176,7 @@ describe("DetailPane", () => {
     isStarting = false,
     isStopping = false,
     activeSessionCount = 1,
+    lastSessionStats = null,
     focused = false,
   }: {
     session?: SessionState | null;
@@ -105,6 +195,7 @@ describe("DetailPane", () => {
     isStarting?: boolean;
     isStopping?: boolean;
     activeSessionCount?: number;
+    lastSessionStats?: SessionStats | null;
     focused?: boolean;
   } = {}): Promise<string> {
     testSetup = await testRender(
@@ -125,6 +216,7 @@ describe("DetailPane", () => {
         isStarting,
         isStopping,
         activeSessionCount,
+        lastSessionStats,
         focused,
       }),
       {
@@ -220,8 +312,57 @@ describe("DetailPane", () => {
       projectStats: createProjectStats(),
     });
 
-    expect(frame).toContain("Project stats:");
+    expect(frame).toContain("Project stats");
     expect(frame).toContain("3 fixes across 2 sessions");
+  });
+
+  test("renders last-run preview with fix titles and apply command when handoff is pending", async () => {
+    const frame = await renderFrame({
+      session: null,
+      lastSessionStats: createLastSessionStats({
+        handoffStatus: "pending-apply",
+        sessionId: "session-123",
+      }),
+    });
+
+    expect(frame).toContain("Last run");
+    expect(frame).toContain("3 fixes, 1 skipped in 2 iterations");
+    expect(frame).not.toContain("Priorities:");
+    expect(frame).toContain("Recent fixes");
+    expect(frame).toContain("Guard missing config before dereference");
+    expect(frame).toContain("Avoid stale review summary after restart");
+    expect(frame).toContain("Stop leaking tmux pane handles on refresh");
+    expect(frame).toContain("+1 more");
+    expect(frame).toContain("Handoff:");
+    expect(frame).toContain("rr apply --session session-123");
+    expect(frame).toContain('Press "l" to view full run details');
+  });
+
+  test("renders auto-applied handoff status without apply command", async () => {
+    const frame = await renderFrame({
+      session: null,
+      lastSessionStats: createLastSessionStats({
+        handoffStatus: "applied-auto",
+      }),
+    });
+
+    expect(frame).toContain("Handoff: auto applied.");
+    expect(frame).not.toContain("rr apply --session");
+  });
+
+  test("renders project stats before the last-run section in idle state", async () => {
+    const frame = await renderFrame({
+      session: null,
+      projectStats: createProjectStats(),
+      lastSessionStats: createLastSessionStats(),
+    });
+
+    const projectStatsIndex = frame.indexOf("Project stats");
+    const lastRunIndex = frame.indexOf("Last run");
+
+    expect(projectStatsIndex).toBeGreaterThan(-1);
+    expect(lastRunIndex).toBeGreaterThan(-1);
+    expect(projectStatsIndex).toBeLessThan(lastRunIndex);
   });
 
   test("renders an active session summary with findings, fixes, and skipped items", async () => {

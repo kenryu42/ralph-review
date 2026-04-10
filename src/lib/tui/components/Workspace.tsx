@@ -5,6 +5,7 @@ import type {
   FixEntry,
   ProjectStats,
   ReviewOptions,
+  SessionStats,
   SkippedEntry,
 } from "@/lib/types";
 import { DetailPane } from "./DetailPane";
@@ -26,6 +27,7 @@ interface WorkspaceProps {
   tmuxOutput: string;
   maxIterations: number;
   isLoading: boolean;
+  lastSessionStats: SessionStats | null;
   projectStats: ProjectStats | null;
   isGitRepo: boolean;
   currentAgent: AgentRole | null;
@@ -49,6 +51,7 @@ export function Workspace({
   tmuxOutput,
   maxIterations,
   isLoading,
+  lastSessionStats,
   projectStats,
   isGitRepo,
   currentAgent,
@@ -77,6 +80,7 @@ export function Workspace({
           tmuxOutput={tmuxOutput}
           maxIterations={maxIterations}
           isLoading={isLoading}
+          lastSessionStats={lastSessionStats}
           projectStats={projectStats}
           isGitRepo={isGitRepo}
           currentAgent={currentAgent}
