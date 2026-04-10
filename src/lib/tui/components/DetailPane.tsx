@@ -81,6 +81,7 @@ export function DetailPane({
       padding={1}
       flexGrow={3}
       flexDirection="column"
+      minHeight={0}
     >
       {session ? (
         <SessionDetailView

@@ -1,4 +1,3 @@
-import { useTerminalDimensions } from "@opentui/react";
 import { useEffect, useMemo, useRef } from "react";
 import { formatReviewType } from "@/lib/format";
 import type { SessionState } from "@/lib/session-state";
@@ -44,6 +43,8 @@ interface SessionDetailViewProps {
   focused?: boolean;
 }
 
+type BoxHeight = number | "auto" | `${number}%`;
+
 function getStatusDisplay(
   status: string,
   currentAgent: AgentRole | null,
@@ -80,11 +81,11 @@ function countCodexReviewLines(text: string): number {
 
 function CodexReviewDisplay({
   text,
-  maxHeight = 6,
+  height = 6,
   focused = false,
 }: {
   text: string;
-  maxHeight?: number;
+  height?: BoxHeight;
   focused?: boolean;
 }) {
   const lines = text.split("\n").filter((line) => line.trim() !== "");
@@ -104,7 +105,7 @@ function CodexReviewDisplay({
   ));
 
   return (
-    <scrollbox paddingLeft={2} height={maxHeight} focused={focused}>
+    <scrollbox paddingLeft={2} height={height} focused={focused}>
       {content}
     </scrollbox>
   );
@@ -125,7 +126,6 @@ export function SessionDetailView({
   activeSessionCount,
   focused = false,
 }: SessionDetailViewProps) {
-  const { height: terminalHeight } = useTerminalDimensions();
   const sessionIteration = session.iteration ?? 0;
 
   const parsedCodexSummary = useMemo(() => {
@@ -195,13 +195,8 @@ export function SessionDetailView({
 
   const sessionIdentity = formatSessionIdentityDisplay(session, activeSessionCount);
 
-  const listHeightBudget = Math.max(8, terminalHeight - 25);
-  const verifyMaxHeight = Math.max(3, Math.floor(listHeightBudget * 0.5));
-  const appliedMaxHeight = Math.max(2, Math.floor(listHeightBudget * 0.3));
-  const skippedMaxHeight = Math.max(2, listHeightBudget - verifyMaxHeight - appliedMaxHeight);
-
   return (
-    <box flexDirection="column" gap={1} flexGrow={1}>
+    <box flexDirection="column" flexGrow={1} minHeight={0}>
       <box flexDirection="row" gap={1}>
         <text fg={TUI_COLORS.text.muted}>Status:</text>
         {isStopping ? (
@@ -246,31 +241,33 @@ export function SessionDetailView({
 
       <ProgressBar current={iteration} max={maxIterations} />
 
-      <box flexDirection="column">
+      <box flexDirection="column" flexBasis={0} flexGrow={5} minHeight={0}>
         <SectionHeader
           title="Issues found"
           count={verifyCount}
           suffix={showingCodex ? <span fg={TUI_COLORS.text.dim}> · codex</span> : undefined}
         />
-        {showingCodex ? (
-          <CodexReviewDisplay
-            text={displayCodexText ?? ""}
-            maxHeight={verifyMaxHeight}
-            focused={focused}
-          />
-        ) : (
-          <FindingsList findings={displayFindings} maxHeight={verifyMaxHeight} focused={focused} />
-        )}
+        <box flexGrow={1} minHeight={0}>
+          {showingCodex ? (
+            <CodexReviewDisplay text={displayCodexText ?? ""} height="100%" focused={focused} />
+          ) : (
+            <FindingsList findings={displayFindings} height="100%" focused={focused} />
+          )}
+        </box>
       </box>
 
-      <box flexDirection="column">
+      <box flexDirection="column" flexBasis={0} flexGrow={3} minHeight={0}>
         <SectionHeader title="Fix applied" count={appliedCount} />
-        <FixList fixes={fixes} showFiles={true} maxHeight={appliedMaxHeight} focused={false} />
+        <box flexGrow={1} minHeight={0}>
+          <FixList fixes={fixes} showFiles={true} height="100%" focused={false} />
+        </box>
       </box>
 
-      <box flexDirection="column">
+      <box flexDirection="column" flexBasis={0} flexGrow={2} minHeight={0}>
         <SectionHeader title="Skipped" count={skippedCount} />
-        <SkippedList skipped={skipped} maxHeight={skippedMaxHeight} focused={false} />
+        <box flexGrow={1} minHeight={0}>
+          <SkippedList skipped={skipped} height="100%" focused={false} />
+        </box>
       </box>
     </box>
   );

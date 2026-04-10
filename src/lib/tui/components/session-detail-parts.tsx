@@ -3,6 +3,8 @@ import type { Finding, FixEntry, Priority, SkippedEntry } from "@/lib/types";
 import { VALID_PRIORITIES } from "@/lib/types/domain";
 import { PRIORITY_COLORS, UNKNOWN_PRIORITY_COLOR } from "../session-panel-utils";
 
+type BoxHeight = number | "auto" | `${number}%`;
+
 export function toSingleLine(value: string): string {
   return value.replace(/\s+/g, " ").trim();
 }
@@ -35,12 +37,12 @@ export function SectionHeader({
 
 export function FindingsList({
   findings,
-  maxHeight = 8,
+  height = 8,
   focused = false,
   scrollable = true,
 }: {
   findings: Finding[];
-  maxHeight?: number;
+  height?: BoxHeight;
   focused?: boolean;
   scrollable?: boolean;
 }) {
@@ -83,7 +85,7 @@ export function FindingsList({
   }
 
   return (
-    <scrollbox paddingLeft={2} height={maxHeight} focused={focused}>
+    <scrollbox paddingLeft={2} height={height} focused={focused}>
       {content}
     </scrollbox>
   );
@@ -92,13 +94,13 @@ export function FindingsList({
 export function FixList({
   fixes,
   showFiles,
-  maxHeight = 8,
+  height = 8,
   focused = false,
   scrollable = true,
 }: {
   fixes: FixEntry[];
   showFiles: boolean;
-  maxHeight?: number;
+  height?: BoxHeight;
   focused?: boolean;
   scrollable?: boolean;
 }) {
@@ -134,7 +136,7 @@ export function FixList({
   }
 
   return (
-    <scrollbox paddingLeft={2} height={maxHeight} focused={focused}>
+    <scrollbox paddingLeft={2} height={height} focused={focused}>
       {content}
     </scrollbox>
   );
@@ -142,12 +144,12 @@ export function FixList({
 
 export function SkippedList({
   skipped,
-  maxHeight = 6,
+  height = 6,
   focused = false,
   scrollable = true,
 }: {
   skipped: SkippedEntry[];
-  maxHeight?: number;
+  height?: BoxHeight;
   focused?: boolean;
   scrollable?: boolean;
 }) {
@@ -181,7 +183,7 @@ export function SkippedList({
   }
 
   return (
-    <scrollbox paddingLeft={2} height={maxHeight} focused={focused}>
+    <scrollbox paddingLeft={2} height={height} focused={focused}>
       {content}
     </scrollbox>
   );

@@ -178,6 +178,7 @@ describe("DetailPane", () => {
     activeSessionCount = 1,
     lastSessionStats = null,
     focused = false,
+    height = 60,
   }: {
     session?: SessionState | null;
     fixes?: FixEntry[];
@@ -197,6 +198,7 @@ describe("DetailPane", () => {
     activeSessionCount?: number;
     lastSessionStats?: SessionStats | null;
     focused?: boolean;
+    height?: number;
   } = {}): Promise<string> {
     testSetup = await testRender(
       createElement(DetailPane, {
@@ -221,7 +223,7 @@ describe("DetailPane", () => {
       }),
       {
         width: 160,
-        height: 60,
+        height,
       }
     );
     await act(async () => {
@@ -410,6 +412,30 @@ describe("DetailPane", () => {
     expect(frame).toContain("codex");
     expect(frame).toContain("Looks clean.");
     expect(frame).toContain("Ship it.");
+  });
+
+  test("keeps section labels readable when the pane height is constrained", async () => {
+    const frame = await renderFrame({
+      session: createSession({
+        iteration: 2,
+        currentAgent: "reviewer",
+        worktreeBranch: "rr-worktree-session-2",
+      }),
+      currentAgent: "reviewer",
+      reviewOptions: { baseBranch: "main" },
+      latestReviewIteration: 2,
+      findings: [createFinding()],
+      fixes: [buildFixEntry()],
+      skipped: [buildSkippedEntry()],
+      activeSessionCount: 2,
+      height: 20,
+    });
+
+    expect(frame).toContain("Session:");
+    expect(frame).toContain("Issues found");
+    expect(frame).toContain("Fix applied");
+    expect(frame).toContain("Skipped");
+    expect(frame).toContain("2 active sessions");
   });
 
   test("renders the active stop banner while a session is stopping", async () => {
