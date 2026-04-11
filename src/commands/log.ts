@@ -123,8 +123,6 @@ export interface SessionJson {
     totalFixes: number;
     totalSkipped: number;
     priorityCounts: Record<Priority, number>;
-    rollbackCount: number;
-    rollbackFailures: number;
   };
   fixes: FixEntry[];
   skipped: SkippedEntry[];
@@ -165,8 +163,6 @@ export function buildSessionJson(
       totalFixes: session.totalFixes,
       totalSkipped: session.totalSkipped,
       priorityCounts: session.priorityCounts,
-      rollbackCount: session.rollbackCount ?? 0,
-      rollbackFailures: session.rollbackFailures ?? 0,
     },
     fixes,
     skipped,
@@ -282,11 +278,6 @@ function renderTerminalSession(
     `${session.iterations} iterations · ${session.totalFixes} fixes · ${session.totalSkipped} skipped`
   );
   p.log.message(formatPriorityCounts(session.priorityCounts));
-  const rollbackCount = session.rollbackCount ?? 0;
-  const rollbackFailures = session.rollbackFailures ?? 0;
-  if (rollbackCount > 0) {
-    p.log.message(`Rollback: ${rollbackCount} attempts (${rollbackFailures} failed)`);
-  }
   const handoffSummary = formatHandoffSummary(session.handoffStatus, session.commitSha);
   if (handoffSummary) {
     p.log.message(handoffSummary);

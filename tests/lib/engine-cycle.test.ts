@@ -62,7 +62,7 @@ interface HarnessState {
   updateSessionStateCalls: SessionStateUpdateCall[];
   createCheckpointCalls: Array<{ projectPath: string; label: string }>;
   rollbackCalls: Array<{ projectPath: string; checkpoint: GitCheckpoint }>;
-  discardCalls: Array<{ projectPath: string; checkpoint: GitCheckpoint }>;
+  discardCheckpointCalls: Array<{ projectPath: string; checkpoint: GitCheckpoint }>;
   createSessionWorktreeCalls: Array<{ projectPath: string; worktreeId: string }>;
   discardSessionWorktreeCalls: GitSessionWorktree[];
   createOrAutoApplyHandoffCalls: Array<{
@@ -76,7 +76,7 @@ interface HarnessState {
   fixParseQueue: Array<StructuredParseResult<FixSummary>>;
   createCheckpointError: Error | null;
   rollbackError: Error | null;
-  discardError: Error | null;
+  discardCheckpointError: Error | null;
   createSessionWorktreeError: Error | null;
   discardSessionWorktreeError: Error | null;
   createOrAutoApplyHandoffError: Error | null;
@@ -95,7 +95,7 @@ function createHarnessState(): HarnessState {
     updateSessionStateCalls: [],
     createCheckpointCalls: [],
     rollbackCalls: [],
-    discardCalls: [],
+    discardCheckpointCalls: [],
     createSessionWorktreeCalls: [],
     discardSessionWorktreeCalls: [],
     createOrAutoApplyHandoffCalls: [],
@@ -103,7 +103,7 @@ function createHarnessState(): HarnessState {
     fixParseQueue: [],
     createCheckpointError: null,
     rollbackError: null,
-    discardError: null,
+    discardCheckpointError: null,
     createSessionWorktreeError: null,
     discardSessionWorktreeError: null,
     createOrAutoApplyHandoffError: null,
@@ -324,6 +324,29 @@ function createDependencies(state: HarnessState): RunReviewCycleDeps {
 
       return nextStep.result;
     },
+    createCheckpoint: (projectPath: string, label: string): GitCheckpoint => {
+      state.createCheckpointCalls.push({ projectPath, label });
+      if (state.createCheckpointError) {
+        throw state.createCheckpointError;
+      }
+
+      return {
+        kind: "clean",
+        id: `checkpoint-${state.createCheckpointCalls.length}`,
+      };
+    },
+    rollbackToCheckpoint: (projectPath: string, checkpoint: GitCheckpoint) => {
+      state.rollbackCalls.push({ projectPath, checkpoint });
+      if (state.rollbackError) {
+        throw state.rollbackError;
+      }
+    },
+    discardCheckpoint: (projectPath: string, checkpoint: GitCheckpoint) => {
+      state.discardCheckpointCalls.push({ projectPath, checkpoint });
+      if (state.discardCheckpointError) {
+        throw state.discardCheckpointError;
+      }
+    },
     createSessionWorktree: (projectPath: string, worktreeId: string): GitSessionWorktree => {
       state.createSessionWorktreeCalls.push({ projectPath, worktreeId });
       if (state.createSessionWorktreeError) {
@@ -370,30 +393,6 @@ function createDependencies(state: HarnessState): RunReviewCycleDeps {
       }
 
       return state.createOrAutoApplyHandoffResult;
-    },
-    createCheckpoint: (projectPath: string, label: string): GitCheckpoint => {
-      state.createCheckpointCalls.push({ projectPath, label });
-
-      if (state.createCheckpointError) {
-        throw state.createCheckpointError;
-      }
-
-      return {
-        kind: "clean",
-        id: `checkpoint-${state.createCheckpointCalls.length}`,
-      };
-    },
-    rollbackToCheckpoint: (projectPath: string, checkpoint: GitCheckpoint) => {
-      state.rollbackCalls.push({ projectPath, checkpoint });
-      if (state.rollbackError) {
-        throw state.rollbackError;
-      }
-    },
-    discardCheckpoint: (projectPath: string, checkpoint: GitCheckpoint) => {
-      state.discardCalls.push({ projectPath, checkpoint });
-      if (state.discardError) {
-        throw state.discardError;
-      }
     },
     updateSessionState: async (
       _logsDir: string | undefined,
@@ -611,7 +610,7 @@ describe("runReviewCycle", () => {
     });
   });
 
-  test("rolls back to the last promotable snapshot and keeps a pending handoff when fixer fails", async () => {
+  test("discards the worktree without a handoff when fixer fails", async () => {
     await withHarness(async (state, deps) => {
       state.createOrAutoApplyHandoffResult = {
         handoffStatus: "pending-apply",
@@ -639,13 +638,12 @@ describe("runReviewCycle", () => {
 
       expect(result.success).toBe(false);
       expect(result.finalStatus).toBe("failed");
-      expect(result.reviewOutcome).toBe("incomplete");
-      expect(result.handoffStatus).toBe("pending-apply");
-      expect(result.commitSha).toBe("retained-commit-sha");
+      expect(result.reviewOutcome).toBeUndefined();
+      expect(result.handoffStatus).toBeUndefined();
+      expect(result.commitSha).toBeUndefined();
       expect(state.createSessionWorktreeCalls).toHaveLength(1);
-      expect(state.rollbackCalls).toHaveLength(1);
       expect(state.discardSessionWorktreeCalls).toHaveLength(1);
-      expect(state.createOrAutoApplyHandoffCalls).toHaveLength(1);
+      expect(state.createOrAutoApplyHandoffCalls).toHaveLength(0);
     });
   });
 
@@ -687,16 +685,15 @@ describe("runReviewCycle", () => {
 
       expect(result.success).toBe(false);
       expect(result.finalStatus).toBe("interrupted");
-      expect(result.reviewOutcome).toBe("incomplete");
+      expect(result.reviewOutcome).toBeUndefined();
       expect(result.handoffStatus).toBeUndefined();
       expect(state.runAgentCalls.map((call) => call.role)).toEqual(["reviewer", "fixer"]);
-      expect(state.rollbackCalls).toHaveLength(1);
       expect(state.createOrAutoApplyHandoffCalls).toHaveLength(0);
       expect(state.discardSessionWorktreeCalls).toHaveLength(1);
     });
   });
 
-  test("keeps the last promotable snapshot as a pending handoff when a later reviewer fails", async () => {
+  test("keeps the current safe worktree as a pending handoff when a later reviewer fails", async () => {
     await withHarness(async (state, deps) => {
       state.createOrAutoApplyHandoffResult = {
         handoffStatus: "pending-apply",
@@ -739,7 +736,60 @@ describe("runReviewCycle", () => {
       expect(result.finalStatus).toBe("failed");
       expect(result.reviewOutcome).toBe("incomplete");
       expect(result.handoffStatus).toBe("pending-apply");
-      expect(state.rollbackCalls).toHaveLength(0);
+      expect(state.createOrAutoApplyHandoffCalls).toHaveLength(1);
+    });
+  });
+
+  test("keeps the previous safe iteration as a pending handoff when a later fixer fails", async () => {
+    await withHarness(async (state, deps) => {
+      state.createOrAutoApplyHandoffResult = {
+        handoffStatus: "pending-apply",
+        commitSha: "retained-commit-sha",
+        handoffUpdatedAt: 1_700_000_000_000,
+      };
+      queueRunAgentSteps(
+        state,
+        resultStep(successResult("review output 1")),
+        resultStep(successResult("fix output 1")),
+        resultStep(successResult("review output 2")),
+        resultStep(failureResult("fixer failed later", 17))
+      );
+      queueReviewParses(
+        state,
+        parseReviewSuccess(buildReviewSummary()),
+        parseReviewSuccess(buildReviewSummary())
+      );
+      queueFixParses(
+        state,
+        parseFixSuccess(
+          buildFixSummary({
+            decision: "APPLY_SELECTIVELY",
+            stop_iteration: false,
+            fixes: [],
+            skipped: [],
+          })
+        ),
+        parseFixFailure("unusable fix output")
+      );
+
+      const result = await runReviewCycle(
+        createConfig({
+          maxIterations: 2,
+        }),
+        undefined,
+        undefined,
+        {
+          projectPath: TEST_PROJECT_PATH,
+          sessionId: TEST_SESSION_ID,
+        },
+        deps
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.finalStatus).toBe("failed");
+      expect(result.reviewOutcome).toBe("incomplete");
+      expect(result.handoffStatus).toBe("pending-apply");
+      expect(state.rollbackCalls).toHaveLength(1);
       expect(state.createOrAutoApplyHandoffCalls).toHaveLength(1);
     });
   });
@@ -1233,45 +1283,7 @@ describe("runReviewCycle", () => {
     });
   });
 
-  test("returns failure when creating pre-fixer checkpoint throws", async () => {
-    await withHarness(async (state, deps) => {
-      const originalCreateCheckpoint = deps.createCheckpoint;
-      deps.createCheckpoint = (projectPath, label) => {
-        if (label.includes("-fixer-")) {
-          throw new Error("checkpoint failed");
-        }
-        return originalCreateCheckpoint(projectPath, label);
-      };
-      queueRunAgentSteps(state, resultStep(successResult("review output")));
-      queueReviewParses(state, parseReviewSuccess(buildReviewSummary()));
-
-      const result = await runReviewCycle(
-        createConfig(),
-        undefined,
-        undefined,
-        {
-          projectPath: TEST_PROJECT_PATH,
-          sessionId: TEST_SESSION_ID,
-        },
-        deps
-      );
-
-      expect(result.success).toBe(false);
-      expect(result.finalStatus).toBe("failed");
-      expect(result.reason).toContain(
-        "Failed to create pre-fixer checkpoint: Error: checkpoint failed"
-      );
-
-      const iterationEntry = state.appendedEntries.find((entry) => entry.type === "iteration");
-      expect(iterationEntry?.type).toBe("iteration");
-      if (iterationEntry?.type === "iteration") {
-        expect(iterationEntry.error?.phase).toBe("fixer");
-        expect(iterationEntry.error?.message).toContain("Failed to create pre-fixer checkpoint");
-      }
-    });
-  });
-
-  test("rolls back and fails when fixer summary remains missing after reminder retry", async () => {
+  test("fails without retaining a handoff when fixer summary remains missing after reminder retry", async () => {
     await withHarness(async (state, deps) => {
       queueRunAgentSteps(
         state,
@@ -1295,15 +1307,15 @@ describe("runReviewCycle", () => {
 
       expect(result.success).toBe(false);
       expect(result.reason).toContain("Fixer output incomplete");
-      expect(result.reason).toContain("Changes were rolled back to the pre-fixer checkpoint");
+      expect(result.reason).not.toContain("rolled back");
+      expect(result.handoffStatus).toBeUndefined();
       expect(state.runAgentCalls[2]?.prompt).toContain("FIXER_SUMMARY_RETRY_REMINDER");
-      expect(state.rollbackCalls).toHaveLength(1);
+      expect(state.createOrAutoApplyHandoffCalls).toHaveLength(0);
     });
   });
 
-  test("includes rollback failure details when fixer execution fails and rollback throws", async () => {
+  test("fails fixer execution without retaining a handoff", async () => {
     await withHarness(async (state, deps) => {
-      state.rollbackError = new Error("rollback exploded");
       queueRunAgentSteps(
         state,
         resultStep(successResult("review output")),
@@ -1326,102 +1338,15 @@ describe("runReviewCycle", () => {
       expect(result.success).toBe(false);
       expect(result.reason).toContain("Fixer failed with exit code 17");
       expect(result.reason).toContain("Code may be in a broken state!");
-      expect(result.reason).toContain("Rollback failed");
-      expect(state.rollbackCalls).toHaveLength(1);
-
-      const iterationEntry = state.appendedEntries.find((entry) => entry.type === "iteration");
-      expect(iterationEntry?.type).toBe("iteration");
-      if (iterationEntry?.type === "iteration") {
-        expect(iterationEntry.rollback?.success).toBe(false);
-      }
+      expect(result.reason).not.toContain("Rollback failed");
+      expect(result.handoffStatus).toBeUndefined();
+      expect(state.createOrAutoApplyHandoffCalls).toHaveLength(0);
     });
   });
 
-  test("rolls back simplifier failures and continues the review cycle from the last promotable snapshot", async () => {
+  test("fails immediately when the simplifier fails", async () => {
     await withHarness(async (state, deps) => {
-      queueRunAgentSteps(
-        state,
-        resultStep(failureResult("simplifier failed", 5)),
-        resultStep(successResult("review output")),
-        resultStep(successResult("fix output"))
-      );
-      queueReviewParses(state, parseReviewSuccess(buildReviewSummary()));
-      queueFixParses(
-        state,
-        parseFixSuccess(
-          buildFixSummary({
-            decision: "NO_CHANGES_NEEDED",
-            stop_iteration: true,
-            fixes: [],
-            skipped: [],
-          })
-        )
-      );
-
-      const result = await runReviewCycle(
-        createConfig(),
-        undefined,
-        {
-          simplifier: true,
-        },
-        {
-          projectPath: TEST_PROJECT_PATH,
-          sessionId: TEST_SESSION_ID,
-        },
-        deps
-      );
-
-      expect(result.success).toBe(true);
-      expect(result.reviewOutcome).toBe("clean");
-      expect(result.iterations).toBe(1);
-      expect(state.rollbackCalls).toHaveLength(1);
-      expect(state.runAgentCalls.map((call) => call.role)).toEqual([
-        "code-simplifier",
-        "reviewer",
-        "fixer",
-      ]);
-    });
-  });
-
-  test("returns failure when capturing the initial promotable checkpoint throws", async () => {
-    await withHarness(async (state, deps) => {
-      const originalCreateCheckpoint = deps.createCheckpoint;
-      deps.createCheckpoint = (projectPath, label) => {
-        if (label.includes("promotable-initial")) {
-          throw new Error("checkpoint failed");
-        }
-        return originalCreateCheckpoint(projectPath, label);
-      };
-
-      const result = await runReviewCycle(
-        createConfig(),
-        undefined,
-        undefined,
-        {
-          projectPath: TEST_PROJECT_PATH,
-          sessionId: TEST_SESSION_ID,
-        },
-        deps
-      );
-
-      expect(result.success).toBe(false);
-      expect(result.finalStatus).toBe("failed");
-      expect(result.reason).toContain(
-        "Failed to capture initial promotable checkpoint: Error: checkpoint failed"
-      );
-      expect(state.runAgentCalls).toHaveLength(0);
-    });
-  });
-
-  test("returns failure when creating the pre-simplifier checkpoint throws", async () => {
-    await withHarness(async (state, deps) => {
-      const originalCreateCheckpoint = deps.createCheckpoint;
-      deps.createCheckpoint = (projectPath, label) => {
-        if (label.includes("-simplifier-")) {
-          throw new Error("checkpoint failed");
-        }
-        return originalCreateCheckpoint(projectPath, label);
-      };
+      queueRunAgentSteps(state, resultStep(failureResult("simplifier failed", 5)));
 
       const result = await runReviewCycle(
         createConfig(),
@@ -1438,10 +1363,10 @@ describe("runReviewCycle", () => {
 
       expect(result.success).toBe(false);
       expect(result.finalStatus).toBe("failed");
-      expect(result.reason).toContain(
-        "Failed to create pre-simplifier checkpoint: Error: checkpoint failed"
-      );
-      expect(state.runAgentCalls).toHaveLength(0);
+      expect(result.reason).toContain("Code simplifier failed with exit code 5");
+      expect(result.reviewOutcome).toBeUndefined();
+      expect(state.runAgentCalls.map((call) => call.role)).toEqual(["code-simplifier"]);
+      expect(state.createOrAutoApplyHandoffCalls).toHaveLength(0);
     });
   });
 
@@ -1604,7 +1529,7 @@ describe("runReviewCycle", () => {
       expect(result.finalStatus).toBe("interrupted");
       expect(result.iterations).toBe(0);
       expect(state.runAgentCalls.map((call) => call.role)).toEqual(["code-simplifier"]);
-      expect(state.rollbackCalls).toHaveLength(1);
+      expect(state.createOrAutoApplyHandoffCalls).toHaveLength(0);
     });
   });
 
@@ -2060,80 +1985,6 @@ describe("runReviewCycle", () => {
       expect(result.success).toBe(true);
       expect(result.finalStatus).toBe("completed");
       expect(state.updateSessionStateCalls.length).toBeGreaterThan(0);
-    });
-  });
-
-  test("logs warning and continues when discard checkpoint fails", async () => {
-    await withHarness(async (state, deps) => {
-      state.discardError = new Error("discard failed");
-      queueRunAgentSteps(
-        state,
-        resultStep(successResult("review output")),
-        resultStep(successResult("fix output"))
-      );
-      queueReviewParses(state, parseReviewSuccess(buildReviewSummary()));
-      queueFixParses(
-        state,
-        parseFixSuccess(
-          buildFixSummary({
-            decision: "NO_CHANGES_NEEDED",
-            stop_iteration: true,
-            fixes: [],
-            skipped: [],
-          })
-        )
-      );
-
-      const result = await runReviewCycle(
-        createConfig(),
-        undefined,
-        undefined,
-        {
-          projectPath: TEST_PROJECT_PATH,
-          sessionId: TEST_SESSION_ID,
-        },
-        deps
-      );
-
-      expect(result.success).toBe(true);
-      expect(state.discardCalls.length).toBeGreaterThan(0);
-    });
-  });
-
-  test("skips checkpoint discard when dependency returns a null checkpoint", async () => {
-    await withHarness(async (state, deps) => {
-      deps.createCheckpoint = () => null as unknown as GitCheckpoint;
-      queueRunAgentSteps(
-        state,
-        resultStep(successResult("review output")),
-        resultStep(successResult("fix output"))
-      );
-      queueReviewParses(state, parseReviewSuccess(buildReviewSummary()));
-      queueFixParses(
-        state,
-        parseFixSuccess(
-          buildFixSummary({
-            decision: "NO_CHANGES_NEEDED",
-            stop_iteration: true,
-            fixes: [],
-            skipped: [],
-          })
-        )
-      );
-
-      const result = await runReviewCycle(
-        createConfig(),
-        undefined,
-        undefined,
-        {
-          projectPath: TEST_PROJECT_PATH,
-          sessionId: TEST_SESSION_ID,
-        },
-        deps
-      );
-
-      expect(result.success).toBe(true);
-      expect(state.discardCalls).toHaveLength(0);
     });
   });
 

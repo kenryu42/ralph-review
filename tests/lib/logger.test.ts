@@ -415,50 +415,6 @@ describe("logger", () => {
       expect(summaryAfterEnd?.worktreeBranch).toBe("rr-worktree-clean");
     });
 
-    test("tracks rollback aggregates in summary", async () => {
-      const logPath = await createLogSession(tempDir, "/path/to/project", "main");
-
-      const systemEntry: SystemEntry = {
-        type: "system",
-        timestamp: Date.now(),
-        projectPath: "/path/to/project",
-        gitBranch: "main",
-        reviewer: { agent: "codex" },
-        fixer: { agent: "claude" },
-        maxIterations: 5,
-      };
-
-      const passEntry: IterationEntry = {
-        type: "iteration",
-        timestamp: Date.now() + 1,
-        iteration: 1,
-        rollback: {
-          attempted: true,
-          success: true,
-        },
-      };
-
-      const failEntry: IterationEntry = {
-        type: "iteration",
-        timestamp: Date.now() + 2,
-        iteration: 2,
-        rollback: {
-          attempted: true,
-          success: false,
-          reason: "restore failed",
-        },
-      };
-
-      await appendLog(logPath, systemEntry);
-      await appendLog(logPath, passEntry);
-      await appendLog(logPath, failEntry);
-
-      const summary = await readSessionSummary(logPath);
-      expect(summary).not.toBeNull();
-      expect(summary?.rollbackCount).toBe(2);
-      expect(summary?.rollbackFailures).toBe(1);
-    });
-
     test("serializes concurrent appends to the same log", async () => {
       const logPath = await createLogSession(tempDir, "/path/to/project", "main");
 
@@ -1745,46 +1701,6 @@ describe("logger", () => {
       const stats = await computeSessionStats(session);
       expect(stats.status).toBe("failed");
       expect(stats.iterations).toBe(1);
-    });
-
-    test("rebuild computes rollback failure totals when summary is missing", async () => {
-      const logPath = await createLogSession(tempDir, "/path/to/project");
-      const systemEntry: SystemEntry = {
-        type: "system",
-        timestamp: Date.now(),
-        projectPath: "/path/to/project",
-        reviewer: { agent: "codex" },
-        fixer: { agent: "claude" },
-        maxIterations: 5,
-      };
-      const rollbackFailure: IterationEntry = {
-        type: "iteration",
-        timestamp: Date.now() + 1,
-        iteration: 1,
-        rollback: {
-          attempted: true,
-          success: false,
-          reason: "restore failed",
-        },
-      };
-
-      await Bun.write(
-        logPath,
-        `${JSON.stringify(systemEntry)}\n${JSON.stringify(rollbackFailure)}\n`,
-        {
-          createPath: true,
-        }
-      );
-
-      const session = {
-        path: logPath,
-        name: "test.jsonl",
-        projectName: getProjectName("/path/to/project"),
-        timestamp: Date.now(),
-      };
-      const stats = await computeSessionStats(session);
-      expect(stats.rollbackCount).toBe(1);
-      expect(stats.rollbackFailures).toBe(1);
     });
   });
 

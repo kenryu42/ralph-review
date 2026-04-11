@@ -38,7 +38,6 @@ export type {
   HandoffEntry,
   IterationEntry,
   LogEntry,
-  RollbackActionResult,
   SessionEndEntry,
   SessionSummary,
   SystemEntry,

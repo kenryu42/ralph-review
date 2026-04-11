@@ -7,7 +7,6 @@ import {
   formatAgentFailureWarning,
   parseFixSummary,
   parseReviewSummary,
-  rollbackReasonSuffix,
 } from "@/lib/engine";
 import {
   createFixerPrompt,
@@ -195,26 +194,6 @@ End of output.`;
       const result = extractJsonBlock(output);
       expect(result).toContain('"decision": "NO_CHANGES_NEEDED"');
       expect(result).not.toBeNull();
-    });
-  });
-
-  describe("rollback helpers", () => {
-    test("formats rollback suffix with rollback failure details", () => {
-      const suffix = rollbackReasonSuffix({
-        attempted: true,
-        success: false,
-        reason: "apply failed",
-      });
-      expect(suffix).toContain("Rollback failed");
-      expect(suffix).toContain("apply failed");
-    });
-
-    test("formats rollback suffix for successful rollback", () => {
-      const suffix = rollbackReasonSuffix({
-        attempted: true,
-        success: true,
-      });
-      expect(suffix).toContain("Changes were rolled back");
     });
   });
 

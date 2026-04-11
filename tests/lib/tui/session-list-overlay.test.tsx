@@ -894,26 +894,6 @@ describe("SessionDetailPane", () => {
     expect(frame).toContain("Agent process exited with code 1");
   });
 
-  test("renders rollback in iteration", async () => {
-    const iterEntry = buildIterationEntry({
-      iteration: 1,
-      rollback: {
-        attempted: true,
-        success: true,
-      },
-    });
-
-    const stats = buildSessionStats({
-      entries: [buildSystemEntry(), iterEntry],
-    });
-
-    const setup = await renderDetailPane(stats);
-    const frame = setup.captureCharFrame();
-
-    expect(frame).toContain("Rollback");
-    expect(frame).toContain("succeeded");
-  });
-
   test("renders reasoning levels", async () => {
     const stats = buildSessionStats({
       reviewerReasoning: "high",

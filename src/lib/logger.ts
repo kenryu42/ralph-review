@@ -298,8 +298,6 @@ interface IterationMetrics {
   totalSkipped: number;
   priorityCounts: Record<Priority, number>;
   totalDuration?: number;
-  rollbackCount: number;
-  rollbackFailures: number;
 }
 
 const PRIORITIES: Priority[] = ["P0", "P1", "P2", "P3"];
@@ -324,8 +322,6 @@ function computeIterationMetrics(entries: LogEntry[]): IterationMetrics {
   let totalSkipped = 0;
   const priorityCounts = emptyPriorityCounts();
   let totalDuration: number | undefined;
-  let rollbackCount = 0;
-  let rollbackFailures = 0;
 
   for (const iteration of iterations) {
     if (iteration.fixes) {
@@ -342,13 +338,6 @@ function computeIterationMetrics(entries: LogEntry[]): IterationMetrics {
     if (iteration.duration !== undefined) {
       totalDuration = (totalDuration ?? 0) + iteration.duration;
     }
-
-    if (iteration.rollback?.attempted) {
-      rollbackCount += 1;
-      if (!iteration.rollback.success) {
-        rollbackFailures += 1;
-      }
-    }
   }
 
   return {
@@ -358,8 +347,6 @@ function computeIterationMetrics(entries: LogEntry[]): IterationMetrics {
     totalSkipped,
     priorityCounts,
     totalDuration,
-    rollbackCount,
-    rollbackFailures,
   };
 }
 
@@ -426,8 +413,6 @@ function buildSessionSummary(logPath: string, entries: LogEntry[]): SessionSumma
     totalSkipped: metrics.totalSkipped,
     priorityCounts: metrics.priorityCounts,
     totalDuration: metrics.totalDuration,
-    rollbackCount: metrics.rollbackCount,
-    rollbackFailures: metrics.rollbackFailures,
     reviewOutcome: sessionEnd?.reviewOutcome,
     handoffStatus: handoffEntry?.handoffStatus ?? sessionEnd?.handoffStatus,
     handoffUpdatedAt: handoffEntry?.timestamp ?? sessionEnd?.handoffUpdatedAt,
@@ -450,8 +435,6 @@ function createEmptySessionSummary(logPath: string): SessionSummary {
     totalSkipped: 0,
     priorityCounts: emptyPriorityCounts(),
     updatedAt: Date.now(),
-    rollbackCount: 0,
-    rollbackFailures: 0,
   };
 }
 
@@ -483,8 +466,6 @@ function applyEntryToSummary(
     startedAt: summary.startedAt ?? entry.timestamp,
     updatedAt,
     priorityCounts: { ...summary.priorityCounts },
-    rollbackCount: summary.rollbackCount ?? 0,
-    rollbackFailures: summary.rollbackFailures ?? 0,
   };
 
   if (entry.type === "system") {
@@ -520,13 +501,6 @@ function applyEntryToSummary(
 
     if (entry.duration !== undefined) {
       next.totalDuration = (summary.totalDuration ?? 0) + entry.duration;
-    }
-
-    if (entry.rollback?.attempted) {
-      next.rollbackCount = (summary.rollbackCount ?? 0) + 1;
-      if (!entry.rollback.success) {
-        next.rollbackFailures = (summary.rollbackFailures ?? 0) + 1;
-      }
     }
 
     return next;
@@ -949,8 +923,6 @@ export async function computeSessionStats(session: LogSession): Promise<SessionS
     priorityCounts: summary?.priorityCounts ?? metrics.priorityCounts,
     iterations: summary?.iterations ?? metrics.iterations.length,
     totalDuration: summary?.totalDuration ?? metrics.totalDuration,
-    rollbackCount: summary?.rollbackCount ?? metrics.rollbackCount,
-    rollbackFailures: summary?.rollbackFailures ?? metrics.rollbackFailures,
     entries,
     reviewer,
     reviewerModel,

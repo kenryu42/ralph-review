@@ -221,7 +221,7 @@ function IterationSection({ entry }: { entry: IterationEntry }) {
         </box>
       )}
 
-      {!hasContent && !entry.error && !entry.rollback && (
+      {!hasContent && !entry.error && (
         <text fg={TUI_COLORS.text.dim} paddingLeft={2}>
           No issues found
         </text>
@@ -245,17 +245,6 @@ function IterationSection({ entry }: { entry: IterationEntry }) {
         <box flexDirection="column">
           <SectionHeader title="Skipped" count={skipped.length} />
           <SkippedList skipped={skipped} scrollable={false} />
-        </box>
-      )}
-
-      {entry.rollback && (
-        <box flexDirection="row" gap={1} paddingLeft={2}>
-          <text fg={TUI_COLORS.status.warning}>Rollback:</text>
-          <text fg={TUI_COLORS.text.secondary}>
-            {entry.rollback.success
-              ? "succeeded"
-              : `failed${entry.rollback.reason ? ` — ${entry.rollback.reason}` : ""}`}
-          </text>
         </box>
       )}
 

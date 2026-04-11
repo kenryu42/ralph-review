@@ -200,10 +200,29 @@ export function mergeBaseWithHead(repoPath: string, branch: string): string | un
   return runGitForStdout(repoRoot, ["merge-base", head, preferredRef]);
 }
 
+const WORKING_TREE_SNAPSHOT_DIR = "ralph-review/snapshots";
+const WORKING_TREE_SNAPSHOT_ARCHIVE = "worktree.tar";
 const CHECKPOINT_REF_PREFIX = "refs/ralph-review/checkpoints";
 const CHECKPOINT_SNAPSHOT_DIR = "ralph-review/checkpoints";
 const CHECKPOINT_SNAPSHOT_ARCHIVE = "worktree.tar";
 const CHECKPOINT_SNAPSHOT_INDEX = "index";
+
+export type GitCheckpoint =
+  | {
+      kind: "clean";
+      id: string;
+    }
+  | {
+      kind: "snapshot";
+      id: string;
+      snapshotDir: string;
+    }
+  | {
+      kind: "ref";
+      id: string;
+      ref: string;
+      commit: string;
+    };
 
 export interface GitSessionWorktree {
   sourceProjectPath: string;
@@ -224,23 +243,6 @@ export interface RetainedSessionWorktree {
   mergeReady: boolean;
   commitSha?: string;
 }
-
-export type GitCheckpoint =
-  | {
-      kind: "clean";
-      id: string;
-    }
-  | {
-      kind: "snapshot";
-      id: string;
-      snapshotDir: string;
-    }
-  | {
-      kind: "ref";
-      id: string;
-      ref: string;
-      commit: string;
-    };
 
 function assertGitOk(cwd: string, args: string[], context: string): string {
   const result = runGit(cwd, args);
@@ -273,12 +275,20 @@ async function assertCommandOkAsync(
   return result.stdout;
 }
 
-function normalizeCheckpointId(checkpointId: string): string {
-  return checkpointId.replace(/[^a-zA-Z0-9_.-]/g, "-");
+function normalizeGitArtifactId(value: string): string {
+  return value.replace(/[^a-zA-Z0-9_.-]/g, "-");
 }
 
 function hasInitialCommit(repoPath: string): boolean {
   return runGit(repoPath, ["rev-parse", "--verify", "HEAD"]).exitCode === 0;
+}
+
+function resolveStashTop(repoPath: string): string | undefined {
+  const result = runGit(repoPath, ["rev-parse", "--verify", "refs/stash"]);
+  if (result.exitCode !== 0) {
+    return undefined;
+  }
+  return result.stdout;
 }
 
 function resolveGitDir(repoRoot: string, context: string): string {
@@ -295,68 +305,6 @@ function createSnapshotDir(
   return join(absoluteGitDir, category, `${snapshotNamespace}-${uniqueSuffix}`);
 }
 
-function createWorkingTreeSnapshot(
-  repoPath: string,
-  snapshotNamespace: string,
-  context: string
-): string {
-  const repoRoot = assertGitOk(repoPath, ["rev-parse", "--show-toplevel"], context);
-  const absoluteGitDir = resolveGitDir(repoRoot, context);
-  const snapshotDir = createSnapshotDir(absoluteGitDir, snapshotNamespace, CHECKPOINT_SNAPSHOT_DIR);
-  const archivePath = join(snapshotDir, CHECKPOINT_SNAPSHOT_ARCHIVE);
-  const gitIndexPath = join(absoluteGitDir, "index");
-  const snapshotIndexPath = join(snapshotDir, CHECKPOINT_SNAPSHOT_INDEX);
-
-  assertCommandOk(repoRoot, ["mkdir", "-p", snapshotDir], context);
-  assertCommandOk(
-    repoRoot,
-    ["tar", "-C", repoRoot, "--exclude=.git", "-cf", archivePath, "."],
-    context
-  );
-
-  if (runCommand(repoRoot, ["test", "-f", gitIndexPath]).exitCode === 0) {
-    assertCommandOk(repoRoot, ["cp", gitIndexPath, snapshotIndexPath], context);
-  }
-
-  return snapshotDir;
-}
-
-function restoreWorkingTreeSnapshot(repoPath: string, snapshotDir: string, context: string): void {
-  const repoRoot = assertGitOk(repoPath, ["rev-parse", "--show-toplevel"], context);
-  const archivePath = join(snapshotDir, CHECKPOINT_SNAPSHOT_ARCHIVE);
-  const snapshotIndexPath = join(snapshotDir, CHECKPOINT_SNAPSHOT_INDEX);
-  const absoluteGitDir = resolveGitDir(repoRoot, context);
-  const gitIndexPath = join(absoluteGitDir, "index");
-
-  assertCommandOk(
-    repoRoot,
-    [
-      "find",
-      repoRoot,
-      "-mindepth",
-      "1",
-      "-maxdepth",
-      "1",
-      "!",
-      "-name",
-      ".git",
-      "-exec",
-      "rm",
-      "-rf",
-      "{}",
-      "+",
-    ],
-    context
-  );
-  assertCommandOk(repoRoot, ["tar", "-C", repoRoot, "-xf", archivePath], context);
-
-  if (runCommand(repoRoot, ["test", "-f", snapshotIndexPath]).exitCode === 0) {
-    assertCommandOk(repoRoot, ["cp", snapshotIndexPath, gitIndexPath], context);
-  } else {
-    assertCommandOk(repoRoot, ["rm", "-f", gitIndexPath], context);
-  }
-}
-
 function discardWorkingTreeSnapshot(repoPath: string, snapshotDir: string, context: string): void {
   assertCommandOk(repoPath, ["rm", "-rf", snapshotDir], context);
 }
@@ -368,8 +316,7 @@ function discardWorkingTreeSnapshot(repoPath: string, snapshotDir: string, conte
  * clone that shares data blocks until written, making copies nearly instantaneous
  * regardless of working tree size. Falls back to a standard recursive copy elsewhere.
  *
- * The destination is cleared of all non-.git entries before copying, matching the
- * behaviour previously provided by restoreWorkingTreeSnapshot.
+ * The destination is cleared of all non-.git entries before copying.
  */
 function cloneWorkingTree(srcRoot: string, dstRoot: string, context: string): void {
   assertCommandOk(
@@ -443,14 +390,6 @@ function resolveAgentProjectPath(
   return projectSubpath ? join(worktreeProjectPath, projectSubpath) : worktreeProjectPath;
 }
 
-function resolveStashTop(repoPath: string): string | undefined {
-  const result = runGit(repoPath, ["rev-parse", "--verify", "refs/stash"]);
-  if (result.exitCode !== 0) {
-    return undefined;
-  }
-  return result.stdout;
-}
-
 function toAbsolutePath(basePath: string, path: string): string {
   return isAbsolute(path) ? path : join(basePath, path);
 }
@@ -481,7 +420,7 @@ function extractWorkingTreeSnapshot(
   destinationPath: string,
   context: string
 ): void {
-  const archivePath = join(snapshotDir, CHECKPOINT_SNAPSHOT_ARCHIVE);
+  const archivePath = join(snapshotDir, WORKING_TREE_SNAPSHOT_ARCHIVE);
   assertCommandOk(dirname(snapshotDir), ["mkdir", "-p", destinationPath], context);
   assertCommandOk(destinationPath, ["tar", "-C", destinationPath, "-xf", archivePath], context);
 }
@@ -509,8 +448,12 @@ function createGitScopedWorkingTreeSnapshot(
 ): string {
   const repoRoot = assertGitOk(repoPath, ["rev-parse", "--show-toplevel"], context);
   const absoluteGitDir = resolveGitDir(repoRoot, context);
-  const snapshotDir = createSnapshotDir(absoluteGitDir, snapshotNamespace, CHECKPOINT_SNAPSHOT_DIR);
-  const archivePath = join(snapshotDir, CHECKPOINT_SNAPSHOT_ARCHIVE);
+  const snapshotDir = createSnapshotDir(
+    absoluteGitDir,
+    snapshotNamespace,
+    WORKING_TREE_SNAPSHOT_DIR
+  );
+  const archivePath = join(snapshotDir, WORKING_TREE_SNAPSHOT_ARCHIVE);
   const escapedArchivePath = archivePath.replace(/'/g, "'\\''");
 
   assertCommandOk(repoRoot, ["mkdir", "-p", snapshotDir], context);
@@ -728,8 +671,202 @@ export async function applyBinaryPatchAsync(
   await assertCommandOkAsync(repoPath, writeArgs, "Failed to apply handoff patch");
 }
 
+function createSnapshotCheckpoint(repoPath: string, normalizedId: string): GitCheckpoint {
+  const repoRoot = resolveRepositoryRoot(repoPath);
+  if (!repoRoot) {
+    throw new Error("Failed to resolve repository root");
+  }
+  const absoluteGitDir = resolveGitDir(repoRoot, "Failed to resolve git directory");
+  const snapshotDir = createSnapshotDir(absoluteGitDir, normalizedId, CHECKPOINT_SNAPSHOT_DIR);
+  const archivePath = join(snapshotDir, CHECKPOINT_SNAPSHOT_ARCHIVE);
+  const gitIndexPath = join(absoluteGitDir, "index");
+  const snapshotIndexPath = join(snapshotDir, CHECKPOINT_SNAPSHOT_INDEX);
+
+  assertCommandOk(repoRoot, ["mkdir", "-p", snapshotDir], "Failed to create snapshot checkpoint");
+  assertCommandOk(
+    repoRoot,
+    ["tar", "-C", repoRoot, "--exclude=.git", "-cf", archivePath, "."],
+    "Failed to capture checkpoint snapshot"
+  );
+
+  if (runCommand(repoRoot, ["test", "-f", gitIndexPath]).exitCode === 0) {
+    assertCommandOk(
+      repoRoot,
+      ["cp", gitIndexPath, snapshotIndexPath],
+      "Failed to capture checkpoint index snapshot"
+    );
+  }
+
+  return {
+    kind: "snapshot",
+    id: normalizedId,
+    snapshotDir,
+  };
+}
+
+export function createCheckpoint(repoPath: string, checkpointId: string): GitCheckpoint {
+  const normalizedId = normalizeGitArtifactId(checkpointId);
+  if (!hasInitialCommit(repoPath)) {
+    return createSnapshotCheckpoint(repoPath, normalizedId);
+  }
+
+  const label = `rr-checkpoint-${normalizedId}`;
+  const stashTopBefore = resolveStashTop(repoPath);
+  assertGitOk(
+    repoPath,
+    // Intentionally exclude gitignored files to avoid checkpointing secrets/caches.
+    ["stash", "push", "--include-untracked", "-m", label],
+    "Failed to create checkpoint stash"
+  );
+  const stashTopAfter = resolveStashTop(repoPath);
+
+  if (!stashTopAfter || stashTopAfter === stashTopBefore) {
+    return {
+      kind: "clean",
+      id: normalizedId,
+    };
+  }
+
+  const checkpointRef = `${CHECKPOINT_REF_PREFIX}/${normalizedId}`;
+  assertGitOk(
+    repoPath,
+    ["update-ref", checkpointRef, stashTopAfter],
+    "Failed to save checkpoint reference"
+  );
+
+  try {
+    assertGitOk(
+      repoPath,
+      ["stash", "apply", "--index", "stash@{0}"],
+      "Failed to restore working tree after checkpoint"
+    );
+  } finally {
+    assertGitOk(
+      repoPath,
+      ["stash", "drop", "stash@{0}"],
+      "Failed to drop temporary checkpoint stash"
+    );
+  }
+
+  return {
+    kind: "ref",
+    id: normalizedId,
+    ref: checkpointRef,
+    commit: stashTopAfter,
+  };
+}
+
+export function discardCheckpoint(repoPath: string, checkpoint: GitCheckpoint): void {
+  if (checkpoint.kind === "snapshot") {
+    if (runCommand(repoPath, ["test", "-d", checkpoint.snapshotDir]).exitCode !== 0) {
+      return;
+    }
+    assertCommandOk(
+      repoPath,
+      ["rm", "-rf", checkpoint.snapshotDir],
+      `Failed to discard snapshot checkpoint ${checkpoint.snapshotDir}`
+    );
+    return;
+  }
+
+  if (checkpoint.kind !== "ref") {
+    return;
+  }
+
+  const refExists =
+    runGit(repoPath, ["show-ref", "--verify", "--quiet", checkpoint.ref]).exitCode === 0;
+  if (!refExists) {
+    return;
+  }
+
+  const result = runGit(repoPath, ["update-ref", "-d", checkpoint.ref]);
+  if (result.exitCode !== 0) {
+    throw new Error(
+      `Failed to discard checkpoint ${checkpoint.ref}: ${result.stderr || result.stdout}`
+    );
+  }
+}
+
+export function rollbackToCheckpoint(repoPath: string, checkpoint: GitCheckpoint): void {
+  if (checkpoint.kind === "snapshot") {
+    const repoRoot = resolveRepositoryRoot(repoPath);
+    if (!repoRoot) {
+      throw new Error("Failed to resolve repository root during rollback");
+    }
+    const archivePath = join(checkpoint.snapshotDir, CHECKPOINT_SNAPSHOT_ARCHIVE);
+    const snapshotIndexPath = join(checkpoint.snapshotDir, CHECKPOINT_SNAPSHOT_INDEX);
+    const absoluteGitDir = resolveGitDir(
+      repoRoot,
+      "Failed to resolve git directory during rollback"
+    );
+    const gitIndexPath = join(absoluteGitDir, "index");
+
+    assertCommandOk(
+      repoRoot,
+      [
+        "find",
+        repoRoot,
+        "-mindepth",
+        "1",
+        "-maxdepth",
+        "1",
+        "!",
+        "-name",
+        ".git",
+        "-exec",
+        "rm",
+        "-rf",
+        "{}",
+        "+",
+      ],
+      "Failed to clear working tree during rollback"
+    );
+    assertCommandOk(
+      repoRoot,
+      ["tar", "-C", repoRoot, "-xf", archivePath],
+      "Failed to restore working tree snapshot"
+    );
+
+    if (runCommand(repoRoot, ["test", "-f", snapshotIndexPath]).exitCode === 0) {
+      assertCommandOk(
+        repoRoot,
+        ["cp", snapshotIndexPath, gitIndexPath],
+        "Failed to restore git index snapshot"
+      );
+    } else {
+      assertCommandOk(
+        repoRoot,
+        ["rm", "-f", gitIndexPath],
+        "Failed to reset git index during rollback"
+      );
+    }
+
+    discardCheckpoint(repoPath, checkpoint);
+    return;
+  }
+
+  const repoRoot = resolveRepositoryRoot(repoPath);
+  if (!repoRoot) {
+    throw new Error("Failed to resolve repository root during rollback");
+  }
+
+  assertGitOk(repoRoot, ["reset", "--hard", "HEAD"], "Failed to reset repository during rollback");
+  assertGitOk(repoRoot, ["clean", "-fdx"], "Failed to clean untracked files during rollback");
+
+  if (checkpoint.kind !== "ref") {
+    return;
+  }
+
+  assertGitOk(
+    repoRoot,
+    ["stash", "apply", "--index", checkpoint.ref],
+    "Failed to restore checkpoint contents"
+  );
+  discardCheckpoint(repoPath, checkpoint);
+}
+
 export function buildHandoffRef(sessionId: string): string {
-  return `refs/ralph-review/handoffs/${normalizeCheckpointId(sessionId)}`;
+  return `refs/ralph-review/handoffs/${normalizeGitArtifactId(sessionId)}`;
 }
 
 export function createHandoffRef(repoPath: string, ref: string, commitSha: string): void {
@@ -743,26 +880,12 @@ export function removeHandoffRef(repoPath: string, ref: string): void {
   }
 }
 
-function createSnapshotCheckpoint(repoPath: string, normalizedId: string): GitCheckpoint {
-  const snapshotDir = createWorkingTreeSnapshot(
-    repoPath,
-    normalizedId,
-    "Failed to capture checkpoint snapshot"
-  );
-
-  return {
-    kind: "snapshot",
-    id: normalizedId,
-    snapshotDir,
-  };
-}
-
 export function createSessionWorktree(
   sourceProjectPath: string,
   worktreeId: string,
   storageRoot: string = CONFIG_DIR
 ): GitSessionWorktree {
-  const normalizedId = normalizeCheckpointId(worktreeId);
+  const normalizedId = normalizeGitArtifactId(worktreeId);
   const sourceRepoPath = assertGitOk(
     sourceProjectPath,
     ["rev-parse", "--show-toplevel"],
@@ -998,116 +1121,4 @@ export function discardSessionWorktree(worktree: GitSessionWorktree): void {
   }
 
   pruneEmptyDirectory(worktree.sourceRepoPath, dirname(worktree.worktreeProjectPath));
-}
-
-export function createCheckpoint(repoPath: string, checkpointId: string): GitCheckpoint {
-  const normalizedId = normalizeCheckpointId(checkpointId);
-  if (!hasInitialCommit(repoPath)) {
-    return createSnapshotCheckpoint(repoPath, normalizedId);
-  }
-
-  const label = `rr-checkpoint-${normalizedId}`;
-  const stashTopBefore = resolveStashTop(repoPath);
-  assertGitOk(
-    repoPath,
-    ["stash", "push", "--include-untracked", "-m", label],
-    "Failed to create checkpoint stash"
-  );
-  const stashTopAfter = resolveStashTop(repoPath);
-
-  if (!stashTopAfter || stashTopAfter === stashTopBefore) {
-    return {
-      kind: "clean",
-      id: normalizedId,
-    };
-  }
-
-  const stashCommit = stashTopAfter;
-  const checkpointRef = `${CHECKPOINT_REF_PREFIX}/${normalizedId}`;
-  assertGitOk(
-    repoPath,
-    ["update-ref", checkpointRef, stashCommit],
-    "Failed to save checkpoint reference"
-  );
-
-  try {
-    assertGitOk(
-      repoPath,
-      ["stash", "apply", "--index", "stash@{0}"],
-      "Failed to restore working tree after checkpoint"
-    );
-  } finally {
-    assertGitOk(
-      repoPath,
-      ["stash", "drop", "stash@{0}"],
-      "Failed to drop temporary checkpoint stash"
-    );
-  }
-
-  return {
-    kind: "ref",
-    id: normalizedId,
-    ref: checkpointRef,
-    commit: stashCommit,
-  };
-}
-
-export function discardCheckpoint(repoPath: string, checkpoint: GitCheckpoint): void {
-  if (checkpoint.kind === "snapshot") {
-    discardWorkingTreeSnapshot(
-      repoPath,
-      checkpoint.snapshotDir,
-      `Failed to discard snapshot checkpoint ${checkpoint.snapshotDir}`
-    );
-    return;
-  }
-
-  if (checkpoint.kind !== "ref") {
-    return;
-  }
-
-  const refExists =
-    runGit(repoPath, ["show-ref", "--verify", "--quiet", checkpoint.ref]).exitCode === 0;
-  if (!refExists) {
-    return;
-  }
-
-  const result = runGit(repoPath, ["update-ref", "-d", checkpoint.ref]);
-  if (result.exitCode !== 0) {
-    throw new Error(
-      `Failed to discard checkpoint ${checkpoint.ref}: ${result.stderr || result.stdout}`
-    );
-  }
-}
-
-export function rollbackToCheckpoint(repoPath: string, checkpoint: GitCheckpoint): void {
-  if (checkpoint.kind === "snapshot") {
-    restoreWorkingTreeSnapshot(
-      repoPath,
-      checkpoint.snapshotDir,
-      "Failed to restore working tree snapshot"
-    );
-    discardCheckpoint(repoPath, checkpoint);
-    return;
-  }
-
-  const repoRoot = assertGitOk(
-    repoPath,
-    ["rev-parse", "--show-toplevel"],
-    "Failed to resolve repository root during rollback"
-  );
-
-  assertGitOk(repoRoot, ["reset", "--hard", "HEAD"], "Failed to reset repository during rollback");
-  assertGitOk(repoRoot, ["clean", "-fdx"], "Failed to clean untracked files during rollback");
-
-  if (checkpoint.kind !== "ref") {
-    return;
-  }
-
-  assertGitOk(
-    repoRoot,
-    ["stash", "apply", "--index", checkpoint.ref],
-    "Failed to restore checkpoint contents"
-  );
-  discardCheckpoint(repoPath, checkpoint);
 }

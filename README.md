@@ -62,11 +62,6 @@ Ralph Review automates code review by pairing two AI agents -- a **reviewer** an
       └────────┬────────┘                                         │
                │                                                  │
                ▼                                                  │
-   ┌───────────────────────┐                                      │
-   │ Create git checkpoint │                                      │
-   └───────────┬───────────┘                                      │
-               │                                                  │
-               ▼                                                  │
       ┌─────────────────┐                                         │
       │   Fixer agent   │                                         │
       │  (verify & fix) │                                         │
@@ -81,7 +76,7 @@ Ralph Review automates code review by pairing two AI agents -- a **reviewer** an
                ├── issues found, all skipped by fixer  ──▶ Stop   │
                │                                                  │
                ▼                                                  │
-  Discard checkpoint, loop back to Reviewer ──────────────────────┘
+  Loop back to Reviewer ───────────────────────────────────────────┘
   (until max iterations reached)
 ```
 
@@ -89,10 +84,11 @@ Ralph Review automates code review by pairing two AI agents -- a **reviewer** an
 
 1. An optional **code simplifier** pass can run first (enabled with `--simplifier`) to reduce code complexity before review.
 2. The **reviewer** analyzes your changes and returns structured review output.
-3. A **git checkpoint** is created so the fixer's changes can be rolled back if something goes wrong.
-4. The **fixer** independently reads the code, confirms each issue is real, and applies fixes only where warranted. It does not blindly trust the reviewer.
-5. The fixer outputs a structured summary. If it reports no actionable issues left -- either no real issues were found or all remaining items were safely skipped -- the cycle ends.
-6. Otherwise, the cycle repeats from step 2 until no issues remain or the configured iteration limit is hit.
+3. The **fixer** independently reads the code, confirms each issue is real, and applies fixes only where warranted. It does not blindly trust the reviewer.
+4. The fixer outputs a structured summary. If it reports no actionable issues left -- either no real issues were found or all remaining items were safely skipped -- the cycle ends.
+5. Otherwise, the cycle repeats from step 2 until no issues remain or the configured iteration limit is hit.
+
+Mutating agent steps run inside a disposable session worktree. If a fixer or simplifier run fails mid-step, Ralph Review discards that session worktree instead of trying to roll partial edits forward.
 
 You can assign different AI agents to each role (e.g. Claude reviews, Gemini fixes).
 

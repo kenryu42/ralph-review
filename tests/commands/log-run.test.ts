@@ -32,8 +32,7 @@ function createSystemEntry(projectPath: string): SystemEntry {
 function createIterationEntry(
   iteration: number,
   fixes: FixEntry[] = [],
-  skipped = [] as ReturnType<typeof buildSkippedEntry>[],
-  rollback?: IterationEntry["rollback"]
+  skipped = [] as ReturnType<typeof buildSkippedEntry>[]
 ): IterationEntry {
   return {
     type: "iteration",
@@ -46,7 +45,6 @@ function createIterationEntry(
       fixes,
       skipped,
     }),
-    ...(rollback ? { rollback } : {}),
   };
 }
 
@@ -324,30 +322,6 @@ describe("runLog integration", () => {
 
     expect(logs.info).toContain("No review sessions found for current working directory.");
     expect(logs.message).toContain('Start a review with "rr run" first.');
-  });
-
-  test("renders rollback summary when rollback attempts are recorded", async () => {
-    const fixture = await createProjectFixture();
-    fixtures.push(fixture);
-    const logsProjectDir = getProjectLogsDir(CONFIG_DIR, fixture.projectPath);
-    const rollbackLog = join(logsProjectDir, "rollback.jsonl");
-    fixture.logPaths.push(rollbackLog);
-
-    await writeLogEntries(rollbackLog, [
-      createSystemEntry(fixture.projectPath),
-      createIterationEntry(1, [], [], { attempted: true, success: false, reason: "test rollback" }),
-      createSessionEndEntry("completed"),
-    ]);
-
-    const { logs } = await withProjectCwd(fixture.projectPath, async () =>
-      withMutedTerminalLogs(async () =>
-        captureClackLogs(async () => {
-          await runLog([]);
-        })
-      )
-    );
-
-    expect(logs.message).toContain("Rollback: 1 attempts (1 failed)");
   });
 
   test("renders handoff summary when reviewed fixes are pending apply", async () => {

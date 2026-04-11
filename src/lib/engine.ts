@@ -39,7 +39,6 @@ import type {
   ReviewOptions,
   ReviewOutcome,
   ReviewSummary,
-  RollbackActionResult,
   SessionEndEntry,
   SystemEntry,
 } from "./types";
@@ -57,8 +56,8 @@ interface RunReviewCycleDependencies {
   createSessionWorktree: typeof createSessionWorktree;
   discardCheckpoint: typeof discardCheckpoint;
   discardSessionWorktree: typeof discardSessionWorktree;
-  createOrAutoApplyHandoff: typeof createOrAutoApplyHandoff;
   rollbackToCheckpoint: typeof rollbackToCheckpoint;
+  createOrAutoApplyHandoff: typeof createOrAutoApplyHandoff;
   updateSessionState: typeof updateSessionState;
   appendLog: typeof appendLog;
   createLogSession: typeof createLogSession;
@@ -79,8 +78,8 @@ const DEFAULT_RUN_REVIEW_CYCLE_DEPENDENCIES: RunReviewCycleDependencies = {
   createSessionWorktree,
   discardCheckpoint,
   discardSessionWorktree,
-  createOrAutoApplyHandoff,
   rollbackToCheckpoint,
+  createOrAutoApplyHandoff,
   updateSessionState,
   appendLog,
   createLogSession,
@@ -130,7 +129,6 @@ function createIterationEntry(
     review?: ReviewSummary;
     codexReview?: CodexReviewSummary;
     fixes?: FixSummary;
-    rollback?: RollbackActionResult;
   } = {}
 ): IterationEntry {
   return {
@@ -142,7 +140,6 @@ function createIterationEntry(
     ...(options.review && { review: options.review }),
     ...(options.codexReview && { codexReview: options.codexReview }),
     ...(options.fixes && { fixes: options.fixes }),
-    ...(options.rollback && { rollback: options.rollback }),
   };
 }
 
@@ -150,16 +147,12 @@ function isInterruptLikeFailure(result: IterationResult): boolean {
   return !result.success && (wasInterrupted() || result.exitCode === 130);
 }
 
-function createInterruptedCycleResult(
-  sessionPath: string,
-  iteration: number,
-  rollback?: RollbackActionResult
-): CycleResult {
+function createInterruptedCycleResult(sessionPath: string, iteration: number): CycleResult {
   return {
     success: false,
     finalStatus: "interrupted",
     iterations: iteration,
-    reason: `Review cycle was interrupted${rollbackReasonSuffix(rollback)}`,
+    reason: "Review cycle was interrupted",
     sessionPath,
   };
 }
@@ -174,7 +167,6 @@ async function handleInterruptedAgentFailure(
   options: {
     review?: ReviewSummary;
     codexReview?: CodexReviewSummary;
-    rollback?: RollbackActionResult;
   } = {}
 ): Promise<CycleResult> {
   const entry = createIterationEntry(iteration, startTime, {
@@ -185,10 +177,9 @@ async function handleInterruptedAgentFailure(
     },
     review: options.review,
     codexReview: options.codexReview,
-    rollback: options.rollback,
   });
   await deps.appendLog(sessionPath, entry);
-  return createInterruptedCycleResult(sessionPath, iteration, options.rollback);
+  return createInterruptedCycleResult(sessionPath, iteration);
 }
 
 async function handleAgentFailure(
@@ -202,7 +193,6 @@ async function handleAgentFailure(
   options: {
     review?: ReviewSummary;
     codexReview?: CodexReviewSummary;
-    rollback?: RollbackActionResult;
   } = {}
 ): Promise<CycleResult> {
   const warning = formatAgentFailureWarning(role, exitCode, retryConfig.maxRetries);
@@ -216,19 +206,17 @@ async function handleAgentFailure(
     },
     review: options.review,
     codexReview: options.codexReview,
-    rollback: options.rollback,
   });
   await deps.appendLog(sessionPath, entry);
 
   const brokenWarning = role === "fixer" ? " Code may be in a broken state!" : "";
-  const rollbackSuffix = rollbackReasonSuffix(options.rollback);
   return {
     success: false,
     finalStatus: "failed",
     iterations: iteration,
     reason:
       `${role.charAt(0).toUpperCase() + role.slice(1)} failed with exit code ${exitCode} after ${retryConfig.maxRetries} retries.` +
-      `${brokenWarning}${rollbackSuffix}`,
+      brokenWarning,
     sessionPath,
   };
 }
@@ -400,44 +388,6 @@ export interface CycleResult {
 
 const REVIEWER_SUMMARY_RETRY_COUNT = 1;
 const FIXER_SUMMARY_RETRY_COUNT = 1;
-
-function createRollbackOutcome(
-  attempted: boolean,
-  success: boolean,
-  reason?: string
-): RollbackActionResult {
-  return {
-    attempted,
-    success,
-    ...(reason ? { reason } : {}),
-  };
-}
-
-export function rollbackReasonSuffix(rollback: RollbackActionResult | undefined): string {
-  if (!rollback) {
-    return "";
-  }
-
-  if (rollback.success) {
-    return " Changes were rolled back to the pre-fixer checkpoint.";
-  }
-
-  const reason = rollback.reason ?? "unknown rollback error";
-  return ` Rollback failed (${reason}). Please restore manually from git history.`;
-}
-
-function applyRollback(
-  projectPath: string,
-  checkpoint: GitCheckpoint,
-  deps: RunReviewCycleDependencies
-): RollbackActionResult {
-  try {
-    deps.rollbackToCheckpoint(projectPath, checkpoint);
-    return createRollbackOutcome(true, true);
-  } catch (error) {
-    return createRollbackOutcome(true, false, `${error}`);
-  }
-}
 
 export type OnIterationCallback = (
   iteration: number,
@@ -659,8 +609,7 @@ export async function runReviewCycle(
   let hasRemainingIssues = true;
   const retryConfig = config.retry ?? DEFAULT_RETRY_CONFIG;
   let worktree: GitSessionWorktree | null = null;
-  let lastPromotableCheckpoint: GitCheckpoint | null = null;
-  let currentTreeMatchesPromotable = false;
+  let currentTreeRetainable = false;
   let hasSuccessfulReviewIteration = false;
   let agentProjectPath: string | null = null;
   const updateCurrentSessionState = async (updates: Partial<SessionState>): Promise<void> => {
@@ -712,6 +661,7 @@ export async function runReviewCycle(
 
     const agentProjectPathResolved = worktree.agentProjectPath;
     agentProjectPath = agentProjectPathResolved;
+    currentTreeRetainable = true;
     const createReviewerPromptForAgent = (): string =>
       deps.createReviewerPrompt({
         repoPath: agentProjectPathResolved,
@@ -720,27 +670,15 @@ export async function runReviewCycle(
         customInstructions: reviewOptions?.customInstructions,
       });
 
-    const discardCheckpointSafe = (checkpoint: GitCheckpoint | null): void => {
-      if (!checkpoint) {
-        return;
+    const canRetainResult = (result: CycleResult): boolean => {
+      if (!currentTreeRetainable) {
+        return false;
       }
-      try {
-        deps.discardCheckpoint(agentProjectPathResolved, checkpoint);
-      } catch (error) {
-        console.log(`  ⚠️  Failed to discard checkpoint: ${error}`);
-      }
-    };
-
-    const replacePromotableCheckpoint = (label: string): void => {
-      const nextCheckpoint = deps.createCheckpoint(agentProjectPathResolved, label);
-      const previousCheckpoint = lastPromotableCheckpoint;
-      lastPromotableCheckpoint = nextCheckpoint;
-      currentTreeMatchesPromotable = true;
-      discardCheckpointSafe(previousCheckpoint);
+      return hasSuccessfulReviewIteration || result.finalStatus !== "interrupted";
     };
 
     const terminalIncompleteResult = (result: CycleResult): CycleResult =>
-      lastPromotableCheckpoint ? applyReviewOutcome(result, "incomplete") : result;
+      canRetainResult(result) ? applyReviewOutcome(result, "incomplete") : result;
 
     const runTerminalReviewerClassification = async (): Promise<{
       reviewOutcome: ReviewOutcome;
@@ -784,46 +722,18 @@ export async function runReviewCycle(
       return { reviewOutcome: "incomplete", terminalReview };
     };
 
-    try {
-      replacePromotableCheckpoint(`${sessionId ?? "session"}-promotable-initial-${Date.now()}`);
-    } catch (error) {
-      return finish(
-        createWorktreeFailureResult(
-          sessionPath,
-          0,
-          `Failed to capture initial promotable checkpoint: ${error}`
-        )
-      );
-    }
-
     if (reviewOptions?.simplifier) {
       await updateCurrentSessionState({ currentAgent: "code-simplifier" });
       printHeader("Running code simplifier agent...", "\x1b[34m");
 
       const { baseBranch, commitSha, customInstructions } = reviewOptions;
-      let simplifierCheckpoint: GitCheckpoint | null = null;
-      try {
-        simplifierCheckpoint = deps.createCheckpoint(
-          agentProjectPath,
-          `${sessionId ?? "session"}-simplifier-${Date.now()}`
-        );
-      } catch (error) {
-        return finish({
-          success: false,
-          finalStatus: "failed",
-          iterations: 0,
-          reason: `Failed to create pre-simplifier checkpoint: ${error}`,
-          sessionPath,
-        });
-      }
-
       const simplifierPrompt = deps.createCodeSimplifierPrompt({
         repoPath: agentProjectPath,
         baseBranch,
         commitSha,
         customInstructions,
       });
-      currentTreeMatchesPromotable = false;
+      currentTreeRetainable = false;
       const simplifierResult = await runAgentWithRetry(
         "code-simplifier",
         config,
@@ -836,47 +746,21 @@ export async function runReviewCycle(
 
       if (!simplifierResult.success) {
         const exitCode = simplifierResult.exitCode;
-        const rollback = simplifierCheckpoint
-          ? applyRollback(agentProjectPath, simplifierCheckpoint, deps)
-          : undefined;
-        discardCheckpointSafe(simplifierCheckpoint);
-        currentTreeMatchesPromotable = rollback?.success === true;
         if (isInterruptLikeFailure(simplifierResult)) {
-          const interruptedResult = createInterruptedCycleResult(sessionPath, iteration, rollback);
-          return finish(
-            rollback?.success ? terminalIncompleteResult(interruptedResult) : interruptedResult
-          );
+          return finish(createInterruptedCycleResult(sessionPath, iteration));
         }
         console.log(formatAgentFailureWarning("code-simplifier", exitCode, retryConfig.maxRetries));
-        if (!rollback?.success) {
-          return finish({
-            success: false,
-            finalStatus: "failed",
-            iterations: 0,
-            reason:
-              `Code simplifier failed with exit code ${exitCode} ` +
-              `after ${retryConfig.maxRetries} retries.${rollbackReasonSuffix(rollback)}`,
-            sessionPath,
-          });
-        }
-        console.log(
-          "  ⚠️  Simplifier changes were rolled back. Continuing from last promotable snapshot."
-        );
+        return finish({
+          success: false,
+          finalStatus: "failed",
+          iterations: 0,
+          reason:
+            `Code simplifier failed with exit code ${exitCode} ` +
+            `after ${retryConfig.maxRetries} retries.`,
+          sessionPath,
+        });
       } else {
-        discardCheckpointSafe(simplifierCheckpoint);
-        try {
-          replacePromotableCheckpoint(
-            `${sessionId ?? "session"}-promotable-simplifier-${Date.now()}`
-          );
-        } catch (error) {
-          return finish({
-            success: false,
-            finalStatus: "failed",
-            iterations: 0,
-            reason: `Failed to promote simplifier snapshot: ${error}`,
-            sessionPath,
-          });
-        }
+        currentTreeRetainable = true;
       }
 
       if (wasInterrupted()) {
@@ -1015,10 +899,10 @@ export async function runReviewCycle(
 
       const fixerPrompt = deps.createFixerPrompt(reviewJson ?? reviewTextForFixer);
       const fixerAgentModule = deps.AGENTS[config.fixer.agent];
-      let checkpoint: GitCheckpoint | null = null;
+      let fixerCheckpoint: GitCheckpoint | null = null;
       try {
-        checkpoint = deps.createCheckpoint(
-          agentProjectPath,
+        fixerCheckpoint = deps.createCheckpoint(
+          agentProjectPathResolved,
           `${sessionId ?? "session"}-fixer-${iteration}-${Date.now()}`
         );
       } catch (error) {
@@ -1040,7 +924,47 @@ export async function runReviewCycle(
         });
       }
 
-      currentTreeMatchesPromotable = false;
+      const discardFixerCheckpoint = () => {
+        if (!fixerCheckpoint) {
+          return;
+        }
+        try {
+          deps.discardCheckpoint(agentProjectPathResolved, fixerCheckpoint);
+        } catch (error) {
+          console.log(`  ⚠️  Failed to discard fixer checkpoint: ${error}`);
+        }
+        fixerCheckpoint = null;
+      };
+
+      const restoreFixerCheckpoint = (): boolean => {
+        if (!fixerCheckpoint) {
+          return false;
+        }
+        const checkpoint = fixerCheckpoint;
+        fixerCheckpoint = null;
+        try {
+          deps.rollbackToCheckpoint(agentProjectPathResolved, checkpoint);
+          return true;
+        } catch (error) {
+          console.log(`  ⚠️  Failed to restore fixer checkpoint: ${error}`);
+          try {
+            deps.discardCheckpoint(agentProjectPathResolved, checkpoint);
+          } catch (discardError) {
+            console.log(
+              `  ⚠️  Failed to discard fixer checkpoint after rollback error: ${discardError}`
+            );
+          }
+          return false;
+        }
+      };
+
+      const finalizeFixerFailure = (result: CycleResult): CycleResult => {
+        const restored = restoreFixerCheckpoint();
+        currentTreeRetainable = restored && hasSuccessfulReviewIteration;
+        return currentTreeRetainable ? terminalIncompleteResult(result) : result;
+      };
+
+      currentTreeRetainable = false;
       let fixResult = await runAgentWithRetry(
         "fixer",
         config,
@@ -1090,9 +1014,6 @@ export async function runReviewCycle(
         console.log(
           `  ❌ Fixer returned incomplete output (missing fix summary JSON: ${fixParseResult.failureReason}).`
         );
-        const rollback = checkpoint ? applyRollback(agentProjectPath, checkpoint, deps) : undefined;
-        discardCheckpointSafe(checkpoint);
-        currentTreeMatchesPromotable = rollback?.success === true;
         const entry = createIterationEntry(iteration, iterationStartTime, {
           error: {
             phase: "fixer",
@@ -1100,17 +1021,16 @@ export async function runReviewCycle(
           },
           review: reviewSummary ?? undefined,
           codexReview: codexReviewSummary ?? undefined,
-          rollback,
         });
         await deps.appendLog(sessionPath, entry);
         const result = {
           success: false,
           finalStatus: "failed" as const,
           iterations: iteration,
-          reason: `Fixer output incomplete (missing fix summary JSON).${rollbackReasonSuffix(rollback)}`,
+          reason: "Fixer output incomplete (missing fix summary JSON).",
           sessionPath,
         };
-        return finish(rollback?.success ? terminalIncompleteResult(result) : result);
+        return finish(finalizeFixerFailure(result));
       }
 
       if (onIteration) {
@@ -1118,42 +1038,41 @@ export async function runReviewCycle(
       }
 
       if (!fixResult.success) {
-        const rollback = checkpoint ? applyRollback(agentProjectPath, checkpoint, deps) : undefined;
-        discardCheckpointSafe(checkpoint);
-        currentTreeMatchesPromotable = rollback?.success === true;
         if (isInterruptLikeFailure(fixResult)) {
-          const interruptedResult = await handleInterruptedAgentFailure(
-            "fixer",
-            fixResult.exitCode,
-            iteration,
-            iterationStartTime,
-            sessionPath,
-            deps,
-            {
-              review: reviewSummary ?? undefined,
-              codexReview: codexReviewSummary ?? undefined,
-              rollback,
-            }
-          );
           return finish(
-            rollback?.success ? terminalIncompleteResult(interruptedResult) : interruptedResult
+            finalizeFixerFailure(
+              await handleInterruptedAgentFailure(
+                "fixer",
+                fixResult.exitCode,
+                iteration,
+                iterationStartTime,
+                sessionPath,
+                deps,
+                {
+                  review: reviewSummary ?? undefined,
+                  codexReview: codexReviewSummary ?? undefined,
+                }
+              )
+            )
           );
         }
-        const failureResult = await handleAgentFailure(
-          "fixer",
-          fixResult.exitCode,
-          retryConfig,
-          iteration,
-          iterationStartTime,
-          sessionPath,
-          deps,
-          {
-            review: reviewSummary ?? undefined,
-            codexReview: codexReviewSummary ?? undefined,
-            rollback,
-          }
+        return finish(
+          finalizeFixerFailure(
+            await handleAgentFailure(
+              "fixer",
+              fixResult.exitCode,
+              retryConfig,
+              iteration,
+              iterationStartTime,
+              sessionPath,
+              deps,
+              {
+                review: reviewSummary ?? undefined,
+                codexReview: codexReviewSummary ?? undefined,
+              }
+            )
+          )
         );
-        return finish(rollback?.success ? terminalIncompleteResult(failureResult) : failureResult);
       }
 
       const iterationEntry = createIterationEntry(iteration, iterationStartTime, {
@@ -1163,22 +1082,9 @@ export async function runReviewCycle(
       });
       await deps.appendLog(sessionPath, iterationEntry);
 
-      try {
-        replacePromotableCheckpoint(
-          `${sessionId ?? "session"}-promotable-fixer-${iteration}-${Date.now()}`
-        );
-      } catch (error) {
-        discardCheckpointSafe(checkpoint);
-        return finish({
-          success: false,
-          finalStatus: "failed",
-          iterations: iteration,
-          reason: `Failed to promote fixer snapshot: ${error}`,
-          sessionPath,
-        });
-      }
+      currentTreeRetainable = true;
       hasSuccessfulReviewIteration = true;
-      discardCheckpointSafe(checkpoint);
+      discardFixerCheckpoint();
 
       if (fixSummary?.stop_iteration === true) {
         hasRemainingIssues = false;
@@ -1225,26 +1131,11 @@ export async function runReviewCycle(
     throw error;
   } finally {
     if (worktree) {
-      const finalizerProjectPath = agentProjectPath ?? worktree.agentProjectPath;
       if (finalResult?.reviewOutcome) {
         try {
-          if (!currentTreeMatchesPromotable && lastPromotableCheckpoint) {
-            const rollback = applyRollback(finalizerProjectPath, lastPromotableCheckpoint, deps);
-            currentTreeMatchesPromotable = rollback.success;
-            if (!rollback.success) {
-              finalResult = applyWorktreeCleanupFailure(
-                finalResult,
-                sessionPath,
-                iteration,
-                "finalize",
-                rollback.reason ?? "failed to restore promotable snapshot"
-              );
-            }
-          }
-
           if (
             finalResult?.reviewOutcome &&
-            currentTreeMatchesPromotable &&
+            currentTreeRetainable &&
             (hasSuccessfulReviewIteration || finalResult.finalStatus !== "interrupted")
           ) {
             const handoff = await deps.createOrAutoApplyHandoff(undefined, {
@@ -1306,18 +1197,6 @@ export async function runReviewCycle(
           );
         }
       }
-    }
-
-    if (lastPromotableCheckpoint) {
-      const checkpointProjectPath = agentProjectPath ?? worktree?.agentProjectPath;
-      if (checkpointProjectPath) {
-        try {
-          deps.discardCheckpoint(checkpointProjectPath, lastPromotableCheckpoint);
-        } catch (error) {
-          console.log(`  ⚠️  Failed to discard checkpoint: ${error}`);
-        }
-      }
-      lastPromotableCheckpoint = null;
     }
 
     const sessionEndEntry = createSessionEndEntry(
