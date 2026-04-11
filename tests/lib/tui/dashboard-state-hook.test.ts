@@ -3,7 +3,7 @@ import { testRender } from "@opentui/react/test-utils";
 import { act, createElement, useEffect } from "react";
 import type { LogIncrementalResult, LogIncrementalState, LogSession } from "@/lib/logger";
 import type { ActiveSession, SessionState } from "@/lib/session-state";
-import type { DashboardState } from "@/lib/tui/types";
+import type { WorkspaceState } from "@/lib/tui/use-workspace-state";
 import type {
   Config,
   Finding,
@@ -196,7 +196,7 @@ interface DashboardHarnessOptions {
 }
 
 interface DashboardHarness {
-  getState: () => DashboardState | null;
+  getState: () => WorkspaceState | null;
   intervalCallbacks: Array<() => unknown>;
   clearIntervalCalls: Array<ReturnType<typeof setInterval>>;
   ensureGitRepositoryCalls: string[];
@@ -368,11 +368,11 @@ async function mountDashboardHarness(
     },
   }));
 
-  const { useDashboardState } = await import("@/lib/tui/use-dashboard-state");
-  let latestState: DashboardState | null = null;
+  const { useWorkspaceState } = await import("@/lib/tui/use-workspace-state");
+  let latestState: WorkspaceState | null = null;
 
   function Probe() {
-    const state = useDashboardState(projectPath, undefined, refreshInterval);
+    const state = useWorkspaceState(projectPath, undefined, refreshInterval);
     useEffect(() => {
       latestState = state;
     }, [state]);
@@ -433,7 +433,7 @@ afterEach(() => {
   mock.restore();
 });
 
-describe("useDashboardState hook", () => {
+describe("useWorkspaceState hook", () => {
   test("hydrates heavy state from incremental logs and computes historical stats", async () => {
     const fixA = createFix(1, "Fix null guard", "P1");
     const fixB = createFix(2, "Fix race", "P0");
@@ -824,8 +824,10 @@ describe("useDashboardState hook", () => {
       expect(harness.getState()?.tmuxOutput).toBe("first output");
       await harness.runInterval(1);
       expect(harness.getState()?.tmuxOutput).toBe("first output");
+      expect(harness.getState()?.liveRefreshError).toBe("tmux unavailable");
       await harness.runInterval(1);
       expect(harness.getState()?.tmuxOutput).toBe("recovered output");
+      expect(harness.getState()?.liveRefreshError).toBeNull();
       expect(harness.getSessionOutputCalls).toHaveLength(3);
     } finally {
       await harness.destroy();

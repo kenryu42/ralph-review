@@ -6,6 +6,7 @@ interface StatusBarProps {
   focusedPane: FocusedPane;
   outputVisible: boolean;
   stopPickerOpen?: boolean;
+  liveRefreshError?: string | null;
 }
 
 function focusPaneLabel(pane: FocusedPane): string {
@@ -24,6 +25,7 @@ export function StatusBar({
   focusedPane,
   outputVisible,
   stopPickerOpen = false,
+  liveRefreshError = null,
 }: StatusBarProps) {
   if (stopPickerOpen) {
     return (
@@ -96,7 +98,12 @@ export function StatusBar({
           <span fg={TUI_COLORS.text.muted}> Help</span>
         </text>
       </box>
-      <text fg={TUI_COLORS.text.dim}>Focus: {focusPaneLabel(focusedPane)}</text>
+      <box flexDirection="column" alignItems="flex-end">
+        {liveRefreshError && (
+          <text fg={TUI_COLORS.status.warning}>Live warning: {liveRefreshError}</text>
+        )}
+        <text fg={TUI_COLORS.text.dim}>Focus: {focusPaneLabel(focusedPane)}</text>
+      </box>
     </box>
   );
 }

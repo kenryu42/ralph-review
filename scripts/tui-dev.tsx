@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * Dev script for previewing SessionPanel with mock data.
+ * Dev script for previewing the detail pane with mock data.
  *
  * Usage:
  *   bun scripts/tui-dev.tsx                    # Default: running state
@@ -14,8 +14,8 @@
 import { createCliRenderer } from "@opentui/core";
 import { createRoot } from "@opentui/react";
 import type { SessionState } from "@/lib/session-state";
+import { DetailPane } from "@/lib/tui/components/DetailPane";
 import { SelectionCopyToastBoundary } from "@/lib/tui/components/SelectionCopyToastBoundary";
-import { SessionPanel } from "@/lib/tui/components/SessionPanel";
 import type {
   AgentRole,
   Finding,
@@ -395,7 +395,7 @@ async function main() {
   const state = parseState();
   const mockData = getMockData(state);
 
-  console.log(`Rendering SessionPanel with state: ${state}`);
+  console.log(`Rendering DetailPane with state: ${state}`);
   console.log("Press 'q' or Ctrl+C to exit\n");
 
   const renderer = await createCliRenderer({
@@ -404,7 +404,7 @@ async function main() {
 
   createRoot(renderer).render(
     <SelectionCopyToastBoundary>
-      <SessionPanel
+      <DetailPane
         session={mockData.session}
         fixes={mockData.fixes}
         skipped={mockData.skipped}
@@ -421,6 +421,8 @@ async function main() {
         reviewOptions={mockData.reviewOptions}
         isStarting={false}
         isStopping={false}
+        activeSessionCount={mockData.session ? 1 : 0}
+        focused={true}
       />
     </SelectionCopyToastBoundary>
   );

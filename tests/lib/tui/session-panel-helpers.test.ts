@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
-  extractFixesFromStats,
   extractLatestReviewSummary,
-  extractSkippedFromStats,
   findLatestReviewerPhaseStart,
+} from "@/lib/tui/review-summary-parser";
+import {
+  extractFixesFromStats,
+  extractSkippedFromStats,
   formatHandoffCommands,
   formatHandoffSummary,
   formatLastRunIssueSummary,
@@ -14,7 +16,7 @@ import {
   formatRetainedWorktreeMergeCommand,
   formatRetainedWorktreeOutcome,
   formatSessionIdentityDisplay,
-} from "@/lib/tui/session-panel-utils";
+} from "@/lib/tui/session-display-formatters";
 import type {
   FixEntry,
   IterationEntry,

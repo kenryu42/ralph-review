@@ -597,9 +597,10 @@ describe("SessionDetailPane", () => {
   });
 
   async function renderDetailPane(
-    stats: SessionStats
+    stats: SessionStats,
+    props: Partial<Parameters<typeof SessionDetailPane>[0]> = {}
   ): Promise<Awaited<ReturnType<typeof testRender>>> {
-    testSetup = await testRender(createElement(SessionDetailPane, { stats }), {
+    testSetup = await testRender(createElement(SessionDetailPane, { stats, ...props }), {
       width: 100,
       height: 40,
     });
@@ -633,6 +634,48 @@ describe("SessionDetailPane", () => {
     expect(frame).toContain("Applied to working tree");
     expect(frame).toContain("Overview");
     expect(frame).toContain("Run setup");
+  });
+
+  test("does not start detail-pane metric polling while unfocused", async () => {
+    const originalSetInterval = globalThis.setInterval;
+    const originalClearInterval = globalThis.clearInterval;
+    const intervalCalls: number[] = [];
+
+    globalThis.setInterval = ((_handler: Parameters<typeof setInterval>[0], timeout?: number) => {
+      intervalCalls.push(Number(timeout ?? 0));
+      return 1 as unknown as ReturnType<typeof setInterval>;
+    }) as typeof setInterval;
+    globalThis.clearInterval = (() => undefined) as typeof clearInterval;
+
+    try {
+      const stats = buildSessionStats();
+      await renderDetailPane(stats, { focused: false });
+      expect(intervalCalls).toEqual([]);
+    } finally {
+      globalThis.setInterval = originalSetInterval;
+      globalThis.clearInterval = originalClearInterval;
+    }
+  });
+
+  test("starts detail-pane metric polling at 100ms while focused", async () => {
+    const originalSetInterval = globalThis.setInterval;
+    const originalClearInterval = globalThis.clearInterval;
+    const intervalCalls: number[] = [];
+
+    globalThis.setInterval = ((_handler: Parameters<typeof setInterval>[0], timeout?: number) => {
+      intervalCalls.push(Number(timeout ?? 0));
+      return 1 as unknown as ReturnType<typeof setInterval>;
+    }) as typeof setInterval;
+    globalThis.clearInterval = (() => undefined) as typeof clearInterval;
+
+    try {
+      const stats = buildSessionStats();
+      await renderDetailPane(stats, { focused: true });
+      expect(intervalCalls).toContain(100);
+    } finally {
+      globalThis.setInterval = originalSetInterval;
+      globalThis.clearInterval = originalClearInterval;
+    }
   });
 
   test("shortens very long code locations for readability", async () => {

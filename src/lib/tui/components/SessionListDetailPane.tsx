@@ -3,6 +3,13 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 import { formatDuration } from "@/lib/format";
 import { getProjectNameFromLogPath } from "@/lib/logger";
 import { TUI_COLORS } from "@/lib/tui/colors";
+import {
+  formatHandoffSummary,
+  formatLastRunIssueSummary,
+  formatPriorityBreakdown,
+  formatProjectNameForDisplay,
+  PRIORITY_COLORS,
+} from "@/lib/tui/session-display-formatters";
 import type {
   Finding,
   FixEntry,
@@ -12,17 +19,11 @@ import type {
   SkippedEntry,
   SystemEntry,
 } from "@/lib/types";
-import {
-  formatHandoffSummary,
-  formatLastRunIssueSummary,
-  formatPriorityBreakdown,
-  formatProjectNameForDisplay,
-  PRIORITY_COLORS,
-} from "../session-panel-utils";
 import { FindingsList, SectionHeader, SkippedList, toSingleLine } from "./session-detail-parts";
 
 const META_LABEL_WIDTH = 16;
 const LOCATION_MAX_LENGTH = 92;
+const SCROLL_METRICS_POLL_INTERVAL_MS = 100;
 
 function statusColor(status: string): string {
   switch (status) {
@@ -308,6 +309,10 @@ export function SessionDetailPane({
   const [scrollMetrics, setScrollMetrics] = useState<ScrollMetrics>(DEFAULT_SCROLL_METRICS);
 
   useEffect(() => {
+    if (!focused) {
+      return;
+    }
+
     const timer = setInterval(() => {
       const scrollbox = scrollboxRef.current;
       if (!scrollbox) {
@@ -330,12 +335,12 @@ export function SessionDetailPane({
         }
         return nextMetrics;
       });
-    }, 33);
+    }, SCROLL_METRICS_POLL_INTERVAL_MS);
 
     return () => {
       clearInterval(timer);
     };
-  }, []);
+  }, [focused]);
 
   const issueSummary = formatLastRunIssueSummary(
     stats.totalFixes,

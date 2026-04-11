@@ -1,12 +1,13 @@
 import { useKeyboard, useRenderer } from "@opentui/react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import type { LogSession } from "@/lib/logger";
-import { computeSessionStats, deleteSessionFiles, listLogSessions } from "@/lib/logger";
-import { listAllActiveSessions } from "@/lib/session-state";
 import { TUI_COLORS } from "@/lib/tui/colors";
-import type { SessionStats } from "@/lib/types";
-import { formatProjectNameForDisplay, formatRelativeTime } from "../session-panel-utils";
+import {
+  formatProjectNameForDisplay,
+  formatRelativeTime,
+} from "@/lib/tui/session-display-formatters";
 import { SessionDetailPane } from "./SessionListDetailPane";
+import { useSessionOverlayState } from "./use-session-overlay-state";
 
 interface SessionOverlayProps {
   onClose: () => void;
@@ -113,41 +114,27 @@ type OverlayPane = "list" | "detail";
 
 export function SessionOverlay({ onClose }: SessionOverlayProps) {
   const renderer = useRenderer();
-  const [sessions, setSessions] = useState<LogSession[]>([]);
-  const [selectedPath, setSelectedPath] = useState<string | null>(null);
-  const [selectedStats, setSelectedStats] = useState<SessionStats | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [statsLoading, setStatsLoading] = useState(false);
+  const {
+    sessions,
+    selectedPath,
+    selectedStats,
+    isLoading,
+    sessionsError,
+    statsLoading,
+    statsError,
+    isDeleting,
+    deleteError,
+    setSelectedPath,
+    clearDeleteError,
+    deleteSelectedSession,
+  } = useSessionOverlayState();
   const [showHelp, setShowHelp] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [isDeleting, setIsDeleting] = useState(false);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [focusedPane, setFocusedPane] = useState<OverlayPane>("list");
 
   const cycleFocus = useCallback(() => {
     setFocusedPane((prev) => (prev === "list" ? "detail" : "list"));
   }, []);
-
-  useEffect(() => {
-    listLogSessions().then((s) => {
-      setSessions(s);
-      const firstSession = s[0];
-      if (firstSession) setSelectedPath(firstSession.path);
-      setIsLoading(false);
-    });
-  }, []);
-
-  useEffect(() => {
-    const session = sessions.find((s) => s.path === selectedPath);
-    if (!session) return;
-
-    setStatsLoading(true);
-    setSelectedStats(null);
-    computeSessionStats(session).then((stats) => {
-      setSelectedStats(stats);
-      setStatsLoading(false);
-    });
-  }, [sessions, selectedPath]);
 
   const { selectOptions, sessionSlots } = useMemo(() => {
     const grouped = new Map<string, LogSession[]>();
@@ -183,40 +170,11 @@ export function SessionOverlay({ onClose }: SessionOverlayProps) {
     : "Logs";
 
   const confirmDeleteSelectedSession = useCallback(async () => {
-    if (!selectedPath || isDeleting) {
-      return;
-    }
-
-    setIsDeleting(true);
-    setDeleteError(null);
-
-    try {
-      const activeSessions = await listAllActiveSessions();
-      if (activeSessions.some((session) => session.sessionPath === selectedPath)) {
-        setDeleteError("Cannot delete a running session");
-        return;
-      }
-
-      await deleteSessionFiles(selectedPath);
-
-      const removedIndex = sessions.findIndex((session) => session.path === selectedPath);
-      const remainingSessions = sessions.filter((session) => session.path !== selectedPath);
-      const nextSelectedSession =
-        removedIndex >= 0
-          ? (remainingSessions[removedIndex] ?? remainingSessions[Math.max(removedIndex - 1, 0)])
-          : (remainingSessions[0] ?? null);
-
-      setSessions(remainingSessions);
-      setSelectedPath(nextSelectedSession?.path ?? null);
-      setSelectedStats(null);
-      setStatsLoading(false);
+    const result = await deleteSelectedSession();
+    if (result.deleted) {
       setShowDeleteConfirm(false);
-    } catch (error) {
-      setDeleteError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setIsDeleting(false);
     }
-  }, [isDeleting, selectedPath, sessions]);
+  }, [deleteSelectedSession]);
 
   const closeDeleteConfirm = useCallback(() => {
     if (isDeleting) {
@@ -224,8 +182,8 @@ export function SessionOverlay({ onClose }: SessionOverlayProps) {
     }
 
     setShowDeleteConfirm(false);
-    setDeleteError(null);
-  }, [isDeleting]);
+    clearDeleteError();
+  }, [clearDeleteError, isDeleting]);
 
   useKeyboard((key) => {
     if (showDeleteConfirm) {
@@ -256,7 +214,7 @@ export function SessionOverlay({ onClose }: SessionOverlayProps) {
 
     if (key.name === "d") {
       if (selectedSession) {
-        setDeleteError(null);
+        clearDeleteError();
         setShowDeleteConfirm(true);
       }
       return;
@@ -306,6 +264,8 @@ export function SessionOverlay({ onClose }: SessionOverlayProps) {
         >
           {isLoading ? (
             <text fg={TUI_COLORS.text.muted}>Loading...</text>
+          ) : sessionsError ? (
+            <text fg={TUI_COLORS.status.error}>{sessionsError}</text>
           ) : selectOptions.length === 0 ? (
             <text fg={TUI_COLORS.text.muted}>No sessions found</text>
           ) : (
@@ -336,6 +296,8 @@ export function SessionOverlay({ onClose }: SessionOverlayProps) {
         >
           {statsLoading ? (
             <text fg={TUI_COLORS.text.muted}>Loading...</text>
+          ) : statsError ? (
+            <text fg={TUI_COLORS.status.error}>{statsError}</text>
           ) : !selectedStats ? (
             <text fg={TUI_COLORS.text.muted}>Select a session to view details</text>
           ) : (

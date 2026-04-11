@@ -39,9 +39,10 @@ import {
   getLiveRefreshMeta,
   hasLiveMetaChanged,
   type LiveRefreshMeta,
+  mergeHeavyRefreshState,
   mergeIncrementalLogEntries,
   selectLatestReviewFromEntries,
-} from "./use-dashboard-state";
+} from "./workspace-refresh-utils";
 
 const DEFAULT_REFRESH_INTERVAL = 1000;
 const LIVE_REFRESH_INTERVAL = TMUX_CAPTURE_MIN_INTERVAL_MS;
@@ -65,6 +66,7 @@ export interface WorkspaceState {
   elapsed: number;
   maxIterations: number;
   error: string | null;
+  liveRefreshError: string | null;
   isLoading: boolean;
   lastSessionStats: SessionStats | null;
   projectStats: ProjectStats | null;
@@ -137,6 +139,7 @@ export function useWorkspaceState(
     elapsed: 0,
     maxIterations: 0,
     error: null,
+    liveRefreshError: null,
     isLoading: true,
     lastSessionStats: null,
     projectStats: null,
@@ -257,31 +260,30 @@ export function useWorkspaceState(
       logIncrementalStateRef.current = nextLogIncrementalState;
       lastLogSessionPathRef.current = nextLogSessionPath;
 
-      setState((prev) => ({
-        ...prev,
-        sessionGroups,
-        allSessions,
-        projectSessions,
-        selectedSessionId,
-        currentSession,
-        logEntries,
-        fixes,
-        skipped,
-        findings,
-        iterationFixes,
-        iterationSkipped,
-        iterationFindings,
-        latestReviewIteration,
-        codexReviewText,
-        maxIterations,
-        lastSessionStats,
-        projectStats,
-        config,
-        isGitRepo,
-        reviewOptions,
-        error: null,
-        isLoading: false,
-      }));
+      setState((prev) =>
+        mergeHeavyRefreshState(prev, {
+          sessionGroups,
+          allSessions,
+          projectSessions,
+          selectedSessionId,
+          currentSession,
+          logEntries,
+          fixes,
+          skipped,
+          findings,
+          iterationFixes,
+          iterationSkipped,
+          iterationFindings,
+          latestReviewIteration,
+          codexReviewText,
+          maxIterations,
+          lastSessionStats,
+          projectStats,
+          config,
+          isGitRepo,
+          reviewOptions,
+        })
+      );
     } catch (error) {
       setState((prev) => ({
         ...prev,
@@ -348,10 +350,14 @@ export function useWorkspaceState(
         currentAgent: liveMeta.currentAgent,
         tmuxOutput,
         elapsed,
+        liveRefreshError: null,
         isLoading: false,
       }));
-    } catch {
-      // Ignore transient live refresh failures
+    } catch (error) {
+      setState((prev) => ({
+        ...prev,
+        liveRefreshError: error instanceof Error ? error.message : String(error),
+      }));
     } finally {
       isLiveRefreshingRef.current = false;
     }

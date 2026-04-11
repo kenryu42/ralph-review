@@ -1,15 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import type { SessionState } from "@/lib/session-state";
-import type { DashboardState } from "@/lib/tui/types";
 import {
   getCurrentAgentFromSessionState,
   getLiveRefreshMeta,
   hasLiveMetaChanged,
-  mergeHeavyDashboardState,
+  mergeHeavyRefreshState,
   mergeIncrementalLogEntries,
   selectLatestReviewFromEntries,
-} from "@/lib/tui/use-dashboard-state";
-import type { LogEntry } from "@/lib/types";
+} from "@/lib/tui/workspace-refresh-utils";
+import type { Finding, LogEntry } from "@/lib/types";
 
 describe("getCurrentAgentFromSessionState", () => {
   const baseSessionState: SessionState = {
@@ -174,8 +173,8 @@ describe("selectLatestReviewFromEntries", () => {
   });
 });
 
-describe("mergeHeavyDashboardState", () => {
-  const baseState: DashboardState = {
+describe("mergeHeavyRefreshState", () => {
+  const baseState = {
     sessions: [],
     projectSessions: [],
     currentSession: {
@@ -195,7 +194,7 @@ describe("mergeHeavyDashboardState", () => {
     logEntries: [],
     fixes: [],
     skipped: [],
-    findings: [],
+    findings: [] as Finding[],
     iterationFixes: [],
     iterationSkipped: [],
     iterationFindings: [],
@@ -212,10 +211,11 @@ describe("mergeHeavyDashboardState", () => {
     isGitRepo: true,
     currentAgent: "fixer",
     reviewOptions: undefined,
+    liveRefreshError: null,
   };
 
   test("keeps live fields while applying heavy refresh fields", () => {
-    const merged = mergeHeavyDashboardState(baseState, {
+    const merged = mergeHeavyRefreshState(baseState, {
       sessions: [],
       projectSessions: [],
       logEntries: [],

@@ -1,6 +1,5 @@
 import { formatDuration } from "@/lib/format";
 import { TUI_COLORS } from "@/lib/tui/colors";
-import type { ProjectStats, SessionStats } from "@/lib/types";
 import {
   extractFixesFromStats,
   formatHandoffCommands,
@@ -10,7 +9,8 @@ import {
   formatProjectStatsSummary,
   formatRelativeTime,
   PRIORITY_COLORS,
-} from "../session-panel-utils";
+} from "@/lib/tui/session-display-formatters";
+import type { ProjectStats, SessionStats } from "@/lib/types";
 import { Spinner } from "./Spinner";
 import { toSingleLine } from "./session-detail-parts";
 

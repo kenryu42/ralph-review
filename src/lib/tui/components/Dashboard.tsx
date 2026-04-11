@@ -282,52 +282,8 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
   useKeyboard(handleKeyboard);
 
   const displayError = state.error || runError;
-
-  if (displayError) {
-    return (
-      <SelectionCopyToastBoundary>
-        <box flexDirection="column" width="100%" height="100%">
-          <Header
-            projectName={projectName}
-            branch={branch}
-            elapsed={state.elapsed}
-            session={state.currentSession}
-            projectPath={projectPath}
-            config={state.config}
-          />
-          <box flexGrow={1} padding={2}>
-            <text fg={TUI_COLORS.status.error}>Error: {displayError}</text>
-          </box>
-          <StatusBar
-            hasSession={false}
-            focusedPane={focusedPane}
-            outputVisible={outputVisible}
-            stopPickerOpen={showStopPicker}
-          />
-          {showHelp && <HelpOverlay onClose={() => setShowHelp(false)} />}
-          {showReviewModeOverlay && !state.currentSession && (
-            <ReviewModeOverlay
-              defaultReview={state.config?.defaultReview}
-              onClose={() => setShowReviewModeOverlay(false)}
-              onSubmit={(args) => {
-                setShowReviewModeOverlay(false);
-                spawnRunProcess(args);
-              }}
-            />
-          )}
-          {showStopPicker && (
-            <StopSessionPickerOverlay
-              sessions={state.allSessions}
-              onSelectSession={(session) => {
-                void stopSelectedSession(session);
-              }}
-              onClose={() => setShowStopPicker(false)}
-            />
-          )}
-        </box>
-      </SelectionCopyToastBoundary>
-    );
-  }
+  const showRunOverlay = showReviewModeOverlay && !state.currentSession;
+  const hasSession = !displayError && Boolean(state.currentSession);
 
   return (
     <SelectionCopyToastBoundary>
@@ -340,37 +296,44 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
           projectPath={projectPath}
           config={state.config}
         />
-        <Workspace
-          sessionGroups={state.sessionGroups}
-          selectedSessionId={state.selectedSessionId}
-          session={state.currentSession}
-          fixes={state.fixes}
-          skipped={state.skipped}
-          findings={state.iterationFindings}
-          latestReviewIteration={state.latestReviewIteration}
-          codexReviewText={state.codexReviewText}
-          tmuxOutput={state.tmuxOutput}
-          maxIterations={state.maxIterations}
-          isLoading={state.isLoading}
-          lastSessionStats={state.lastSessionStats}
-          projectStats={state.projectStats}
-          isGitRepo={state.isGitRepo}
-          currentAgent={state.currentAgent}
-          reviewOptions={state.reviewOptions}
-          isStarting={isStartingRun}
-          isStopping={isStoppingRun}
-          activeSessionCount={state.projectSessions.length}
-          outputVisible={outputVisible}
-          focusedPane={focusedPane}
-        />
+        {displayError ? (
+          <box flexGrow={1} padding={2}>
+            <text fg={TUI_COLORS.status.error}>Error: {displayError}</text>
+          </box>
+        ) : (
+          <Workspace
+            sessionGroups={state.sessionGroups}
+            selectedSessionId={state.selectedSessionId}
+            session={state.currentSession}
+            fixes={state.fixes}
+            skipped={state.skipped}
+            findings={state.iterationFindings}
+            latestReviewIteration={state.latestReviewIteration}
+            codexReviewText={state.codexReviewText}
+            tmuxOutput={state.tmuxOutput}
+            maxIterations={state.maxIterations}
+            isLoading={state.isLoading}
+            lastSessionStats={state.lastSessionStats}
+            projectStats={state.projectStats}
+            isGitRepo={state.isGitRepo}
+            currentAgent={state.currentAgent}
+            reviewOptions={state.reviewOptions}
+            isStarting={isStartingRun}
+            isStopping={isStoppingRun}
+            activeSessionCount={state.projectSessions.length}
+            outputVisible={outputVisible}
+            focusedPane={focusedPane}
+          />
+        )}
         <StatusBar
-          hasSession={Boolean(state.currentSession)}
+          hasSession={hasSession}
           focusedPane={focusedPane}
           outputVisible={outputVisible}
           stopPickerOpen={showStopPicker}
+          liveRefreshError={state.liveRefreshError}
         />
         {showHelp && <HelpOverlay onClose={() => setShowHelp(false)} />}
-        {showReviewModeOverlay && !state.currentSession && (
+        {showRunOverlay && (
           <ReviewModeOverlay
             defaultReview={state.config?.defaultReview}
             onClose={() => setShowReviewModeOverlay(false)}
@@ -380,7 +343,7 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
             }}
           />
         )}
-        {showSession && <SessionOverlay onClose={() => setShowSession(false)} />}
+        {showSession && !displayError && <SessionOverlay onClose={() => setShowSession(false)} />}
         {showStopPicker && (
           <StopSessionPickerOverlay
             sessions={state.allSessions}

@@ -23,6 +23,7 @@ describe("StatusBar", () => {
       focusedPane: "detail",
       outputVisible: false,
       stopPickerOpen: false,
+      liveRefreshError: null,
     };
 
     testSetup = await testRender(createElement(StatusBar, { ...defaultProps, ...props }), {
@@ -56,5 +57,11 @@ describe("StatusBar", () => {
     expect(frame).toContain("[Esc]");
     expect(frame).toContain("Cancel");
     expect(frame).not.toContain("Switch");
+  });
+
+  test("shows a live refresh warning when available", async () => {
+    const frame = await renderFrame({ liveRefreshError: "tmux unavailable" });
+
+    expect(frame).toContain("Live warning: tmux unavailable");
   });
 });
