@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import type { ActiveSession } from "@/lib/session-state";
 import { stopSelectedDashboardSession } from "@/lib/tui/components/dashboard-stop";
-import { resolveDashboardCloseAction } from "@/lib/tui/dashboard-keyboard";
+import {
+  resolveDashboardCloseAction,
+  resolveDashboardKeyAction,
+} from "@/lib/tui/dashboard-keyboard";
 
 interface Deferred<T> {
   promise: Promise<T>;
@@ -115,5 +118,112 @@ describe("resolveDashboardCloseAction", () => {
     });
 
     expect(result).toBe("shutdown");
+  });
+});
+
+describe("resolveDashboardKeyAction", () => {
+  test("closes help before handling other actions", () => {
+    const result = resolveDashboardKeyAction({
+      keyName: "escape",
+      showStopPicker: false,
+      showHelp: true,
+      showRunOverlay: false,
+      showSession: false,
+      activeSessionCount: 0,
+      hasCurrentSession: false,
+      isRunSpawning: false,
+    });
+
+    expect(result).toBe("close-help");
+  });
+
+  test("cycles focus only when no overlays are visible", () => {
+    const result = resolveDashboardKeyAction({
+      keyName: "tab",
+      showStopPicker: false,
+      showHelp: false,
+      showRunOverlay: false,
+      showSession: false,
+      activeSessionCount: 0,
+      hasCurrentSession: false,
+      isRunSpawning: false,
+    });
+
+    expect(result).toBe("cycle-focus");
+  });
+
+  test("ignores global shortcuts while overlays are visible", () => {
+    const result = resolveDashboardKeyAction({
+      keyName: "l",
+      showStopPicker: false,
+      showHelp: true,
+      showRunOverlay: false,
+      showSession: false,
+      activeSessionCount: 0,
+      hasCurrentSession: false,
+      isRunSpawning: false,
+    });
+
+    expect(result).toBe("none");
+  });
+
+  test("stops the selected session immediately when only one session is active", () => {
+    const result = resolveDashboardKeyAction({
+      keyName: "s",
+      showStopPicker: false,
+      showHelp: false,
+      showRunOverlay: false,
+      showSession: false,
+      activeSessionCount: 1,
+      hasCurrentSession: true,
+      isRunSpawning: false,
+    });
+
+    expect(result).toBe("stop-single-session");
+  });
+
+  test("opens the stop picker when multiple sessions are active", () => {
+    const result = resolveDashboardKeyAction({
+      keyName: "s",
+      showStopPicker: false,
+      showHelp: false,
+      showRunOverlay: false,
+      showSession: false,
+      activeSessionCount: 2,
+      hasCurrentSession: true,
+      isRunSpawning: false,
+    });
+
+    expect(result).toBe("open-stop-picker");
+  });
+
+  test("opens review mode only when idle and not already spawning", () => {
+    const result = resolveDashboardKeyAction({
+      keyName: "r",
+      showStopPicker: false,
+      showHelp: false,
+      showRunOverlay: false,
+      showSession: false,
+      activeSessionCount: 0,
+      hasCurrentSession: false,
+      isRunSpawning: false,
+    });
+
+    expect(result).toBe("open-review-mode");
+  });
+
+  test("ignores review hotkey while a session is active", () => {
+    const result = resolveDashboardKeyAction({
+      keyName: "r",
+      showStopPicker: false,
+      showHelp: false,
+      showRunOverlay: false,
+      showSession: false,
+      activeSessionCount: 1,
+      hasCurrentSession: true,
+      isRunSpawning: false,
+    });
+
+    expect(result).toBe("none");
   });
 });

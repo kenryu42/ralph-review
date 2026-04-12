@@ -5,6 +5,18 @@ export type DashboardCloseAction =
   | "delegate-session-overlay"
   | "shutdown";
 
+export type DashboardKeyAction =
+  | DashboardCloseAction
+  | "none"
+  | "cycle-focus"
+  | "cycle-focus-reverse"
+  | "toggle-output"
+  | "open-help"
+  | "open-session"
+  | "stop-single-session"
+  | "open-stop-picker"
+  | "open-review-mode";
+
 interface ResolveDashboardCloseActionInput {
   showStopPicker: boolean;
   showHelp: boolean;
@@ -35,4 +47,71 @@ export function resolveDashboardCloseAction({
   }
 
   return "shutdown";
+}
+
+interface ResolveDashboardKeyActionInput extends ResolveDashboardCloseActionInput {
+  keyName: string;
+  activeSessionCount: number;
+  hasCurrentSession: boolean;
+  isRunSpawning: boolean;
+}
+
+export function resolveDashboardKeyAction({
+  keyName,
+  showStopPicker,
+  showHelp,
+  showRunOverlay,
+  showSession,
+  activeSessionCount,
+  hasCurrentSession,
+  isRunSpawning,
+}: ResolveDashboardKeyActionInput): DashboardKeyAction {
+  if (keyName === "q" || keyName === "escape") {
+    return resolveDashboardCloseAction({
+      showStopPicker,
+      showHelp,
+      showRunOverlay,
+      showSession,
+    });
+  }
+
+  if (showHelp || showSession || showRunOverlay || showStopPicker) {
+    return "none";
+  }
+
+  if (keyName === "tab" || keyName === "right") {
+    return "cycle-focus";
+  }
+
+  if (keyName === "left") {
+    return "cycle-focus-reverse";
+  }
+
+  if (keyName === "o") {
+    return "toggle-output";
+  }
+
+  if (keyName === "?" || keyName === "h") {
+    return "open-help";
+  }
+
+  if (keyName === "l") {
+    return "open-session";
+  }
+
+  if (keyName === "s") {
+    if (activeSessionCount === 1) {
+      return "stop-single-session";
+    }
+
+    if (activeSessionCount > 1) {
+      return "open-stop-picker";
+    }
+  }
+
+  if (keyName === "r" && !hasCurrentSession && !isRunSpawning) {
+    return "open-review-mode";
+  }
+
+  return "none";
 }

@@ -1,161 +1,65 @@
 import { basename } from "node:path";
 import { useKeyboard, useRenderer } from "@opentui/react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CLI_PATH } from "@/lib/paths";
-import type { ActiveSession } from "@/lib/session-state";
-import { stopActiveSession } from "@/lib/stop-session";
 import { TUI_COLORS } from "@/lib/tui/colors";
-import { resolveDashboardCloseAction } from "@/lib/tui/dashboard-keyboard";
-import {
-  createStoppingSessionState,
-  type StoppingSessionState,
-  settleStoppingSessionState,
-  shouldClearStoppingSessionState,
-} from "@/lib/tui/dashboard-stop-state";
+import { resolveDashboardKeyAction } from "@/lib/tui/dashboard-keyboard";
 import type { DashboardProps } from "../types";
 import { useWorkspaceState } from "../use-workspace-state";
+import { DashboardOverlays } from "./DashboardOverlays";
 import { cycleDashboardFocus, cycleDashboardFocusReverse } from "./dashboard-focus";
-import { stopSelectedDashboardSession } from "./dashboard-stop";
 import { Header } from "./Header";
-import { HelpOverlay } from "./HelpOverlay";
-import { ReviewModeOverlay } from "./ReviewModeOverlay";
 import { SelectionCopyToastBoundary } from "./SelectionCopyToastBoundary";
-import { SessionOverlay } from "./SessionListOverlay";
 import { StatusBar } from "./StatusBar";
-import { StopSessionPickerOverlay } from "./StopSessionPickerOverlay";
+import { useDashboardRunControl } from "./use-dashboard-run-control";
+import { useDashboardStopControl } from "./use-dashboard-stop-control";
 import { type FocusedPane, Workspace } from "./Workspace";
 
 export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: DashboardProps) {
   const renderer = useRenderer();
   const state = useWorkspaceState(projectPath, branch, refreshInterval);
-  const [runError, setRunError] = useState<string | null>(null);
-  const [isStartingRun, setIsStartingRun] = useState(false);
-  const [isStoppingRun, setIsStoppingRun] = useState(false);
-  const [stoppingSession, setStoppingSession] = useState<StoppingSessionState | null>(null);
+  const {
+    runError,
+    isStartingRun,
+    clearRunError,
+    clearRunStartState,
+    setRunError,
+    spawnRunProcess,
+    isRunSpawning,
+  } = useDashboardRunControl(projectPath);
   const [focusedPane, setFocusedPane] = useState<FocusedPane>("detail");
   const [outputVisible, setOutputVisible] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [showSession, setShowSession] = useState(false);
   const [showReviewModeOverlay, setShowReviewModeOverlay] = useState(false);
   const [showStopPicker, setShowStopPicker] = useState(false);
+  const { isStoppingRun, stopSelectedSession } = useDashboardStopControl({
+    currentSession: state.currentSession,
+    lastSessionStats: state.lastSessionStats,
+    setShowStopPicker,
+    onError: setRunError,
+  });
 
   const projectName = basename(projectPath);
-
-  const currentSessionRef = useRef(state.currentSession);
-  const projectSessionsRef = useRef(state.projectSessions);
-  const allSessionsRef = useRef(state.allSessions);
   const isExitingRef = useRef(false);
-  const isSpawningRunRef = useRef(false);
 
   useEffect(() => {
-    currentSessionRef.current = state.currentSession;
-    projectSessionsRef.current = state.projectSessions;
-    allSessionsRef.current = state.allSessions;
     if (state.currentSession) {
-      setRunError(null);
-      setIsStartingRun(false);
+      clearRunStartState();
       setShowReviewModeOverlay(false);
     }
+
     if (state.projectSessions.length <= 1) {
       setShowStopPicker(false);
     }
-  }, [state.currentSession, state.projectSessions, state.allSessions]);
-
-  const spawnRunProcess = useCallback(
-    (runArgs: string[]) => {
-      isSpawningRunRef.current = true;
-      setRunError(null);
-      setIsStartingRun(true);
-
-      try {
-        const subprocess = Bun.spawn([process.execPath, CLI_PATH, "run", ...runArgs], {
-          cwd: projectPath,
-          stdin: "ignore",
-          stdout: "ignore",
-          stderr: "pipe",
-        });
-        void subprocess.exited
-          .then(async (exitCode) => {
-            isSpawningRunRef.current = false;
-            if (exitCode !== 0) {
-              const stderr = await new Response(subprocess.stderr).text();
-              setIsStartingRun(false);
-              setRunError(stderr.trim() || `Command failed with exit code ${exitCode}`);
-            }
-          })
-          .catch((error) => {
-            isSpawningRunRef.current = false;
-            setIsStartingRun(false);
-            setRunError(error instanceof Error ? error.message : String(error));
-          });
-      } catch (error) {
-        isSpawningRunRef.current = false;
-        setIsStartingRun(false);
-        setRunError(error instanceof Error ? error.message : String(error));
-      }
-    },
-    [projectPath]
-  );
-
-  useEffect(() => {
-    if (!stoppingSession) {
-      return;
-    }
-
-    if (
-      shouldClearStoppingSessionState({
-        marker: stoppingSession,
-        currentSession: state.currentSession,
-        lastSessionStats: state.lastSessionStats,
-      })
-    ) {
-      setStoppingSession(null);
-      setIsStoppingRun(false);
-      return;
-    }
-
-    if (stoppingSession.phase !== "settling" || stoppingSession.expiresAt === undefined) {
-      return;
-    }
-
-    const timeoutMs = Math.max(0, stoppingSession.expiresAt - Date.now());
-    const timeout = setTimeout(() => {
-      setStoppingSession(null);
-      setIsStoppingRun(false);
-    }, timeoutMs);
-
-    return () => {
-      clearTimeout(timeout);
-    };
-  }, [stoppingSession, state.currentSession, state.lastSessionStats]);
-
-  const stopSelectedSession = useCallback(async (session: ActiveSession) => {
-    setIsStoppingRun(true);
-    setStoppingSession(createStoppingSessionState(session));
-
-    try {
-      await stopSelectedDashboardSession(session, {
-        setShowStopPicker,
-        stopActiveSession,
-      });
-      setStoppingSession((current) => {
-        if (!current || current.sessionId !== session.sessionId) {
-          return current;
-        }
-        return settleStoppingSessionState(current);
-      });
-    } catch (error) {
-      setStoppingSession(null);
-      setIsStoppingRun(false);
-      setRunError(error instanceof Error ? error.message : String(error));
-    }
-  }, []);
+  }, [clearRunStartState, state.currentSession, state.projectSessions.length]);
 
   const shutdown = useCallback(
     async (after?: () => Promise<void>, exitCode: number = 0) => {
-      if (isExitingRef.current) return;
-      isExitingRef.current = true;
+      if (isExitingRef.current) {
+        return;
+      }
 
+      isExitingRef.current = true;
       renderer.stop();
 
       const waitForDestroy = renderer.isDestroyed
@@ -190,79 +94,75 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
 
   const handleKeyboard = useCallback(
     (key: { name: string }) => {
-      if (key.name === "q" || key.name === "escape") {
-        const closeAction = resolveDashboardCloseAction({
-          showStopPicker,
-          showHelp,
-          showRunOverlay: showReviewModeOverlay,
-          showSession,
-        });
+      const action = resolveDashboardKeyAction({
+        keyName: key.name,
+        showStopPicker,
+        showHelp,
+        showRunOverlay: showReviewModeOverlay,
+        showSession,
+        activeSessionCount: state.allSessions.length,
+        hasCurrentSession: Boolean(state.currentSession),
+        isRunSpawning: isRunSpawning(),
+      });
 
-        if (closeAction === "close-stop-picker") {
+      switch (action) {
+        case "close-stop-picker":
           setShowStopPicker(false);
-        } else if (closeAction === "close-help") {
+          return;
+        case "close-help":
           setShowHelp(false);
-        } else if (closeAction === "delegate-run-overlay") {
           return;
-        } else if (closeAction === "delegate-session-overlay") {
-          // SessionOverlay has its own keyboard handlers and modals.
-          // Avoid double-handling here so nested overlays can consume Esc/q first.
+        case "delegate-run-overlay":
+        case "delegate-session-overlay":
+        case "none":
           return;
-        } else {
+        case "shutdown":
           void shutdown();
-        }
-        return;
-      }
-
-      if (showHelp || showSession || showReviewModeOverlay || showStopPicker) {
-        return;
-      }
-
-      if (key.name === "tab" || key.name === "right") {
-        cycleFocus();
-      }
-      if (key.name === "left") {
-        cycleFocusReverse();
-      }
-
-      if (key.name === "o") {
-        setOutputVisible((v) => !v);
-      }
-
-      if (key.name === "?" || key.name === "h") {
-        setShowHelp(true);
-      }
-
-      if (key.name === "l") {
-        setShowSession(true);
-      }
-
-      if (key.name === "s") {
-        const allSessions = allSessionsRef.current;
-        if (allSessions.length === 1) {
-          const target = allSessions[0];
+          return;
+        case "cycle-focus":
+          cycleFocus();
+          return;
+        case "cycle-focus-reverse":
+          cycleFocusReverse();
+          return;
+        case "toggle-output":
+          setOutputVisible((current) => !current);
+          return;
+        case "open-help":
+          setShowHelp(true);
+          return;
+        case "open-session":
+          setShowSession(true);
+          return;
+        case "stop-single-session": {
+          const target = state.allSessions[0];
           if (target) {
             void stopSelectedSession(target);
           }
-        } else if (allSessions.length > 1) {
-          setShowStopPicker(true);
+          return;
         }
-      }
-
-      if (key.name === "r" && !currentSessionRef.current && !isSpawningRunRef.current) {
-        setRunError(null);
-        setShowReviewModeOverlay(true);
+        case "open-stop-picker":
+          setShowStopPicker(true);
+          return;
+        case "open-review-mode":
+          clearRunError();
+          setShowReviewModeOverlay(true);
+          return;
       }
     },
     [
+      clearRunError,
+      cycleFocus,
+      cycleFocusReverse,
+      isRunSpawning,
       showHelp,
       showReviewModeOverlay,
       showSession,
       showStopPicker,
       shutdown,
+      state.allSessions,
+      state.currentSession,
       stopSelectedSession,
-      cycleFocus,
-      cycleFocusReverse,
     ]
   );
 
@@ -320,27 +220,26 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
           liveRefreshError={state.liveRefreshError}
           configWarning={state.configWarning}
         />
-        {showHelp && <HelpOverlay onClose={() => setShowHelp(false)} />}
-        {showRunOverlay && (
-          <ReviewModeOverlay
-            defaultReview={state.config?.defaultReview}
-            onClose={() => setShowReviewModeOverlay(false)}
-            onSubmit={(args) => {
-              setShowReviewModeOverlay(false);
-              spawnRunProcess(args);
-            }}
-          />
-        )}
-        {showSession && !displayError && <SessionOverlay onClose={() => setShowSession(false)} />}
-        {showStopPicker && (
-          <StopSessionPickerOverlay
-            sessions={state.allSessions}
-            onSelectSession={(session) => {
-              void stopSelectedSession(session);
-            }}
-            onClose={() => setShowStopPicker(false)}
-          />
-        )}
+        <DashboardOverlays
+          showHelp={showHelp}
+          showRunOverlay={showRunOverlay}
+          showSession={showSession}
+          showStopPicker={showStopPicker}
+          canShowSession={!displayError}
+          defaultReview={state.config?.defaultReview}
+          sessions={state.allSessions}
+          onCloseHelp={() => setShowHelp(false)}
+          onCloseRunOverlay={() => setShowReviewModeOverlay(false)}
+          onSubmitRunOverlay={(args) => {
+            setShowReviewModeOverlay(false);
+            spawnRunProcess(args);
+          }}
+          onCloseSession={() => setShowSession(false)}
+          onSelectStopSession={(session) => {
+            void stopSelectedSession(session);
+          }}
+          onCloseStopPicker={() => setShowStopPicker(false)}
+        />
       </box>
     </SelectionCopyToastBoundary>
   );
