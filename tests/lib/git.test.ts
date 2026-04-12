@@ -314,7 +314,7 @@ describe("checkpoint management", () => {
     await rm(tempDir, { recursive: true, force: true });
   });
 
-  test("rolls back tracked and untracked changes without restoring ignored files", async () => {
+  test("rolls back tracked and untracked changes while preserving ignored files", async () => {
     initTestRepo(tempDir);
     commit(tempDir, "base.txt", "base commit");
     await Bun.write(join(tempDir, ".gitignore"), ".env\n");
@@ -344,7 +344,7 @@ describe("checkpoint management", () => {
     expect(await Bun.file(join(tempDir, "notes.txt")).text()).toBe(
       "untracked change before checkpoint"
     );
-    expect(await Bun.file(join(tempDir, ".env")).exists()).toBe(false);
+    expect(await Bun.file(join(tempDir, ".env")).text()).toBe("ignored secret after checkpoint");
   });
 });
 

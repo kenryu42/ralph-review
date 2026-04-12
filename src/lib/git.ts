@@ -851,7 +851,7 @@ export function rollbackToCheckpoint(repoPath: string, checkpoint: GitCheckpoint
   }
 
   assertGitOk(repoRoot, ["reset", "--hard", "HEAD"], "Failed to reset repository during rollback");
-  assertGitOk(repoRoot, ["clean", "-fdx"], "Failed to clean untracked files during rollback");
+  assertGitOk(repoRoot, ["clean", "-fd"], "Failed to clean untracked files during rollback");
 
   if (checkpoint.kind !== "ref") {
     return;
