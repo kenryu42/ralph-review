@@ -674,6 +674,7 @@ describe("useWorkspaceState hook", () => {
       const state = harness.getState();
       expect(state).not.toBeNull();
       expect(state?.config).toBeNull();
+      expect(state?.configWarning).toBe("Unable to load config: missing config");
       expect(state?.logEntries).toEqual([]);
       expect(harness.readLogIncrementalCalls).toEqual([]);
       expect(state?.isLoading).toBe(false);

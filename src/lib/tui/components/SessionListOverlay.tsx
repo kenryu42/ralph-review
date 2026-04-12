@@ -2,11 +2,12 @@ import { useKeyboard, useRenderer } from "@opentui/react";
 import { useCallback, useMemo, useState } from "react";
 import type { LogSession } from "@/lib/logger";
 import { TUI_COLORS } from "@/lib/tui/colors";
-import {
-  formatProjectNameForDisplay,
-  formatRelativeTime,
-} from "@/lib/tui/session-display-formatters";
+import { formatProjectNameForDisplay } from "@/lib/tui/session-display-formatters";
 import { SessionDetailPane } from "./SessionListDetailPane";
+import {
+  buildSessionOverlayOptions,
+  resolveSessionOverlayKeyAction,
+} from "./session-overlay-utils";
 import { useSessionOverlayState } from "./use-session-overlay-state";
 
 interface SessionOverlayProps {
@@ -136,31 +137,10 @@ export function SessionOverlay({ onClose }: SessionOverlayProps) {
     setFocusedPane((prev) => (prev === "list" ? "detail" : "list"));
   }, []);
 
-  const { selectOptions, sessionSlots } = useMemo(() => {
-    const grouped = new Map<string, LogSession[]>();
-    for (const s of sessions) {
-      const bucket = grouped.get(s.projectName) ?? [];
-      bucket.push(s);
-      grouped.set(s.projectName, bucket);
-    }
-
-    const selectOptions: Array<{ name: string; description: string; value: string }> = [];
-    const sessionSlots: Array<LogSession | null> = [];
-
-    for (const [_, projectSessions] of grouped) {
-      for (const s of projectSessions) {
-        const name = s.name.replace(/\.jsonl$/, "");
-        selectOptions.push({
-          name: `${name} (${formatRelativeTime(s.timestamp)})`,
-          description: "",
-          value: s.path,
-        });
-        sessionSlots.push(s);
-      }
-    }
-
-    return { selectOptions, sessionSlots };
-  }, [sessions]);
+  const { selectOptions, sessionSlots } = useMemo(
+    () => buildSessionOverlayOptions(sessions),
+    [sessions]
+  );
 
   const selectedSession = selectedPath
     ? (sessions.find((s) => s.path === selectedPath) ?? null)
@@ -186,46 +166,45 @@ export function SessionOverlay({ onClose }: SessionOverlayProps) {
   }, [clearDeleteError, isDeleting]);
 
   useKeyboard((key) => {
-    if (showDeleteConfirm) {
-      if (key.name === "escape" || key.name === "n" || key.name === "q") {
-        closeDeleteConfirm();
-        return;
-      }
+    const action = resolveSessionOverlayKeyAction({
+      keyName: key.name,
+      showHelp,
+      showDeleteConfirm,
+      hasSelectedSession: Boolean(selectedSession),
+    });
 
-      if (key.name === "y") {
-        void confirmDeleteSelectedSession();
-        return;
-      }
-
+    if (action === "close-delete-confirm") {
+      closeDeleteConfirm();
       return;
     }
 
-    if (key.name === "?" || key.name === "h") {
+    if (action === "confirm-delete") {
+      void confirmDeleteSelectedSession();
+      return;
+    }
+
+    if (action === "toggle-help") {
       setShowHelp((prev) => !prev);
       return;
     }
 
-    if (showHelp) {
-      if (key.name === "escape" || key.name === "q") {
-        setShowHelp(false);
-      }
+    if (action === "close-help") {
+      setShowHelp(false);
       return;
     }
 
-    if (key.name === "d") {
-      if (selectedSession) {
-        clearDeleteError();
-        setShowDeleteConfirm(true);
-      }
+    if (action === "open-delete-confirm") {
+      clearDeleteError();
+      setShowDeleteConfirm(true);
       return;
     }
 
-    if (key.name === "tab" || key.name === "left" || key.name === "right") {
+    if (action === "cycle-focus") {
       cycleFocus();
       return;
     }
 
-    if (key.name === "escape" || key.name === "l" || key.name === "q") {
+    if (action === "close-overlay") {
       onClose();
       return;
     }

@@ -14,6 +14,7 @@ import {
 } from "@/lib/tui/dashboard-stop-state";
 import type { DashboardProps } from "../types";
 import { useWorkspaceState } from "../use-workspace-state";
+import { cycleDashboardFocus, cycleDashboardFocusReverse } from "./dashboard-focus";
 import { stopSelectedDashboardSession } from "./dashboard-stop";
 import { Header } from "./Header";
 import { HelpOverlay } from "./HelpOverlay";
@@ -180,25 +181,11 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
   );
 
   const cycleFocus = useCallback(() => {
-    setFocusedPane((current) => {
-      if (outputVisible) {
-        if (current === "sidebar") return "detail";
-        if (current === "detail") return "output";
-        return "sidebar";
-      }
-      return current === "sidebar" ? "detail" : "sidebar";
-    });
+    setFocusedPane((current) => cycleDashboardFocus(current, outputVisible));
   }, [outputVisible]);
 
   const cycleFocusReverse = useCallback(() => {
-    setFocusedPane((current) => {
-      if (outputVisible) {
-        if (current === "sidebar") return "output";
-        if (current === "output") return "detail";
-        return "sidebar";
-      }
-      return current === "sidebar" ? "detail" : "sidebar";
-    });
+    setFocusedPane((current) => cycleDashboardFocusReverse(current, outputVisible));
   }, [outputVisible]);
 
   const handleKeyboard = useCallback(
@@ -331,6 +318,7 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
           outputVisible={outputVisible}
           stopPickerOpen={showStopPicker}
           liveRefreshError={state.liveRefreshError}
+          configWarning={state.configWarning}
         />
         {showHelp && <HelpOverlay onClose={() => setShowHelp(false)} />}
         {showRunOverlay && (

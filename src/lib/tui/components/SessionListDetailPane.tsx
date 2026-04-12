@@ -1,5 +1,5 @@
 import type { ScrollBoxRenderable } from "@opentui/core";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, useRef } from "react";
 import { formatDuration } from "@/lib/format";
 import { getProjectNameFromLogPath } from "@/lib/logger";
 import { TUI_COLORS } from "@/lib/tui/colors";
@@ -20,10 +20,10 @@ import type {
   SystemEntry,
 } from "@/lib/types";
 import { FindingsList, SectionHeader, SkippedList, toSingleLine } from "./session-detail-parts";
+import { buildScrollBarRows, useScrollMetrics } from "./session-detail-scroll";
 
 const META_LABEL_WIDTH = 16;
 const LOCATION_MAX_LENGTH = 92;
-const SCROLL_METRICS_POLL_INTERVAL_MS = 100;
 
 function statusColor(status: string): string {
   switch (status) {
@@ -284,18 +284,6 @@ function SessionEndSection({ entry }: { entry: SessionEndEntry }) {
   );
 }
 
-interface ScrollMetrics {
-  scrollTop: number;
-  viewportHeight: number;
-  scrollHeight: number;
-}
-
-const DEFAULT_SCROLL_METRICS: ScrollMetrics = {
-  scrollTop: 0,
-  viewportHeight: 1,
-  scrollHeight: 1,
-};
-
 export function SessionDetailPane({
   stats,
   focused,
@@ -306,41 +294,7 @@ export function SessionDetailPane({
   height?: number;
 }) {
   const scrollboxRef = useRef<ScrollBoxRenderable | null>(null);
-  const [scrollMetrics, setScrollMetrics] = useState<ScrollMetrics>(DEFAULT_SCROLL_METRICS);
-
-  useEffect(() => {
-    if (!focused) {
-      return;
-    }
-
-    const timer = setInterval(() => {
-      const scrollbox = scrollboxRef.current;
-      if (!scrollbox) {
-        return;
-      }
-
-      const nextMetrics: ScrollMetrics = {
-        scrollTop: scrollbox.scrollTop,
-        viewportHeight: Math.max(1, scrollbox.viewport.height),
-        scrollHeight: Math.max(1, scrollbox.scrollHeight),
-      };
-
-      setScrollMetrics((current) => {
-        if (
-          current.scrollTop === nextMetrics.scrollTop &&
-          current.viewportHeight === nextMetrics.viewportHeight &&
-          current.scrollHeight === nextMetrics.scrollHeight
-        ) {
-          return current;
-        }
-        return nextMetrics;
-      });
-    }, SCROLL_METRICS_POLL_INTERVAL_MS);
-
-    return () => {
-      clearInterval(timer);
-    };
-  }, [focused]);
+  const scrollMetrics = useScrollMetrics(scrollboxRef, focused);
 
   const issueSummary = formatLastRunIssueSummary(
     stats.totalFixes,
@@ -360,24 +314,7 @@ export function SessionDetailPane({
     | undefined;
 
   const reasoningLabel = (level: string | undefined) => (level ? `[${level}]` : "");
-  const viewportHeight = Math.max(1, scrollMetrics.viewportHeight);
-  const totalHeight = Math.max(viewportHeight, scrollMetrics.scrollHeight);
-  const maxScroll = Math.max(0, totalHeight - viewportHeight);
-  const thumbSize =
-    maxScroll === 0
-      ? viewportHeight
-      : Math.max(1, Math.floor((viewportHeight * viewportHeight) / totalHeight));
-  const maxThumbStart = Math.max(0, viewportHeight - thumbSize);
-  const thumbStart =
-    maxScroll === 0 ? 0 : Math.round((scrollMetrics.scrollTop / maxScroll) * maxThumbStart);
-  const scrollbarRows = Array.from({ length: viewportHeight }, (_, index) => {
-    const inThumb = index >= thumbStart && index < thumbStart + thumbSize;
-    return {
-      char: inThumb ? "█" : "│",
-      color: inThumb ? TUI_COLORS.text.faint : TUI_COLORS.ui.border,
-      key: `scrollbar-row-${index}`,
-    };
-  });
+  const scrollbarRows = buildScrollBarRows(scrollMetrics);
 
   return (
     <box flexDirection="row" flexGrow={1} minHeight={0} height={height}>

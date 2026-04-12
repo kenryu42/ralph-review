@@ -54,6 +54,41 @@ const REVIEW_TEXTAREA_KEY_BINDINGS: ReviewTextareaKeyBinding[] = [
   { name: "linefeed", action: "submit" },
 ];
 
+interface ReviewModeEditorMeta {
+  title: string;
+  prompt: string;
+  placeholder: string;
+  emptyError: string;
+  singleLineError?: string;
+  runFlag: "--base" | "--commit" | "--custom";
+}
+
+const REVIEW_MODE_EDITOR_META: Record<EditorReviewMode, ReviewModeEditorMeta> = {
+  base: {
+    title: "Against Base Branch",
+    prompt: "Enter the base branch or ref to compare against.",
+    placeholder: "origin/main",
+    emptyError: "Base branch is required.",
+    singleLineError: "Base branch must be a single line.",
+    runFlag: "--base",
+  },
+  commit: {
+    title: "Target Commit",
+    prompt: "Enter the commit SHA or ref to review.",
+    placeholder: "abc1234",
+    emptyError: "Target commit is required.",
+    singleLineError: "Target commit must be a single line.",
+    runFlag: "--commit",
+  },
+  custom: {
+    title: "Custom Review",
+    prompt: "Enter the custom review instructions.",
+    placeholder: "Focus on security boundaries, migrations, and error handling...",
+    emptyError: "Custom review instructions are required.",
+    runFlag: "--custom",
+  },
+};
+
 function getInitialReviewMode(defaultReview?: DefaultReview): ReviewModeSelection {
   if (defaultReview?.type === "base") {
     return "base";
@@ -69,67 +104,26 @@ function createInitialDrafts(defaultReview?: DefaultReview): ReviewModeDrafts {
   };
 }
 
-function getEditorTitle(mode: EditorReviewMode): string {
-  switch (mode) {
-    case "base":
-      return "Against Base Branch";
-    case "commit":
-      return "Target Commit";
-    case "custom":
-      return "Custom Review";
-  }
-}
-
-function getEditorPrompt(mode: EditorReviewMode): string {
-  switch (mode) {
-    case "base":
-      return "Enter the base branch or ref to compare against.";
-    case "commit":
-      return "Enter the commit SHA or ref to review.";
-    case "custom":
-      return "Enter the custom review instructions.";
-  }
-}
-
-function getEditorPlaceholder(mode: EditorReviewMode): string {
-  switch (mode) {
-    case "base":
-      return "origin/main";
-    case "commit":
-      return "abc1234";
-    case "custom":
-      return "Focus on security boundaries, migrations, and error handling...";
-  }
-}
-
 export function buildReviewRunArgs(mode: ReviewModeSelection, value?: string): string[] {
   if (mode === "uncommitted") {
     return ["--uncommitted"];
   }
 
+  const metadata = REVIEW_MODE_EDITOR_META[mode];
   const rawValue = value ?? "";
   const trimmedValue = rawValue.trim();
 
-  if (mode === "custom") {
-    if (trimmedValue.length === 0) {
-      throw new Error("Custom review instructions are required.");
-    }
-    return ["--custom", rawValue];
-  }
-
   if (trimmedValue.length === 0) {
-    throw new Error(mode === "base" ? "Base branch is required." : "Target commit is required.");
+    throw new Error(metadata.emptyError);
   }
 
-  if (/[\r\n]/.test(trimmedValue)) {
-    throw new Error(
-      mode === "base"
-        ? "Base branch must be a single line."
-        : "Target commit must be a single line."
-    );
+  if (metadata.singleLineError && /[\r\n]/.test(trimmedValue)) {
+    throw new Error(metadata.singleLineError);
   }
 
-  return mode === "base" ? ["--base", trimmedValue] : ["--commit", trimmedValue];
+  return metadata.runFlag === "--custom"
+    ? [metadata.runFlag, rawValue]
+    : [metadata.runFlag, trimmedValue];
 }
 
 export function ReviewModeOverlay({ defaultReview, onClose, onSubmit }: ReviewModeOverlayProps) {
@@ -265,15 +259,16 @@ export function ReviewModeOverlay({ defaultReview, onClose, onSubmit }: ReviewMo
   }
 
   function renderEditor(mode: EditorReviewMode) {
+    const metadata = REVIEW_MODE_EDITOR_META[mode];
     return (
       <box flexDirection="column" gap={1}>
-        <text fg={TUI_COLORS.text.muted}>{getEditorPrompt(mode)}</text>
+        <text fg={TUI_COLORS.text.muted}>{metadata.prompt}</text>
         <textarea
           ref={textareaRef}
           focused
           key={mode}
           initialValue={drafts[mode]}
-          placeholder={getEditorPlaceholder(mode)}
+          placeholder={metadata.placeholder}
           keyBindings={REVIEW_TEXTAREA_KEY_BINDINGS}
           width={68}
           height={7}
@@ -309,7 +304,7 @@ export function ReviewModeOverlay({ defaultReview, onClose, onSubmit }: ReviewMo
       <box
         border
         borderStyle="double"
-        title={editorMode ? getEditorTitle(editorMode) : "Review Mode"}
+        title={editorMode ? REVIEW_MODE_EDITOR_META[editorMode].title : "Review Mode"}
         titleAlignment="left"
         padding={2}
         width={74}

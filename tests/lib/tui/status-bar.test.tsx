@@ -24,6 +24,7 @@ describe("StatusBar", () => {
       outputVisible: false,
       stopPickerOpen: false,
       liveRefreshError: null,
+      configWarning: null,
     };
 
     testSetup = await testRender(createElement(StatusBar, { ...defaultProps, ...props }), {
@@ -63,5 +64,11 @@ describe("StatusBar", () => {
     const frame = await renderFrame({ liveRefreshError: "tmux unavailable" });
 
     expect(frame).toContain("Live warning: tmux unavailable");
+  });
+
+  test("shows a config warning when available", async () => {
+    const frame = await renderFrame({ configWarning: "Unable to load config: missing config" });
+
+    expect(frame).toContain("Config warning: Unable to load config: missing");
   });
 });

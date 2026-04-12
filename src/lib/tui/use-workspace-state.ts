@@ -35,13 +35,13 @@ import type {
   SkippedEntry,
 } from "@/lib/types";
 import type { SessionGroupData } from "./components/SessionGroup";
+import { deriveWorkspaceLogData, loadWorkspaceConfigSafe } from "./workspace-log-state";
 import {
   getLiveRefreshMeta,
   hasLiveMetaChanged,
   type LiveRefreshMeta,
   mergeHeavyRefreshState,
   mergeIncrementalLogEntries,
-  selectLatestReviewFromEntries,
 } from "./workspace-refresh-utils";
 
 const DEFAULT_REFRESH_INTERVAL = 1000;
@@ -71,6 +71,7 @@ export interface WorkspaceState {
   lastSessionStats: SessionStats | null;
   projectStats: ProjectStats | null;
   config: Config | null;
+  configWarning: string | null;
   isGitRepo: boolean;
   currentAgent: AgentRole | null;
   reviewOptions: ReviewOptions | undefined;
@@ -144,6 +145,7 @@ export function useWorkspaceState(
     lastSessionStats: null,
     projectStats: null,
     config: null,
+    configWarning: null,
     isGitRepo: true,
     currentAgent: null,
     reviewOptions: undefined,
@@ -168,14 +170,14 @@ export function useWorkspaceState(
     isHeavyRefreshingRef.current = true;
 
     try {
-      const [isGitRepo, allSessions, projectSessions, currentSession, logSession, config] =
+      const [isGitRepo, allSessions, projectSessions, currentSession, logSession, configResult] =
         await Promise.all([
           ensureGitRepositoryAsync(projectPath),
           listAllActiveSessions(),
           listProjectActiveSessions(undefined, projectPath),
           getLatestProjectActiveSession(undefined, projectPath),
           getLatestProjectLogSession(undefined, projectPath),
-          loadEffectiveConfig(projectPath).catch(() => null),
+          loadWorkspaceConfigSafe(projectPath, loadEffectiveConfig),
         ]);
 
       const sessionGroups = buildSessionGroups(allSessions, projectPath);
@@ -210,40 +212,18 @@ export function useWorkspaceState(
         logEntries = [];
       }
 
-      const fixes: FixEntry[] = [];
-      const skipped: SkippedEntry[] = [];
-      let findings: Finding[] = [];
-      let iterationFixes: FixEntry[] = [];
-      let iterationSkipped: SkippedEntry[] = [];
-
-      const latestReview = selectLatestReviewFromEntries(logEntries);
-      const iterationFindings = latestReview.iterationFindings;
-      const codexReviewText = latestReview.codexReviewText;
-      const latestReviewIteration = latestReview.latestReviewIteration;
-
-      let latestFixesTimestamp = 0;
-      let maxIterations = 0;
-      let reviewOptions: ReviewOptions | undefined;
-
-      for (const entry of logEntries) {
-        if (entry.type === "system") {
-          maxIterations = entry.maxIterations;
-          reviewOptions = entry.reviewOptions;
-        } else if (entry.type === "iteration") {
-          const timestamp = entry.timestamp ?? 0;
-          if (entry.fixes) {
-            fixes.push(...entry.fixes.fixes);
-            skipped.push(...entry.fixes.skipped);
-            if (timestamp >= latestFixesTimestamp) {
-              latestFixesTimestamp = timestamp;
-              iterationFixes = entry.fixes.fixes;
-              iterationSkipped = entry.fixes.skipped;
-            }
-          }
-        }
-      }
-
-      findings = iterationFindings;
+      const {
+        fixes,
+        skipped,
+        findings,
+        iterationFixes,
+        iterationSkipped,
+        iterationFindings,
+        latestReviewIteration,
+        codexReviewText,
+        maxIterations,
+        reviewOptions,
+      } = deriveWorkspaceLogData(logEntries);
 
       let lastSessionStats: SessionStats | null = null;
       let projectStats: ProjectStats | null = null;
@@ -279,7 +259,8 @@ export function useWorkspaceState(
           maxIterations,
           lastSessionStats,
           projectStats,
-          config,
+          config: configResult.config,
+          configWarning: configResult.configWarning,
           isGitRepo,
           reviewOptions,
         })
