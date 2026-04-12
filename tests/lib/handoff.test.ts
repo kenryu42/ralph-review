@@ -102,6 +102,33 @@ describe("handoff", () => {
     }
   });
 
+  test("keeps a pending handoff when auto-apply is disabled", async () => {
+    await writeFile(join(repoPath, "app.txt"), "draft\n");
+
+    const worktree = createSessionWorktree(repoPath, "session-pending-disabled", storageRoot);
+    try {
+      await writeFile(join(worktree.worktreeProjectPath, "app.txt"), "fixed draft\n");
+
+      const handoff = await createOrAutoApplyHandoff(storageRoot, {
+        sessionId: "session-pending-disabled",
+        projectPath: repoPath,
+        logPath: join(repoPath, ".ralph-review", "logs", "session-pending-disabled.jsonl"),
+        worktree,
+        autoApply: false,
+      });
+
+      expect(handoff).not.toBeNull();
+      expect(handoff?.handoffStatus).toBe("pending-apply");
+      expect(await Bun.file(join(repoPath, "app.txt")).text()).toBe("draft\n");
+      const pending = await listProjectPendingHandoffs(storageRoot, repoPath);
+      expect(pending).toHaveLength(1);
+      expect(pending[0]?.sessionId).toBe("session-pending-disabled");
+      expect(await listProjectArchivedHandoffs(storageRoot, repoPath)).toEqual([]);
+    } finally {
+      discardSessionWorktree(worktree);
+    }
+  });
+
   test("persists a pending handoff when the source repo changed after the session started", async () => {
     await writeFile(join(repoPath, "app.txt"), "draft\n");
     const worktree = createSessionWorktree(repoPath, "session-pending", storageRoot);

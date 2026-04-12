@@ -27,6 +27,7 @@ interface CreateOrAutoApplyOptions {
   projectPath: string;
   logPath: string;
   worktree: GitSessionWorktree;
+  autoApply?: boolean;
 }
 
 export interface SessionHandoffResult {
@@ -549,16 +550,18 @@ export async function createOrAutoApplyHandoff(
       updatedAt: handoffUpdatedAt,
     };
 
-    try {
-      await applyPendingHandoffArtifact(storageRoot, artifact, "auto");
-      return {
-        handoffStatus: "applied-auto",
-        commitSha: artifact.commitSha,
-        handoffUpdatedAt,
-      };
-    } catch (error) {
-      if (!isSnapshotMismatchError(error)) {
-        throw error;
+    if (options.autoApply !== false) {
+      try {
+        await applyPendingHandoffArtifact(storageRoot, artifact, "auto");
+        return {
+          handoffStatus: "applied-auto",
+          commitSha: artifact.commitSha,
+          handoffUpdatedAt,
+        };
+      } catch (error) {
+        if (!isSnapshotMismatchError(error)) {
+          throw error;
+        }
       }
     }
 
