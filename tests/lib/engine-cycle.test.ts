@@ -71,6 +71,7 @@ interface HarnessState {
     projectPath: string;
     logPath: string;
     worktree: GitSessionWorktree;
+    autoApply?: boolean;
   }>;
   reviewParseQueue: Array<StructuredParseResult<ReviewSummary>>;
   fixParseQueue: Array<StructuredParseResult<FixSummary>>;
@@ -382,6 +383,7 @@ function createDependencies(state: HarnessState): RunReviewCycleDeps {
         projectPath: string;
         logPath: string;
         worktree: GitSessionWorktree;
+        autoApply?: boolean;
       }
     ): Promise<SessionHandoffResult | null> => {
       state.createOrAutoApplyHandoffCalls.push({
@@ -392,7 +394,19 @@ function createDependencies(state: HarnessState): RunReviewCycleDeps {
         throw state.createOrAutoApplyHandoffError;
       }
 
-      return state.createOrAutoApplyHandoffResult;
+      const handoffResult = state.createOrAutoApplyHandoffResult;
+      if (!handoffResult) {
+        return null;
+      }
+
+      if (options.autoApply === false && handoffResult.handoffStatus === "applied-auto") {
+        return {
+          ...handoffResult,
+          handoffStatus: "pending-apply",
+        };
+      }
+
+      return handoffResult;
     },
     updateSessionState: async (
       _logsDir: string | undefined,
@@ -515,6 +529,7 @@ describe("runReviewCycle", () => {
       ).toBe(true);
       expect(state.createSessionWorktreeCalls).toHaveLength(1);
       expect(state.createOrAutoApplyHandoffCalls).toHaveLength(1);
+      expect(state.createOrAutoApplyHandoffCalls[0]?.autoApply).toBe(true);
       expect(state.discardSessionWorktreeCalls).toHaveLength(1);
 
       const iterationEntry = state.appendedEntries.find((entry) => entry.type === "iteration");
@@ -789,7 +804,7 @@ describe("runReviewCycle", () => {
       expect(result.finalStatus).toBe("failed");
       expect(result.reviewOutcome).toBe("incomplete");
       expect(result.handoffStatus).toBe("pending-apply");
-      expect(state.rollbackCalls).toHaveLength(1);
+      expect(state.rollbackCalls).toHaveLength(2);
       expect(state.createOrAutoApplyHandoffCalls).toHaveLength(1);
     });
   });
@@ -953,6 +968,96 @@ describe("runReviewCycle", () => {
         "reviewer",
         "fixer",
       ]);
+    });
+  });
+
+  test("rolls back each failed fixer retry attempt before a later retry succeeds", async () => {
+    await withHarness(async (state, deps) => {
+      queueRunAgentSteps(
+        state,
+        resultStep(successResult("review output")),
+        resultStep(failureResult("fixer failed on initial run", 17)),
+        resultStep(successResult("fix output after retry"))
+      );
+      queueReviewParses(state, parseReviewSuccess(buildReviewSummary()));
+      queueFixParses(
+        state,
+        parseFixSuccess(
+          buildFixSummary({
+            decision: "NO_CHANGES_NEEDED",
+            stop_iteration: true,
+            fixes: [],
+            skipped: [],
+          })
+        )
+      );
+
+      const result = await runReviewCycle(
+        createConfig({
+          retry: {
+            maxRetries: 1,
+            baseDelayMs: 0,
+            maxDelayMs: 0,
+          },
+        }),
+        undefined,
+        undefined,
+        {
+          projectPath: TEST_PROJECT_PATH,
+          sessionId: TEST_SESSION_ID,
+        },
+        deps
+      );
+
+      expect(result.success).toBe(true);
+      expect(state.runAgentCalls.map((call) => call.role)).toEqual(["reviewer", "fixer", "fixer"]);
+      expect(state.createCheckpointCalls).toHaveLength(2);
+      expect(state.rollbackCalls).toHaveLength(1);
+      expect(state.discardCheckpointCalls).toHaveLength(1);
+    });
+  });
+
+  test("returns structured failure when fixer rollback fails during retry reset", async () => {
+    await withHarness(async (state, deps) => {
+      queueRunAgentSteps(
+        state,
+        resultStep(successResult("review output")),
+        resultStep(failureResult("fixer failed on initial run", 17))
+      );
+      queueReviewParses(state, parseReviewSuccess(buildReviewSummary()));
+      state.rollbackError = new Error("rollback failed");
+
+      const result = await runReviewCycle(
+        createConfig({
+          retry: {
+            maxRetries: 1,
+            baseDelayMs: 0,
+            maxDelayMs: 0,
+          },
+        }),
+        undefined,
+        undefined,
+        {
+          projectPath: TEST_PROJECT_PATH,
+          sessionId: TEST_SESSION_ID,
+        },
+        deps
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.finalStatus).toBe("failed");
+      expect(result.reason).toContain("Fixer failed with exit code 1");
+      expect(state.runAgentCalls.map((call) => call.role)).toEqual(["reviewer", "fixer"]);
+      expect(state.createCheckpointCalls).toHaveLength(1);
+      expect(state.rollbackCalls).toHaveLength(1);
+      expect(state.discardCheckpointCalls).toHaveLength(1);
+      expect(state.createOrAutoApplyHandoffCalls).toHaveLength(0);
+
+      const iterationEntry = state.appendedEntries.find((entry) => entry.type === "iteration");
+      expect(iterationEntry?.type).toBe("iteration");
+      if (iterationEntry?.type === "iteration") {
+        expect(iterationEntry.error?.phase).toBe("fixer");
+      }
     });
   });
 
@@ -1314,6 +1419,92 @@ describe("runReviewCycle", () => {
     });
   });
 
+  test("returns structured failure when fixer retry checkpoint creation fails", async () => {
+    await withHarness(async (state, deps) => {
+      queueRunAgentSteps(state, resultStep(successResult("review output")));
+      queueReviewParses(state, parseReviewSuccess(buildReviewSummary()));
+      state.createCheckpointError = new Error("checkpoint create failed");
+
+      const result = await runReviewCycle(
+        createConfig({
+          retry: {
+            maxRetries: 2,
+            baseDelayMs: 0,
+            maxDelayMs: 0,
+          },
+        }),
+        undefined,
+        undefined,
+        {
+          projectPath: TEST_PROJECT_PATH,
+          sessionId: TEST_SESSION_ID,
+        },
+        deps
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.finalStatus).toBe("failed");
+      expect(result.reason).toContain("Fixer failed with exit code");
+      expect(state.runAgentCalls.map((call) => call.role)).toEqual(["reviewer"]);
+      expect(state.createCheckpointCalls).toHaveLength(1);
+      expect(state.createOrAutoApplyHandoffCalls).toHaveLength(0);
+
+      const iterationEntry = state.appendedEntries.find((entry) => entry.type === "iteration");
+      expect(iterationEntry?.type).toBe("iteration");
+      if (iterationEntry?.type === "iteration") {
+        expect(iterationEntry.error?.phase).toBe("fixer");
+      }
+    });
+  });
+
+  test("rolls back to the prior successful tree when fixer summary remains missing in a later iteration", async () => {
+    await withHarness(async (state, deps) => {
+      queueRunAgentSteps(
+        state,
+        resultStep(successResult("review output iteration 1")),
+        resultStep(successResult("fix output iteration 1")),
+        resultStep(successResult("review output iteration 2")),
+        resultStep(successResult("fix output iteration 2 first attempt")),
+        resultStep(successResult("fix output iteration 2 retry"))
+      );
+      queueReviewParses(
+        state,
+        parseReviewSuccess(buildReviewSummary()),
+        parseReviewSuccess(buildReviewSummary())
+      );
+      queueFixParses(
+        state,
+        parseFixSuccess(
+          buildFixSummary({
+            decision: "APPLY_SELECTIVELY",
+            stop_iteration: false,
+            fixes: [],
+            skipped: [],
+          })
+        ),
+        parseFixFailure("missing summary"),
+        parseFixFailure("still missing")
+      );
+
+      const result = await runReviewCycle(
+        createConfig(),
+        undefined,
+        undefined,
+        {
+          projectPath: TEST_PROJECT_PATH,
+          sessionId: TEST_SESSION_ID,
+        },
+        deps
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.finalStatus).toBe("failed");
+      expect(result.reviewOutcome).toBe("incomplete");
+      expect(result.handoffStatus).toBe("pending-apply");
+      expect(state.rollbackCalls).toHaveLength(1);
+    });
+  });
+
   test("fails fixer execution without retaining a handoff", async () => {
     await withHarness(async (state, deps) => {
       queueRunAgentSteps(
@@ -1412,6 +1603,60 @@ describe("runReviewCycle", () => {
         "reviewer",
         "fixer",
       ]);
+    });
+  });
+
+  test("rolls back each failed simplifier retry attempt before a later retry succeeds", async () => {
+    await withHarness(async (state, deps) => {
+      queueRunAgentSteps(
+        state,
+        resultStep(failureResult("simplifier failed on initial run", 5)),
+        resultStep(successResult("simplifier output after retry")),
+        resultStep(successResult("review output")),
+        resultStep(successResult("fix output"))
+      );
+      queueReviewParses(state, parseReviewSuccess(buildReviewSummary()));
+      queueFixParses(
+        state,
+        parseFixSuccess(
+          buildFixSummary({
+            decision: "NO_CHANGES_NEEDED",
+            stop_iteration: true,
+            fixes: [],
+            skipped: [],
+          })
+        )
+      );
+
+      const result = await runReviewCycle(
+        createConfig({
+          retry: {
+            maxRetries: 1,
+            baseDelayMs: 0,
+            maxDelayMs: 0,
+          },
+        }),
+        undefined,
+        {
+          simplifier: true,
+        },
+        {
+          projectPath: TEST_PROJECT_PATH,
+          sessionId: TEST_SESSION_ID,
+        },
+        deps
+      );
+
+      expect(result.success).toBe(true);
+      expect(state.runAgentCalls.map((call) => call.role)).toEqual([
+        "code-simplifier",
+        "code-simplifier",
+        "reviewer",
+        "fixer",
+      ]);
+      expect(state.createCheckpointCalls).toHaveLength(3);
+      expect(state.rollbackCalls).toHaveLength(1);
+      expect(state.discardCheckpointCalls).toHaveLength(2);
     });
   });
 
@@ -1658,7 +1903,7 @@ describe("runReviewCycle", () => {
     });
   });
 
-  test("returns max-iterations outcome when issues remain", async () => {
+  test("returns max-iterations outcome and keeps handoff pending when issues remain", async () => {
     await withHarness(async (state, deps) => {
       queueRunAgentSteps(
         state,
@@ -1699,13 +1944,14 @@ describe("runReviewCycle", () => {
       expect(result.success).toBe(false);
       expect(result.finalStatus).toBe("completed");
       expect(result.reviewOutcome).toBe("incomplete");
-      expect(result.handoffStatus).toBe("applied-auto");
+      expect(result.handoffStatus).toBe("pending-apply");
       expect(result.reason).toContain("Max iterations (1) reached");
       expect(state.runAgentCalls.map((call) => call.role)).toEqual([
         "reviewer",
         "fixer",
         "reviewer",
       ]);
+      expect(state.createOrAutoApplyHandoffCalls[0]?.autoApply).toBe(false);
     });
   });
 

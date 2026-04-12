@@ -245,13 +245,95 @@ async function runAgentWithRetry(
   prompt: string = "",
   timeout: number = config.iterationTimeout,
   reviewOptions?: ReviewOptions,
-  cwd?: string
+  cwd?: string,
+  workspaceReset?: {
+    checkpointLabelPrefix: string;
+  }
 ): Promise<IterationResult> {
   const retryConfig = config.retry ?? DEFAULT_RETRY_CONFIG;
+  type RunAgentAttemptResult = {
+    result: IterationResult;
+    shouldRetry: boolean;
+  };
 
-  let result = await deps.runAgent(role, config, prompt, timeout, reviewOptions, cwd);
+  const terminalWorkspaceResetFailure = (message: string): RunAgentAttemptResult => ({
+    result: {
+      success: false,
+      output: message,
+      exitCode: 1,
+      duration: 0,
+    },
+    shouldRetry: false,
+  });
 
-  if (result.success || isInterruptLikeFailure(result)) {
+  const runAgentAttempt = async (attempt: number): Promise<RunAgentAttemptResult> => {
+    if (!workspaceReset) {
+      return {
+        result: await deps.runAgent(role, config, prompt, timeout, reviewOptions, cwd),
+        shouldRetry: true,
+      };
+    }
+
+    if (!cwd) {
+      throw new Error(`${role} retry workspace reset requires a working directory.`);
+    }
+
+    let checkpoint: GitCheckpoint;
+    try {
+      checkpoint = deps.createCheckpoint(
+        cwd,
+        `${workspaceReset.checkpointLabelPrefix}-${attempt + 1}-${Date.now()}`
+      );
+    } catch (error) {
+      return terminalWorkspaceResetFailure(`Failed to create ${role} retry checkpoint: ${error}`);
+    }
+
+    let attemptResult: IterationResult;
+    try {
+      attemptResult = await deps.runAgent(role, config, prompt, timeout, reviewOptions, cwd);
+    } catch (error) {
+      try {
+        deps.rollbackToCheckpoint(cwd, checkpoint);
+      } catch (rollbackError) {
+        return terminalWorkspaceResetFailure(
+          `Failed to rollback ${role} retry checkpoint after agent error: ${rollbackError}`
+        );
+      }
+      throw error;
+    }
+
+    if (attemptResult.success) {
+      try {
+        deps.discardCheckpoint(cwd, checkpoint);
+      } catch (error) {
+        console.log(`  ⚠️  Failed to discard ${role} retry checkpoint: ${error}`);
+      }
+      return {
+        result: attemptResult,
+        shouldRetry: true,
+      };
+    }
+
+    try {
+      deps.rollbackToCheckpoint(cwd, checkpoint);
+    } catch (error) {
+      try {
+        deps.discardCheckpoint(cwd, checkpoint);
+      } catch (discardError) {
+        console.log(`  ⚠️  Failed to discard ${role} retry checkpoint: ${discardError}`);
+      }
+      return terminalWorkspaceResetFailure(`Failed to rollback ${role} retry checkpoint: ${error}`);
+    }
+    return {
+      result: attemptResult,
+      shouldRetry: true,
+    };
+  };
+
+  let attemptResult = await runAgentAttempt(0);
+  let result = attemptResult.result;
+
+  if (result.success || isInterruptLikeFailure(result) || !attemptResult.shouldRetry) {
     return result;
   }
 
@@ -264,9 +346,10 @@ async function runAgentWithRetry(
     );
     await sleep(delay);
 
-    result = await deps.runAgent(role, config, prompt, timeout, reviewOptions, cwd);
+    attemptResult = await runAgentAttempt(attempt);
+    result = attemptResult.result;
 
-    if (result.success || isInterruptLikeFailure(result)) {
+    if (result.success || isInterruptLikeFailure(result) || !attemptResult.shouldRetry) {
       return result;
     }
 
@@ -741,7 +824,10 @@ export async function runReviewCycle(
         simplifierPrompt,
         config.iterationTimeout,
         reviewOptions,
-        agentProjectPath
+        agentProjectPath,
+        {
+          checkpointLabelPrefix: `${sessionId ?? "session"}-simplifier`,
+        }
       );
 
       if (!simplifierResult.success) {
@@ -899,69 +985,52 @@ export async function runReviewCycle(
 
       const fixerPrompt = deps.createFixerPrompt(reviewJson ?? reviewTextForFixer);
       const fixerAgentModule = deps.AGENTS[config.fixer.agent];
-      let fixerCheckpoint: GitCheckpoint | null = null;
-      try {
-        fixerCheckpoint = deps.createCheckpoint(
-          agentProjectPathResolved,
-          `${sessionId ?? "session"}-fixer-${iteration}-${Date.now()}`
-        );
-      } catch (error) {
-        const entry = createIterationEntry(iteration, iterationStartTime, {
-          error: {
-            phase: "fixer",
-            message: `Failed to create pre-fixer checkpoint: ${error}`,
-          },
-          review: reviewSummary ?? undefined,
-          codexReview: codexReviewSummary ?? undefined,
-        });
-        await deps.appendLog(sessionPath, entry);
-        return finish({
-          success: false,
-          finalStatus: "failed",
-          iterations: iteration,
-          reason: `Failed to create pre-fixer checkpoint: ${error}`,
-          sessionPath,
-        });
-      }
-
-      const discardFixerCheckpoint = () => {
-        if (!fixerCheckpoint) {
-          return;
-        }
-        try {
-          deps.discardCheckpoint(agentProjectPathResolved, fixerCheckpoint);
-        } catch (error) {
-          console.log(`  ⚠️  Failed to discard fixer checkpoint: ${error}`);
-        }
-        fixerCheckpoint = null;
+      const fixerWorkspaceReset = {
+        checkpointLabelPrefix: `${sessionId ?? "session"}-fixer-${iteration}`,
       };
-
-      const restoreFixerCheckpoint = (): boolean => {
-        if (!fixerCheckpoint) {
+      let fallbackFixerCheckpoint: GitCheckpoint | null = null;
+      if (hasSuccessfulReviewIteration) {
+        try {
+          fallbackFixerCheckpoint = deps.createCheckpoint(
+            agentProjectPathResolved,
+            `${sessionId ?? "session"}-fixer-fallback-${iteration}-${Date.now()}`
+          );
+        } catch (error) {
+          console.log(`  ⚠️  Failed to create pre-fixer fallback checkpoint: ${error}`);
+        }
+      }
+      const restoreFallbackFixerCheckpoint = (): boolean => {
+        if (!fallbackFixerCheckpoint) {
           return false;
         }
-        const checkpoint = fixerCheckpoint;
-        fixerCheckpoint = null;
+        const checkpoint = fallbackFixerCheckpoint;
+        fallbackFixerCheckpoint = null;
         try {
           deps.rollbackToCheckpoint(agentProjectPathResolved, checkpoint);
           return true;
         } catch (error) {
-          console.log(`  ⚠️  Failed to restore fixer checkpoint: ${error}`);
+          console.log(`  ⚠️  Failed to restore pre-fixer fallback checkpoint: ${error}`);
           try {
             deps.discardCheckpoint(agentProjectPathResolved, checkpoint);
           } catch (discardError) {
             console.log(
-              `  ⚠️  Failed to discard fixer checkpoint after rollback error: ${discardError}`
+              `  ⚠️  Failed to discard pre-fixer fallback checkpoint after rollback error: ${discardError}`
             );
           }
           return false;
         }
       };
-
-      const finalizeFixerFailure = (result: CycleResult): CycleResult => {
-        const restored = restoreFixerCheckpoint();
-        currentTreeRetainable = restored && hasSuccessfulReviewIteration;
-        return currentTreeRetainable ? terminalIncompleteResult(result) : result;
+      const discardFallbackFixerCheckpoint = (): void => {
+        if (!fallbackFixerCheckpoint) {
+          return;
+        }
+        const checkpoint = fallbackFixerCheckpoint;
+        fallbackFixerCheckpoint = null;
+        try {
+          deps.discardCheckpoint(agentProjectPathResolved, checkpoint);
+        } catch (error) {
+          console.log(`  ⚠️  Failed to discard pre-fixer fallback checkpoint: ${error}`);
+        }
       };
 
       currentTreeRetainable = false;
@@ -972,7 +1041,8 @@ export async function runReviewCycle(
         fixerPrompt,
         config.iterationTimeout,
         undefined,
-        agentProjectPath
+        agentProjectPath,
+        fixerWorkspaceReset
       );
       let resultText = await fixerAgentModule.extractResult(fixResult.output);
       let fixParseResult = deps.parseFixSummaryOutput(resultText, fixResult.output);
@@ -998,7 +1068,8 @@ export async function runReviewCycle(
             summaryRetryPrompt,
             config.iterationTimeout,
             undefined,
-            agentProjectPath
+            agentProjectPath,
+            fixerWorkspaceReset
           );
           resultText = await fixerAgentModule.extractResult(fixResult.output);
           fixParseResult = deps.parseFixSummaryOutput(resultText, fixResult.output);
@@ -1030,7 +1101,8 @@ export async function runReviewCycle(
           reason: "Fixer output incomplete (missing fix summary JSON).",
           sessionPath,
         };
-        return finish(finalizeFixerFailure(result));
+        currentTreeRetainable = restoreFallbackFixerCheckpoint();
+        return finish(currentTreeRetainable ? terminalIncompleteResult(result) : result);
       }
 
       if (onIteration) {
@@ -1039,41 +1111,43 @@ export async function runReviewCycle(
 
       if (!fixResult.success) {
         if (isInterruptLikeFailure(fixResult)) {
+          const interruptedResult = await handleInterruptedAgentFailure(
+            "fixer",
+            fixResult.exitCode,
+            iteration,
+            iterationStartTime,
+            sessionPath,
+            deps,
+            {
+              review: reviewSummary ?? undefined,
+              codexReview: codexReviewSummary ?? undefined,
+            }
+          );
+          currentTreeRetainable = restoreFallbackFixerCheckpoint();
           return finish(
-            finalizeFixerFailure(
-              await handleInterruptedAgentFailure(
-                "fixer",
-                fixResult.exitCode,
-                iteration,
-                iterationStartTime,
-                sessionPath,
-                deps,
-                {
-                  review: reviewSummary ?? undefined,
-                  codexReview: codexReviewSummary ?? undefined,
-                }
-              )
-            )
+            currentTreeRetainable ? terminalIncompleteResult(interruptedResult) : interruptedResult
           );
         }
+        const failedResult = await handleAgentFailure(
+          "fixer",
+          fixResult.exitCode,
+          retryConfig,
+          iteration,
+          iterationStartTime,
+          sessionPath,
+          deps,
+          {
+            review: reviewSummary ?? undefined,
+            codexReview: codexReviewSummary ?? undefined,
+          }
+        );
+        currentTreeRetainable = restoreFallbackFixerCheckpoint();
         return finish(
-          finalizeFixerFailure(
-            await handleAgentFailure(
-              "fixer",
-              fixResult.exitCode,
-              retryConfig,
-              iteration,
-              iterationStartTime,
-              sessionPath,
-              deps,
-              {
-                review: reviewSummary ?? undefined,
-                codexReview: codexReviewSummary ?? undefined,
-              }
-            )
-          )
+          currentTreeRetainable ? terminalIncompleteResult(failedResult) : failedResult
         );
       }
+
+      discardFallbackFixerCheckpoint();
 
       const iterationEntry = createIterationEntry(iteration, iterationStartTime, {
         review: reviewSummary ?? undefined,
@@ -1084,7 +1158,6 @@ export async function runReviewCycle(
 
       currentTreeRetainable = true;
       hasSuccessfulReviewIteration = true;
-      discardFixerCheckpoint();
 
       if (fixSummary?.stop_iteration === true) {
         hasRemainingIssues = false;
@@ -1138,11 +1211,14 @@ export async function runReviewCycle(
             currentTreeRetainable &&
             (hasSuccessfulReviewIteration || finalResult.finalStatus !== "interrupted")
           ) {
+            const autoApply =
+              finalResult.reviewOutcome === "clean" && finalResult.finalStatus === "completed";
             const handoff = await deps.createOrAutoApplyHandoff(undefined, {
               sessionId: sessionId ?? "session",
               projectPath,
               logPath: sessionPath,
               worktree,
+              autoApply,
             });
             finalResult = applyHandoffResult(finalResult, handoff);
             try {
