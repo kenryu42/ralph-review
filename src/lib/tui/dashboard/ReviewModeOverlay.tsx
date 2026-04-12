@@ -1,7 +1,7 @@
 import type { TextareaRenderable } from "@opentui/core";
 import { useKeyboard } from "@opentui/react";
 import { useRef, useState } from "react";
-import { TUI_COLORS } from "@/lib/tui/colors";
+import { TUI_COLORS } from "@/lib/tui/shared/colors";
 import type { DefaultReview } from "@/lib/types";
 
 export type ReviewModeSelection = "uncommitted" | "base" | "commit" | "custom";
@@ -231,7 +231,7 @@ export function ReviewModeOverlay({ defaultReview, onClose, onSubmit }: ReviewMo
   function renderPicker() {
     return (
       <box flexDirection="column" gap={1}>
-        <text fg={TUI_COLORS.text.muted}>Choose the review mode for the next run.</text>
+        <text fg={TUI_COLORS.text.muted}>Choose the review mode.</text>
         <box flexDirection="column">
           {REVIEW_MODE_OPTIONS.map((option) => {
             const isSelected = option.mode === selectedMode;

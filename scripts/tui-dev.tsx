@@ -14,8 +14,8 @@
 import { createCliRenderer } from "@opentui/core";
 import { createRoot } from "@opentui/react";
 import type { SessionState } from "@/lib/session-state";
-import { DetailPane } from "@/lib/tui/components/DetailPane";
-import { SelectionCopyToastBoundary } from "@/lib/tui/components/SelectionCopyToastBoundary";
+import { DetailPane } from "@/lib/tui/sessions/detail/DetailPane";
+import { SelectionCopyToastBoundary } from "@/lib/tui/shared/SelectionCopyToastBoundary";
 import type {
   AgentRole,
   Finding,

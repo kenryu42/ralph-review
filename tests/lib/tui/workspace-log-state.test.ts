@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { deriveWorkspaceLogData, loadWorkspaceConfigSafe } from "@/lib/tui/workspace-log-state";
+import {
+  deriveWorkspaceLogData,
+  loadWorkspaceConfigSafe,
+} from "@/lib/tui/workspace/workspace-log-state";
 import type { LogEntry, ReviewOptions } from "@/lib/types";
 import { createConfig } from "../../helpers/diagnostics";
 

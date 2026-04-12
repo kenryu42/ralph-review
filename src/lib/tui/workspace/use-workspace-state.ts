@@ -11,7 +11,7 @@ import {
   listProjectLogSessions,
   readLogIncremental,
 } from "@/lib/logger";
-import type { ActiveSession, SessionState } from "@/lib/session-state";
+import type { ActiveSession } from "@/lib/session-state";
 import {
   getLatestProjectActiveSession,
   listAllActiveSessions,
@@ -23,18 +23,7 @@ import {
   shouldCaptureTmux,
   TMUX_CAPTURE_MIN_INTERVAL_MS,
 } from "@/lib/tmux";
-import type {
-  AgentRole,
-  Config,
-  Finding,
-  FixEntry,
-  LogEntry,
-  ProjectStats,
-  ReviewOptions,
-  SessionStats,
-  SkippedEntry,
-} from "@/lib/types";
-import type { SessionGroupData } from "./components/SessionGroup";
+import type { ProjectStats, SessionStats } from "@/lib/types";
 import { deriveWorkspaceLogData, loadWorkspaceConfigSafe } from "./workspace-log-state";
 import {
   getLiveRefreshMeta,
@@ -43,40 +32,10 @@ import {
   mergeHeavyRefreshState,
   mergeIncrementalLogEntries,
 } from "./workspace-refresh-utils";
+import type { SessionGroupData, WorkspaceState } from "./workspace-types";
 
 const DEFAULT_REFRESH_INTERVAL = 1000;
 const LIVE_REFRESH_INTERVAL = TMUX_CAPTURE_MIN_INTERVAL_MS;
-
-export interface WorkspaceState {
-  sessionGroups: SessionGroupData[];
-  allSessions: ActiveSession[];
-  projectSessions: ActiveSession[];
-  selectedSessionId: string | null;
-  currentSession: SessionState | null;
-  logEntries: LogEntry[];
-  fixes: FixEntry[];
-  skipped: SkippedEntry[];
-  findings: Finding[];
-  iterationFixes: FixEntry[];
-  iterationSkipped: SkippedEntry[];
-  iterationFindings: Finding[];
-  latestReviewIteration: number | null;
-  codexReviewText: string | null;
-  tmuxOutput: string;
-  elapsed: number;
-  maxIterations: number;
-  error: string | null;
-  liveRefreshError: string | null;
-  isLoading: boolean;
-  lastSessionStats: SessionStats | null;
-  projectStats: ProjectStats | null;
-  config: Config | null;
-  configWarning: string | null;
-  isGitRepo: boolean;
-  currentAgent: AgentRole | null;
-  reviewOptions: ReviewOptions | undefined;
-  outputVisible: boolean;
-}
 
 function buildSessionGroups(
   allSessions: ActiveSession[],

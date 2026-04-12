@@ -1,6 +1,6 @@
 import type { ScrollBoxRenderable } from "@opentui/core";
 import { type RefObject, useEffect, useState } from "react";
-import { TUI_COLORS } from "@/lib/tui/colors";
+import { TUI_COLORS } from "@/lib/tui/shared/colors";
 
 const SCROLL_METRICS_POLL_INTERVAL_MS = 100;
 

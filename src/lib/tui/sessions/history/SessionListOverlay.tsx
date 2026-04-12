@@ -1,8 +1,8 @@
 import { useKeyboard, useRenderer } from "@opentui/react";
 import { useCallback, useMemo, useState } from "react";
 import type { LogSession } from "@/lib/logger";
-import { TUI_COLORS } from "@/lib/tui/colors";
-import { formatProjectNameForDisplay } from "@/lib/tui/session-display-formatters";
+import { formatProjectNameForDisplay } from "@/lib/tui/sessions/session-display";
+import { TUI_COLORS } from "@/lib/tui/shared/colors";
 import { SessionDetailPane } from "./SessionListDetailPane";
 import {
   buildSessionOverlayOptions,
@@ -253,6 +253,8 @@ export function SessionOverlay({ onClose }: SessionOverlayProps) {
               height={selectHeight}
               focused={focusedPane === "list" && !isOverlayBlocked}
               showScrollIndicator
+              showDescription={false}
+              itemSpacing={1}
               selectedIndex={sessionSlots.findIndex((s) => s?.path === selectedPath)}
               onChange={(idx) => {
                 const slot = sessionSlots[idx];
@@ -297,10 +299,6 @@ export function SessionOverlay({ onClose }: SessionOverlayProps) {
         paddingBottom={1}
       >
         <box flexDirection="row" gap={2}>
-          <text>
-            <span fg={TUI_COLORS.accent.key}>[Esc/l]</span>
-            <span fg={TUI_COLORS.text.muted}> Close</span>
-          </text>
           <text>
             <span fg={TUI_COLORS.accent.key}>[d]</span>
             <span fg={TUI_COLORS.text.muted}> Delete</span>

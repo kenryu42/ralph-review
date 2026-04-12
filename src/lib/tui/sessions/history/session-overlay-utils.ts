@@ -1,5 +1,5 @@
 import type { LogSession } from "@/lib/logger";
-import { formatRelativeTime } from "@/lib/tui/session-display-formatters";
+import { formatRelativeTime } from "@/lib/tui/sessions/session-display";
 
 export interface SessionOverlayOption {
   name: string;

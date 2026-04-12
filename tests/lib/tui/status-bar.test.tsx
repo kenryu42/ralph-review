@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { testRender } from "@opentui/react/test-utils";
 import { act, createElement } from "react";
-import { StatusBar } from "@/lib/tui/components/StatusBar";
+import { StatusBar } from "@/lib/tui/dashboard/StatusBar";
 
 describe("StatusBar", () => {
   let testSetup: Awaited<ReturnType<typeof testRender>> | null = null;

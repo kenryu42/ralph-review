@@ -7,7 +7,7 @@ import {
   mergeHeavyRefreshState,
   mergeIncrementalLogEntries,
   selectLatestReviewFromEntries,
-} from "@/lib/tui/workspace-refresh-utils";
+} from "@/lib/tui/workspace/workspace-refresh-utils";
 import type { Finding, LogEntry } from "@/lib/types";
 
 describe("getCurrentAgentFromSessionState", () => {

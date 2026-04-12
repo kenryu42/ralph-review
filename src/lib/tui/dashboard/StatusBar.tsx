@@ -1,5 +1,5 @@
-import { TUI_COLORS } from "@/lib/tui/colors";
-import type { FocusedPane } from "./Workspace";
+import { TUI_COLORS } from "@/lib/tui/shared/colors";
+import type { FocusedPane } from "@/lib/tui/workspace/workspace-types";
 
 interface StatusBarProps {
   hasSession: boolean;

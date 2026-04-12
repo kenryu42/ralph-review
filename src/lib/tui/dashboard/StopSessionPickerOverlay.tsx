@@ -1,5 +1,5 @@
 import type { ActiveSession } from "@/lib/session-state";
-import { TUI_COLORS } from "@/lib/tui/colors";
+import { TUI_COLORS } from "@/lib/tui/shared/colors";
 
 interface StopSessionPickerOverlayProps {
   sessions: ActiveSession[];

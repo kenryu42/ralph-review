@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import type { ActiveSession } from "@/lib/session-state";
-import { stopSelectedDashboardSession } from "@/lib/tui/components/dashboard-stop";
 import {
   resolveDashboardCloseAction,
   resolveDashboardKeyAction,
-} from "@/lib/tui/dashboard-keyboard";
+} from "@/lib/tui/dashboard/dashboard-keyboard";
+import { stopSelectedDashboardSession } from "@/lib/tui/dashboard/dashboard-stop";
 
 interface Deferred<T> {
   promise: Promise<T>;

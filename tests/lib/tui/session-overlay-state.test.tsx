@@ -3,7 +3,7 @@ import { testRender } from "@opentui/react/test-utils";
 import { act, createElement } from "react";
 import type { LogSession } from "@/lib/logger";
 import * as logger from "@/lib/logger";
-import { useSessionOverlayState } from "@/lib/tui/components/use-session-overlay-state";
+import { useSessionOverlayState } from "@/lib/tui/sessions/history/use-session-overlay-state";
 import type { SessionStats } from "@/lib/types";
 
 function buildLogSession(overrides: Partial<LogSession> = {}): LogSession {

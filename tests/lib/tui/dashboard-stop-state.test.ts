@@ -6,7 +6,7 @@ import {
   settleStoppingSessionState,
   shouldClearStoppingSessionState,
   shouldSuppressLastSessionStats,
-} from "@/lib/tui/dashboard-stop-state";
+} from "@/lib/tui/dashboard/dashboard-stop-state";
 import type { SessionStats } from "@/lib/types";
 
 function createSession(overrides: Partial<SessionState> = {}): SessionState {

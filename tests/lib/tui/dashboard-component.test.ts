@@ -3,7 +3,7 @@ import { useKeyboard } from "@opentui/react";
 import { testRender } from "@opentui/react/test-utils";
 import { act, createElement } from "react";
 import type { ActiveSession } from "@/lib/session-state";
-import type { WorkspaceState } from "@/lib/tui/use-workspace-state";
+import type { WorkspaceState } from "@/lib/tui/workspace/workspace-types";
 import type { Config } from "@/lib/types";
 import { createConfig } from "../../helpers/diagnostics";
 
@@ -104,7 +104,7 @@ async function mountDashboardHarness(options: DashboardHarnessOptions = {}) {
     };
   }) as typeof Bun.spawn;
 
-  mock.module("@/lib/tui/use-workspace-state", () => ({
+  mock.module("@/lib/tui/workspace/use-workspace-state", () => ({
     useWorkspaceState: () => workspaceState,
   }));
 
@@ -114,7 +114,7 @@ async function mountDashboardHarness(options: DashboardHarnessOptions = {}) {
     },
   }));
 
-  mock.module("@/lib/tui/components/DashboardOverlays", () => ({
+  mock.module("@/lib/tui/dashboard/DashboardOverlays", () => ({
     DashboardOverlays: ({
       showHelp,
       showRunOverlay,
@@ -145,7 +145,7 @@ async function mountDashboardHarness(options: DashboardHarnessOptions = {}) {
     },
   }));
 
-  const { Dashboard } = await import("@/lib/tui/components/Dashboard");
+  const { Dashboard } = await import("@/lib/tui/dashboard/Dashboard");
 
   const testSetup = await testRender(
     createElement(Dashboard, {

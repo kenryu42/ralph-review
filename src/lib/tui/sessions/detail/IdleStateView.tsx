@@ -1,5 +1,4 @@
 import { formatDuration } from "@/lib/format";
-import { TUI_COLORS } from "@/lib/tui/colors";
 import {
   extractFixesFromStats,
   formatHandoffCommands,
@@ -9,9 +8,10 @@ import {
   formatProjectStatsSummary,
   formatRelativeTime,
   PRIORITY_COLORS,
-} from "@/lib/tui/session-display-formatters";
+} from "@/lib/tui/sessions/session-display";
+import { TUI_COLORS } from "@/lib/tui/shared/colors";
+import { Spinner } from "@/lib/tui/shared/Spinner";
 import type { ProjectStats, SessionStats } from "@/lib/types";
-import { Spinner } from "./Spinner";
 import { toSingleLine } from "./session-detail-parts";
 
 const LAST_RUN_FIX_PREVIEW_LIMIT = 3;

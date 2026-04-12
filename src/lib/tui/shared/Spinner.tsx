@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { TUI_COLORS } from "@/lib/tui/colors";
+import { TUI_COLORS } from "@/lib/tui/shared/colors";
 
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧"];
 const FRAME_INTERVAL_MS = 80;

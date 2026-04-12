@@ -1,6 +1,6 @@
 import { createCliRenderer } from "@opentui/core";
 import { createRoot } from "@opentui/react";
-import { Dashboard } from "./components/Dashboard";
+import { Dashboard } from "./dashboard/Dashboard";
 
 export async function renderDashboard(props: {
   projectPath: string;

@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { testRender } from "@opentui/react/test-utils";
 import { act, createElement, type ReactNode } from "react";
-import * as clipboard from "@/lib/tui/clipboard";
-import { SelectionCopyToastBoundary } from "@/lib/tui/components/SelectionCopyToastBoundary";
-import { SessionDetailPane } from "@/lib/tui/components/SessionListDetailPane";
-import { StatusBar } from "@/lib/tui/components/StatusBar";
+import { StatusBar } from "@/lib/tui/dashboard/StatusBar";
+import { SessionDetailPane } from "@/lib/tui/sessions/history/SessionListDetailPane";
+import * as clipboard from "@/lib/tui/shared/clipboard";
+import { SelectionCopyToastBoundary } from "@/lib/tui/shared/SelectionCopyToastBoundary";
 import type { SessionStats } from "@/lib/types";
 
 function buildSessionStats(overrides: Partial<SessionStats> = {}): SessionStats {

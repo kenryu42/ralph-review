@@ -1,5 +1,6 @@
-import { TUI_COLORS } from "@/lib/tui/colors";
-import { SessionGroup, type SessionGroupData } from "./SessionGroup";
+import { TUI_COLORS } from "@/lib/tui/shared/colors";
+import type { SessionGroupData } from "@/lib/tui/workspace/workspace-types";
+import { SessionGroup } from "./SessionGroup";
 
 interface SessionSidebarProps {
   groups: SessionGroupData[];

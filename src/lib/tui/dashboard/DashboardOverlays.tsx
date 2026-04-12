@@ -1,8 +1,8 @@
 import type { ActiveSession } from "@/lib/session-state";
+import { SessionOverlay } from "@/lib/tui/sessions/history/SessionListOverlay";
 import type { DefaultReview } from "@/lib/types";
 import { HelpOverlay } from "./HelpOverlay";
 import { ReviewModeOverlay } from "./ReviewModeOverlay";
-import { SessionOverlay } from "./SessionListOverlay";
 import { StopSessionPickerOverlay } from "./StopSessionPickerOverlay";
 
 interface DashboardOverlaysProps {

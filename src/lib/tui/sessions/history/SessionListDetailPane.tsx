@@ -2,14 +2,24 @@ import type { ScrollBoxRenderable } from "@opentui/core";
 import { type ReactNode, useRef } from "react";
 import { formatDuration } from "@/lib/format";
 import { getProjectNameFromLogPath } from "@/lib/logger";
-import { TUI_COLORS } from "@/lib/tui/colors";
+import {
+  FindingsList,
+  SectionHeader,
+  SkippedList,
+  toSingleLine,
+} from "@/lib/tui/sessions/detail/session-detail-parts";
+import {
+  buildScrollBarRows,
+  useScrollMetrics,
+} from "@/lib/tui/sessions/detail/session-detail-scroll";
 import {
   formatHandoffSummary,
   formatLastRunIssueSummary,
   formatPriorityBreakdown,
   formatProjectNameForDisplay,
   PRIORITY_COLORS,
-} from "@/lib/tui/session-display-formatters";
+} from "@/lib/tui/sessions/session-display";
+import { TUI_COLORS } from "@/lib/tui/shared/colors";
 import type {
   Finding,
   FixEntry,
@@ -19,8 +29,6 @@ import type {
   SkippedEntry,
   SystemEntry,
 } from "@/lib/types";
-import { FindingsList, SectionHeader, SkippedList, toSingleLine } from "./session-detail-parts";
-import { buildScrollBarRows, useScrollMetrics } from "./session-detail-scroll";
 
 const META_LABEL_WIDTH = 16;
 const LOCATION_MAX_LENGTH = 92;

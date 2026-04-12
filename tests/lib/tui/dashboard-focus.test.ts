@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   cycleDashboardFocus,
   cycleDashboardFocusReverse,
-} from "@/lib/tui/components/dashboard-focus";
+} from "@/lib/tui/dashboard/dashboard-focus";
 
 describe("dashboard focus helpers", () => {
   test("cycles focus forward between sidebar and detail when output is hidden", () => {

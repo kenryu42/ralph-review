@@ -2,8 +2,8 @@ import type { Selection } from "@opentui/core";
 import { useRenderer, useTerminalDimensions } from "@opentui/react";
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import * as clipboard from "@/lib/tui/clipboard";
-import { TUI_COLORS } from "@/lib/tui/colors";
+import * as clipboard from "@/lib/tui/shared/clipboard";
+import { TUI_COLORS } from "@/lib/tui/shared/colors";
 
 const SUCCESS_TOAST_DURATION_MS = 2_000;
 const ERROR_TOAST_DURATION_MS = 4_000;

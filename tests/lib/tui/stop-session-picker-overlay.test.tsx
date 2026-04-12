@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { testRender } from "@opentui/react/test-utils";
 import { act, createElement } from "react";
 import type { ActiveSession } from "@/lib/session-state";
-import { StopSessionPickerOverlay } from "@/lib/tui/components/StopSessionPickerOverlay";
+import { StopSessionPickerOverlay } from "@/lib/tui/dashboard/StopSessionPickerOverlay";
 
 function createActiveSession(overrides: Partial<ActiveSession> = {}): ActiveSession {
   return {

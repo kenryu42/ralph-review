@@ -2,8 +2,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { testRender } from "@opentui/react/test-utils";
 import { act, createElement } from "react";
 import type { ActiveSession } from "@/lib/session-state";
-import { SessionGroup } from "@/lib/tui/components/SessionGroup";
-import { SessionItem } from "@/lib/tui/components/SessionItem";
+import { SessionGroup } from "@/lib/tui/sessions/sidebar/SessionGroup";
+import { SessionItem } from "@/lib/tui/sessions/sidebar/SessionItem";
 
 function createActiveSession(overrides: Partial<ActiveSession> = {}): ActiveSession {
   return {

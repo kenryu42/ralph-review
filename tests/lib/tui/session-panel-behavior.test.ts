@@ -2,8 +2,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { testRender } from "@opentui/react/test-utils";
 import { act, createElement } from "react";
 import type { SessionState } from "@/lib/session-state";
-import { DetailPane } from "@/lib/tui/components/DetailPane";
-import { resolveIssuesFoundDisplay } from "@/lib/tui/issues-found-display";
+import { DetailPane } from "@/lib/tui/sessions/detail/DetailPane";
+import { resolveIssuesFoundDisplay } from "@/lib/tui/sessions/issues-found-display";
 import type { AgentRole, ReviewSummary } from "@/lib/types";
 
 describe("SessionPanel behavior", () => {

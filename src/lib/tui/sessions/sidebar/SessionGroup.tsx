@@ -1,13 +1,6 @@
-import type { ActiveSession } from "@/lib/session-state";
-import { TUI_COLORS } from "@/lib/tui/colors";
+import { TUI_COLORS } from "@/lib/tui/shared/colors";
+import type { SessionGroupData } from "@/lib/tui/workspace/workspace-types";
 import { SessionItem } from "./SessionItem";
-
-export interface SessionGroupData {
-  projectPath: string;
-  projectName: string;
-  isCurrentProject: boolean;
-  sessions: ActiveSession[];
-}
 
 interface SessionGroupProps {
   group: SessionGroupData;

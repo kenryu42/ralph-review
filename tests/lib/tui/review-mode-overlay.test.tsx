@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { KeyEvent } from "@opentui/core";
 import { testRender } from "@opentui/react/test-utils";
 import { act, createElement } from "react";
-import { buildReviewRunArgs, ReviewModeOverlay } from "@/lib/tui/components/ReviewModeOverlay";
+import { buildReviewRunArgs, ReviewModeOverlay } from "@/lib/tui/dashboard/ReviewModeOverlay";
 import type { DefaultReview } from "@/lib/types";
 
 describe("buildReviewRunArgs", () => {

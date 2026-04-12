@@ -1,4 +1,4 @@
-import type { FocusedPane } from "./Workspace";
+import type { FocusedPane } from "@/lib/tui/workspace/workspace-types";
 
 export function cycleDashboardFocus(current: FocusedPane, outputVisible: boolean): FocusedPane {
   if (outputVisible) {

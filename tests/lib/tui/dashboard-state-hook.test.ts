@@ -3,7 +3,7 @@ import { testRender } from "@opentui/react/test-utils";
 import { act, createElement, useEffect } from "react";
 import type { LogIncrementalResult, LogIncrementalState, LogSession } from "@/lib/logger";
 import type { ActiveSession, SessionState } from "@/lib/session-state";
-import type { WorkspaceState } from "@/lib/tui/use-workspace-state";
+import type { WorkspaceState } from "@/lib/tui/workspace/workspace-types";
 import type {
   Config,
   Finding,
@@ -368,7 +368,7 @@ async function mountDashboardHarness(
     },
   }));
 
-  const { useWorkspaceState } = await import("@/lib/tui/use-workspace-state");
+  const { useWorkspaceState } = await import("@/lib/tui/workspace/use-workspace-state");
   let latestState: WorkspaceState | null = null;
 
   function Probe() {

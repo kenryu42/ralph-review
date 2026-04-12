@@ -1,18 +1,19 @@
 import { basename } from "node:path";
 import { useKeyboard, useRenderer } from "@opentui/react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { TUI_COLORS } from "@/lib/tui/colors";
-import { resolveDashboardKeyAction } from "@/lib/tui/dashboard-keyboard";
-import type { DashboardProps } from "../types";
-import { useWorkspaceState } from "../use-workspace-state";
+import { resolveDashboardKeyAction } from "@/lib/tui/dashboard/dashboard-keyboard";
+import { TUI_COLORS } from "@/lib/tui/shared/colors";
+import { SelectionCopyToastBoundary } from "@/lib/tui/shared/SelectionCopyToastBoundary";
+import type { DashboardProps } from "@/lib/tui/shared/types";
+import { useWorkspaceState } from "@/lib/tui/workspace/use-workspace-state";
+import { Workspace } from "@/lib/tui/workspace/Workspace";
+import type { FocusedPane } from "@/lib/tui/workspace/workspace-types";
 import { DashboardOverlays } from "./DashboardOverlays";
 import { cycleDashboardFocus, cycleDashboardFocusReverse } from "./dashboard-focus";
 import { Header } from "./Header";
-import { SelectionCopyToastBoundary } from "./SelectionCopyToastBoundary";
 import { StatusBar } from "./StatusBar";
 import { useDashboardRunControl } from "./use-dashboard-run-control";
 import { useDashboardStopControl } from "./use-dashboard-stop-control";
-import { type FocusedPane, Workspace } from "./Workspace";
 
 export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: DashboardProps) {
   const renderer = useRenderer();

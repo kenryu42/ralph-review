@@ -3,7 +3,7 @@ import type { LogSession } from "@/lib/logger";
 import {
   buildSessionOverlayOptions,
   resolveSessionOverlayKeyAction,
-} from "@/lib/tui/components/session-overlay-utils";
+} from "@/lib/tui/sessions/history/session-overlay-utils";
 
 function buildLogSession(overrides: Partial<LogSession> = {}): LogSession {
   return {

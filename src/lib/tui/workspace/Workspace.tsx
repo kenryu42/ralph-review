@@ -1,4 +1,7 @@
 import type { SessionState } from "@/lib/session-state";
+import { DetailPane } from "@/lib/tui/sessions/detail/DetailPane";
+import { SessionSidebar } from "@/lib/tui/sessions/sidebar/SessionSidebar";
+import { OutputDrawer } from "@/lib/tui/shared/OutputDrawer";
 import type {
   AgentRole,
   Finding,
@@ -8,12 +11,7 @@ import type {
   SessionStats,
   SkippedEntry,
 } from "@/lib/types";
-import { DetailPane } from "./DetailPane";
-import { OutputDrawer } from "./OutputDrawer";
-import type { SessionGroupData } from "./SessionGroup";
-import { SessionSidebar } from "./SessionSidebar";
-
-export type FocusedPane = "sidebar" | "detail" | "output";
+import type { FocusedPane, SessionGroupData } from "./workspace-types";
 
 interface WorkspaceProps {
   sessionGroups: SessionGroupData[];

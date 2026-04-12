@@ -2,7 +2,7 @@ import { getVersion } from "@/cli-core";
 import { getAgentDisplayInfo } from "@/lib/agents/display";
 import { formatDuration } from "@/lib/format";
 import type { SessionState } from "@/lib/session-state";
-import { TUI_COLORS } from "@/lib/tui/colors";
+import { TUI_COLORS } from "@/lib/tui/shared/colors";
 import type { Config } from "@/lib/types";
 
 interface HeaderProps {

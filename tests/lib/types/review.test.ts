@@ -12,11 +12,11 @@ describe("parseCodexReviewText", () => {
       "",
       "Full review comments:",
       "",
-      "- [P1] Allow rerunning after pressing [r] in the TUI \u2014 /Users/kenryu/Developer/420024-lab/ralph-review/src/lib/tui/components/Dashboard.tsx:71-74",
-      "  In src/lib/tui/components/Dashboard.tsx the [r] hotkey sets isSpawningRunRef.current",
+      "- [P1] Allow rerunning after pressing [r] in the TUI \u2014 /Users/kenryu/Developer/420024-lab/ralph-review/src/lib/tui/dashboard/Dashboard.tsx:71-74",
+      "  In src/lib/tui/dashboard/Dashboard.tsx the [r] hotkey sets isSpawningRunRef.current",
       "  and never resets it, so subsequent presses are ignored.",
       "",
-      "- [P2] Avoid undrained stdout/stderr pipes from Bun.spawn in the TUI - /Users/kenryu/Developer/420024-lab/ralph-review/src/lib/tui/components/Dashboard.tsx:72-73",
+      "- [P2] Avoid undrained stdout/stderr pipes from Bun.spawn in the TUI - /Users/kenryu/Developer/420024-lab/ralph-review/src/lib/tui/dashboard/Dashboard.tsx:72-73",
       "  Bun.spawn defaults stdout/stderr to pipe, so large output can stall the child.",
     ].join("\n");
 
@@ -28,12 +28,12 @@ describe("parseCodexReviewText", () => {
     expect(first?.title).toBe("Allow rerunning after pressing [r] in the TUI");
     expect(first?.priority).toBe(1);
     expect(first?.code_location.absolute_file_path).toBe(
-      "/Users/kenryu/Developer/420024-lab/ralph-review/src/lib/tui/components/Dashboard.tsx"
+      "/Users/kenryu/Developer/420024-lab/ralph-review/src/lib/tui/dashboard/Dashboard.tsx"
     );
     expect(first?.code_location.line_range.start).toBe(71);
     expect(first?.code_location.line_range.end).toBe(74);
     expect(first?.body).toBe(
-      "In src/lib/tui/components/Dashboard.tsx the [r] hotkey sets isSpawningRunRef.current and never resets it, so subsequent presses are ignored."
+      "In src/lib/tui/dashboard/Dashboard.tsx the [r] hotkey sets isSpawningRunRef.current and never resets it, so subsequent presses are ignored."
     );
 
     expect(result?.overall_correctness).toBe("patch is incorrect");

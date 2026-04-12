@@ -1,5 +1,5 @@
-import { TUI_COLORS } from "@/lib/tui/colors";
-import { PRIORITY_COLORS, UNKNOWN_PRIORITY_COLOR } from "@/lib/tui/session-display-formatters";
+import { PRIORITY_COLORS, UNKNOWN_PRIORITY_COLOR } from "@/lib/tui/sessions/session-display";
+import { TUI_COLORS } from "@/lib/tui/shared/colors";
 import type { Finding, FixEntry, Priority, SkippedEntry } from "@/lib/types";
 import { VALID_PRIORITIES } from "@/lib/types/domain";
 

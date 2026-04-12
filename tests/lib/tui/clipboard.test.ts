@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { type ClipboardDeps, copyToClipboard } from "@/lib/tui/clipboard";
+import { type ClipboardDeps, copyToClipboard } from "@/lib/tui/shared/clipboard";
 
 function createDeps(overrides: Partial<ClipboardDeps> = {}): ClipboardDeps {
   const stdoutWrites: string[] = [];

@@ -6,7 +6,7 @@ import {
   type StoppingSessionState,
   settleStoppingSessionState,
   shouldClearStoppingSessionState,
-} from "@/lib/tui/dashboard-stop-state";
+} from "@/lib/tui/dashboard/dashboard-stop-state";
 import type { SessionStats } from "@/lib/types";
 import { stopSelectedDashboardSession } from "./dashboard-stop";
 

@@ -6,8 +6,8 @@ import type { LogSession } from "@/lib/logger";
 import * as logger from "@/lib/logger";
 import type { ActiveSession } from "@/lib/session-state";
 import * as sessionState from "@/lib/session-state";
-import { SessionDetailPane } from "@/lib/tui/components/SessionListDetailPane";
-import { SessionOverlay } from "@/lib/tui/components/SessionListOverlay";
+import { SessionDetailPane } from "@/lib/tui/sessions/history/SessionListDetailPane";
+import { SessionOverlay } from "@/lib/tui/sessions/history/SessionListOverlay";
 import type { IterationEntry, SessionEndEntry, SessionStats, SystemEntry } from "@/lib/types";
 import { buildFixEntry, buildSkippedEntry } from "../../test-utils/fix-summary";
 
@@ -305,7 +305,6 @@ describe("SessionOverlay", () => {
     const setup = await renderOverlay();
     const frame = setup.captureCharFrame();
 
-    expect(frame).toContain("[Esc/l] Close");
     expect(frame).toContain("[d] Delete");
     expect(frame).toContain("[h] Help");
     expect(frame).toContain("Focus: List");

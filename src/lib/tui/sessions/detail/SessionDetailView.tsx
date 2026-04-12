@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useRef } from "react";
 import { formatReviewType } from "@/lib/format";
 import type { SessionState } from "@/lib/session-state";
-import { TUI_COLORS } from "@/lib/tui/colors";
-import { resolveIssuesFoundDisplay } from "@/lib/tui/issues-found-display";
+import { resolveIssuesFoundDisplay } from "@/lib/tui/sessions/issues-found-display";
 import {
   extractLatestReviewSummary,
   findLatestReviewerPhaseStart,
-} from "@/lib/tui/review-summary-parser";
-import { formatSessionIdentityDisplay } from "@/lib/tui/session-display-formatters";
+} from "@/lib/tui/sessions/review-summary-parser";
+import { formatSessionIdentityDisplay } from "@/lib/tui/sessions/session-display";
+import { TUI_COLORS } from "@/lib/tui/shared/colors";
+import { ProgressBar } from "@/lib/tui/shared/ProgressBar";
+import { Spinner } from "@/lib/tui/shared/Spinner";
 import type {
   AgentRole,
   Finding,
@@ -17,8 +19,6 @@ import type {
   SkippedEntry,
 } from "@/lib/types";
 import { parseCodexReviewText } from "@/lib/types";
-import { ProgressBar } from "./ProgressBar";
-import { Spinner } from "./Spinner";
 import {
   FindingsList,
   FixList,
