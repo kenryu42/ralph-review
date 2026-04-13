@@ -586,4 +586,4 @@ export async function createOrAutoApplyHandoff(
   }
 }
 
-export type { ArchivedAppliedHandoffArtifact, HandoffStatus, PendingHandoffArtifact };
+export type { ArchivedAppliedHandoffArtifact, PendingHandoffArtifact };
