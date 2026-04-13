@@ -162,6 +162,57 @@ export function formatLastRunIssueSummary(
   return `${totalFixes} fix${totalFixes !== 1 ? "es" : ""}, ${totalSkipped} skipped in ${iterationsText}`;
 }
 
+export function hasBatchFirstSummary(
+  stats: Pick<
+    SessionStats,
+    | "reviewOutcome"
+    | "totalFindings"
+    | "totalSelectedFindings"
+    | "totalAppliedFindings"
+    | "totalSkippedFindings"
+    | "totalUnresolvedSelectedFindings"
+    | "totalAuditRegressions"
+  >
+): boolean {
+  return (
+    stats.reviewOutcome === "findings-pending" ||
+    stats.totalFindings !== undefined ||
+    stats.totalSelectedFindings !== undefined ||
+    stats.totalAppliedFindings !== undefined ||
+    stats.totalSkippedFindings !== undefined ||
+    stats.totalUnresolvedSelectedFindings !== undefined ||
+    stats.totalAuditRegressions !== undefined
+  );
+}
+
+export function formatBatchFirstIssueSummary(
+  stats: Pick<
+    SessionStats,
+    | "totalFindings"
+    | "totalSelectedFindings"
+    | "totalAppliedFindings"
+    | "totalSkippedFindings"
+    | "totalUnresolvedSelectedFindings"
+    | "totalAuditRegressions"
+  >
+): string {
+  const findingsText = `${stats.totalFindings ?? 0} findings discovered`;
+  const selectionText =
+    stats.totalSelectedFindings !== undefined ? ` · ${stats.totalSelectedFindings} selected` : "";
+  const remediationText =
+    stats.totalAppliedFindings !== undefined || stats.totalSkippedFindings !== undefined
+      ? ` · ${stats.totalAppliedFindings ?? 0} fixed · ${stats.totalSkippedFindings ?? 0} skipped`
+      : "";
+  const auditText =
+    stats.totalAuditRegressions !== undefined
+      ? ` · ${stats.totalAuditRegressions} regressions`
+      : stats.totalUnresolvedSelectedFindings !== undefined
+        ? ` · ${stats.totalUnresolvedSelectedFindings} unresolved`
+        : "";
+
+  return `${findingsText}${selectionText}${remediationText}${auditText}`;
+}
+
 export function formatRelativeTime(timestamp: number): string {
   const now = Date.now();
   const diff = now - timestamp;
