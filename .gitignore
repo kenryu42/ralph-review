@@ -45,3 +45,4 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 output
 .ralph-review
 .code-audit-report
+docs
