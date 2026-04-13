@@ -124,6 +124,40 @@ export const COMMANDS: CommandDef[] = [
     examples: ["rr run", "rr run --base main", "rr run --simplifier"],
   },
   {
+    name: "fix",
+    description: "Fix selected findings from a persisted discovery session",
+    options: [
+      {
+        name: "session",
+        alias: "s",
+        type: "string",
+        description: "Session ID whose persisted findings should be fixed",
+      },
+      {
+        name: "all",
+        type: "boolean",
+        description: "Select all persisted findings for remediation",
+      },
+      {
+        name: "priority",
+        type: "string",
+        placeholder: "P0|P1|P2|P3",
+        description: "Select findings by priority (repeatable)",
+      },
+      {
+        name: "id",
+        type: "string",
+        placeholder: "F001",
+        description: "Select findings by ID (repeatable)",
+      },
+    ],
+    examples: [
+      "rr fix --session session-123 --all",
+      "rr fix --session session-123 --priority P0 --priority P1",
+      "rr fix --session session-123 --id F001 --id F003",
+    ],
+  },
+  {
     name: "apply",
     description: "Apply a pending review handoff",
     options: [
