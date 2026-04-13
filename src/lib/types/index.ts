@@ -37,6 +37,7 @@ export type {
   PendingHandoffArtifact,
 } from "./handoff";
 export type {
+  DiscoveryIterationEntry,
   HandoffEntry,
   IterationEntry,
   LogEntry,
@@ -46,7 +47,6 @@ export type {
 } from "./log";
 export {
   type CodeLocation,
-  type CodexReviewSummary,
   type Finding,
   isReviewSummary,
   type LineRange,
