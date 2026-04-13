@@ -77,7 +77,7 @@ export const COMMANDS: CommandDef[] = [
   },
   {
     name: "run",
-    description: "Run discovery and persist findings for later fixing",
+    description: "Run discovery only and persist findings for later fixing",
     options: [
       { name: "max", alias: "m", type: "number", description: "Max iterations" },
       {
@@ -121,7 +121,12 @@ export const COMMANDS: CommandDef[] = [
       },
       SIMPLIFIER_OPTION,
     ],
-    examples: ["rr run", "rr run --base main", "rr run --simplifier"],
+    examples: [
+      "rr run",
+      "rr run --base main",
+      "rr run --simplifier",
+      "rr fix --session session-123 --all",
+    ],
   },
   {
     name: "fix",
