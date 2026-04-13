@@ -1,2 +1,2 @@
-// Entry boundary for shared workflow modules.
-export {};
+export * from "@/lib/review-workflow/shared/snapshot";
+export * from "@/lib/review-workflow/shared/types";
