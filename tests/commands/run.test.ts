@@ -1467,6 +1467,26 @@ describe("run command", () => {
       expect(harness.updateSessionStateCalls[1]?.updates.state).toBe("interrupted");
     });
 
+    test("guides the user to rr fix when discovery completes with pending findings", async () => {
+      const harness = createRunHarness({
+        env: {
+          RR_SESSION_ID: "session-123",
+        },
+        runReviewCycleResult: createCycleResult({
+          success: true,
+          reviewOutcome: "findings-pending",
+          reason: "Discovery complete: findings pending",
+        }),
+      });
+
+      await runForeground([], harness.overrides);
+
+      expect(harness.notes).toContainEqual({
+        title: "Next Step",
+        message: "Fix selected findings with:\nrr fix --session session-123",
+      });
+    });
+
     test("surfaces the retained worktree path and branch after a successful run", async () => {
       const harness = createRunHarness({
         runReviewCycleResult: createCycleResult({

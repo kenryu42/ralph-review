@@ -1,31 +1,19 @@
 import { describe, expect, test } from "bun:test";
-import { join, relative } from "node:path";
 import { CONFIG_DIR } from "@/lib/config";
 import { runReviewCycle } from "@/lib/engine";
 import type { GitCheckpoint, GitSessionWorktree } from "@/lib/git";
-import type { SessionHandoffResult } from "@/lib/handoff";
-import { getProjectWorktreesDir } from "@/lib/logger";
+import { getFindingsArtifactPath } from "@/lib/review-workflow/findings/artifact";
+import type { FindingsArtifact } from "@/lib/review-workflow/findings/types";
 import type { StructuredParseResult } from "@/lib/structured-output";
-import {
-  type AgentRole,
-  CONFIG_SCHEMA_URI,
-  CONFIG_VERSION,
-  type Config,
-  type FixSummary,
-  type IterationResult,
-  type LogEntry,
-  type ReviewOptions,
-  type ReviewSummary,
+import type {
+  AgentRole,
+  Config,
+  IterationResult,
+  LogEntry,
+  ReviewOptions,
+  ReviewSummary,
 } from "@/lib/types";
-import { buildFixSummary } from "../test-utils/fix-summary";
-
-const TEST_PROJECT_PATH = "/tmp/engine-cycle-project";
-const TEST_SESSION_PATH = "/tmp/engine-cycle-session.jsonl";
-const TEST_SESSION_ID = "engine-cycle-session-id";
-const TEST_WORKTREE_PROJECT_PATH = join(
-  getProjectWorktreesDir(CONFIG_DIR, TEST_PROJECT_PATH),
-  "session"
-);
+import { CONFIG_SCHEMA_URI, CONFIG_VERSION } from "@/lib/types";
 
 type RunReviewCycleDeps = NonNullable<Parameters<typeof runReviewCycle>[4]>;
 
@@ -38,192 +26,51 @@ interface RunAgentCall {
 }
 
 interface SessionStateUpdateCall {
-  projectPath: string;
   updates: Record<string, unknown>;
   expectedSessionId?: string;
 }
 
-interface AgentResultStep {
-  type: "result";
-  result: IterationResult;
-}
-
-interface AgentThrowStep {
-  type: "throw";
-  error: unknown;
-}
-
-type AgentStep = AgentResultStep | AgentThrowStep;
-
 interface HarnessState {
   runAgentCalls: RunAgentCall[];
-  runAgentSteps: AgentStep[];
+  runAgentResults: IterationResult[];
+  reviewParseQueue: Array<StructuredParseResult<ReviewSummary>>;
   appendedEntries: LogEntry[];
   updateSessionStateCalls: SessionStateUpdateCall[];
+  savedArtifacts: FindingsArtifact[];
+  persistedSnapshots: Array<{
+    projectPath: string;
+    sessionId: string;
+    sourceSnapshotPath: string;
+  }>;
+  createSessionWorktreeCalls: Array<{ projectPath: string; worktreeId: string }>;
+  discardSessionWorktreeCalls: GitSessionWorktree[];
   createCheckpointCalls: Array<{ projectPath: string; label: string }>;
   rollbackCalls: Array<{ projectPath: string; checkpoint: GitCheckpoint }>;
   discardCheckpointCalls: Array<{ projectPath: string; checkpoint: GitCheckpoint }>;
-  createSessionWorktreeCalls: Array<{ projectPath: string; worktreeId: string }>;
-  discardSessionWorktreeCalls: GitSessionWorktree[];
-  createOrAutoApplyHandoffCalls: Array<{
-    storageRoot: string | undefined;
-    sessionId: string;
-    projectPath: string;
-    logPath: string;
-    worktree: GitSessionWorktree;
-    autoApply?: boolean;
-  }>;
-  reviewParseQueue: Array<StructuredParseResult<ReviewSummary>>;
-  fixParseQueue: Array<StructuredParseResult<FixSummary>>;
-  createCheckpointError: Error | null;
-  rollbackError: Error | null;
-  discardCheckpointError: Error | null;
-  createSessionWorktreeError: Error | null;
-  discardSessionWorktreeError: Error | null;
-  createOrAutoApplyHandoffError: Error | null;
-  createOrAutoApplyHandoffResult: SessionHandoffResult | null;
-  updateSessionStateFailuresRemaining: number;
-  onRunAgent?: (role: AgentRole) => void;
-  onAppendLog?: (entry: LogEntry) => void;
-  capturedSigintHandler?: () => void;
+  operationLog: string[];
 }
+
+const TEST_PROJECT_PATH = "/repo/project";
+const TEST_SESSION_ID = "session-123";
+const TEST_SESSION_PATH = "/tmp/session-123.jsonl";
+const TEST_WORKTREE_PATH = "/tmp/rr-worktree";
+const TEST_REVIEWED_SNAPSHOT_PATH = "/tmp/rr-storage/snapshots/session-123/reviewed";
 
 function createHarnessState(): HarnessState {
   return {
     runAgentCalls: [],
-    runAgentSteps: [],
+    runAgentResults: [],
+    reviewParseQueue: [],
     appendedEntries: [],
     updateSessionStateCalls: [],
+    savedArtifacts: [],
+    persistedSnapshots: [],
+    createSessionWorktreeCalls: [],
+    discardSessionWorktreeCalls: [],
     createCheckpointCalls: [],
     rollbackCalls: [],
     discardCheckpointCalls: [],
-    createSessionWorktreeCalls: [],
-    discardSessionWorktreeCalls: [],
-    createOrAutoApplyHandoffCalls: [],
-    reviewParseQueue: [],
-    fixParseQueue: [],
-    createCheckpointError: null,
-    rollbackError: null,
-    discardCheckpointError: null,
-    createSessionWorktreeError: null,
-    discardSessionWorktreeError: null,
-    createOrAutoApplyHandoffError: null,
-    createOrAutoApplyHandoffResult: {
-      handoffStatus: "applied-auto",
-      commitSha: "retained-commit-sha",
-      handoffUpdatedAt: 1_700_000_000_000,
-    },
-    updateSessionStateFailuresRemaining: 0,
-    onRunAgent: undefined,
-    onAppendLog: undefined,
-    capturedSigintHandler: undefined,
-  };
-}
-
-function parseReviewSuccess(
-  value: ReviewSummary,
-  usedRepair = false
-): StructuredParseResult<ReviewSummary> {
-  return {
-    ok: true,
-    value,
-    source: "legacy-direct",
-    usedRepair,
-    failureReason: null,
-  };
-}
-
-function parseReviewFailure(reason: string): StructuredParseResult<ReviewSummary> {
-  return {
-    ok: false,
-    value: null,
-    source: null,
-    usedRepair: false,
-    failureReason: reason,
-  };
-}
-
-function parseFixSuccess(value: FixSummary, usedRepair = false): StructuredParseResult<FixSummary> {
-  return {
-    ok: true,
-    value,
-    source: "legacy-direct",
-    usedRepair,
-    failureReason: null,
-  };
-}
-
-function parseFixFailure(reason: string): StructuredParseResult<FixSummary> {
-  return {
-    ok: false,
-    value: null,
-    source: null,
-    usedRepair: false,
-    failureReason: reason,
-  };
-}
-
-function resultStep(result: IterationResult): AgentResultStep {
-  return {
-    type: "result",
-    result,
-  };
-}
-
-function throwStep(error: unknown): AgentThrowStep {
-  return {
-    type: "throw",
-    error,
-  };
-}
-
-function successResult(output: string): IterationResult {
-  return {
-    success: true,
-    output,
-    exitCode: 0,
-    duration: 1,
-  };
-}
-
-function failureResult(output: string, exitCode = 1): IterationResult {
-  return {
-    success: false,
-    output,
-    exitCode,
-    duration: 1,
-  };
-}
-
-function buildReviewSummary(): ReviewSummary {
-  return {
-    findings: [
-      {
-        title: "Example finding",
-        body: "Something needs attention",
-        confidence_score: 0.9,
-        priority: 1,
-        code_location: {
-          absolute_file_path: "/repo/src/example.ts",
-          line_range: {
-            start: 10,
-            end: 12,
-          },
-        },
-      },
-    ],
-    overall_correctness: "patch is incorrect",
-    overall_explanation: "Review summary explanation",
-    overall_confidence_score: 0.82,
-  };
-}
-
-function buildCleanReviewSummary(): ReviewSummary {
-  return {
-    findings: [],
-    overall_correctness: "patch is correct",
-    overall_explanation: "No remaining issues detected",
-    overall_confidence_score: 0.96,
+    operationLog: [],
   };
 }
 
@@ -247,8 +94,49 @@ function createConfig(overrides: Partial<Config> = {}): Config {
   };
 }
 
-function queueRunAgentSteps(state: HarnessState, ...steps: AgentStep[]): void {
-  state.runAgentSteps.push(...steps);
+function createReviewSummary(findings: ReviewSummary["findings"]): ReviewSummary {
+  return {
+    findings,
+    overall_correctness: findings.length === 0 ? "patch is correct" : "patch is incorrect",
+    overall_explanation:
+      findings.length === 0 ? "No additional issues found." : "Additional issues remain.",
+    overall_confidence_score: 0.91,
+  };
+}
+
+function createFinding(): ReviewSummary["findings"][number] {
+  return {
+    title: "Guard undefined config",
+    body: "Optional config access can throw when the field is missing.",
+    confidence_score: 0.92,
+    priority: 1,
+    code_location: {
+      absolute_file_path: `${TEST_REVIEWED_SNAPSHOT_PATH}/src/lib/config.ts`,
+      line_range: {
+        start: 10,
+        end: 12,
+      },
+    },
+  };
+}
+
+function createReviewParse(value: ReviewSummary): StructuredParseResult<ReviewSummary> {
+  return {
+    ok: true,
+    value,
+    source: "legacy-direct",
+    usedRepair: false,
+    failureReason: null,
+  };
+}
+
+function createSuccessResult(output: string): IterationResult {
+  return {
+    success: true,
+    output,
+    exitCode: 0,
+    duration: 1,
+  };
 }
 
 function queueReviewParses(
@@ -258,2077 +146,296 @@ function queueReviewParses(
   state.reviewParseQueue.push(...parses);
 }
 
-function queueFixParses(
-  state: HarnessState,
-  ...parses: Array<StructuredParseResult<FixSummary>>
-): void {
-  state.fixParseQueue.push(...parses);
-}
-
-function triggerInterrupt(state: HarnessState): void {
-  if (!state.capturedSigintHandler) {
-    throw new Error("SIGINT handler was not registered");
-  }
-  state.capturedSigintHandler();
+function queueRunAgentResults(state: HarnessState, ...results: IterationResult[]): void {
+  state.runAgentResults.push(...results);
 }
 
 function createDependencies(state: HarnessState): RunReviewCycleDeps {
-  const agentStub = {
-    config: {
-      command: "mock-agent",
-      buildArgs: () => [],
-      buildEnv: () => ({}),
-    },
-    usesJsonl: false,
-    extractResult: (output: string) => output.trim() || null,
+  const worktree: GitSessionWorktree = {
+    sourceProjectPath: TEST_PROJECT_PATH,
+    sourceRepoPath: "/repo",
+    worktreeProjectPath: TEST_WORKTREE_PATH,
+    agentProjectPath: TEST_WORKTREE_PATH,
+    retainedBranch: "rr-worktree-session-123",
+    headKind: "detached",
+    sourceSnapshotDir: "/tmp/source-snapshot-dir",
+    sourceFingerprint: "source-worktree-fingerprint",
   };
 
   return {
-    createCodeSimplifierPrompt: () => "SIMPLIFIER_PROMPT",
-    createFixerPrompt: (reviewText: string) => `FIXER_PROMPT:${reviewText}`,
-    createFixerSummaryRetryReminder: () => "FIXER_SUMMARY_RETRY_REMINDER",
-    createReviewerPrompt: () => "REVIEWER_PROMPT",
-    createReviewerSummaryRetryReminder: () => "REVIEWER_SUMMARY_RETRY_REMINDER",
-    AGENTS: {
-      claude: agentStub,
-      codex: agentStub,
-      droid: agentStub,
-      gemini: agentStub,
-      opencode: agentStub,
-      pi: agentStub,
+    createCodeSimplifierPrompt: ({ repoPath, baseBranch, commitSha, customInstructions }) => {
+      state.operationLog.push("create-simplifier-prompt");
+      return [
+        "SIMPLIFIER",
+        repoPath,
+        baseBranch ?? "",
+        commitSha ?? "",
+        customInstructions ?? "",
+      ].join("|");
     },
-    runAgent: async (
-      role: AgentRole,
-      _config: Config,
-      prompt = "",
-      timeout = 0,
-      reviewOptions?: ReviewOptions,
-      cwd?: string
-    ): Promise<IterationResult> => {
+    createDiscoveryReviewerPrompt: ({
+      reviewedSnapshotPath,
+      iteration,
+      knownFindings,
+      customInstructions,
+    }) => {
+      return [
+        `SNAPSHOT=${reviewedSnapshotPath}`,
+        `ITERATION=${iteration}`,
+        `KNOWN=${(knownFindings ?? []).map((finding) => finding.id).join(",")}`,
+        customInstructions ? `CUSTOM=${customInstructions}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n");
+    },
+    createFixerPrompt: () => {
+      throw new Error("fixer prompt should not be used during discovery");
+    },
+    createFixerSummaryRetryReminder: () => "retry fixer",
+    createReviewerPrompt: () => {
+      throw new Error("legacy reviewer prompt should not be used during discovery");
+    },
+    createReviewerSummaryRetryReminder: () => "retry reviewer",
+    AGENTS: {
+      claude: {
+        config: {
+          command: "mock",
+          buildArgs: () => [],
+          buildEnv: () => ({}),
+        },
+        extractResult: async (output: string) => output,
+        detectSessionId: () => null,
+        getUpdateInstructions: () => [],
+      },
+    } as unknown as RunReviewCycleDeps["AGENTS"],
+    runAgent: async (role, _config, prompt, timeout, reviewOptions, cwd) => {
       state.runAgentCalls.push({
         role,
-        prompt,
-        timeout,
+        prompt: prompt ?? "",
+        timeout: timeout ?? 0,
         reviewOptions,
         cwd,
       });
-      state.onRunAgent?.(role);
+      state.operationLog.push(`run-agent:${role}`);
 
-      const nextStep = state.runAgentSteps.shift();
-      if (!nextStep) {
-        throw new Error(`runAgent queue exhausted for role: ${role}`);
+      const next = state.runAgentResults.shift();
+      if (!next) {
+        throw new Error(`No queued agent result for ${role}`);
       }
 
-      if (nextStep.type === "throw") {
-        throw nextStep.error;
-      }
-
-      return nextStep.result;
+      return next;
     },
-    createCheckpoint: (projectPath: string, label: string): GitCheckpoint => {
+    createCheckpoint: (projectPath, label) => {
       state.createCheckpointCalls.push({ projectPath, label });
-      if (state.createCheckpointError) {
-        throw state.createCheckpointError;
-      }
-
       return {
-        kind: "clean",
-        id: `checkpoint-${state.createCheckpointCalls.length}`,
+        kind: "snapshot",
+        id: label,
+        snapshotDir: `${projectPath}/checkpoint-${label}`,
       };
     },
-    rollbackToCheckpoint: (projectPath: string, checkpoint: GitCheckpoint) => {
-      state.rollbackCalls.push({ projectPath, checkpoint });
-      if (state.rollbackError) {
-        throw state.rollbackError;
-      }
-    },
-    discardCheckpoint: (projectPath: string, checkpoint: GitCheckpoint) => {
-      state.discardCheckpointCalls.push({ projectPath, checkpoint });
-      if (state.discardCheckpointError) {
-        throw state.discardCheckpointError;
-      }
-    },
-    createSessionWorktree: (projectPath: string, worktreeId: string): GitSessionWorktree => {
+    createSessionWorktree: (projectPath, worktreeId) => {
       state.createSessionWorktreeCalls.push({ projectPath, worktreeId });
-      if (state.createSessionWorktreeError) {
-        throw state.createSessionWorktreeError;
-      }
-
-      return {
-        sourceProjectPath: projectPath,
-        sourceRepoPath: TEST_PROJECT_PATH,
-        worktreeProjectPath: TEST_WORKTREE_PROJECT_PATH,
-        agentProjectPath: (() => {
-          const projectSubpath = relative(TEST_PROJECT_PATH, projectPath);
-          return projectSubpath
-            ? join(TEST_WORKTREE_PROJECT_PATH, projectSubpath)
-            : TEST_WORKTREE_PROJECT_PATH;
-        })(),
-        retainedBranch: "rr-worktree-test",
-        headKind: "detached",
-        sourceSnapshotPath: `${TEST_WORKTREE_PROJECT_PATH}-snapshot`,
-        sourceFingerprint: "fingerprint-1",
-      };
+      return worktree;
     },
-    discardSessionWorktree: (worktree: GitSessionWorktree) => {
-      state.discardSessionWorktreeCalls.push(worktree);
-      if (state.discardSessionWorktreeError) {
-        throw state.discardSessionWorktreeError;
-      }
+    discardCheckpoint: (projectPath, checkpoint) => {
+      state.discardCheckpointCalls.push({ projectPath, checkpoint });
     },
-    createOrAutoApplyHandoff: async (
-      storageRoot: string | undefined,
-      options: {
-        sessionId: string;
-        projectPath: string;
-        logPath: string;
-        worktree: GitSessionWorktree;
-        autoApply?: boolean;
-      }
-    ): Promise<SessionHandoffResult | null> => {
-      state.createOrAutoApplyHandoffCalls.push({
-        storageRoot,
-        ...options,
-      });
-      if (state.createOrAutoApplyHandoffError) {
-        throw state.createOrAutoApplyHandoffError;
-      }
-
-      const handoffResult = state.createOrAutoApplyHandoffResult;
-      if (!handoffResult) {
-        return null;
-      }
-
-      if (options.autoApply === false && handoffResult.handoffStatus === "applied-auto") {
-        return {
-          ...handoffResult,
-          handoffStatus: "pending-apply",
-        };
-      }
-
-      return handoffResult;
+    discardSessionWorktree: (createdWorktree) => {
+      state.discardSessionWorktreeCalls.push(createdWorktree);
     },
-    updateSessionState: async (
-      _logsDir: string | undefined,
-      projectPath: string,
-      _sessionId: string,
-      updates: Record<string, unknown>,
-      sessionStateOptions?: { expectedSessionId?: string }
-    ) => {
+    rollbackToCheckpoint: (projectPath, checkpoint) => {
+      state.rollbackCalls.push({ projectPath, checkpoint });
+    },
+    createOrAutoApplyHandoff: async () => null,
+    updateSessionState: async (_storageRoot, _projectPath, _sessionId, updates, options) => {
       state.updateSessionStateCalls.push({
-        projectPath,
-        updates,
-        expectedSessionId: sessionStateOptions?.expectedSessionId,
+        updates: updates as Record<string, unknown>,
+        expectedSessionId: options?.expectedSessionId,
       });
-
-      if (state.updateSessionStateFailuresRemaining > 0) {
-        state.updateSessionStateFailuresRemaining -= 1;
-        throw new Error("session state update failed");
-      }
-
       return true;
     },
-    getGitBranch: async () => "feature/engine-coverage",
-    createLogSession: async () => TEST_SESSION_PATH,
-    appendLog: async (_sessionPath: string, entry: LogEntry) => {
+    appendLog: async (_logPath, entry) => {
       state.appendedEntries.push(entry);
-      state.onAppendLog?.(entry);
     },
-    parseReviewSummaryOutput: (_resultText: string | null, _rawOutput: string) => {
-      return state.reviewParseQueue.shift() ?? parseReviewFailure("mock review parse failure");
+    createLogSession: async () => TEST_SESSION_PATH,
+    getGitBranch: async () => "feature/discovery",
+    parseReviewSummaryOutput: () => {
+      const next = state.reviewParseQueue.shift();
+      if (!next) {
+        throw new Error("No queued review parse result");
+      }
+      return next;
     },
-    parseFixSummaryOutput: (_resultText: string | null, _rawOutput: string) => {
-      return state.fixParseQueue.shift() ?? parseFixFailure("mock fix parse failure");
+    persistReviewedSnapshot: async (_storageRoot, projectPath, sessionId, sourceSnapshotPath) => {
+      state.operationLog.push("persist-reviewed-snapshot");
+      state.persistedSnapshots.push({
+        projectPath,
+        sessionId,
+        sourceSnapshotPath,
+      });
+      return {
+        reviewedSnapshotPath: TEST_REVIEWED_SNAPSHOT_PATH,
+        sourceFingerprint: "snapshot-fingerprint",
+      };
     },
+    saveFindingsArtifact: async (_storageRoot, artifact) => {
+      state.savedArtifacts.push(artifact);
+      return artifact;
+    },
+    computeSnapshotFingerprint: async () => "snapshot-fingerprint",
   };
 }
 
-async function withHarness(run: (state: HarnessState, deps: RunReviewCycleDeps) => Promise<void>) {
-  const state = createHarnessState();
-  const deps = createDependencies(state);
-  const originalProcessOn = process.on;
-  const originalConsoleLog = console.log;
-  const originalConsoleWarn = console.warn;
-
-  process.on = ((event: string, listener: (...args: unknown[]) => void) => {
-    if (event === "SIGINT") {
-      state.capturedSigintHandler = () => listener();
-      return process;
-    }
-
-    return originalProcessOn.call(process, event, listener);
-  }) as typeof process.on;
-  console.log = (() => {}) as typeof console.log;
-  console.warn = (() => {}) as typeof console.warn;
-
-  try {
-    await run(state, deps);
-  } finally {
-    process.on = originalProcessOn;
-    console.log = originalConsoleLog;
-    console.warn = originalConsoleWarn;
-  }
-}
-
 describe("runReviewCycle", () => {
-  test("completes successfully when reviewer and fixer return clean stop_iteration result", async () => {
-    await withHarness(async (state, deps) => {
-      const reviewSummary = buildReviewSummary();
-      const cleanFixSummary = buildFixSummary({
-        decision: "NO_CHANGES_NEEDED",
-        stop_iteration: true,
-        fixes: [],
-        skipped: [],
-      });
-      const iterationRoles: AgentRole[] = [];
+  test("runs reviewer against the same frozen snapshot path, passes known findings forward, and persists findings", async () => {
+    const state = createHarnessState();
+    queueRunAgentResults(
+      state,
+      createSuccessResult("review-pass-1"),
+      createSuccessResult("review-pass-2")
+    );
+    queueReviewParses(
+      state,
+      createReviewParse(createReviewSummary([createFinding()])),
+      createReviewParse(createReviewSummary([createFinding()]))
+    );
 
-      queueRunAgentSteps(
-        state,
-        resultStep(successResult("review output")),
-        resultStep(successResult("fix output"))
-      );
-      queueReviewParses(state, parseReviewSuccess(reviewSummary, true));
-      queueFixParses(state, parseFixSuccess(cleanFixSummary, true));
+    const result = await runReviewCycle(
+      createConfig({ maxIterations: 4 }),
+      undefined,
+      {
+        customInstructions: "Focus on runtime failures.",
+      },
+      {
+        projectPath: TEST_PROJECT_PATH,
+        sessionId: TEST_SESSION_ID,
+        sessionPath: TEST_SESSION_PATH,
+      },
+      createDependencies(state)
+    );
 
-      const result = await runReviewCycle(
-        createConfig(),
-        (_iteration, role) => {
-          iterationRoles.push(role);
-        },
-        undefined,
-        {
-          projectPath: TEST_PROJECT_PATH,
-          sessionId: TEST_SESSION_ID,
-        },
-        deps
-      );
+    expect(result.success).toBe(true);
+    expect(result.finalStatus).toBe("completed");
+    expect(result.reviewOutcome).toBe("findings-pending");
+    expect(result.iterations).toBe(2);
+    expect(result.sessionPath).toBe(TEST_SESSION_PATH);
 
-      expect(result.success).toBe(true);
-      expect(result.finalStatus).toBe("completed");
-      expect(result.reviewOutcome).toBe("clean");
-      expect(result.iterations).toBe(1);
-      expect(result.reason).toContain("No issues found");
-      expect(result.sessionPath).toBe(TEST_SESSION_PATH);
-      expect(result.handoffStatus).toBe("applied-auto");
-      expect(result.commitSha).toBe("retained-commit-sha");
-      expect(result.handoffUpdatedAt).toBe(1_700_000_000_000);
+    const reviewerCalls = state.runAgentCalls.filter((call) => call.role === "reviewer");
+    expect(reviewerCalls).toHaveLength(2);
+    expect(state.runAgentCalls.some((call) => call.role === "fixer")).toBe(false);
+    expect(new Set(reviewerCalls.map((call) => call.cwd))).toEqual(
+      new Set([TEST_REVIEWED_SNAPSHOT_PATH])
+    );
+    expect(reviewerCalls[1]?.prompt).toContain("KNOWN=F001");
+    expect(reviewerCalls[1]?.prompt).toContain("Focus on runtime failures.");
 
-      expect(state.runAgentCalls.map((call) => call.role)).toEqual(["reviewer", "fixer"]);
-      expect(state.runAgentCalls.map((call) => call.cwd)).toEqual([
-        TEST_WORKTREE_PROJECT_PATH,
-        TEST_WORKTREE_PROJECT_PATH,
-      ]);
-      expect(iterationRoles).toEqual(["reviewer", "fixer"]);
-      expect(
-        state.updateSessionStateCalls.some((call) => call.updates.reviewSummary !== undefined)
-      ).toBe(true);
-      expect(
-        state.updateSessionStateCalls.some(
-          (call) => call.updates.worktreeProjectPath === TEST_WORKTREE_PROJECT_PATH
-        )
-      ).toBe(true);
-      expect(state.createSessionWorktreeCalls).toHaveLength(1);
-      expect(state.createOrAutoApplyHandoffCalls).toHaveLength(1);
-      expect(state.createOrAutoApplyHandoffCalls[0]?.autoApply).toBe(true);
-      expect(state.discardSessionWorktreeCalls).toHaveLength(1);
+    expect(state.persistedSnapshots).toEqual([
+      {
+        projectPath: TEST_PROJECT_PATH,
+        sessionId: TEST_SESSION_ID,
+        sourceSnapshotPath: TEST_WORKTREE_PATH,
+      },
+    ]);
 
-      const iterationEntry = state.appendedEntries.find((entry) => entry.type === "iteration");
-      expect(iterationEntry?.type).toBe("iteration");
-      if (iterationEntry?.type === "iteration") {
-        expect(iterationEntry.review).toEqual(reviewSummary);
-        expect(iterationEntry.fixes?.decision).toBe("NO_CHANGES_NEEDED");
-      }
+    expect(state.savedArtifacts).toHaveLength(1);
+    expect(state.savedArtifacts[0]?.reviewedSnapshotPath).toBe(TEST_REVIEWED_SNAPSHOT_PATH);
+    expect(state.savedArtifacts[0]?.sourceFingerprint).toBe("snapshot-fingerprint");
+    expect(state.savedArtifacts[0]?.findings.map((finding) => finding.id)).toEqual(["F001"]);
+    expect(state.savedArtifacts[0]?.selectedFindingIds).toEqual([]);
 
-      const sessionEnd = state.appendedEntries.at(-1);
-      expect(sessionEnd?.type).toBe("session_end");
-      if (sessionEnd?.type === "session_end") {
-        expect(sessionEnd.status).toBe("completed");
-        expect(sessionEnd.handoffStatus).toBe("applied-auto");
-        expect(sessionEnd.commitSha).toBe("retained-commit-sha");
-      }
-    });
+    const discoveryEntries = state.appendedEntries.filter(
+      (entry) => entry.type === "discovery_iteration"
+    );
+    expect(discoveryEntries).toHaveLength(2);
+    expect(discoveryEntries[0]?.netNewFindingIds).toEqual(["F001"]);
+    expect(discoveryEntries[1]?.netNewFindingIds).toEqual([]);
+
+    const sessionEnd = state.appendedEntries.find((entry) => entry.type === "session_end");
+    expect(sessionEnd?.type).toBe("session_end");
+    expect(sessionEnd?.phase).toBe("discovery");
+    expect(sessionEnd?.sessionStatus).toBe("completed");
+    expect(sessionEnd?.reviewOutcome).toBe("findings-pending");
+
+    expect(
+      state.updateSessionStateCalls.some(
+        (call) => call.updates.phase === "discovery" && call.expectedSessionId === TEST_SESSION_ID
+      )
+    ).toBe(true);
+    expect(
+      state.updateSessionStateCalls.some(
+        (call) =>
+          call.updates.reviewOutcome === "findings-pending" &&
+          call.updates.artifactPath ===
+            getFindingsArtifactPath(CONFIG_DIR, TEST_PROJECT_PATH, TEST_SESSION_ID)
+      )
+    ).toBe(true);
   });
 
-  test("runs agents from the matching subdirectory inside the session worktree", async () => {
-    await withHarness(async (state, deps) => {
-      const nestedProjectPath = join(TEST_PROJECT_PATH, "packages", "cli");
-      const reviewSummary = buildReviewSummary();
-      const cleanFixSummary = buildFixSummary({
-        decision: "NO_CHANGES_NEEDED",
-        stop_iteration: true,
-        fixes: [],
-        skipped: [],
-      });
+  test("returns clean and skips artifact persistence when discovery finds nothing new on the first pass", async () => {
+    const state = createHarnessState();
+    queueRunAgentResults(state, createSuccessResult("review-pass-1"));
+    queueReviewParses(state, createReviewParse(createReviewSummary([])));
 
-      queueRunAgentSteps(
-        state,
-        resultStep(successResult("review output")),
-        resultStep(successResult("fix output"))
-      );
-      queueReviewParses(state, parseReviewSuccess(reviewSummary));
-      queueFixParses(state, parseFixSuccess(cleanFixSummary));
+    const result = await runReviewCycle(
+      createConfig(),
+      undefined,
+      undefined,
+      {
+        projectPath: TEST_PROJECT_PATH,
+        sessionId: TEST_SESSION_ID,
+        sessionPath: TEST_SESSION_PATH,
+      },
+      createDependencies(state)
+    );
 
-      await runReviewCycle(
-        createConfig(),
-        undefined,
-        undefined,
-        {
-          projectPath: nestedProjectPath,
-          sessionId: TEST_SESSION_ID,
-        },
-        deps
-      );
+    expect(result.success).toBe(true);
+    expect(result.finalStatus).toBe("completed");
+    expect(result.reviewOutcome).toBe("clean");
+    expect(result.iterations).toBe(1);
+    expect(state.savedArtifacts).toHaveLength(0);
+    expect(state.runAgentCalls.filter((call) => call.role === "reviewer")).toHaveLength(1);
 
-      expect(state.runAgentCalls.map((call) => call.cwd)).toEqual([
-        join(TEST_WORKTREE_PROJECT_PATH, "packages", "cli"),
-        join(TEST_WORKTREE_PROJECT_PATH, "packages", "cli"),
-      ]);
-    });
+    const sessionEnd = state.appendedEntries.find((entry) => entry.type === "session_end");
+    expect(sessionEnd?.reviewOutcome).toBe("clean");
   });
 
-  test("discards the worktree when finalization finds no diff to retain", async () => {
-    await withHarness(async (state, deps) => {
-      state.createOrAutoApplyHandoffResult = null;
-      queueRunAgentSteps(
-        state,
-        resultStep(successResult("review output")),
-        resultStep(successResult("fix output"))
-      );
-      queueReviewParses(state, parseReviewSuccess(buildReviewSummary()));
-      queueFixParses(
-        state,
-        parseFixSuccess(
-          buildFixSummary({
-            decision: "NO_CHANGES_NEEDED",
-            stop_iteration: true,
-            fixes: [],
-            skipped: [],
-          })
-        )
-      );
-
-      const result = await runReviewCycle(
-        createConfig(),
-        undefined,
-        undefined,
-        {
-          projectPath: TEST_PROJECT_PATH,
-          sessionId: TEST_SESSION_ID,
-        },
-        deps
-      );
-
-      expect(result.success).toBe(true);
-      expect(result.handoffStatus).toBeUndefined();
-      expect(state.createOrAutoApplyHandoffCalls).toHaveLength(1);
-      expect(state.discardSessionWorktreeCalls).toHaveLength(1);
-    });
-  });
-
-  test("discards the worktree without a handoff when fixer fails", async () => {
-    await withHarness(async (state, deps) => {
-      state.createOrAutoApplyHandoffResult = {
-        handoffStatus: "pending-apply",
-        commitSha: "retained-commit-sha",
-        handoffUpdatedAt: 1_700_000_000_000,
-      };
-      queueRunAgentSteps(
-        state,
-        resultStep(successResult("review output")),
-        resultStep(failureResult("fixer failed", 17))
-      );
-      queueReviewParses(state, parseReviewSuccess(buildReviewSummary()));
-      queueFixParses(state, parseFixFailure("unusable fix output"));
-
-      const result = await runReviewCycle(
-        createConfig(),
-        undefined,
-        undefined,
-        {
-          projectPath: TEST_PROJECT_PATH,
-          sessionId: TEST_SESSION_ID,
-        },
-        deps
-      );
-
-      expect(result.success).toBe(false);
-      expect(result.finalStatus).toBe("failed");
-      expect(result.reviewOutcome).toBeUndefined();
-      expect(result.handoffStatus).toBeUndefined();
-      expect(result.commitSha).toBeUndefined();
-      expect(state.createSessionWorktreeCalls).toHaveLength(1);
-      expect(state.discardSessionWorktreeCalls).toHaveLength(1);
-      expect(state.createOrAutoApplyHandoffCalls).toHaveLength(0);
-    });
-  });
-
-  test("does not retain a handoff when interrupted before any successful fixer iteration", async () => {
-    await withHarness(async (state, deps) => {
-      state.createOrAutoApplyHandoffResult = {
-        handoffStatus: "pending-apply",
-        commitSha: "retained-commit-sha",
-        handoffUpdatedAt: 1_700_000_000_000,
-      };
-      state.onRunAgent = (role) => {
-        if (role === "fixer") {
-          triggerInterrupt(state);
-        }
-      };
-      queueRunAgentSteps(
-        state,
-        resultStep(successResult("review output")),
-        resultStep(failureResult("fixer interrupted", 130))
-      );
-      queueReviewParses(state, parseReviewSuccess(buildReviewSummary()));
-
-      const result = await runReviewCycle(
-        createConfig({
-          retry: {
-            maxRetries: 2,
-            baseDelayMs: 0,
-            maxDelayMs: 0,
-          },
-        }),
-        undefined,
-        undefined,
-        {
-          projectPath: TEST_PROJECT_PATH,
-          sessionId: TEST_SESSION_ID,
-        },
-        deps
-      );
-
-      expect(result.success).toBe(false);
-      expect(result.finalStatus).toBe("interrupted");
-      expect(result.reviewOutcome).toBeUndefined();
-      expect(result.handoffStatus).toBeUndefined();
-      expect(state.runAgentCalls.map((call) => call.role)).toEqual(["reviewer", "fixer"]);
-      expect(state.createOrAutoApplyHandoffCalls).toHaveLength(0);
-      expect(state.discardSessionWorktreeCalls).toHaveLength(1);
-    });
-  });
-
-  test("keeps the current safe worktree as a pending handoff when a later reviewer fails", async () => {
-    await withHarness(async (state, deps) => {
-      state.createOrAutoApplyHandoffResult = {
-        handoffStatus: "pending-apply",
-        commitSha: "retained-commit-sha",
-        handoffUpdatedAt: 1_700_000_000_000,
-      };
-      queueRunAgentSteps(
-        state,
-        resultStep(successResult("review output 1")),
-        resultStep(successResult("fix output 1")),
-        resultStep(failureResult("reviewer failed later", 23))
-      );
-      queueReviewParses(state, parseReviewSuccess(buildReviewSummary()));
-      queueFixParses(
-        state,
-        parseFixSuccess(
-          buildFixSummary({
-            decision: "APPLY_SELECTIVELY",
-            stop_iteration: false,
-            fixes: [],
-            skipped: [],
-          })
-        )
-      );
-
-      const result = await runReviewCycle(
-        createConfig({
-          maxIterations: 2,
-        }),
-        undefined,
-        undefined,
-        {
-          projectPath: TEST_PROJECT_PATH,
-          sessionId: TEST_SESSION_ID,
-        },
-        deps
-      );
-
-      expect(result.success).toBe(false);
-      expect(result.finalStatus).toBe("failed");
-      expect(result.reviewOutcome).toBe("incomplete");
-      expect(result.handoffStatus).toBe("pending-apply");
-      expect(state.createOrAutoApplyHandoffCalls).toHaveLength(1);
-    });
-  });
-
-  test("keeps the previous safe iteration as a pending handoff when a later fixer fails", async () => {
-    await withHarness(async (state, deps) => {
-      state.createOrAutoApplyHandoffResult = {
-        handoffStatus: "pending-apply",
-        commitSha: "retained-commit-sha",
-        handoffUpdatedAt: 1_700_000_000_000,
-      };
-      queueRunAgentSteps(
-        state,
-        resultStep(successResult("review output 1")),
-        resultStep(successResult("fix output 1")),
-        resultStep(successResult("review output 2")),
-        resultStep(failureResult("fixer failed later", 17))
-      );
-      queueReviewParses(
-        state,
-        parseReviewSuccess(buildReviewSummary()),
-        parseReviewSuccess(buildReviewSummary())
-      );
-      queueFixParses(
-        state,
-        parseFixSuccess(
-          buildFixSummary({
-            decision: "APPLY_SELECTIVELY",
-            stop_iteration: false,
-            fixes: [],
-            skipped: [],
-          })
-        ),
-        parseFixFailure("unusable fix output")
-      );
-
-      const result = await runReviewCycle(
-        createConfig({
-          maxIterations: 2,
-        }),
-        undefined,
-        undefined,
-        {
-          projectPath: TEST_PROJECT_PATH,
-          sessionId: TEST_SESSION_ID,
-        },
-        deps
-      );
-
-      expect(result.success).toBe(false);
-      expect(result.finalStatus).toBe("failed");
-      expect(result.reviewOutcome).toBe("incomplete");
-      expect(result.handoffStatus).toBe("pending-apply");
-      expect(state.rollbackCalls).toHaveLength(2);
-      expect(state.createOrAutoApplyHandoffCalls).toHaveLength(1);
-    });
-  });
-
-  test("records the session path before worktree setup so early failures stay traceable", async () => {
-    await withHarness(async (state, deps) => {
-      state.createSessionWorktreeError = new Error("worktree setup exploded");
-
-      const result = await runReviewCycle(
-        createConfig(),
-        undefined,
-        undefined,
-        {
-          projectPath: TEST_PROJECT_PATH,
-          sessionId: TEST_SESSION_ID,
-        },
-        deps
-      );
-
-      expect(result.success).toBe(false);
-      expect(state.updateSessionStateCalls[0]?.updates.sessionPath).toBe(TEST_SESSION_PATH);
-      expect(state.updateSessionStateCalls[0]?.expectedSessionId).toBe(TEST_SESSION_ID);
-    });
-  });
-
-  test("reuses a precomputed session path from runtime context", async () => {
-    await withHarness(async (state, deps) => {
-      const precomputedSessionPath = "/tmp/precomputed-session-path.jsonl";
-      let createLogSessionCalled = false;
-      deps.createLogSession = async () => {
-        createLogSessionCalled = true;
-        throw new Error("createLogSession should not be called");
-      };
-
-      queueRunAgentSteps(
-        state,
-        resultStep(successResult("review output")),
-        resultStep(successResult("fix output"))
-      );
-      queueReviewParses(state, parseReviewSuccess(buildReviewSummary()));
-      queueFixParses(
-        state,
-        parseFixSuccess(
-          buildFixSummary({
-            decision: "NO_CHANGES_NEEDED",
-            stop_iteration: true,
-            fixes: [],
-            skipped: [],
-          })
-        )
-      );
-
-      const result = await runReviewCycle(
-        createConfig(),
-        undefined,
-        undefined,
-        {
-          projectPath: TEST_PROJECT_PATH,
-          sessionId: TEST_SESSION_ID,
-          sessionPath: precomputedSessionPath,
-        },
-        deps
-      );
-
-      expect(createLogSessionCalled).toBe(false);
-      expect(result.sessionPath).toBe(precomputedSessionPath);
-      expect(state.updateSessionStateCalls[0]?.updates.sessionPath).toBe(precomputedSessionPath);
-    });
-  });
-
-  test("retries reviewer once and succeeds when retry budget is available", async () => {
-    await withHarness(async (state, deps) => {
-      queueRunAgentSteps(
-        state,
-        resultStep(failureResult("initial reviewer failure", 42)),
-        resultStep(successResult("review output")),
-        resultStep(successResult("fix output"))
-      );
-      queueReviewParses(state, parseReviewSuccess(buildReviewSummary()));
-      queueFixParses(
-        state,
-        parseFixSuccess(
-          buildFixSummary({
-            decision: "NO_CHANGES_NEEDED",
-            stop_iteration: true,
-            fixes: [],
-            skipped: [],
-          })
-        )
-      );
-
-      const result = await runReviewCycle(
-        createConfig({
-          retry: {
-            maxRetries: 1,
-            baseDelayMs: 0,
-            maxDelayMs: 0,
-          },
-        }),
-        undefined,
-        undefined,
-        {
-          projectPath: TEST_PROJECT_PATH,
-          sessionId: TEST_SESSION_ID,
-        },
-        deps
-      );
-
-      expect(result.success).toBe(true);
-      expect(state.runAgentCalls.map((call) => call.role)).toEqual([
-        "reviewer",
-        "reviewer",
-        "fixer",
-      ]);
-    });
-  });
-
-  test("retries reviewer twice and succeeds on the second retry", async () => {
-    await withHarness(async (state, deps) => {
-      queueRunAgentSteps(
-        state,
-        resultStep(failureResult("reviewer failed on initial run", 30)),
-        resultStep(failureResult("reviewer failed on first retry", 31)),
-        resultStep(successResult("review output after second retry")),
-        resultStep(successResult("fix output"))
-      );
-      queueReviewParses(state, parseReviewSuccess(buildReviewSummary()));
-      queueFixParses(
-        state,
-        parseFixSuccess(
-          buildFixSummary({
-            decision: "NO_CHANGES_NEEDED",
-            stop_iteration: true,
-            fixes: [],
-            skipped: [],
-          })
-        )
-      );
-
-      const result = await runReviewCycle(
-        createConfig({
-          retry: {
-            maxRetries: 2,
-            baseDelayMs: 0,
-            maxDelayMs: 0,
-          },
-        }),
-        undefined,
-        undefined,
-        {
-          projectPath: TEST_PROJECT_PATH,
-          sessionId: TEST_SESSION_ID,
-        },
-        deps
-      );
-
-      expect(result.success).toBe(true);
-      expect(state.runAgentCalls.map((call) => call.role)).toEqual([
-        "reviewer",
-        "reviewer",
-        "reviewer",
-        "fixer",
-      ]);
-    });
-  });
-
-  test("rolls back each failed fixer retry attempt before a later retry succeeds", async () => {
-    await withHarness(async (state, deps) => {
-      queueRunAgentSteps(
-        state,
-        resultStep(successResult("review output")),
-        resultStep(failureResult("fixer failed on initial run", 17)),
-        resultStep(successResult("fix output after retry"))
-      );
-      queueReviewParses(state, parseReviewSuccess(buildReviewSummary()));
-      queueFixParses(
-        state,
-        parseFixSuccess(
-          buildFixSummary({
-            decision: "NO_CHANGES_NEEDED",
-            stop_iteration: true,
-            fixes: [],
-            skipped: [],
-          })
-        )
-      );
-
-      const result = await runReviewCycle(
-        createConfig({
-          retry: {
-            maxRetries: 1,
-            baseDelayMs: 0,
-            maxDelayMs: 0,
-          },
-        }),
-        undefined,
-        undefined,
-        {
-          projectPath: TEST_PROJECT_PATH,
-          sessionId: TEST_SESSION_ID,
-        },
-        deps
-      );
-
-      expect(result.success).toBe(true);
-      expect(state.runAgentCalls.map((call) => call.role)).toEqual(["reviewer", "fixer", "fixer"]);
-      expect(state.createCheckpointCalls).toHaveLength(2);
-      expect(state.rollbackCalls).toHaveLength(1);
-      expect(state.discardCheckpointCalls).toHaveLength(1);
-    });
-  });
-
-  test("returns structured failure when fixer rollback fails during retry reset", async () => {
-    await withHarness(async (state, deps) => {
-      queueRunAgentSteps(
-        state,
-        resultStep(successResult("review output")),
-        resultStep(failureResult("fixer failed on initial run", 17))
-      );
-      queueReviewParses(state, parseReviewSuccess(buildReviewSummary()));
-      state.rollbackError = new Error("rollback failed");
-
-      const result = await runReviewCycle(
-        createConfig({
-          retry: {
-            maxRetries: 1,
-            baseDelayMs: 0,
-            maxDelayMs: 0,
-          },
-        }),
-        undefined,
-        undefined,
-        {
-          projectPath: TEST_PROJECT_PATH,
-          sessionId: TEST_SESSION_ID,
-        },
-        deps
-      );
-
-      expect(result.success).toBe(false);
-      expect(result.finalStatus).toBe("failed");
-      expect(result.reason).toContain("Fixer failed with exit code 1");
-      expect(state.runAgentCalls.map((call) => call.role)).toEqual(["reviewer", "fixer"]);
-      expect(state.createCheckpointCalls).toHaveLength(1);
-      expect(state.rollbackCalls).toHaveLength(1);
-      expect(state.discardCheckpointCalls).toHaveLength(1);
-      expect(state.createOrAutoApplyHandoffCalls).toHaveLength(0);
-
-      const iterationEntry = state.appendedEntries.find((entry) => entry.type === "iteration");
-      expect(iterationEntry?.type).toBe("iteration");
-      if (iterationEntry?.type === "iteration") {
-        expect(iterationEntry.error?.phase).toBe("fixer");
-      }
-    });
-  });
-
-  test("returns failed result when reviewer fails and retries are exhausted", async () => {
-    await withHarness(async (state, deps) => {
-      queueRunAgentSteps(state, resultStep(failureResult("reviewer failed", 9)));
-
-      const result = await runReviewCycle(
-        createConfig(),
-        undefined,
-        undefined,
-        {
-          projectPath: TEST_PROJECT_PATH,
-          sessionId: TEST_SESSION_ID,
-        },
-        deps
-      );
-
-      expect(result.success).toBe(false);
-      expect(result.finalStatus).toBe("failed");
-      expect(result.iterations).toBe(1);
-      expect(result.reason).toContain("Reviewer failed with exit code 9");
-
-      const iterationEntry = state.appendedEntries.find((entry) => entry.type === "iteration");
-      expect(iterationEntry?.type).toBe("iteration");
-      if (iterationEntry?.type === "iteration") {
-        expect(iterationEntry.error?.phase).toBe("reviewer");
-        expect(iterationEntry.error?.exitCode).toBe(9);
-      }
-    });
-  });
-
-  test("does not retry reviewer failures after an interrupt", async () => {
-    await withHarness(async (state, deps) => {
-      state.createOrAutoApplyHandoffResult = {
-        handoffStatus: "pending-apply",
-        commitSha: "retained-commit-sha",
-        handoffUpdatedAt: 1_700_000_000_000,
-      };
-      state.onRunAgent = (role) => {
-        if (role === "reviewer" && state.runAgentCalls.length === 1) {
-          triggerInterrupt(state);
-        }
-      };
-      queueRunAgentSteps(state, resultStep(failureResult("reviewer interrupted", 130)));
-
-      const result = await runReviewCycle(
-        createConfig({
-          retry: {
-            maxRetries: 2,
-            baseDelayMs: 0,
-            maxDelayMs: 0,
-          },
-        }),
-        undefined,
-        undefined,
-        {
-          projectPath: TEST_PROJECT_PATH,
-          sessionId: TEST_SESSION_ID,
-        },
-        deps
-      );
-
-      expect(result.success).toBe(false);
-      expect(result.finalStatus).toBe("interrupted");
-      expect(result.iterations).toBe(1);
-      expect(result.handoffStatus).toBeUndefined();
-      expect(state.runAgentCalls.map((call) => call.role)).toEqual(["reviewer"]);
-      expect(state.createOrAutoApplyHandoffCalls).toHaveLength(0);
-      expect(state.discardSessionWorktreeCalls).toHaveLength(1);
-    });
-  });
-
-  test("retries reviewer with format reminder and continues when retry summary is valid", async () => {
-    await withHarness(async (state, deps) => {
-      queueRunAgentSteps(
-        state,
-        resultStep(successResult("review output invalid structure")),
-        resultStep(successResult("review output repaired")),
-        resultStep(successResult("fix output"))
-      );
-      queueReviewParses(
-        state,
-        parseReviewFailure("missing summary"),
-        parseReviewSuccess(buildReviewSummary())
-      );
-      queueFixParses(
-        state,
-        parseFixSuccess(
-          buildFixSummary({
-            decision: "NO_CHANGES_NEEDED",
-            stop_iteration: true,
-            fixes: [],
-            skipped: [],
-          })
-        )
-      );
-
-      const result = await runReviewCycle(
-        createConfig(),
-        undefined,
-        undefined,
-        {
-          projectPath: TEST_PROJECT_PATH,
-          sessionId: TEST_SESSION_ID,
-        },
-        deps
-      );
-
-      expect(result.success).toBe(true);
-      expect(state.runAgentCalls[1]?.prompt).toContain("REVIEWER_SUMMARY_RETRY_REMINDER");
-    });
-  });
-
-  test("falls back to initial reviewer output when format retry fails", async () => {
-    await withHarness(async (state, deps) => {
-      queueRunAgentSteps(
-        state,
-        resultStep(successResult("initial review output")),
-        resultStep(failureResult("retry reviewer failed", 13)),
-        resultStep(successResult("fix output"))
-      );
-      queueReviewParses(state, parseReviewFailure("invalid summary"));
-      queueFixParses(
-        state,
-        parseFixSuccess(
-          buildFixSummary({
-            decision: "NO_CHANGES_NEEDED",
-            stop_iteration: true,
-            fixes: [],
-            skipped: [],
-          })
-        )
-      );
-
-      const result = await runReviewCycle(
-        createConfig(),
-        undefined,
-        undefined,
-        {
-          projectPath: TEST_PROJECT_PATH,
-          sessionId: TEST_SESSION_ID,
-        },
-        deps
-      );
-
-      expect(result.success).toBe(true);
-      expect(state.runAgentCalls[1]?.prompt).toContain("REVIEWER_SUMMARY_RETRY_REMINDER");
-      expect(
-        state.updateSessionStateCalls.some((call) => call.updates.reviewSummary !== undefined)
-      ).toBe(false);
-    });
-  });
-
-  test("falls back to initial reviewer output when format retry remains invalid", async () => {
-    await withHarness(async (state, deps) => {
-      queueRunAgentSteps(
-        state,
-        resultStep(successResult("initial review output")),
-        resultStep(successResult("retry review output still invalid")),
-        resultStep(successResult("fix output"))
-      );
-      queueReviewParses(
-        state,
-        parseReviewFailure("missing summary"),
-        parseReviewFailure("still invalid")
-      );
-      queueFixParses(
-        state,
-        parseFixSuccess(
-          buildFixSummary({
-            decision: "NO_CHANGES_NEEDED",
-            stop_iteration: true,
-            fixes: [],
-            skipped: [],
-          })
-        )
-      );
-
-      const result = await runReviewCycle(
-        createConfig(),
-        undefined,
-        undefined,
-        {
-          projectPath: TEST_PROJECT_PATH,
-          sessionId: TEST_SESSION_ID,
-        },
-        deps
-      );
-
-      expect(result.success).toBe(true);
-      expect(state.runAgentCalls[1]?.prompt).toContain("REVIEWER_SUMMARY_RETRY_REMINDER");
-      expect(
-        state.updateSessionStateCalls.some((call) => call.updates.reviewSummary !== undefined)
-      ).toBe(false);
-    });
-  });
-
-  test("stores codex reviewer text when reviewer agent is codex", async () => {
-    await withHarness(async (state, deps) => {
-      queueRunAgentSteps(
-        state,
-        resultStep(successResult("codex raw output")),
-        resultStep(successResult("fix output"))
-      );
-      queueFixParses(
-        state,
-        parseFixSuccess(
-          buildFixSummary({
-            decision: "NO_CHANGES_NEEDED",
-            stop_iteration: true,
-            fixes: [],
-            skipped: [],
-          })
-        )
-      );
-
-      const result = await runReviewCycle(
-        createConfig({
-          reviewer: { agent: "codex" },
-        }),
-        undefined,
-        undefined,
-        {
-          projectPath: TEST_PROJECT_PATH,
-          sessionId: TEST_SESSION_ID,
-        },
-        deps
-      );
-
-      expect(result.success).toBe(true);
-      expect(
-        state.updateSessionStateCalls.some(
-          (call) => call.updates.codexReviewText === "codex raw output"
-        )
-      ).toBe(true);
-      expect(
-        state.updateSessionStateCalls.some((call) => call.updates.reviewSummary !== undefined)
-      ).toBe(false);
-    });
-  });
-
-  test("stores codex reviewSummary when codex session extraction returns valid JSON", async () => {
-    await withHarness(async (state, deps) => {
-      const reviewSummary = buildReviewSummary();
-      queueRunAgentSteps(
-        state,
-        resultStep(successResult("codex raw output")),
-        resultStep(successResult("fix output"))
-      );
-      queueReviewParses(state, parseReviewSuccess(reviewSummary));
-      queueFixParses(
-        state,
-        parseFixSuccess(
-          buildFixSummary({
-            decision: "NO_CHANGES_NEEDED",
-            stop_iteration: true,
-            fixes: [],
-            skipped: [],
-          })
-        )
-      );
-
-      const result = await runReviewCycle(
-        createConfig({
-          reviewer: { agent: "codex" },
-        }),
-        undefined,
-        undefined,
-        {
-          projectPath: TEST_PROJECT_PATH,
-          sessionId: TEST_SESSION_ID,
-        },
-        deps
-      );
-
-      expect(result.success).toBe(true);
-      expect(
-        state.updateSessionStateCalls.some((call) => call.updates.reviewSummary !== undefined)
-      ).toBe(true);
-      expect(
-        state.updateSessionStateCalls.some((call) => call.updates.codexReviewText !== undefined)
-      ).toBe(false);
-    });
-  });
-
-  test("continues when codex reviewer session state updates fail", async () => {
-    await withHarness(async (state, deps) => {
-      state.updateSessionStateFailuresRemaining = 100;
-      queueRunAgentSteps(
-        state,
-        resultStep(successResult("codex raw output")),
-        resultStep(successResult("fix output"))
-      );
-      queueFixParses(
-        state,
-        parseFixSuccess(
-          buildFixSummary({
-            decision: "NO_CHANGES_NEEDED",
-            stop_iteration: true,
-            fixes: [],
-            skipped: [],
-          })
-        )
-      );
-
-      const result = await runReviewCycle(
-        createConfig({
-          reviewer: { agent: "codex" },
-        }),
-        undefined,
-        undefined,
-        {
-          projectPath: TEST_PROJECT_PATH,
-          sessionId: TEST_SESSION_ID,
-        },
-        deps
-      );
-
-      expect(result.success).toBe(true);
-      expect(result.finalStatus).toBe("completed");
-      expect(state.runAgentCalls.map((call) => call.role)).toEqual(["reviewer", "fixer"]);
-      expect(
-        state.updateSessionStateCalls.some(
-          (call) => call.updates.codexReviewText === "codex raw output"
-        )
-      ).toBe(true);
-    });
-  });
-
-  test("fails without retaining a handoff when fixer summary remains missing after reminder retry", async () => {
-    await withHarness(async (state, deps) => {
-      queueRunAgentSteps(
-        state,
-        resultStep(successResult("review output")),
-        resultStep(successResult("fix output first attempt")),
-        resultStep(successResult("fix output retry"))
-      );
-      queueReviewParses(state, parseReviewSuccess(buildReviewSummary()));
-      queueFixParses(state, parseFixFailure("missing summary"), parseFixFailure("still missing"));
-
-      const result = await runReviewCycle(
-        createConfig(),
-        undefined,
-        undefined,
-        {
-          projectPath: TEST_PROJECT_PATH,
-          sessionId: TEST_SESSION_ID,
-        },
-        deps
-      );
-
-      expect(result.success).toBe(false);
-      expect(result.reason).toContain("Fixer output incomplete");
-      expect(result.reason).not.toContain("rolled back");
-      expect(result.handoffStatus).toBeUndefined();
-      expect(state.runAgentCalls[2]?.prompt).toContain("FIXER_SUMMARY_RETRY_REMINDER");
-      expect(state.createOrAutoApplyHandoffCalls).toHaveLength(0);
-    });
-  });
-
-  test("returns structured failure when fixer retry checkpoint creation fails", async () => {
-    await withHarness(async (state, deps) => {
-      queueRunAgentSteps(state, resultStep(successResult("review output")));
-      queueReviewParses(state, parseReviewSuccess(buildReviewSummary()));
-      state.createCheckpointError = new Error("checkpoint create failed");
-
-      const result = await runReviewCycle(
-        createConfig({
-          retry: {
-            maxRetries: 2,
-            baseDelayMs: 0,
-            maxDelayMs: 0,
-          },
-        }),
-        undefined,
-        undefined,
-        {
-          projectPath: TEST_PROJECT_PATH,
-          sessionId: TEST_SESSION_ID,
-        },
-        deps
-      );
-
-      expect(result.success).toBe(false);
-      expect(result.finalStatus).toBe("failed");
-      expect(result.reason).toContain("Fixer failed with exit code");
-      expect(state.runAgentCalls.map((call) => call.role)).toEqual(["reviewer"]);
-      expect(state.createCheckpointCalls).toHaveLength(1);
-      expect(state.createOrAutoApplyHandoffCalls).toHaveLength(0);
-
-      const iterationEntry = state.appendedEntries.find((entry) => entry.type === "iteration");
-      expect(iterationEntry?.type).toBe("iteration");
-      if (iterationEntry?.type === "iteration") {
-        expect(iterationEntry.error?.phase).toBe("fixer");
-      }
-    });
-  });
-
-  test("rolls back to the prior successful tree when fixer summary remains missing in a later iteration", async () => {
-    await withHarness(async (state, deps) => {
-      queueRunAgentSteps(
-        state,
-        resultStep(successResult("review output iteration 1")),
-        resultStep(successResult("fix output iteration 1")),
-        resultStep(successResult("review output iteration 2")),
-        resultStep(successResult("fix output iteration 2 first attempt")),
-        resultStep(successResult("fix output iteration 2 retry"))
-      );
-      queueReviewParses(
-        state,
-        parseReviewSuccess(buildReviewSummary()),
-        parseReviewSuccess(buildReviewSummary())
-      );
-      queueFixParses(
-        state,
-        parseFixSuccess(
-          buildFixSummary({
-            decision: "APPLY_SELECTIVELY",
-            stop_iteration: false,
-            fixes: [],
-            skipped: [],
-          })
-        ),
-        parseFixFailure("missing summary"),
-        parseFixFailure("still missing")
-      );
-
-      const result = await runReviewCycle(
-        createConfig(),
-        undefined,
-        undefined,
-        {
-          projectPath: TEST_PROJECT_PATH,
-          sessionId: TEST_SESSION_ID,
-        },
-        deps
-      );
-
-      expect(result.success).toBe(false);
-      expect(result.finalStatus).toBe("failed");
-      expect(result.reviewOutcome).toBe("incomplete");
-      expect(result.handoffStatus).toBe("pending-apply");
-      expect(state.rollbackCalls).toHaveLength(1);
-    });
-  });
-
-  test("fails fixer execution without retaining a handoff", async () => {
-    await withHarness(async (state, deps) => {
-      queueRunAgentSteps(
-        state,
-        resultStep(successResult("review output")),
-        resultStep(failureResult("fixer failed", 17))
-      );
-      queueReviewParses(state, parseReviewSuccess(buildReviewSummary()));
-      queueFixParses(state, parseFixFailure("unusable fix output"));
-
-      const result = await runReviewCycle(
-        createConfig(),
-        undefined,
-        undefined,
-        {
-          projectPath: TEST_PROJECT_PATH,
-          sessionId: TEST_SESSION_ID,
-        },
-        deps
-      );
-
-      expect(result.success).toBe(false);
-      expect(result.reason).toContain("Fixer failed with exit code 17");
-      expect(result.reason).toContain("Code may be in a broken state!");
-      expect(result.reason).not.toContain("Rollback failed");
-      expect(result.handoffStatus).toBeUndefined();
-      expect(state.createOrAutoApplyHandoffCalls).toHaveLength(0);
-    });
-  });
-
-  test("fails immediately when the simplifier fails", async () => {
-    await withHarness(async (state, deps) => {
-      queueRunAgentSteps(state, resultStep(failureResult("simplifier failed", 5)));
-
-      const result = await runReviewCycle(
-        createConfig(),
-        undefined,
-        {
-          simplifier: true,
-        },
-        {
-          projectPath: TEST_PROJECT_PATH,
-          sessionId: TEST_SESSION_ID,
-        },
-        deps
-      );
-
-      expect(result.success).toBe(false);
-      expect(result.finalStatus).toBe("failed");
-      expect(result.reason).toContain("Code simplifier failed with exit code 5");
-      expect(result.reviewOutcome).toBeUndefined();
-      expect(state.runAgentCalls.map((call) => call.role)).toEqual(["code-simplifier"]);
-      expect(state.createOrAutoApplyHandoffCalls).toHaveLength(0);
-    });
-  });
-
-  test("runs simplifier before reviewer and fixer when simplifier succeeds", async () => {
-    await withHarness(async (state, deps) => {
-      queueRunAgentSteps(
-        state,
-        resultStep(successResult("simplifier output")),
-        resultStep(successResult("review output")),
-        resultStep(successResult("fix output"))
-      );
-      queueReviewParses(state, parseReviewSuccess(buildReviewSummary()));
-      queueFixParses(
-        state,
-        parseFixSuccess(
-          buildFixSummary({
-            decision: "NO_CHANGES_NEEDED",
-            stop_iteration: true,
-            fixes: [],
-            skipped: [],
-          })
-        )
-      );
-
-      const result = await runReviewCycle(
-        createConfig(),
-        undefined,
-        {
-          simplifier: true,
-        },
-        {
-          projectPath: TEST_PROJECT_PATH,
-          sessionId: TEST_SESSION_ID,
-        },
-        deps
-      );
-
-      expect(result.success).toBe(true);
-      expect(result.finalStatus).toBe("completed");
-      expect(result.iterations).toBe(1);
-      expect(state.runAgentCalls.map((call) => call.role)).toEqual([
-        "code-simplifier",
-        "reviewer",
-        "fixer",
-      ]);
-    });
-  });
-
-  test("rolls back each failed simplifier retry attempt before a later retry succeeds", async () => {
-    await withHarness(async (state, deps) => {
-      queueRunAgentSteps(
-        state,
-        resultStep(failureResult("simplifier failed on initial run", 5)),
-        resultStep(successResult("simplifier output after retry")),
-        resultStep(successResult("review output")),
-        resultStep(successResult("fix output"))
-      );
-      queueReviewParses(state, parseReviewSuccess(buildReviewSummary()));
-      queueFixParses(
-        state,
-        parseFixSuccess(
-          buildFixSummary({
-            decision: "NO_CHANGES_NEEDED",
-            stop_iteration: true,
-            fixes: [],
-            skipped: [],
-          })
-        )
-      );
-
-      const result = await runReviewCycle(
-        createConfig({
-          retry: {
-            maxRetries: 1,
-            baseDelayMs: 0,
-            maxDelayMs: 0,
-          },
-        }),
-        undefined,
-        {
-          simplifier: true,
-        },
-        {
-          projectPath: TEST_PROJECT_PATH,
-          sessionId: TEST_SESSION_ID,
-        },
-        deps
-      );
-
-      expect(result.success).toBe(true);
-      expect(state.runAgentCalls.map((call) => call.role)).toEqual([
-        "code-simplifier",
-        "code-simplifier",
-        "reviewer",
-        "fixer",
-      ]);
-      expect(state.createCheckpointCalls).toHaveLength(3);
-      expect(state.rollbackCalls).toHaveLength(1);
-      expect(state.discardCheckpointCalls).toHaveLength(2);
-    });
-  });
-
-  test("swallows simplifier session state update failures and still completes", async () => {
-    await withHarness(async (state, deps) => {
-      state.updateSessionStateFailuresRemaining = 100;
-      queueRunAgentSteps(
-        state,
-        resultStep(successResult("simplifier output")),
-        resultStep(successResult("review output")),
-        resultStep(successResult("fix output"))
-      );
-      queueReviewParses(state, parseReviewSuccess(buildReviewSummary()));
-      queueFixParses(
-        state,
-        parseFixSuccess(
-          buildFixSummary({
-            decision: "NO_CHANGES_NEEDED",
-            stop_iteration: true,
-            fixes: [],
-            skipped: [],
-          })
-        )
-      );
-
-      const result = await runReviewCycle(
-        createConfig(),
-        undefined,
-        {
-          simplifier: true,
-        },
-        {
-          projectPath: TEST_PROJECT_PATH,
-          sessionId: TEST_SESSION_ID,
-        },
-        deps
-      );
-
-      expect(result.success).toBe(true);
-      expect(result.finalStatus).toBe("completed");
-      expect(state.runAgentCalls.map((call) => call.role)).toEqual([
-        "code-simplifier",
-        "reviewer",
-        "fixer",
-      ]);
-      expect(state.updateSessionStateCalls.length).toBeGreaterThan(0);
-    });
-  });
-
-  test("returns interrupted result when signal arrives after simplifier succeeds", async () => {
-    await withHarness(async (state, deps) => {
-      state.createOrAutoApplyHandoffResult = {
-        handoffStatus: "pending-apply",
-        commitSha: "retained-commit-sha",
-        handoffUpdatedAt: 1_700_000_000_000,
-      };
-      state.onRunAgent = (role) => {
-        if (role === "code-simplifier") {
-          triggerInterrupt(state);
-        }
-      };
-      queueRunAgentSteps(state, resultStep(successResult("simplifier output")));
-
-      const result = await runReviewCycle(
-        createConfig(),
-        undefined,
-        {
-          simplifier: true,
-        },
-        {
-          projectPath: TEST_PROJECT_PATH,
-          sessionId: TEST_SESSION_ID,
-        },
-        deps
-      );
-
-      expect(result.success).toBe(false);
-      expect(result.finalStatus).toBe("interrupted");
-      expect(result.iterations).toBe(0);
-      expect(result.handoffStatus).toBeUndefined();
-      expect(state.createOrAutoApplyHandoffCalls).toHaveLength(0);
-      expect(state.discardSessionWorktreeCalls).toHaveLength(1);
-    });
-  });
-
-  test("does not retry simplifier failures after an interrupt", async () => {
-    await withHarness(async (state, deps) => {
-      state.onRunAgent = (role) => {
-        if (role === "code-simplifier") {
-          triggerInterrupt(state);
-        }
-      };
-      queueRunAgentSteps(state, resultStep(failureResult("simplifier interrupted", 130)));
-
-      const result = await runReviewCycle(
-        createConfig({
-          retry: {
-            maxRetries: 2,
-            baseDelayMs: 0,
-            maxDelayMs: 0,
-          },
-        }),
-        undefined,
-        {
-          simplifier: true,
-        },
-        {
-          projectPath: TEST_PROJECT_PATH,
-          sessionId: TEST_SESSION_ID,
-        },
-        deps
-      );
-
-      expect(result.success).toBe(false);
-      expect(result.finalStatus).toBe("interrupted");
-      expect(result.iterations).toBe(0);
-      expect(state.runAgentCalls.map((call) => call.role)).toEqual(["code-simplifier"]);
-      expect(state.createOrAutoApplyHandoffCalls).toHaveLength(0);
-    });
-  });
-
-  test("returns interrupted result before iteration start when signal arrives after system log", async () => {
-    await withHarness(async (state, deps) => {
-      state.onAppendLog = (entry) => {
-        if (entry.type === "system") {
-          triggerInterrupt(state);
-        }
-      };
-
-      const result = await runReviewCycle(
-        createConfig(),
-        undefined,
-        undefined,
-        {
-          projectPath: TEST_PROJECT_PATH,
-          sessionId: TEST_SESSION_ID,
-        },
-        deps
-      );
-
-      expect(result.success).toBe(false);
-      expect(result.finalStatus).toBe("interrupted");
-      expect(result.iterations).toBe(0);
-      expect(state.runAgentCalls).toHaveLength(0);
-
-      const iterationEntry = state.appendedEntries.find((entry) => entry.type === "iteration");
-      expect(iterationEntry?.type).toBe("iteration");
-      if (iterationEntry?.type === "iteration") {
-        expect(iterationEntry.error?.message).toContain("interrupted before iteration start");
-      }
-    });
-  });
-
-  test("returns interrupted result before fixer when signal arrives during reviewer run", async () => {
-    await withHarness(async (state, deps) => {
-      state.onRunAgent = (role) => {
-        if (role === "reviewer") {
-          triggerInterrupt(state);
-        }
-      };
-      queueRunAgentSteps(state, resultStep(successResult("review output")));
-      queueReviewParses(state, parseReviewSuccess(buildReviewSummary()));
-
-      const result = await runReviewCycle(
-        createConfig(),
-        undefined,
-        undefined,
-        {
-          projectPath: TEST_PROJECT_PATH,
-          sessionId: TEST_SESSION_ID,
-        },
-        deps
-      );
-
-      expect(result.success).toBe(false);
-      expect(result.finalStatus).toBe("interrupted");
-      expect(result.iterations).toBe(1);
-      expect(state.runAgentCalls.map((call) => call.role)).toEqual(["reviewer"]);
-
-      const iterationEntry = state.appendedEntries.find((entry) => entry.type === "iteration");
-      expect(iterationEntry?.type).toBe("iteration");
-      if (iterationEntry?.type === "iteration") {
-        expect(iterationEntry.error?.message).toContain("interrupted before fixer");
-      }
-    });
-  });
-
-  test("continues to max iterations when forceMaxIterations is enabled after clean pass", async () => {
-    await withHarness(async (state, deps) => {
-      queueRunAgentSteps(
-        state,
-        resultStep(successResult("review output 1")),
-        resultStep(successResult("fix output 1")),
-        resultStep(successResult("review output 2")),
-        resultStep(successResult("fix output 2")),
-        resultStep(successResult("terminal review output"))
-      );
-      queueReviewParses(
-        state,
-        parseReviewSuccess(buildReviewSummary()),
-        parseReviewSuccess(buildReviewSummary()),
-        parseReviewSuccess(buildCleanReviewSummary())
-      );
-      queueFixParses(
-        state,
-        parseFixSuccess(
-          buildFixSummary({
-            decision: "NO_CHANGES_NEEDED",
-            stop_iteration: true,
-            fixes: [],
-            skipped: [],
-          })
-        ),
-        parseFixSuccess(
-          buildFixSummary({
-            decision: "NO_CHANGES_NEEDED",
-            stop_iteration: true,
-            fixes: [],
-            skipped: [],
-          })
-        )
-      );
-
-      const result = await runReviewCycle(
-        createConfig({
-          maxIterations: 2,
-        }),
-        undefined,
-        {
-          forceMaxIterations: true,
-        },
-        {
-          projectPath: TEST_PROJECT_PATH,
-          sessionId: TEST_SESSION_ID,
-        },
-        deps
-      );
-
-      expect(result.success).toBe(true);
-      expect(result.finalStatus).toBe("completed");
-      expect(result.reviewOutcome).toBe("clean");
-      expect(result.iterations).toBe(2);
-      expect(state.runAgentCalls).toHaveLength(5);
-    });
-  });
-
-  test("returns max-iterations outcome and keeps handoff pending when issues remain", async () => {
-    await withHarness(async (state, deps) => {
-      queueRunAgentSteps(
-        state,
-        resultStep(successResult("review output")),
-        resultStep(successResult("fix output")),
-        resultStep(successResult("terminal review output"))
-      );
-      queueReviewParses(
-        state,
-        parseReviewSuccess(buildReviewSummary()),
-        parseReviewSuccess(buildReviewSummary())
-      );
-      queueFixParses(
-        state,
-        parseFixSuccess(
-          buildFixSummary({
-            decision: "APPLY_SELECTIVELY",
-            stop_iteration: false,
-            fixes: [],
-            skipped: [],
-          })
-        )
-      );
-
-      const result = await runReviewCycle(
-        createConfig({
-          maxIterations: 1,
-        }),
-        undefined,
-        undefined,
-        {
-          projectPath: TEST_PROJECT_PATH,
-          sessionId: TEST_SESSION_ID,
-        },
-        deps
-      );
-
-      expect(result.success).toBe(false);
-      expect(result.finalStatus).toBe("completed");
-      expect(result.reviewOutcome).toBe("incomplete");
-      expect(result.handoffStatus).toBe("pending-apply");
-      expect(result.reason).toContain("Max iterations (1) reached");
-      expect(state.runAgentCalls.map((call) => call.role)).toEqual([
-        "reviewer",
-        "fixer",
-        "reviewer",
-      ]);
-      expect(state.createOrAutoApplyHandoffCalls[0]?.autoApply).toBe(false);
-    });
-  });
-
-  test("marks max-iteration result incomplete when terminal reviewer classification fails", async () => {
-    await withHarness(async (state, deps) => {
-      queueRunAgentSteps(
-        state,
-        resultStep(successResult("review output")),
-        resultStep(successResult("fix output")),
-        resultStep(failureResult("terminal reviewer failed", 19))
-      );
-      queueReviewParses(state, parseReviewSuccess(buildReviewSummary()));
-      queueFixParses(
-        state,
-        parseFixSuccess(
-          buildFixSummary({
-            decision: "APPLY_SELECTIVELY",
-            stop_iteration: false,
-            fixes: [],
-            skipped: [],
-          })
-        )
-      );
-
-      const result = await runReviewCycle(
-        createConfig({
-          maxIterations: 1,
-        }),
-        undefined,
-        undefined,
-        {
-          projectPath: TEST_PROJECT_PATH,
-          sessionId: TEST_SESSION_ID,
-        },
-        deps
-      );
-
-      expect(result.success).toBe(false);
-      expect(result.finalStatus).toBe("completed");
-      expect(result.reviewOutcome).toBe("incomplete");
-      expect(result.terminalReview).toBeUndefined();
-    });
-  });
-
-  test("preserves interrupted status when terminal reviewer finishes clean after SIGINT", async () => {
-    await withHarness(async (state, deps) => {
-      state.onRunAgent = (role) => {
-        if (role === "reviewer" && state.runAgentCalls.length === 3) {
-          triggerInterrupt(state);
-        }
-      };
-      queueRunAgentSteps(
-        state,
-        resultStep(successResult("review output")),
-        resultStep(successResult("fix output")),
-        resultStep(successResult("terminal review output"))
-      );
-      queueReviewParses(
-        state,
-        parseReviewSuccess(buildReviewSummary()),
-        parseReviewSuccess(buildCleanReviewSummary())
-      );
-      queueFixParses(
-        state,
-        parseFixSuccess(
-          buildFixSummary({
-            decision: "APPLY_SELECTIVELY",
-            stop_iteration: false,
-            fixes: [],
-            skipped: [],
-          })
-        )
-      );
-
-      const result = await runReviewCycle(
-        createConfig({
-          maxIterations: 1,
-        }),
-        undefined,
-        undefined,
-        {
-          projectPath: TEST_PROJECT_PATH,
-          sessionId: TEST_SESSION_ID,
-        },
-        deps
-      );
-
-      expect(result.success).toBe(false);
-      expect(result.finalStatus).toBe("interrupted");
-      expect(result.reviewOutcome).toBe("clean");
-      expect(result.reason).toBe("Review cycle was interrupted");
-    });
-  });
-
-  test("retries terminal reviewer classification when the structured summary is invalid", async () => {
-    await withHarness(async (state, deps) => {
-      queueRunAgentSteps(
-        state,
-        resultStep(successResult("review output")),
-        resultStep(successResult("fix output")),
-        resultStep(successResult("terminal review output invalid")),
-        resultStep(successResult("terminal review output repaired"))
-      );
-      queueReviewParses(
-        state,
-        parseReviewSuccess(buildReviewSummary()),
-        parseReviewFailure("invalid terminal summary"),
-        parseReviewSuccess(buildCleanReviewSummary())
-      );
-      queueFixParses(
-        state,
-        parseFixSuccess(
-          buildFixSummary({
-            decision: "APPLY_SELECTIVELY",
-            stop_iteration: false,
-            fixes: [],
-            skipped: [],
-          })
-        )
-      );
-
-      const result = await runReviewCycle(
-        createConfig({
-          maxIterations: 1,
-        }),
-        undefined,
-        undefined,
-        {
-          projectPath: TEST_PROJECT_PATH,
-          sessionId: TEST_SESSION_ID,
-        },
-        deps
-      );
-
-      expect(result.success).toBe(true);
-      expect(result.finalStatus).toBe("completed");
-      expect(result.reviewOutcome).toBe("clean");
-      expect(result.terminalReview?.findings).toEqual([]);
-      expect(state.runAgentCalls[3]?.prompt).toContain("REVIEWER_SUMMARY_RETRY_REMINDER");
-    });
-  });
-
-  test("marks max-iteration result incomplete when terminal reviewer summary is invalid", async () => {
-    await withHarness(async (state, deps) => {
-      queueRunAgentSteps(
-        state,
-        resultStep(successResult("review output")),
-        resultStep(successResult("fix output")),
-        resultStep(successResult("terminal review output")),
-        resultStep(successResult("terminal review output still invalid"))
-      );
-      queueReviewParses(
-        state,
-        parseReviewSuccess(buildReviewSummary()),
-        parseReviewFailure("invalid terminal summary"),
-        parseReviewFailure("still invalid terminal summary")
-      );
-      queueFixParses(
-        state,
-        parseFixSuccess(
-          buildFixSummary({
-            decision: "APPLY_SELECTIVELY",
-            stop_iteration: false,
-            fixes: [],
-            skipped: [],
-          })
-        )
-      );
-
-      const result = await runReviewCycle(
-        createConfig({
-          maxIterations: 1,
-        }),
-        undefined,
-        undefined,
-        {
-          projectPath: TEST_PROJECT_PATH,
-          sessionId: TEST_SESSION_ID,
-        },
-        deps
-      );
-
-      expect(result.success).toBe(false);
-      expect(result.finalStatus).toBe("completed");
-      expect(result.reviewOutcome).toBe("incomplete");
-      expect(result.terminalReview).toBeUndefined();
-      expect(state.runAgentCalls[3]?.prompt).toContain("REVIEWER_SUMMARY_RETRY_REMINDER");
-    });
-  });
-
-  test("continues to another iteration when fixer explicitly sets stop_iteration false", async () => {
-    await withHarness(async (state, deps) => {
-      queueRunAgentSteps(
-        state,
-        resultStep(successResult("review output 1")),
-        resultStep(successResult("fix output 1")),
-        resultStep(successResult("review output 2")),
-        resultStep(successResult("fix output 2"))
-      );
-      queueReviewParses(
-        state,
-        parseReviewSuccess(buildReviewSummary()),
-        parseReviewSuccess(buildReviewSummary())
-      );
-      queueFixParses(
-        state,
-        parseFixSuccess(
-          buildFixSummary({
-            decision: "APPLY_SELECTIVELY",
-            stop_iteration: false,
-            fixes: [],
-            skipped: [],
-          })
-        ),
-        parseFixSuccess(
-          buildFixSummary({
-            decision: "NO_CHANGES_NEEDED",
-            stop_iteration: true,
-            fixes: [],
-            skipped: [],
-          })
-        )
-      );
-
-      const result = await runReviewCycle(
-        createConfig({
-          maxIterations: 2,
-        }),
-        undefined,
-        undefined,
-        {
-          projectPath: TEST_PROJECT_PATH,
-          sessionId: TEST_SESSION_ID,
-        },
-        deps
-      );
-
-      expect(result.success).toBe(true);
-      expect(result.finalStatus).toBe("completed");
-      expect(result.iterations).toBe(2);
-      expect(state.runAgentCalls).toHaveLength(4);
-    });
-  });
-
-  test("swallows session state update errors and still completes", async () => {
-    await withHarness(async (state, deps) => {
-      state.updateSessionStateFailuresRemaining = 100;
-      queueRunAgentSteps(
-        state,
-        resultStep(successResult("review output")),
-        resultStep(successResult("fix output"))
-      );
-      queueReviewParses(state, parseReviewSuccess(buildReviewSummary()));
-      queueFixParses(
-        state,
-        parseFixSuccess(
-          buildFixSummary({
-            decision: "NO_CHANGES_NEEDED",
-            stop_iteration: true,
-            fixes: [],
-            skipped: [],
-          })
-        )
-      );
-
-      const result = await runReviewCycle(
-        createConfig(),
-        undefined,
-        undefined,
-        {
-          projectPath: TEST_PROJECT_PATH,
-          sessionId: TEST_SESSION_ID,
-        },
-        deps
-      );
-
-      expect(result.success).toBe(true);
-      expect(result.finalStatus).toBe("completed");
-      expect(state.updateSessionStateCalls.length).toBeGreaterThan(0);
-    });
-  });
-
-  test("swallows session_end append failures in finally and still returns result", async () => {
-    await withHarness(async (state, deps) => {
-      const appendLogBase = deps.appendLog;
-      deps.appendLog = async (sessionPath, entry) => {
-        if (entry.type === "session_end") {
-          throw new Error("session_end append failed");
-        }
-        await appendLogBase(sessionPath, entry);
-      };
-
-      queueRunAgentSteps(
-        state,
-        resultStep(successResult("review output")),
-        resultStep(successResult("fix output"))
-      );
-      queueReviewParses(state, parseReviewSuccess(buildReviewSummary()));
-      queueFixParses(
-        state,
-        parseFixSuccess(
-          buildFixSummary({
-            decision: "NO_CHANGES_NEEDED",
-            stop_iteration: true,
-            fixes: [],
-            skipped: [],
-          })
-        )
-      );
-
-      const result = await runReviewCycle(
-        createConfig(),
-        undefined,
-        undefined,
-        {
-          projectPath: TEST_PROJECT_PATH,
-          sessionId: TEST_SESSION_ID,
-        },
-        deps
-      );
-
-      expect(result.success).toBe(true);
-      expect(result.finalStatus).toBe("completed");
-      expect(state.appendedEntries.some((entry) => entry.type === "session_end")).toBe(false);
-    });
-  });
-
-  test("rethrows unexpected errors and still appends session_end entry", async () => {
-    await withHarness(async (state, deps) => {
-      queueRunAgentSteps(state, throwStep(new Error("runner crashed")));
-
-      await expect(
-        runReviewCycle(
-          createConfig(),
-          undefined,
-          undefined,
-          {
-            projectPath: TEST_PROJECT_PATH,
-            sessionId: TEST_SESSION_ID,
-          },
-          deps
-        )
-      ).rejects.toThrow("runner crashed");
-
-      const sessionEnd = state.appendedEntries.at(-1);
-      expect(sessionEnd?.type).toBe("session_end");
-      if (sessionEnd?.type === "session_end") {
-        expect(sessionEnd.status).toBe("failed");
-        expect(sessionEnd.reason).toBe("Unexpected error: runner crashed");
-      }
-    });
-  });
-
-  test("uses fallback session_end reason when non-Error is thrown", async () => {
-    await withHarness(async (state, deps) => {
-      queueRunAgentSteps(state, throwStep("runner crashed as string"));
-
-      await expect(
-        runReviewCycle(
-          createConfig(),
-          undefined,
-          undefined,
-          {
-            projectPath: TEST_PROJECT_PATH,
-            sessionId: TEST_SESSION_ID,
-          },
-          deps
-        )
-      ).rejects.toBe("runner crashed as string");
-
-      const sessionEnd = state.appendedEntries.at(-1);
-      expect(sessionEnd?.type).toBe("session_end");
-      if (sessionEnd?.type === "session_end") {
-        expect(sessionEnd.status).toBe("failed");
-        expect(sessionEnd.reason).toBe("Review cycle ended unexpectedly");
-        expect(sessionEnd.iterations).toBe(1);
-      }
-    });
+  test("runs the simplifier before freezing the reviewed snapshot when enabled", async () => {
+    const state = createHarnessState();
+    queueRunAgentResults(
+      state,
+      createSuccessResult("simplifier-pass"),
+      createSuccessResult("review-pass-1")
+    );
+    queueReviewParses(state, createReviewParse(createReviewSummary([])));
+
+    const result = await runReviewCycle(
+      createConfig(),
+      undefined,
+      {
+        simplifier: true,
+      },
+      {
+        projectPath: TEST_PROJECT_PATH,
+        sessionId: TEST_SESSION_ID,
+        sessionPath: TEST_SESSION_PATH,
+      },
+      createDependencies(state)
+    );
+
+    expect(result.reviewOutcome).toBe("clean");
+    expect(state.runAgentCalls.map((call) => call.role)).toEqual(["code-simplifier", "reviewer"]);
+    expect(state.persistedSnapshots).toEqual([
+      {
+        projectPath: TEST_PROJECT_PATH,
+        sessionId: TEST_SESSION_ID,
+        sourceSnapshotPath: TEST_WORKTREE_PATH,
+      },
+    ]);
+    expect(state.operationLog.indexOf("run-agent:code-simplifier")).toBeLessThan(
+      state.operationLog.indexOf("persist-reviewed-snapshot")
+    );
+    expect(state.operationLog.indexOf("persist-reviewed-snapshot")).toBeLessThan(
+      state.operationLog.indexOf("run-agent:reviewer")
+    );
   });
 });

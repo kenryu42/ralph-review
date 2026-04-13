@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import {
+  createDiscoveryReviewerPrompt,
   createReviewerPrompt,
   REVIEW_SUMMARY_END_TOKEN,
   REVIEW_SUMMARY_START_TOKEN,
 } from "@/lib/prompts";
+import type { StoredFinding } from "@/lib/review-workflow/findings/types";
 
 const REPO_PATH = process.cwd();
 
@@ -79,6 +81,41 @@ describe("createReviewerPrompt", () => {
     const prompt = createReviewerPrompt({ repoPath: REPO_PATH });
 
     expect(prompt).toContain("staged, unstaged, and untracked files");
+    expectStructuredOutputProtocol(prompt);
+  });
+});
+
+describe("createDiscoveryReviewerPrompt", () => {
+  test("includes known findings inventory and requests only net-new findings on later passes", () => {
+    const knownFindings: StoredFinding[] = [
+      {
+        id: "F001",
+        fingerprint: "fp-1",
+        locationKey: "src/lib/config.ts:10:12",
+        title: "Guard undefined config",
+        body: "Optional config access can throw when the field is missing.",
+        priority: "P1",
+        confidenceScore: 0.91,
+        filePath: "src/lib/config.ts",
+        startLine: 10,
+        endLine: 12,
+      },
+    ];
+
+    const prompt = createDiscoveryReviewerPrompt({
+      reviewedSnapshotPath: "/tmp/ralph-review/snapshots/session-123/reviewed",
+      customInstructions: "Focus on runtime failures.",
+      knownFindings,
+      iteration: 2,
+    });
+
+    expect(prompt).toContain("/tmp/ralph-review/snapshots/session-123/reviewed");
+    expect(prompt).toContain("Focus on runtime failures.");
+    expect(prompt).toContain("Known findings already captured");
+    expect(prompt).toContain("F001");
+    expect(prompt).toContain("Guard undefined config");
+    expect(prompt).toContain("Report only net-new actionable findings");
+    expect(prompt).toContain('return `"findings": []`');
     expectStructuredOutputProtocol(prompt);
   });
 });
