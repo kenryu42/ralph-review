@@ -221,12 +221,6 @@ function IterationSection({ entry }: { entry: IterationEntry }) {
             <text fg={TUI_COLORS.text.muted}>Decision:</text>
             <text fg={TUI_COLORS.text.secondary}>{entry.fixes.decision}</text>
           </box>
-          {entry.fixes.stop_iteration !== undefined && (
-            <box flexDirection="row" gap={1}>
-              <text fg={TUI_COLORS.text.muted}>Stop iteration:</text>
-              <text fg={TUI_COLORS.text.secondary}>{String(entry.fixes.stop_iteration)}</text>
-            </box>
-          )}
         </box>
       )}
 

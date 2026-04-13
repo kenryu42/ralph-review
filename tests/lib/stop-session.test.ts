@@ -282,7 +282,6 @@ describe("stopActiveSession", () => {
             iteration: 1,
             fixes: {
               decision: "NO_CHANGES_NEEDED",
-              stop_iteration: true,
               fixes: [],
               skipped: [],
             },

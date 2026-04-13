@@ -4,7 +4,6 @@
   "usedRepair": true,
   "value": {
     "decision": "APPLY_SELECTIVELY",
-    "stop_iteration": false,
     "fixes": [
       {
         "id": 1,

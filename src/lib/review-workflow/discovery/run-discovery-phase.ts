@@ -102,7 +102,9 @@ export async function runDiscoveryPhase(
     const iterationStartTime = Date.now();
 
     await updateDiscoverySessionState(options, {
+      currentPhase: "discovery",
       phase: "discovery",
+      sessionStatus: "running",
       currentAgent: "reviewer",
       iteration,
       reviewSummary: undefined,
@@ -127,6 +129,14 @@ export async function runDiscoveryPhase(
       netNewFindingIds: merged.newFindings.map((finding) => finding.id),
     };
     await options.appendLog(options.sessionPath, entry);
+    await updateDiscoverySessionState(options, {
+      currentPhase: "discovery",
+      phase: "discovery",
+      sessionStatus: "running",
+      currentAgent: null,
+      iteration,
+      accumulatedFindings: findings,
+    });
     await assertSnapshotFingerprint(
       options.reviewedSnapshotPath,
       options.initialSnapshotFingerprint,

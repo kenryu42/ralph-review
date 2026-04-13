@@ -852,12 +852,11 @@ describe("SessionDetailPane", () => {
     expect(frame).not.toContain("31313131");
   });
 
-  test("renders iteration decision and stop-iteration metadata", async () => {
+  test("renders iteration decision without stop-iteration metadata", async () => {
     const iterEntry = buildIterationEntry({
       iteration: 1,
       fixes: {
         decision: "NO_CHANGES_NEEDED",
-        stop_iteration: true,
         fixes: [],
         skipped: [],
       },
@@ -872,8 +871,7 @@ describe("SessionDetailPane", () => {
 
     expect(frame).toContain("Decision:");
     expect(frame).toContain("NO_CHANGES_NEEDED");
-    expect(frame).toContain("Stop iteration:");
-    expect(frame).toContain("true");
+    expect(frame).not.toContain("Stop iteration:");
   });
 
   test("renders empty iteration as no issues found", async () => {

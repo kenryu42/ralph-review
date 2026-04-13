@@ -338,7 +338,9 @@ export async function runDiscoverySession(
   try {
     await updateDiscoverySessionState(deps, projectPath, runtimeContext?.sessionId, {
       sessionPath,
+      currentPhase: "discovery",
       phase: "discovery",
+      sessionStatus: "running",
       currentAgent: null,
     });
 
@@ -346,7 +348,9 @@ export async function runDiscoverySession(
 
     await updateDiscoverySessionState(deps, projectPath, runtimeContext?.sessionId, {
       sessionPath,
+      currentPhase: "discovery",
       phase: "discovery",
+      sessionStatus: "running",
       worktreeProjectPath: worktree.worktreeProjectPath,
       worktreeBranch: worktree.retainedBranch,
     });
@@ -368,7 +372,9 @@ export async function runDiscoverySession(
     await deps.appendLog(sessionPath, systemEntry);
 
     await updateDiscoverySessionState(deps, projectPath, runtimeContext?.sessionId, {
+      currentPhase: "discovery",
       phase: "discovery",
+      sessionStatus: "running",
       currentAgent: reviewOptions?.simplifier ? "code-simplifier" : null,
     });
     await runSimplifierIfEnabled(
@@ -394,9 +400,15 @@ export async function runDiscoverySession(
     const artifactPath = getFindingsArtifactPath(CONFIG_DIR, projectPath, sessionId);
 
     await updateDiscoverySessionState(deps, projectPath, runtimeContext?.sessionId, {
+      currentPhase: "discovery",
       phase: "discovery",
+      sessionStatus: "running",
       currentAgent: null,
       artifactPath,
+      reviewedSnapshotPath: reviewedSnapshot.reviewedSnapshotPath,
+      sourceFingerprint: reviewedSnapshot.sourceFingerprint,
+      accumulatedFindings: [],
+      selectedFindingIds: [],
     });
 
     const phaseResult = await runDiscoveryPhase({
@@ -430,6 +442,16 @@ export async function runDiscoverySession(
     });
 
     if (phaseResult.findings.length === 0) {
+      await updateDiscoverySessionState(deps, projectPath, runtimeContext?.sessionId, {
+        currentPhase: "discovery",
+        phase: "discovery",
+        sessionStatus: phaseResult.sessionStatus,
+        currentAgent: null,
+        accumulatedFindings: [],
+        selectedFindingIds: [],
+        reviewOutcome: phaseResult.sessionStatus === "interrupted" ? "incomplete" : "clean",
+      });
+
       return {
         sessionPath,
         result: {
@@ -457,9 +479,15 @@ export async function runDiscoverySession(
       )
     );
     await updateDiscoverySessionState(deps, projectPath, runtimeContext?.sessionId, {
+      currentPhase: "discovery",
       phase: "discovery",
+      sessionStatus: phaseResult.sessionStatus,
       currentAgent: null,
       artifactPath,
+      reviewedSnapshotPath: reviewedSnapshot.reviewedSnapshotPath,
+      sourceFingerprint: reviewedSnapshot.sourceFingerprint,
+      accumulatedFindings: phaseResult.findings,
+      selectedFindingIds: [],
       reviewOutcome: "findings-pending",
     });
 
@@ -480,6 +508,14 @@ export async function runDiscoverySession(
       },
     };
   } catch (error) {
+    await updateDiscoverySessionState(deps, projectPath, runtimeContext?.sessionId, {
+      currentPhase: "discovery",
+      phase: "discovery",
+      sessionStatus: wasInterrupted() ? "interrupted" : "failed",
+      currentAgent: null,
+      reviewOutcome: "incomplete",
+    });
+
     return {
       sessionPath,
       result: {

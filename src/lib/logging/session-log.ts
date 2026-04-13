@@ -11,14 +11,11 @@ import type {
   AgentType,
   DashboardData,
   DerivedRunStatus,
-  DiscoveryIterationEntry,
-  HandoffEntry,
   IterationEntry,
   LogEntry,
   ModelStats,
   Priority,
   ProjectStats,
-  SessionEndEntry,
   SessionStats,
   SessionSummary,
   SystemEntry,
@@ -320,6 +317,20 @@ function aggregatePriorityCounts(
   }
 }
 
+function countFindingPriorityCounts(
+  findings: Array<{
+    priority: Priority;
+  }>
+): Record<Priority, number> {
+  const counts = emptyPriorityCounts();
+
+  for (const finding of findings) {
+    counts[finding.priority] += 1;
+  }
+
+  return counts;
+}
+
 function computeIterationMetrics(entries: LogEntry[]): IterationMetrics {
   const iterations = entries.filter((entry): entry is IterationEntry => entry.type === "iteration");
   const lastIteration = iterations.at(-1);
@@ -355,91 +366,52 @@ function computeIterationMetrics(entries: LogEntry[]): IterationMetrics {
   };
 }
 
-function getLastSessionEnd(entries: LogEntry[]): SessionEndEntry | undefined {
-  return entries.filter((entry): entry is SessionEndEntry => entry.type === "session_end").at(-1);
-}
-
 function deriveRunStatusFromEntries(
   entries: LogEntry[],
   metrics: IterationMetrics
 ): DerivedRunStatus {
-  const sessionEnd = getLastSessionEnd(entries);
-  if (sessionEnd) {
-    return sessionEnd.status;
-  }
-
-  if (!metrics.lastIteration) {
-    if (entries.some((entry) => entry.type === "discovery_iteration")) {
-      return "running";
-    }
+  const latestLifecycleEntry = [...entries].reverse().find((entry) => entry.type !== "handoff");
+  if (!latestLifecycleEntry) {
     return "unknown";
   }
 
-  if (metrics.lastIteration.error) {
-    if (metrics.lastIteration.error.message.toLowerCase().includes("interrupt")) {
-      return "interrupted";
-    }
-    return "failed";
+  if (latestLifecycleEntry.type === "session_end") {
+    return latestLifecycleEntry.status;
   }
 
-  return "completed";
-}
+  if (latestLifecycleEntry.type === "iteration") {
+    return deriveRunStatusFromIteration(latestLifecycleEntry);
+  }
 
-function getLastHandoffEntry(entries: LogEntry[]): HandoffEntry | undefined {
-  return entries.filter((entry): entry is HandoffEntry => entry.type === "handoff").at(-1);
+  if (
+    latestLifecycleEntry.type === "discovery_iteration" ||
+    latestLifecycleEntry.type === "batch_fix" ||
+    latestLifecycleEntry.type === "final_audit"
+  ) {
+    if (latestLifecycleEntry.error) {
+      return latestLifecycleEntry.error.message.toLowerCase().includes("interrupt")
+        ? "interrupted"
+        : "failed";
+    }
+    return "running";
+  }
+
+  if (latestLifecycleEntry.type === "finding_selection") {
+    return "running";
+  }
+
+  if (metrics.lastIteration) {
+    return deriveRunStatusFromIteration(metrics.lastIteration);
+  }
+
+  return "unknown";
 }
 
 function buildSessionSummary(logPath: string, entries: LogEntry[]): SessionSummary {
-  const metrics = computeIterationMetrics(entries);
-  const discoveryIterations = entries.filter(
-    (entry): entry is DiscoveryIterationEntry => entry.type === "discovery_iteration"
+  return entries.reduce(
+    (summary, entry) => applyEntryToSummary(summary, entry, logPath),
+    createEmptySessionSummary(logPath)
   );
-  const lastDiscoveryIteration = discoveryIterations.at(-1);
-  const discoveryDuration = discoveryIterations.reduce((total, entry) => {
-    return total + (entry.duration ?? 0);
-  }, 0);
-  const systemEntry = entries.find((entry): entry is SystemEntry => entry.type === "system");
-  const sessionEnd = getLastSessionEnd(entries);
-  const handoffEntry = getLastHandoffEntry(entries);
-  const lastTimestamp = [...entries]
-    .reverse()
-    .find((entry) => entry.timestamp !== undefined)?.timestamp;
-  const projectName = systemEntry?.projectPath
-    ? getProjectName(systemEntry.projectPath)
-    : getProjectNameFromLogPath(logPath);
-
-  return {
-    schemaVersion: SUMMARY_SCHEMA_VERSION,
-    logPath,
-    summaryPath: getSummaryPath(logPath),
-    sessionId: systemEntry?.sessionId,
-    projectName,
-    projectPath: systemEntry?.projectPath,
-    gitBranch: systemEntry?.gitBranch,
-    startedAt: systemEntry?.timestamp ?? entries[0]?.timestamp,
-    updatedAt: sessionEnd?.timestamp ?? lastTimestamp ?? Date.now(),
-    endedAt: sessionEnd?.timestamp,
-    status: deriveRunStatusFromEntries(entries, metrics),
-    sessionStatus: sessionEnd?.sessionStatus,
-    phase: sessionEnd?.phase ?? (lastDiscoveryIteration ? "discovery" : undefined),
-    reason: sessionEnd?.reason,
-    iterations:
-      metrics.iterations.length > 0 ? metrics.iterations.length : discoveryIterations.length,
-    hasIteration: metrics.iterations.length > 0 || discoveryIterations.length > 0,
-    stop_iteration: metrics.lastIteration?.fixes?.stop_iteration,
-    totalFixes: metrics.totalFixes,
-    totalSkipped: metrics.totalSkipped,
-    priorityCounts: metrics.priorityCounts,
-    totalDuration:
-      metrics.totalDuration ?? (discoveryIterations.length > 0 ? discoveryDuration : undefined),
-    reviewOutcome: sessionEnd?.reviewOutcome,
-    handoffStatus: handoffEntry?.handoffStatus ?? sessionEnd?.handoffStatus,
-    handoffUpdatedAt: handoffEntry?.timestamp ?? sessionEnd?.handoffUpdatedAt,
-    mergeReady: sessionEnd?.mergeReady,
-    commitSha: handoffEntry?.commitSha ?? sessionEnd?.commitSha,
-    worktreeBranch: sessionEnd ? sessionEnd.worktreeBranch : systemEntry?.worktreeBranch,
-    totalFindings: lastDiscoveryIteration?.findings.length,
-  };
 }
 
 function createEmptySessionSummary(logPath: string): SessionSummary {
@@ -513,10 +485,6 @@ function applyEntryToSummary(
           next.priorityCounts[fix.priority]++;
         }
       }
-
-      if (entry.fixes.stop_iteration !== undefined) {
-        next.stop_iteration = entry.fixes.stop_iteration;
-      }
     }
 
     if (entry.duration !== undefined) {
@@ -529,9 +497,69 @@ function applyEntryToSummary(
   if (entry.type === "discovery_iteration") {
     next.iterations = summary.iterations + 1;
     next.hasIteration = true;
-    next.status = "running";
+    next.status =
+      entry.error?.message.toLowerCase().includes("interrupt") === true ? "interrupted" : "running";
+    if (entry.error && next.status !== "interrupted") {
+      next.status = "failed";
+    }
+    next.sessionStatus = entry.sessionStatus;
     next.phase = "discovery";
+    next.endedAt = undefined;
+    next.reason = undefined;
     next.totalFindings = entry.findings.length;
+    next.priorityCounts = countFindingPriorityCounts(entry.findings);
+
+    if (entry.duration !== undefined) {
+      next.totalDuration = (summary.totalDuration ?? 0) + entry.duration;
+    }
+
+    return next;
+  }
+
+  if (entry.type === "finding_selection") {
+    next.status = "running";
+    next.sessionStatus = "running";
+    next.phase = "selection";
+    next.endedAt = undefined;
+    next.reason = undefined;
+    next.totalSelectedFindings = entry.selectedFindingIds.length;
+    return next;
+  }
+
+  if (entry.type === "batch_fix") {
+    const appliedFindings = entry.fixResults.filter((result) => result.status === "fixed").length;
+    const skippedFindings = entry.fixResults.filter((result) => result.status === "skipped").length;
+    const failed = entry.error !== undefined;
+    const interrupted = entry.error?.message.toLowerCase().includes("interrupt") === true;
+
+    next.status = interrupted ? "interrupted" : failed ? "failed" : "running";
+    next.sessionStatus = interrupted ? "interrupted" : failed ? "failed" : "running";
+    next.phase = "batch-fix";
+    next.endedAt = undefined;
+    next.reason = failed ? entry.error?.message : undefined;
+    next.totalAppliedFindings = appliedFindings;
+    next.totalSkippedFindings = skippedFindings;
+    next.totalFixes = appliedFindings;
+    next.totalSkipped = skippedFindings;
+
+    if (entry.duration !== undefined) {
+      next.totalDuration = (summary.totalDuration ?? 0) + entry.duration;
+    }
+
+    return next;
+  }
+
+  if (entry.type === "final_audit") {
+    const failed = entry.error !== undefined;
+    const interrupted = entry.error?.message.toLowerCase().includes("interrupt") === true;
+
+    next.status = interrupted ? "interrupted" : failed ? "failed" : "running";
+    next.sessionStatus = interrupted ? "interrupted" : failed ? "failed" : "running";
+    next.phase = "final-audit";
+    next.endedAt = undefined;
+    next.reason = failed ? entry.error?.message : undefined;
+    next.totalUnresolvedSelectedFindings = entry.summary.unresolvedFindingIds.length;
+    next.totalAuditRegressions = entry.summary.regressionFindings.length;
 
     if (entry.duration !== undefined) {
       next.totalDuration = (summary.totalDuration ?? 0) + entry.duration;
@@ -557,12 +585,12 @@ function applyEntryToSummary(
   next.reason = entry.reason;
   next.endedAt = entry.timestamp;
   next.phase = entry.phase;
-  next.sessionStatus = entry.sessionStatus;
-  next.reviewOutcome = entry.reviewOutcome;
-  next.handoffStatus = entry.handoffStatus;
-  next.handoffUpdatedAt = entry.handoffUpdatedAt;
+  next.sessionStatus = entry.sessionStatus ?? next.sessionStatus;
+  next.reviewOutcome = entry.reviewOutcome ?? next.reviewOutcome;
+  next.handoffStatus = entry.handoffStatus ?? next.handoffStatus;
+  next.handoffUpdatedAt = entry.handoffUpdatedAt ?? next.handoffUpdatedAt;
   next.mergeReady = entry.mergeReady;
-  next.commitSha = entry.commitSha;
+  next.commitSha = entry.commitSha ?? next.commitSha;
   next.worktreeBranch = entry.worktreeBranch;
   return next;
 }
@@ -957,12 +985,19 @@ export async function computeSessionStats(session: LogSession): Promise<SessionS
     handoffStatus: summary?.handoffStatus,
     handoffUpdatedAt: summary?.handoffUpdatedAt,
     status: summary?.status ?? deriveRunStatusFromEntries(entries, metrics),
-    stop_iteration: summary?.stop_iteration ?? metrics.lastIteration?.fixes?.stop_iteration,
+    sessionStatus: summary?.sessionStatus,
+    phase: summary?.phase,
     totalFixes: summary?.totalFixes ?? metrics.totalFixes,
     totalSkipped: summary?.totalSkipped ?? metrics.totalSkipped,
     priorityCounts: summary?.priorityCounts ?? metrics.priorityCounts,
     iterations: summary?.iterations ?? metrics.iterations.length,
     totalDuration: summary?.totalDuration ?? metrics.totalDuration,
+    totalFindings: summary?.totalFindings,
+    totalSelectedFindings: summary?.totalSelectedFindings,
+    totalAppliedFindings: summary?.totalAppliedFindings,
+    totalSkippedFindings: summary?.totalSkippedFindings,
+    totalUnresolvedSelectedFindings: summary?.totalUnresolvedSelectedFindings,
+    totalAuditRegressions: summary?.totalAuditRegressions,
     entries,
     reviewer,
     reviewerModel,

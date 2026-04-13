@@ -72,6 +72,8 @@ export interface DiscoveryIterationEntry {
   type: "discovery_iteration";
   timestamp: number;
   iteration: number;
+  phase: Extract<ReviewPhase, "discovery">;
+  sessionStatus: SessionStatus;
   duration?: number;
   findings: StoredFinding[];
   netNewFindingIds: FindingId[];
@@ -120,7 +122,6 @@ export interface SessionSummary {
   reason?: string;
   iterations: number;
   hasIteration: boolean;
-  stop_iteration?: boolean;
   totalFixes: number;
   totalSkipped: number;
   priorityCounts: Record<Priority, number>;

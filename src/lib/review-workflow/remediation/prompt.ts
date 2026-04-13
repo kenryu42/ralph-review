@@ -117,14 +117,6 @@ Classify each concrete issue as:
 - APPLY: real issue with strong evidence that you can safely fix now
 - SKIP: false positive / weak evidence / not actionable / unrelated / out of scope
 
-## Stop logic (compute before fixes)
-STOP_ITERATION = (APPLY is empty)
-
-Implications:
-- stop_iteration=true means no actionable, sufficiently proven issues remain.
-- If stop_iteration=true, do not include patch/diff output.
-- If fixes is non-empty, stop_iteration must be false.
-
 ## Human-readable section (concise)
 DECISION: <NO CHANGES NEEDED | APPLY SELECTIVELY | APPLY MOST>
 APPLY: <count or none>   SKIP: <count or none>
@@ -140,7 +132,6 @@ ${createFixerStructuredOutputInstructions()}
 ${FIX_SUMMARY_START_TOKEN}
 {
   "decision": "<NO_CHANGES_NEEDED | APPLY_SELECTIVELY | APPLY_MOST>",
-  "stop_iteration": <true|false>,
   "fixes": [
     {
       "id": 1,
@@ -170,14 +161,10 @@ ${FIX_SUMMARY_END_TOKEN}
 JSON rules:
 - Default to SKIP when uncertain.
 - Never convert weak suspicion into APPLY.
-- stop_iteration MUST equal (APPLY empty), computed before fixes.
 - If reviewer findings are empty and conservative re-check finds no issues:
   - decision MUST be NO_CHANGES_NEEDED
   - fixes MUST be []
   - skipped MUST be []
-- If stop_iteration is true:
-  - fixes MUST be []
-  - skipped MUST contain only SKIP items
 - Include all APPLY items in fixes.
 - For each APPLY item, include code_location when available; otherwise set code_location to null or omit it.
 - Include all SKIP items in skipped with required reason prefix.
@@ -252,7 +239,6 @@ JSON rules:
 - Use the selected finding IDs as the object keys under \`results\`.
 - You must return one result entry for every selected finding ID.
 - Do not include any finding that was not selected.
-- Do not include the legacy iteration-stop field.
 - Use \`fixed\` only when you verified the issue and applied a real code change.
 - Use \`skipped\` when the finding was unproven, out of scope, or did not require a safe change.
 - The delimited JSON block must be the final output.`;

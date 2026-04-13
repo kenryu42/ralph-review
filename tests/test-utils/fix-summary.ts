@@ -3,7 +3,6 @@ import type { FixDecision } from "@/lib/types/domain";
 
 interface FixSummaryOverrides {
   decision?: FixDecision;
-  stop_iteration?: boolean;
   fixes?: FixEntry[];
   skipped?: SkippedEntry[];
 }
@@ -11,7 +10,6 @@ interface FixSummaryOverrides {
 export function buildFixSummary(overrides: FixSummaryOverrides = {}): FixSummary {
   return {
     decision: overrides.decision ?? "APPLY_SELECTIVELY",
-    stop_iteration: overrides.stop_iteration ?? false,
     fixes: overrides.fixes ?? [],
     skipped: overrides.skipped ?? [],
   };

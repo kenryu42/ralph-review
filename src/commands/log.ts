@@ -110,10 +110,12 @@ export interface SessionJson {
   project: string;
   branch?: string;
   status: DerivedRunStatus;
+  sessionStatus?: SessionStats["sessionStatus"];
+  phase?: SessionStats["phase"];
+  reviewOutcome?: SessionStats["reviewOutcome"];
   timestamp: number;
   iterations: number;
   duration?: number;
-  stop_iteration?: boolean;
   reviewer?: AgentSettings;
   fixer?: AgentSettings;
   handoffStatus?: HandoffStatus;
@@ -123,6 +125,12 @@ export interface SessionJson {
     totalFixes: number;
     totalSkipped: number;
     priorityCounts: Record<Priority, number>;
+    totalFindings?: number;
+    totalSelectedFindings?: number;
+    totalAppliedFindings?: number;
+    totalSkippedFindings?: number;
+    totalUnresolvedSelectedFindings?: number;
+    totalAuditRegressions?: number;
   };
   fixes: FixEntry[];
   skipped: SkippedEntry[];
@@ -150,10 +158,12 @@ export function buildSessionJson(
     project: projectName,
     branch: session.gitBranch,
     status: session.status,
+    sessionStatus: session.sessionStatus,
+    phase: session.phase,
+    reviewOutcome: session.reviewOutcome,
     timestamp: session.timestamp,
     iterations: session.iterations,
     duration: session.totalDuration,
-    stop_iteration: session.stop_iteration,
     reviewer: systemEntry?.reviewer,
     fixer: systemEntry?.fixer,
     handoffStatus: session.handoffStatus,
@@ -163,6 +173,12 @@ export function buildSessionJson(
       totalFixes: session.totalFixes,
       totalSkipped: session.totalSkipped,
       priorityCounts: session.priorityCounts,
+      totalFindings: session.totalFindings,
+      totalSelectedFindings: session.totalSelectedFindings,
+      totalAppliedFindings: session.totalAppliedFindings,
+      totalSkippedFindings: session.totalSkippedFindings,
+      totalUnresolvedSelectedFindings: session.totalUnresolvedSelectedFindings,
+      totalAuditRegressions: session.totalAuditRegressions,
     },
     fixes,
     skipped,
@@ -223,6 +239,18 @@ function formatStatusWithIcon(status: DerivedRunStatus): string {
   return status;
 }
 
+function hasBatchFirstSummary(session: SessionStats): boolean {
+  return (
+    session.totalFindings !== undefined ||
+    session.totalSelectedFindings !== undefined ||
+    session.totalAppliedFindings !== undefined ||
+    session.totalSkippedFindings !== undefined ||
+    session.totalUnresolvedSelectedFindings !== undefined ||
+    session.totalAuditRegressions !== undefined ||
+    session.reviewOutcome === "findings-pending"
+  );
+}
+
 function formatAgent(settings: AgentSettings): string {
   return settings.model ? `${settings.agent} (${settings.model})` : settings.agent;
 }
@@ -260,12 +288,15 @@ function renderTerminalSession(
   p.log.info(`Project:  ${projectName}`);
   p.log.info(`Branch:   ${branch}`);
   p.log.info(`Status:   ${statusDisplay}`);
+  if (session.phase || session.sessionStatus || session.reviewOutcome) {
+    const workflowPhase = session.phase ?? "unknown";
+    const workflowStatus = session.sessionStatus ?? "unknown";
+    const workflowOutcome = session.reviewOutcome ?? "unknown";
+    p.log.info(`Workflow: ${workflowPhase} · ${workflowStatus} · ${workflowOutcome}`);
+  }
   p.log.info(`Time:     ${formatDate(session.timestamp)}`);
   if (session.totalDuration !== undefined) {
     p.log.info(`Duration: ${formatDuration(session.totalDuration)}`);
-  }
-  if (session.stop_iteration !== undefined) {
-    p.log.info(`Stop Iteration: ${session.stop_iteration ? "yes" : "no"}`);
   }
 
   if (systemEntry) {
@@ -274,13 +305,48 @@ function renderTerminalSession(
   }
 
   p.log.message("");
-  p.log.step(
-    `${session.iterations} iterations · ${session.totalFixes} fixes · ${session.totalSkipped} skipped`
-  );
-  p.log.message(formatPriorityCounts(session.priorityCounts));
+  if (hasBatchFirstSummary(session)) {
+    p.log.step(
+      `Discovery: ${session.iterations} iterations · ${session.totalFindings ?? 0} findings`
+    );
+    p.log.message(formatPriorityCounts(session.priorityCounts));
+
+    if (session.totalSelectedFindings !== undefined) {
+      p.log.message(`Selection: ${session.totalSelectedFindings} selected`);
+    }
+
+    if (session.totalAppliedFindings !== undefined || session.totalSkippedFindings !== undefined) {
+      p.log.message(
+        `Remediation: ${session.totalAppliedFindings ?? 0} applied · ${session.totalSkippedFindings ?? 0} skipped`
+      );
+    }
+
+    if (
+      session.totalUnresolvedSelectedFindings !== undefined ||
+      session.totalAuditRegressions !== undefined
+    ) {
+      p.log.message(
+        `Audit: ${session.totalUnresolvedSelectedFindings ?? 0} unresolved · ${session.totalAuditRegressions ?? 0} regressions`
+      );
+    }
+  } else {
+    p.log.step(
+      `${session.iterations} iterations · ${session.totalFixes} fixes · ${session.totalSkipped} skipped`
+    );
+    p.log.message(formatPriorityCounts(session.priorityCounts));
+  }
+
   const handoffSummary = formatHandoffSummary(session.handoffStatus, session.commitSha);
   if (handoffSummary) {
     p.log.message(handoffSummary);
+  }
+
+  if (session.reviewOutcome === "findings-pending") {
+    const command =
+      session.sessionId !== undefined
+        ? `rr fix --session ${session.sessionId}`
+        : "rr fix --session <id>";
+    p.log.message(`Pending findings: run ${command}`);
   }
 
   if (fixes.length > 0) {

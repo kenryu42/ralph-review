@@ -38,9 +38,9 @@ describe("engine", () => {
       expect(prompt.length).toBeGreaterThan(reviewOutput.length);
     });
 
-    test("includes the stop_iteration instruction", () => {
+    test("does not mention the legacy stop_iteration field", () => {
       const prompt = createFixerPrompt("Some review");
-      expect(prompt).toContain("stop_iteration");
+      expect(prompt).not.toContain("stop_iteration");
     });
   });
 
@@ -199,8 +199,7 @@ End of output.`;
 
   describe("parseFixSummary", () => {
     test("repairs trailing commas in fix summary JSON", () => {
-      const candidate =
-        '{"decision":"APPLY_SELECTIVELY","stop_iteration":false,"fixes":[],"skipped":[],}';
+      const candidate = '{"decision":"APPLY_SELECTIVELY","fixes":[],"skipped":[],}';
       const result = parseFixSummary(candidate);
       expect(result).not.toBeNull();
       expect(result?.decision).toBe("APPLY_SELECTIVELY");
@@ -209,7 +208,6 @@ End of output.`;
     test("parses valid JSON into FixSummary", () => {
       const json = JSON.stringify({
         decision: "APPLY_SELECTIVELY",
-        stop_iteration: false,
         fixes: [
           {
             id: 1,
@@ -252,7 +250,6 @@ End of output.`;
     test("returns null when fixes is not an array", () => {
       const json = JSON.stringify({
         decision: "NO_CHANGES_NEEDED",
-        stop_iteration: true,
         fixes: "not an array",
         skipped: [],
       });
@@ -263,7 +260,6 @@ End of output.`;
     test("returns null for invalid decision value", () => {
       const json = JSON.stringify({
         decision: "INVALID_DECISION",
-        stop_iteration: false,
         fixes: [],
         skipped: [],
       });
@@ -274,7 +270,6 @@ End of output.`;
     test("returns null for invalid severity in fix entry", () => {
       const json = JSON.stringify({
         decision: "APPLY_SELECTIVELY",
-        stop_iteration: false,
         fixes: [
           {
             id: 1,
@@ -294,7 +289,6 @@ End of output.`;
     test("parses fix summary from bare fenced JSON via repair", () => {
       const json = JSON.stringify({
         decision: "APPLY_SELECTIVELY",
-        stop_iteration: false,
         fixes: [],
         skipped: [],
       });
@@ -305,13 +299,11 @@ ${json}
       const result = parseFixSummary(candidate);
       expect(result).not.toBeNull();
       expect(result?.decision).toBe("APPLY_SELECTIVELY");
-      expect(result?.stop_iteration).toBe(false);
     });
 
     test("accepts fix entry with omitted file field (undefined)", () => {
       const json = JSON.stringify({
         decision: "APPLY_SELECTIVELY",
-        stop_iteration: false,
         fixes: [
           {
             id: 1,
@@ -332,7 +324,6 @@ ${json}
     test("accepts fix entry with explicit file: null", () => {
       const json = JSON.stringify({
         decision: "APPLY_SELECTIVELY",
-        stop_iteration: false,
         fixes: [
           {
             id: 1,
@@ -351,7 +342,7 @@ ${json}
       expect(result?.fixes[0]?.file).toBeNull();
     });
 
-    test("accepts missing stop_iteration (defaults to undefined)", () => {
+    test("parses fix summary without the legacy stop_iteration field", () => {
       const json = JSON.stringify({
         decision: "APPLY_SELECTIVELY",
         fixes: [],
@@ -359,7 +350,18 @@ ${json}
       });
       const result = parseFixSummary(json);
       expect(result).not.toBeNull();
-      expect(result?.stop_iteration).toBeUndefined();
+      expect(result?.decision).toBe("APPLY_SELECTIVELY");
+    });
+
+    test("rejects legacy stop_iteration in fix summary JSON", () => {
+      const json = JSON.stringify({
+        decision: "APPLY_SELECTIVELY",
+        stop_iteration: false,
+        fixes: [],
+        skipped: [],
+      });
+      const result = parseFixSummary(json);
+      expect(result).toBeNull();
     });
   });
 
@@ -367,7 +369,6 @@ ${json}
     test("parses framed fix summary before legacy candidates", () => {
       const framedSummary = {
         decision: "NO_CHANGES_NEEDED",
-        stop_iteration: true,
         fixes: [],
         skipped: [],
       };
@@ -376,18 +377,17 @@ ${JSON.stringify(framedSummary)}
 ${FIX_SUMMARY_END_TOKEN}
 
 \`\`\`json
-{"decision":"APPLY_MOST","stop_iteration":false,"fixes":[],"skipped":[]}
+{"decision":"APPLY_MOST","fixes":[],"skipped":[]}
 \`\`\``;
 
       const result = extractFixSummaryFromOutput(raw, raw);
       expect(result).not.toBeNull();
       expect(result?.decision).toBe("NO_CHANGES_NEEDED");
-      expect(result?.stop_iteration).toBe(true);
     });
 
     test("repairs framed trailing commas in fix summary", () => {
       const raw = `${FIX_SUMMARY_START_TOKEN}
-{"decision":"APPLY_SELECTIVELY","stop_iteration":false,"fixes":[],"skipped":[],}
+{"decision":"APPLY_SELECTIVELY","fixes":[],"skipped":[],}
 ${FIX_SUMMARY_END_TOKEN}`;
 
       const result = extractFixSummaryFromOutput(raw, raw);
@@ -398,7 +398,6 @@ ${FIX_SUMMARY_END_TOKEN}`;
     test("parses fix summary from raw JSON without fenced block", () => {
       const raw = JSON.stringify({
         decision: "APPLY_SELECTIVELY",
-        stop_iteration: false,
         fixes: [],
         skipped: [],
       });
@@ -406,13 +405,11 @@ ${FIX_SUMMARY_END_TOKEN}`;
       const result = extractFixSummaryFromOutput(raw, raw);
       expect(result).not.toBeNull();
       expect(result?.decision).toBe("APPLY_SELECTIVELY");
-      expect(result?.stop_iteration).toBe(false);
     });
 
     test("parses latest valid fix summary from mixed text output", () => {
       const summary = JSON.stringify({
         decision: "NO_CHANGES_NEEDED",
-        stop_iteration: true,
         fixes: [],
         skipped: [
           {
@@ -429,6 +426,15 @@ ${FIX_SUMMARY_END_TOKEN}`;
       expect(result).not.toBeNull();
       expect(result?.decision).toBe("NO_CHANGES_NEEDED");
       expect(result?.skipped).toHaveLength(1);
+    });
+
+    test("rejects framed legacy stop_iteration payloads", () => {
+      const raw = `${FIX_SUMMARY_START_TOKEN}
+{"decision":"NO_CHANGES_NEEDED","stop_iteration":true,"fixes":[],"skipped":[]}
+${FIX_SUMMARY_END_TOKEN}`;
+
+      const result = extractFixSummaryFromOutput(raw, raw);
+      expect(result).toBeNull();
     });
   });
 

@@ -2,8 +2,15 @@ import { mkdir, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { CONFIG_DIR } from "@/lib/config";
 import { getProjectStorageDir } from "@/lib/logging";
+import type { AuditSummary, FindingId, StoredFinding } from "@/lib/review-workflow/findings/types";
 import { sessionExists } from "@/lib/tmux";
-import type { HandoffStatus, ReviewOutcome, ReviewPhase, ReviewSummary } from "@/lib/types";
+import type {
+  HandoffStatus,
+  ReviewOutcome,
+  ReviewPhase,
+  ReviewSummary,
+  SessionStatus as WorkflowSessionStatus,
+} from "@/lib/types";
 
 const DEFAULT_BRANCH = "default";
 
@@ -53,12 +60,19 @@ interface CreateSessionStateOptions {
   worktreeCommitSha?: string;
   endTime?: number;
   reason?: string;
+  currentPhase?: ReviewPhase;
   phase?: ReviewPhase;
+  sessionStatus?: WorkflowSessionStatus;
   reviewOutcome?: ReviewOutcome;
   handoffStatus?: HandoffStatus;
   handoffUpdatedAt?: number;
   commitSha?: string;
   artifactPath?: string;
+  reviewedSnapshotPath?: string;
+  sourceFingerprint?: string;
+  accumulatedFindings?: StoredFinding[];
+  selectedFindingIds?: FindingId[];
+  latestAudit?: AuditSummary;
 }
 
 export interface SessionState {
@@ -79,12 +93,19 @@ export interface SessionState {
   worktreeCommitSha?: string;
   endTime?: number;
   reason?: string;
+  currentPhase?: ReviewPhase;
   phase?: ReviewPhase;
+  sessionStatus?: WorkflowSessionStatus;
   reviewOutcome?: ReviewOutcome;
   handoffStatus?: HandoffStatus;
   handoffUpdatedAt?: number;
   commitSha?: string;
   artifactPath?: string;
+  reviewedSnapshotPath?: string;
+  sourceFingerprint?: string;
+  accumulatedFindings?: StoredFinding[];
+  selectedFindingIds?: FindingId[];
+  latestAudit?: AuditSummary;
   iteration?: number;
   currentAgent?: "reviewer" | "fixer" | "code-simplifier" | null;
   reviewSummary?: ReviewSummary;
@@ -290,12 +311,19 @@ export async function createSessionState(
     worktreeCommitSha: options.worktreeCommitSha,
     endTime: options.endTime,
     reason: options.reason,
-    phase: options.phase,
+    currentPhase: options.currentPhase ?? options.phase,
+    phase: options.currentPhase ?? options.phase,
+    sessionStatus: options.sessionStatus,
     reviewOutcome: options.reviewOutcome,
     handoffStatus: options.handoffStatus,
     handoffUpdatedAt: options.handoffUpdatedAt,
     commitSha: options.commitSha,
     artifactPath: options.artifactPath,
+    reviewedSnapshotPath: options.reviewedSnapshotPath,
+    sourceFingerprint: options.sourceFingerprint,
+    accumulatedFindings: options.accumulatedFindings,
+    selectedFindingIds: options.selectedFindingIds,
+    latestAudit: options.latestAudit,
     currentAgent: null,
   };
 
@@ -338,6 +366,20 @@ export async function updateSessionState(
         delete merged[key];
       } else {
         merged[key] = value;
+      }
+    }
+
+    if (Object.hasOwn(updates, "currentPhase")) {
+      if (updates.currentPhase === undefined) {
+        delete merged.phase;
+      } else {
+        merged.phase = updates.currentPhase;
+      }
+    } else if (Object.hasOwn(updates, "phase")) {
+      if (updates.phase === undefined) {
+        delete merged.currentPhase;
+      } else {
+        merged.currentPhase = updates.phase;
       }
     }
 

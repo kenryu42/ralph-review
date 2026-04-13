@@ -227,7 +227,6 @@ describe("html", () => {
         // Deliberately malformed runtime payload to cover validation fallbacks.
         fixes: {
           decision: "APPLY_SELECTIVELY",
-          stop_iteration: false,
           fixes: [
             {
               id: 1,
@@ -290,7 +289,7 @@ describe("html", () => {
           type: "iteration",
           timestamp: Date.now(),
           iteration: 2,
-          fixes: buildFixSummary({ decision: "NO_CHANGES_NEEDED", stop_iteration: true }),
+          fixes: buildFixSummary({ decision: "NO_CHANGES_NEEDED" }),
         },
       ];
 

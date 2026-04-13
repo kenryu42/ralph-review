@@ -41,7 +41,6 @@ function createIterationEntry(
     duration: 5_000,
     fixes: buildFixSummary({
       decision: "APPLY_MOST",
-      stop_iteration: iteration > 1,
       fixes,
       skipped,
     }),

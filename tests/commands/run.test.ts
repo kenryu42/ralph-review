@@ -1487,6 +1487,25 @@ describe("run command", () => {
       });
     });
 
+    test("stores workflow phase and status in session state when discovery finishes", async () => {
+      const harness = createRunHarness({
+        runReviewCycleResult: createCycleResult({
+          phase: "discovery",
+          sessionStatus: "completed",
+          reviewOutcome: "findings-pending",
+          artifactPath: "/tmp/findings/session-123.json",
+        }),
+      });
+
+      await runForeground([], harness.overrides);
+
+      expect(harness.updateSessionStateCalls[1]?.updates.currentPhase).toBe("discovery");
+      expect(harness.updateSessionStateCalls[1]?.updates.sessionStatus).toBe("completed");
+      expect(harness.updateSessionStateCalls[1]?.updates.artifactPath).toBe(
+        "/tmp/findings/session-123.json"
+      );
+    });
+
     test("surfaces the retained worktree path and branch after a successful run", async () => {
       const harness = createRunHarness({
         runReviewCycleResult: createCycleResult({

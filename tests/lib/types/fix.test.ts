@@ -31,7 +31,6 @@ describe("isFixSummary", () => {
     expect(
       isFixSummary({
         decision: "APPLY_SELECTIVELY",
-        stop_iteration: false,
         fixes: [validFixEntry],
         skipped: [validSkippedEntry],
       })
@@ -42,7 +41,6 @@ describe("isFixSummary", () => {
     expect(
       isFixSummary({
         decision: "APPLY_SELECTIVELY",
-        stop_iteration: false,
         fixes: [
           {
             ...validFixEntry,
@@ -92,11 +90,11 @@ describe("isFixSummary", () => {
     expect(isFixSummary(null)).toBe(false);
   });
 
-  test("returns false when stop_iteration is not a boolean", () => {
+  test("returns false when legacy stop_iteration is present", () => {
     expect(
       isFixSummary({
         decision: "APPLY_SELECTIVELY",
-        stop_iteration: "yes",
+        stop_iteration: false,
         fixes: [],
         skipped: [],
       })

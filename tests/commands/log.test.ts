@@ -329,6 +329,48 @@ describe("buildSessionJson", () => {
     expect(result.branch).toBeUndefined();
   });
 
+  test("includes batch-first workflow metadata and counters", () => {
+    const session = createSessionStats({
+      phase: "complete",
+      sessionStatus: "completed",
+      reviewOutcome: "audit-regressions",
+      totalFindings: 3,
+      totalSelectedFindings: 2,
+      totalAppliedFindings: 1,
+      totalSkippedFindings: 1,
+      totalUnresolvedSelectedFindings: 1,
+      totalAuditRegressions: 1,
+    });
+
+    const result = buildSessionJson("test-project", session, [], []);
+
+    expect(result.phase).toBe("complete");
+    expect(result.sessionStatus).toBe("completed");
+    expect(result.reviewOutcome).toBe("audit-regressions");
+    expect(result.summary.totalFindings).toBe(3);
+    expect(result.summary.totalSelectedFindings).toBe(2);
+    expect(result.summary.totalAppliedFindings).toBe(1);
+    expect(result.summary.totalSkippedFindings).toBe(1);
+    expect(result.summary.totalUnresolvedSelectedFindings).toBe(1);
+    expect(result.summary.totalAuditRegressions).toBe(1);
+  });
+
+  test("preserves pending-findings sessions in JSON output", () => {
+    const session = createSessionStats({
+      phase: "discovery",
+      sessionStatus: "completed",
+      reviewOutcome: "findings-pending",
+      totalFindings: 4,
+    });
+
+    const result = buildSessionJson("test-project", session, [], []);
+
+    expect(result.phase).toBe("discovery");
+    expect(result.sessionStatus).toBe("completed");
+    expect(result.reviewOutcome).toBe("findings-pending");
+    expect(result.summary.totalFindings).toBe(4);
+  });
+
   test("includes reviewer and fixer agent info from system entry", () => {
     const systemEntry = createSystemEntry();
     const session = createSessionStats({ entries: [systemEntry] });

@@ -28,6 +28,21 @@ import {
 import type { HandoffEntry, IterationEntry, SessionEndEntry, SystemEntry } from "@/lib/types";
 import { buildFixEntry, buildFixSummary } from "../test-utils/fix-summary";
 
+function createStoredFinding(id: `F${string}`, priority: "P0" | "P1" | "P2" | "P3") {
+  return {
+    id,
+    fingerprint: `fp-${id}`,
+    locationKey: `src/file-${id}.ts:10:12`,
+    title: `Finding ${id}`,
+    body: `Body for ${id}`,
+    priority,
+    confidenceScore: 0.91,
+    filePath: `src/file-${id}.ts`,
+    startLine: 10,
+    endLine: 12,
+  };
+}
+
 describe("logger", () => {
   let tempDir: string;
 
@@ -335,6 +350,114 @@ describe("logger", () => {
       expect(summary?.worktreeBranch).toBe("rr-worktree-test");
     });
 
+    test("tracks batch-first workflow counts in the session summary", async () => {
+      const logPath = await createLogSession(tempDir, "/path/to/project", "main");
+
+      const systemEntry: SystemEntry = {
+        type: "system",
+        timestamp: 1_700_000_000_000,
+        sessionId: "session-123",
+        projectPath: "/path/to/project",
+        gitBranch: "main",
+        reviewer: { agent: "codex" },
+        fixer: { agent: "claude" },
+        maxIterations: 5,
+      };
+
+      await appendLog(logPath, systemEntry);
+      await appendLog(logPath, {
+        type: "discovery_iteration",
+        timestamp: 1_700_000_001_000,
+        iteration: 1,
+        phase: "discovery",
+        sessionStatus: "running",
+        duration: 1_000,
+        findings: [createStoredFinding("F001", "P0"), createStoredFinding("F002", "P2")],
+        netNewFindingIds: ["F001", "F002"],
+      });
+      await appendLog(logPath, {
+        type: "discovery_iteration",
+        timestamp: 1_700_000_002_000,
+        iteration: 2,
+        phase: "discovery",
+        sessionStatus: "running",
+        duration: 2_000,
+        findings: [
+          createStoredFinding("F001", "P0"),
+          createStoredFinding("F002", "P2"),
+          createStoredFinding("F003", "P1"),
+        ],
+        netNewFindingIds: ["F003"],
+      });
+      await appendLog(logPath, {
+        type: "finding_selection",
+        timestamp: 1_700_000_003_000,
+        selectionMode: "priority",
+        selectedFindingIds: ["F001", "F003"],
+      });
+      await appendLog(logPath, {
+        type: "batch_fix",
+        timestamp: 1_700_000_004_000,
+        duration: 1_500,
+        selectedFindingIds: ["F001", "F003"],
+        fixResults: [
+          {
+            findingId: "F001",
+            status: "fixed",
+            summary: "Applied F001",
+          },
+          {
+            findingId: "F003",
+            status: "skipped",
+            summary: "Skipped F003",
+          },
+        ],
+      });
+      await appendLog(logPath, {
+        type: "final_audit",
+        timestamp: 1_700_000_005_000,
+        duration: 500,
+        selectedFindingIds: ["F001", "F003"],
+        summary: {
+          resolvedFindingIds: ["F001"],
+          unresolvedFindingIds: ["F003"],
+          regressionFindings: [createStoredFinding("F010", "P1")],
+          summary: "Audit summary",
+        },
+      });
+      await appendLog(logPath, {
+        type: "session_end",
+        timestamp: 1_700_000_006_000,
+        status: "completed",
+        reason: "Final audit found regressions introduced by remediation.",
+        iterations: 2,
+        phase: "complete",
+        sessionStatus: "completed",
+        reviewOutcome: "audit-regressions",
+      });
+
+      const summary = await readSessionSummary(logPath);
+
+      expect(summary).not.toBeNull();
+      expect(summary?.phase).toBe("complete");
+      expect(summary?.sessionStatus).toBe("completed");
+      expect(summary?.reviewOutcome).toBe("audit-regressions");
+      expect(summary?.iterations).toBe(2);
+      expect(summary?.totalDuration).toBe(5_000);
+      expect(summary?.priorityCounts).toEqual({
+        P0: 1,
+        P1: 1,
+        P2: 1,
+        P3: 0,
+      });
+      expect(summary?.totalFindings).toBe(3);
+      expect(summary?.totalSelectedFindings).toBe(2);
+      expect(summary?.totalAppliedFindings).toBe(1);
+      expect(summary?.totalSkippedFindings).toBe(1);
+      expect(summary?.totalUnresolvedSelectedFindings).toBe(1);
+      expect(summary?.totalAuditRegressions).toBe(1);
+    });
+
     test("applies incremental summary updates for each appended event", async () => {
       const logPath = await createLogSession(tempDir, "/path/to/project", "main");
 
@@ -354,7 +477,6 @@ describe("logger", () => {
         duration: 1_500,
         fixes: buildFixSummary({
           decision: "APPLY_SELECTIVELY",
-          stop_iteration: false,
           fixes: [
             buildFixEntry({
               id: 1,
@@ -397,7 +519,6 @@ describe("logger", () => {
       expect(summaryAfterIteration?.totalSkipped).toBe(1);
       expect(summaryAfterIteration?.priorityCounts.P0).toBe(1);
       expect(summaryAfterIteration?.priorityCounts.P2).toBe(0);
-      expect(summaryAfterIteration?.stop_iteration).toBe(false);
       expect(summaryAfterIteration?.totalDuration).toBe(1_500);
 
       await appendLog(logPath, sessionEndEntry);

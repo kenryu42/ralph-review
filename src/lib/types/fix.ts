@@ -22,7 +22,6 @@ export interface SkippedEntry {
 
 export interface FixSummary {
   decision: FixDecision;
-  stop_iteration?: boolean;
   fixes: FixEntry[];
   skipped: SkippedEntry[];
 }
@@ -111,7 +110,7 @@ export function isFixSummary(value: unknown): value is FixSummary {
     return false;
   }
 
-  if (obj.stop_iteration !== undefined && typeof obj.stop_iteration !== "boolean") {
+  if (obj.stop_iteration !== undefined) {
     return false;
   }
 

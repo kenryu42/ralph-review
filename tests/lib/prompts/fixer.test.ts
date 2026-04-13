@@ -15,6 +15,7 @@ describe("createFixerPrompt", () => {
     const prompt = createFixerPrompt("review payload");
 
     expect(prompt).not.toContain("NEED_INFO");
+    expect(prompt).not.toContain("stop_iteration");
     expect(prompt).toContain("APPLY: <count or none>   SKIP: <count or none>");
     expect(prompt).toContain('"decision": "<NO_CHANGES_NEEDED | APPLY_SELECTIVELY | APPLY_MOST>"');
   });

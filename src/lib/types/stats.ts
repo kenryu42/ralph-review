@@ -48,7 +48,6 @@ export interface SessionStats {
   status: DerivedRunStatus;
   sessionStatus?: SessionStatus;
   phase?: ReviewPhase;
-  stop_iteration?: boolean;
   totalFixes: number;
   totalSkipped: number;
   priorityCounts: Record<Priority, number>;

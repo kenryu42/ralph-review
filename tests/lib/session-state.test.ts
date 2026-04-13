@@ -22,6 +22,21 @@ import {
   updateSessionState,
 } from "@/lib/session-state";
 
+function createStoredFinding(id: `F${string}`, priority: "P0" | "P1" | "P2" | "P3") {
+  return {
+    id,
+    fingerprint: `fp-${id}`,
+    locationKey: `src/file-${id}.ts:10:12`,
+    title: `Finding ${id}`,
+    body: `Body for ${id}`,
+    priority,
+    confidenceScore: 0.91,
+    filePath: `src/file-${id}.ts`,
+    startLine: 10,
+    endLine: 12,
+  };
+}
+
 describe("session-state", () => {
   let tempLogsDir: string;
 
@@ -223,6 +238,52 @@ describe("session-state", () => {
     expect(session?.handoffStatus).toBe("applied-auto");
     expect(session?.handoffUpdatedAt).toBe(1_700_000_000_100);
     expect(session?.commitSha).toBe("commit-sha-1");
+  });
+
+  test("stores workflow metadata on create and update", async () => {
+    const projectPath = "/Users/test/project-workflow";
+
+    await createSessionState(tempLogsDir, projectPath, "rr-workflow", {
+      sessionId: "session-workflow",
+      branch: "main",
+      state: "running",
+      currentPhase: "discovery",
+      sessionStatus: "running",
+      artifactPath: "/tmp/findings/session-workflow.json",
+      reviewedSnapshotPath: "/tmp/reviewed/session-workflow",
+      sourceFingerprint: "fingerprint-1",
+      accumulatedFindings: [createStoredFinding("F001", "P0")],
+      selectedFindingIds: ["F001"],
+      latestAudit: {
+        resolvedFindingIds: [],
+        unresolvedFindingIds: ["F001"],
+        regressionFindings: [],
+      },
+    });
+
+    await updateSessionState(tempLogsDir, projectPath, "session-workflow", {
+      currentPhase: "final-audit",
+      sessionStatus: "completed",
+      selectedFindingIds: ["F001", "F002"],
+      latestAudit: {
+        resolvedFindingIds: ["F001"],
+        unresolvedFindingIds: ["F002"],
+        regressionFindings: [createStoredFinding("F010", "P1")],
+      },
+    });
+
+    const session = await readSessionState(tempLogsDir, projectPath, "session-workflow");
+
+    expect(session?.currentPhase).toBe("final-audit");
+    expect(session?.sessionStatus).toBe("completed");
+    expect(session?.artifactPath).toBe("/tmp/findings/session-workflow.json");
+    expect(session?.reviewedSnapshotPath).toBe("/tmp/reviewed/session-workflow");
+    expect(session?.sourceFingerprint).toBe("fingerprint-1");
+    expect(session?.accumulatedFindings?.map((finding) => finding.id)).toEqual(["F001"]);
+    expect(session?.selectedFindingIds).toEqual(["F001", "F002"]);
+    expect(session?.latestAudit?.resolvedFindingIds).toEqual(["F001"]);
+    expect(session?.latestAudit?.unresolvedFindingIds).toEqual(["F002"]);
+    expect(session?.latestAudit?.regressionFindings.map((finding) => finding.id)).toEqual(["F010"]);
   });
 
   test("removes fields when updateSessionState receives undefined values", async () => {

@@ -37,7 +37,6 @@ export type {
   PendingHandoffArtifact,
 } from "./handoff";
 export type {
-  DiscoveryIterationEntry,
   HandoffEntry,
   IterationEntry,
   LogEntry,
