@@ -295,6 +295,43 @@ describe("buildDashboardViewModel", () => {
     });
   });
 
+  test("uses a pending-findings badge for selection-ready sessions", () => {
+    const session = createSession({
+      reviewOutcome: "findings-pending",
+      totalFindings: 4,
+      totalFixes: 0,
+      totalSkipped: 0,
+    });
+
+    const viewModel = buildDashboardViewModel(createDashboardData([[session]]));
+    const sessionVm = viewModel.sessionsByPath[session.sessionPath];
+    expect(sessionVm).toBeDefined();
+    if (!sessionVm) throw new Error("expected session view model to exist");
+
+    expect(sessionVm.badge).toEqual({
+      label: "Pending findings",
+      className: "status-pending-findings",
+    });
+  });
+
+  test("uses an audit-regressions badge for failed final audit sessions", () => {
+    const session = createSession({
+      reviewOutcome: "audit-regressions",
+      totalAuditRegressions: 2,
+      totalAppliedFindings: 3,
+    });
+
+    const viewModel = buildDashboardViewModel(createDashboardData([[session]]));
+    const sessionVm = viewModel.sessionsByPath[session.sessionPath];
+    expect(sessionVm).toBeDefined();
+    if (!sessionVm) throw new Error("expected session view model to exist");
+
+    expect(sessionVm.badge).toEqual({
+      label: "Audit regressions",
+      className: "status-audit-regressions",
+    });
+  });
+
   test("detects code simplifier from system entry and maps sessions by path across projects", () => {
     const codeSimplifierSession = createSession({
       sessionPath: "/logs/project-1/session-a.jsonl",

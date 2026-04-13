@@ -297,6 +297,91 @@ describe("html", () => {
       expect(html).toContain("Iteration 1");
       expect(html).toContain("Iteration 2");
     });
+
+    test("renders batch-first lifecycle sections", () => {
+      const entries: LogEntry[] = [
+        {
+          type: "system",
+          timestamp: Date.now(),
+          sessionId: "session-123",
+          projectPath: "/test",
+          reviewer: { agent: "codex" },
+          fixer: { agent: "claude" },
+          maxIterations: 5,
+        },
+        {
+          type: "discovery_iteration",
+          timestamp: Date.now(),
+          iteration: 1,
+          phase: "discovery",
+          sessionStatus: "completed",
+          findings: [
+            {
+              id: "F001",
+              fingerprint: "fp-1",
+              title: "Guard missing config",
+              body: "Null check is missing",
+              priority: "P0",
+              confidenceScore: 0.97,
+              filePath: "src/config.ts",
+              startLine: 10,
+              endLine: 12,
+            },
+          ],
+          netNewFindingIds: ["F001"],
+        },
+        {
+          type: "finding_selection",
+          timestamp: Date.now(),
+          selectionMode: "id",
+          selectedFindingIds: ["F001"],
+        },
+        {
+          type: "batch_fix",
+          timestamp: Date.now(),
+          selectedFindingIds: ["F001"],
+          fixResults: [
+            {
+              findingId: "F001",
+              status: "fixed",
+              summary: "Added a null guard",
+            },
+          ],
+        },
+        {
+          type: "final_audit",
+          timestamp: Date.now(),
+          selectedFindingIds: ["F001"],
+          summary: {
+            resolvedFindingIds: [],
+            unresolvedFindingIds: ["F001"],
+            regressionFindings: [
+              {
+                id: "F010",
+                fingerprint: "fp-10",
+                title: "Regression in cache invalidation",
+                body: "Fix introduced a cache regression",
+                priority: "P1",
+                confidenceScore: 0.88,
+                filePath: "src/cache.ts",
+                startLine: 30,
+                endLine: 32,
+              },
+            ],
+          },
+        },
+      ];
+
+      const html = generateLogHtml(entries);
+      expect(html).toContain("Discovery Iteration 1");
+      expect(html).toContain("Guard missing config");
+      expect(html).toContain("Finding Selection");
+      expect(html).toContain("1 selected");
+      expect(html).toContain("Batch Fix");
+      expect(html).toContain("Added a null guard");
+      expect(html).toContain("Final Audit");
+      expect(html).toContain("Regression in cache invalidation");
+    });
   });
 
   describe("writeLogHtml", () => {

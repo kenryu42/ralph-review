@@ -1,4 +1,5 @@
 import { getPriorityRank } from "@/lib/html/priority";
+import { deriveWorkflowPresentationData } from "@/lib/review-workflow/presentation";
 import type {
   DashboardData,
   FixEntry,
@@ -30,6 +31,35 @@ interface SkippedViewModel {
   reason: string;
 }
 
+interface WorkflowFindingViewModel {
+  id: string;
+  priority: string;
+  title: string;
+  filePath: string;
+  startLine: number;
+  endLine: number;
+}
+
+interface WorkflowFixResultViewModel {
+  findingId: string;
+  status: string;
+  summary: string;
+  title: string;
+  priority?: string;
+  filePath?: string;
+  startLine?: number;
+  endLine?: number;
+}
+
+interface WorkflowSessionViewModel {
+  hasBatchFirstLifecycle: boolean;
+  findings: WorkflowFindingViewModel[];
+  selectedFindings: WorkflowFindingViewModel[];
+  fixResults: WorkflowFixResultViewModel[];
+  unresolvedSelectedFindings: WorkflowFindingViewModel[];
+  regressionFindings: WorkflowFindingViewModel[];
+}
+
 export interface SessionViewModel {
   badge: SessionBadgeViewModel;
   prioritiesText: string;
@@ -38,6 +68,7 @@ export interface SessionViewModel {
   codeSimplified: boolean;
   reviewerDisplay: string;
   fixerDisplay: string;
+  workflow: WorkflowSessionViewModel;
 }
 
 export interface DashboardViewModel {
@@ -56,6 +87,34 @@ function getSessionBadge(session: SessionStats): SessionBadgeViewModel {
     return {
       label: session.status,
       className: `status-${session.status}`,
+    };
+  }
+
+  if (session.reviewOutcome === "findings-pending") {
+    return {
+      label: "Pending findings",
+      className: "status-pending-findings",
+    };
+  }
+
+  if (session.reviewOutcome === "audit-regressions") {
+    return {
+      label: "Audit regressions",
+      className: "status-audit-regressions",
+    };
+  }
+
+  if (session.reviewOutcome === "fixed-selected") {
+    return {
+      label: "Fixed selected",
+      className: "status-has-fixes",
+    };
+  }
+
+  if (session.reviewOutcome === "clean") {
+    return {
+      label: "Clean",
+      className: "status-no-issues",
     };
   }
 
@@ -129,9 +188,27 @@ function toCodeLocationViewModel(fix: FixEntry): FixViewModel["codeLocation"] {
   };
 }
 
+function toWorkflowFindingViewModel(
+  finding: ReturnType<typeof deriveWorkflowPresentationData>["storedFindings"][number]
+): WorkflowFindingViewModel {
+  return {
+    id: finding.id,
+    priority: finding.priority,
+    title: finding.title,
+    filePath: finding.filePath,
+    startLine: finding.startLine,
+    endLine: finding.endLine,
+  };
+}
+
 function buildSessionViewModel(session: SessionStats): SessionViewModel {
+  const workflow = deriveWorkflowPresentationData(session.entries ?? []);
   const { fixes, skipped } = extractFixes(session.entries ?? []);
-  const priorities = new Set(fixes.map((fix) => fix.priority));
+  const priorities = new Set(
+    workflow.hasBatchFirstLifecycle
+      ? workflow.storedFindings.map((finding) => finding.priority)
+      : fixes.map((fix) => fix.priority)
+  );
   const sortedFixes = [...fixes]
     .sort((a, b) => getPriorityRank(a.priority) - getPriorityRank(b.priority))
     .map((fix) => {
@@ -167,6 +244,25 @@ function buildSessionViewModel(session: SessionStats): SessionViewModel {
     codeSimplified: isCodeSimplified(getSessionSystemEntry(session)),
     reviewerDisplay: formatRoleDisplay(reviewerName, reviewerModel, reviewerReasoning),
     fixerDisplay: formatRoleDisplay(fixerName, fixerModel, fixerReasoning),
+    workflow: {
+      hasBatchFirstLifecycle: workflow.hasBatchFirstLifecycle,
+      findings: workflow.storedFindings.map(toWorkflowFindingViewModel),
+      selectedFindings: workflow.selectedFindings.map(toWorkflowFindingViewModel),
+      fixResults: workflow.fixResults.map((result) => ({
+        findingId: result.findingId,
+        status: result.status,
+        summary: result.summary,
+        title: result.finding?.title ?? result.findingId,
+        priority: result.finding?.priority,
+        filePath: result.finding?.filePath,
+        startLine: result.finding?.startLine,
+        endLine: result.finding?.endLine,
+      })),
+      unresolvedSelectedFindings: workflow.unresolvedSelectedFindings.map(
+        toWorkflowFindingViewModel
+      ),
+      regressionFindings: workflow.regressionFindings.map(toWorkflowFindingViewModel),
+    },
   };
 }
 

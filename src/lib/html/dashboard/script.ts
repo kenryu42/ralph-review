@@ -225,6 +225,46 @@ const DASHBOARD_SCRIPT_TEMPLATE = `
     return Array.from(priorities).join(" ");
   };
 
+  const renderWorkflowFindingList = (findings) =>
+    findings.length
+      ? \`<ul class="fix-list">\${findings
+          .map(
+            (finding) => \`
+              <li class="fix-item">
+                <div class="fix-pill \${getPriorityPillClass(finding.priority)}">\${escapeHtml(finding.priority)}</div>
+                <div>
+                  <div class="fix-title">\${escapeHtml(finding.title)}</div>
+                  <div class="fix-meta muted">\${escapeHtml(finding.filePath)}:\${finding.startLine}-\${finding.endLine}</div>
+                </div>
+              </li>
+            \`
+          )
+          .join("")}</ul>\`
+      : '<div class="muted">None</div>';
+
+  const renderWorkflowFixResults = (results) =>
+    results.length
+      ? \`<ul class="fix-list">\${results
+          .map((result) => {
+            const location =
+              result.filePath && Number.isInteger(result.startLine) && Number.isInteger(result.endLine)
+                ? \`\${result.filePath}:\${result.startLine}-\${result.endLine}\`
+                : result.findingId;
+
+            return \`
+              <li class="fix-item">
+                <div class="fix-pill \${getPriorityPillClass(result.priority || "P3")}">\${escapeHtml(result.priority || "P3")}</div>
+                <div>
+                  <div class="fix-title">\${escapeHtml(result.title)}</div>
+                  <div class="fix-meta muted">\${escapeHtml(location)} · \${escapeHtml(result.status)}</div>
+                  <div class="fix-range mono">\${escapeHtml(result.summary)}</div>
+                </div>
+              </li>
+            \`;
+          })
+          .join("")}</ul>\`
+      : '<div class="muted">No fix results recorded for this session.</div>';
+
   const getProject = (name) =>
     dashboardData.projects.find((project) => project.projectName === name);
 
@@ -289,6 +329,11 @@ const DASHBOARD_SCRIPT_TEMPLATE = `
     const fixerDisplay = vm?.fixerDisplay ?? formatRoleDisplay(fixerName, fixerModel, fixerReasoning);
     const systemEntry = getSessionSystemEntry(session);
     const hasCodeSimplifier = vm?.codeSimplified ?? isCodeSimplified(systemEntry);
+    const workflow = vm?.workflow;
+    const hasBatchFirstLifecycle = workflow?.hasBatchFirstLifecycle === true;
+    const workflowMeta = [session.phase, session.sessionStatus, session.reviewOutcome]
+      .filter(Boolean)
+      .join(" · ");
 
     return \`
       <div class="detail-toolbar">
@@ -311,18 +356,35 @@ const DASHBOARD_SCRIPT_TEMPLATE = `
           <div class="detail-title" style="margin-bottom: 14px;">\${escapeHtml(branch)}</div>
           <div class="detail-summary">
             <div class="detail-stats">
-              <div class="stat">
-                <div class="stat-label">Fixes</div>
-                <div class="stat-value">\${numberFormat.format(session.totalFixes)}</div>
-              </div>
-              <div class="stat">
-                <div class="stat-label">Skipped</div>
-                <div class="stat-value">\${numberFormat.format(session.totalSkipped)}</div>
-              </div>
-              <div class="stat">
-                <div class="stat-label">Iterations</div>
-                <div class="stat-value">\${numberFormat.format(session.iterations)}</div>
-              </div>
+              \${hasBatchFirstLifecycle
+                ? \`
+                  <div class="stat">
+                    <div class="stat-label">Findings</div>
+                    <div class="stat-value">\${numberFormat.format(session.totalFindings || 0)}</div>
+                  </div>
+                  <div class="stat">
+                    <div class="stat-label">Selected</div>
+                    <div class="stat-value">\${numberFormat.format(session.totalSelectedFindings || 0)}</div>
+                  </div>
+                  <div class="stat">
+                    <div class="stat-label">Audit</div>
+                    <div class="stat-value">\${numberFormat.format(session.totalAuditRegressions || 0)}</div>
+                  </div>
+                \`
+                : \`
+                  <div class="stat">
+                    <div class="stat-label">Fixes</div>
+                    <div class="stat-value">\${numberFormat.format(session.totalFixes)}</div>
+                  </div>
+                  <div class="stat">
+                    <div class="stat-label">Skipped</div>
+                    <div class="stat-value">\${numberFormat.format(session.totalSkipped)}</div>
+                  </div>
+                  <div class="stat">
+                    <div class="stat-label">Iterations</div>
+                    <div class="stat-value">\${numberFormat.format(session.iterations)}</div>
+                  </div>
+                \`}
               \${hasCodeSimplifier
                 ? \`<div class="stat stat-code-simplified"><div class="stat-value"><span>CODE</span><span>SIMPLIFIED</span></div></div>\`
                 : ""}
@@ -331,74 +393,105 @@ const DASHBOARD_SCRIPT_TEMPLATE = `
               <div class="detail-meta"><span class="detail-meta-label">Duration:</span> \${formatDuration(session.totalDuration)}</div>
               <div class="detail-meta"><span class="detail-meta-label">Reviewer:</span> \${escapeHtml(reviewerDisplay)}</div>
               <div class="detail-meta"><span class="detail-meta-label">Fixer:</span> \${escapeHtml(fixerDisplay)}</div>
+              \${workflowMeta ? \`<div class="detail-meta"><span class="detail-meta-label">Workflow:</span> \${escapeHtml(workflowMeta)}</div>\` : ""}
             </div>
           </div>
         </div>
       </div>
-      <div class="detail-grid">
-        <div class="panel">
-          <div class="panel-title">Fixes Applied</div>
-          \${fixes.length
-            ? \`<ul class="fix-list">\${fixes
-                .map((fix) => {
-                  const location = normalizeFixCodeLocation(fix);
-                  const filePath = fix.file || location?.absoluteFilePath || "";
-                  const range = location
-                    ? \`<div class="fix-range mono">\${escapeHtml(formatFixRangeHunk(location.lineStart, location.lineEnd))}</div>\`
-                    : "";
+      \${hasBatchFirstLifecycle
+        ? \`
+          <div class="detail-grid">
+            <div class="panel">
+              <div class="panel-title">Findings Inventory</div>
+              \${renderWorkflowFindingList(workflow?.findings || [])}
+            </div>
+            <div class="panel">
+              <div class="panel-title">Selected Findings</div>
+              \${renderWorkflowFindingList(workflow?.selectedFindings || [])}
+            </div>
+          </div>
+          <div class="detail-grid">
+            <div class="panel">
+              <div class="panel-title">Fix Results</div>
+              \${renderWorkflowFixResults(workflow?.fixResults || [])}
+            </div>
+            <div class="panel">
+              <div class="panel-title">Final Audit</div>
+              \${workflow?.unresolvedSelectedFindings?.length
+                ? \`<div class="section-title">Unresolved</div>\${renderWorkflowFindingList(workflow.unresolvedSelectedFindings)}\`
+                : '<div class="muted">No unresolved selected findings.</div>'}
+              \${workflow?.regressionFindings?.length
+                ? \`<div class="section-title">Regressions</div>\${renderWorkflowFindingList(workflow.regressionFindings)}\`
+                : '<div class="muted">No regressions recorded.</div>'}
+            </div>
+          </div>
+        \`
+        : \`
+          <div class="detail-grid">
+            <div class="panel">
+              <div class="panel-title">Fixes Applied</div>
+              \${fixes.length
+                ? \`<ul class="fix-list">\${fixes
+                    .map((fix) => {
+                      const location = normalizeFixCodeLocation(fix);
+                      const filePath = fix.file || location?.absoluteFilePath || "";
+                      const range = location
+                        ? \`<div class="fix-range mono">\${escapeHtml(formatFixRangeHunk(location.lineStart, location.lineEnd))}</div>\`
+                        : "";
 
-                  return \`
-                  <li class="fix-item">
-                    <div class="fix-pill \${getPriorityPillClass(fix.priority)}">\${escapeHtml(fix.priority)}</div>
-                    <div>
-                      <div class="fix-title">\${escapeHtml(fix.title)}</div>
-                      <div class="fix-meta muted">\${escapeHtml(filePath)}</div>
-                      \${range}
-                    </div>
-                  </li>
-                \`;
-                })
-                .join("")}</ul>\`
-            : '<div class="muted">No fixes recorded for this session.</div>'}
-        </div>
-        \${showSkippedPanel
-          ? \`<div class="panel">
-              <div class="panel-title">Skipped</div>
-              <ul class="skip-list">\${skipped
-                .map((item) => \`
-                  <li class="skip-item\${item.priority ? "" : " no-pill"}">
-                    \${item.priority
-                      ? \`<div class="fix-pill \${getPriorityPillClass(item.priority)}">\${escapeHtml(item.priority)}</div>\`
+                      return \`
+                      <li class="fix-item">
+                        <div class="fix-pill \${getPriorityPillClass(fix.priority)}">\${escapeHtml(fix.priority)}</div>
+                        <div>
+                          <div class="fix-title">\${escapeHtml(fix.title)}</div>
+                          <div class="fix-meta muted">\${escapeHtml(filePath)}</div>
+                          \${range}
+                        </div>
+                      </li>
+                    \`;
+                    })
+                    .join("")}</ul>\`
+                : '<div class="muted">No fixes recorded for this session.</div>'}
+            </div>
+            \${showSkippedPanel
+              ? \`<div class="panel">
+                  <div class="panel-title">Skipped</div>
+                  <ul class="skip-list">\${skipped
+                    .map((item) => \`
+                      <li class="skip-item\${item.priority ? "" : " no-pill"}">
+                        \${item.priority
+                          ? \`<div class="fix-pill \${getPriorityPillClass(item.priority)}">\${escapeHtml(item.priority)}</div>\`
+                          : ""}
+                        <div>
+                          <div class="skip-title">\${escapeHtml(item.title)}</div>
+                          <div class="skip-reason muted">\${escapeHtml(item.reason)}</div>
+                        </div>
+                      </li>
+                    \`)
+                    .join("")}</ul>
+                </div>\`
+              : ""}
+          </div>
+          \${showSkippedPanel
+            ? ""
+            : skipped.length
+              ? \`<div class="skipped-compact">
+                  <div class="skipped-compact-label">Skipped (1)</div>
+                  <div class="skip-item\${skipped[0]?.priority ? "" : " no-pill"}">
+                    \${skipped[0]?.priority
+                      ? \`<div class="fix-pill \${getPriorityPillClass(skipped[0].priority)}">\${escapeHtml(skipped[0].priority)}</div>\`
                       : ""}
                     <div>
-                      <div class="skip-title">\${escapeHtml(item.title)}</div>
-                      <div class="skip-reason muted">\${escapeHtml(item.reason)}</div>
+                      <div class="skip-title">\${escapeHtml(skipped[0]?.title || "")}</div>
+                      <div class="skip-reason muted">\${escapeHtml(skipped[0]?.reason || "")}</div>
                     </div>
-                  </li>
-                \`)
-                .join("")}</ul>
-            </div>\`
-          : ""}
-      </div>
-      \${showSkippedPanel
-        ? ""
-        : skipped.length
-          ? \`<div class="skipped-compact">
-              <div class="skipped-compact-label">Skipped (1)</div>
-              <div class="skip-item\${skipped[0]?.priority ? "" : " no-pill"}">
-                \${skipped[0]?.priority
-                  ? \`<div class="fix-pill \${getPriorityPillClass(skipped[0].priority)}">\${escapeHtml(skipped[0].priority)}</div>\`
-                  : ""}
-                <div>
-                  <div class="skip-title">\${escapeHtml(skipped[0]?.title || "")}</div>
-                  <div class="skip-reason muted">\${escapeHtml(skipped[0]?.reason || "")}</div>
-                </div>
-              </div>
-            </div>\`
-          : \`<div class="skipped-compact">
-              <div class="skipped-compact-label">Skipped</div>
-              <div class="muted">None</div>
-            </div>\`}
+                  </div>
+                </div>\`
+              : \`<div class="skipped-compact">
+                  <div class="skipped-compact-label">Skipped</div>
+                  <div class="muted">None</div>
+                </div>\`}
+        \`}
     \`;
   };
 

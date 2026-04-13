@@ -1,6 +1,7 @@
 import { LOG_CSS } from "@/lib/html/log/styles";
 import { getPriorityPillClass } from "@/lib/html/priority";
 import { escapeHtml, formatDate, formatDuration } from "@/lib/html/shared";
+import { deriveWorkflowPresentationData } from "@/lib/review-workflow/presentation";
 import type {
   AgentSettings,
   CodeLocation,
@@ -109,9 +110,63 @@ function renderSkippedEntry(item: SkippedEntry): string {
   `;
 }
 
+function renderStoredFindingEntry(finding: {
+  priority: string;
+  title: string;
+  filePath: string;
+  startLine: number;
+  endLine: number;
+}): string {
+  return `
+    <li class="fix-item">
+      <div class="fix-pill ${getPriorityPillClass(finding.priority)}">${escapeHtml(finding.priority)}</div>
+      <div>
+        <div class="fix-title">${escapeHtml(finding.title)}</div>
+        <div class="fix-meta">
+          <span class="muted">${escapeHtml(finding.filePath)}:${finding.startLine}-${finding.endLine}</span>
+        </div>
+      </div>
+    </li>
+  `;
+}
+
+function renderWorkflowFixResult(result: {
+  findingId: string;
+  status: string;
+  summary: string;
+  finding?: {
+    title: string;
+    priority: string;
+    filePath: string;
+    startLine: number;
+    endLine: number;
+  };
+}): string {
+  const priority = result.finding?.priority ?? "P3";
+  const title = result.finding?.title ?? result.findingId;
+  const location = result.finding
+    ? `${result.finding.filePath}:${result.finding.startLine}-${result.finding.endLine}`
+    : result.findingId;
+
+  return `
+    <li class="fix-item">
+      <div class="fix-pill ${getPriorityPillClass(priority)}">${escapeHtml(priority)}</div>
+      <div>
+        <div class="fix-title">${escapeHtml(title)}</div>
+        <div class="fix-meta">
+          <span class="muted">${escapeHtml(location)}</span>
+          <span class="muted"> · ${escapeHtml(result.status)}</span>
+        </div>
+        <div class="fix-range">${escapeHtml(result.summary)}</div>
+      </div>
+    </li>
+  `;
+}
+
 export function generateLogHtml(entries: LogEntry[]): string {
   const systemEntry = entries.find((entry) => entry.type === "system") as SystemEntry | undefined;
   const iterations = entries.filter((entry) => entry.type === "iteration") as IterationEntry[];
+  const workflow = deriveWorkflowPresentationData(entries);
   const hasCodeSimplifier = isCodeSimplified(systemEntry);
 
   const header = systemEntry
@@ -146,7 +201,7 @@ export function generateLogHtml(entries: LogEntry[]): string {
     : "";
 
   const iterationBlocks =
-    iterations.length === 0
+    iterations.length === 0 && !workflow.hasBatchFirstLifecycle
       ? `<div class="empty">No log entries</div>`
       : iterations
           .map((iter) => {
@@ -203,10 +258,105 @@ export function generateLogHtml(entries: LogEntry[]): string {
           })
           .join("");
 
+  const batchFirstBlocks = !workflow.hasBatchFirstLifecycle
+    ? ""
+    : [
+        ...workflow.discoveryEntries.map(
+          (entry) => `
+            <section class="card iteration">
+              <div class="iteration-header">
+                <div class="iteration-title">Discovery Iteration ${entry.iteration}</div>
+                <div class="iteration-meta">
+                  <span>${formatDate(entry.timestamp)}</span>
+                  <span class="dot">•</span>
+                  <span>${formatDuration(entry.duration)}</span>
+                </div>
+              </div>
+              <div class="section-title">Findings (${entry.findings.length})</div>
+              <ul class="fix-list">
+                ${entry.findings.map(renderStoredFindingEntry).join("")}
+              </ul>
+            </section>
+          `
+        ),
+        workflow.selectionEntry
+          ? `
+            <section class="card iteration">
+              <div class="iteration-header">
+                <div class="iteration-title">Finding Selection</div>
+                <div class="iteration-meta">
+                  <span>${formatDate(workflow.selectionEntry.timestamp)}</span>
+                </div>
+              </div>
+              <div class="muted">${workflow.selectionEntry.selectedFindingIds.length} selected via ${escapeHtml(workflow.selectionEntry.selectionMode)}</div>
+              ${
+                workflow.selectedFindings.length > 0
+                  ? `<ul class="fix-list">${workflow.selectedFindings.map(renderStoredFindingEntry).join("")}</ul>`
+                  : ""
+              }
+            </section>
+          `
+          : "",
+        workflow.batchFixEntry
+          ? `
+            <section class="card iteration">
+              <div class="iteration-header">
+                <div class="iteration-title">Batch Fix</div>
+                <div class="iteration-meta">
+                  <span>${formatDate(workflow.batchFixEntry.timestamp)}</span>
+                  <span class="dot">•</span>
+                  <span>${formatDuration(workflow.batchFixEntry.duration)}</span>
+                </div>
+              </div>
+              <div class="section-title">Fix Results (${workflow.fixResults.length})</div>
+              <ul class="fix-list">
+                ${workflow.fixResults.map(renderWorkflowFixResult).join("")}
+              </ul>
+            </section>
+          `
+          : "",
+        workflow.finalAuditEntry
+          ? `
+            <section class="card iteration">
+              <div class="iteration-header">
+                <div class="iteration-title">Final Audit</div>
+                <div class="iteration-meta">
+                  <span>${formatDate(workflow.finalAuditEntry.timestamp)}</span>
+                  <span class="dot">•</span>
+                  <span>${formatDuration(workflow.finalAuditEntry.duration)}</span>
+                </div>
+              </div>
+              ${
+                workflow.unresolvedSelectedFindings.length > 0
+                  ? `
+                    <div class="section-title">Unresolved (${workflow.unresolvedSelectedFindings.length})</div>
+                    <ul class="fix-list">
+                      ${workflow.unresolvedSelectedFindings.map(renderStoredFindingEntry).join("")}
+                    </ul>
+                  `
+                  : ""
+              }
+              ${
+                workflow.regressionFindings.length > 0
+                  ? `
+                    <div class="section-title">Regressions (${workflow.regressionFindings.length})</div>
+                    <ul class="fix-list">
+                      ${workflow.regressionFindings.map(renderStoredFindingEntry).join("")}
+                    </ul>
+                  `
+                  : ""
+              }
+            </section>
+          `
+          : "",
+      ]
+        .filter(Boolean)
+        .join("");
+
   const bodyContent =
     entries.length === 0
       ? `<div class="empty">No log entries</div>`
-      : `${header}<div class="stack">${iterationBlocks}</div>`;
+      : `${header}<div class="stack">${batchFirstBlocks || iterationBlocks}</div>`;
 
   return `
     <!DOCTYPE html>
