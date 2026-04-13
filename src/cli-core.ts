@@ -77,7 +77,7 @@ export const COMMANDS: CommandDef[] = [
   },
   {
     name: "run",
-    description: "Start review cycle",
+    description: "Run discovery and persist findings for later fixing",
     options: [
       { name: "max", alias: "m", type: "number", description: "Max iterations" },
       {
@@ -263,7 +263,7 @@ export const COMMANDS: CommandDef[] = [
   },
   {
     name: "_run-foreground",
-    description: "Internal: run review cycle in tmux foreground",
+    description: "Internal: run discovery session in tmux foreground",
     hidden: true,
     options: [
       { name: "max", type: "number", description: "Max iterations" },

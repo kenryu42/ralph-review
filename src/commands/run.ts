@@ -86,7 +86,7 @@ export function formatRunAgentsNote(config: Config, reviewOptions: ReviewOptions
   const fixer = getAgentDisplayInfo(config.fixer);
   const lines = [
     `Reviewer:   ${reviewer.agentName} (${reviewer.modelName}, reasoning: ${reviewer.reasoning})`,
-    `Fixer:      ${fixer.agentName} (${fixer.modelName}, reasoning: ${fixer.reasoning})`,
+    `Fixer:      ${fixer.agentName} (${fixer.modelName}, reasoning: ${fixer.reasoning}) (used by rr fix)`,
   ];
 
   if (reviewOptions.simplifier) {
@@ -365,7 +365,9 @@ async function runInBackground(
     const reviewOptions: ReviewOptions = { baseBranch, commitSha, customInstructions, simplifier };
     runtime.prompt.note(formatRunAgentsNote(config, reviewOptions), "Agents");
     runtime.prompt.note(
-      "rr         - Open Interactive Mode\n" + "rr stop    - Stop the review",
+      "rr         - Open Interactive Mode\n" +
+        "rr stop    - Stop the review\n" +
+        `rr fix --session ${sessionId} - Fix selected findings after discovery`,
       "Commands"
     );
   } catch (error) {
@@ -490,7 +492,17 @@ export async function runForeground(
     completionState = classifyRunCompletion(cycleResult);
     runtime.consoleLog(`\n${"=".repeat(50)}`);
     if (completionState === "success") {
-      runtime.prompt.log.success(`Review cycle complete! (${cycleResult.iterations} iterations)`);
+      if (cycleResult.reviewOutcome === "findings-pending") {
+        runtime.prompt.log.success(
+          `Discovery complete! Findings are ready for selection (${cycleResult.iterations} iterations)`
+        );
+      } else if (cycleResult.reviewOutcome === "clean") {
+        runtime.prompt.log.success(
+          `Discovery complete! No actionable findings (${cycleResult.iterations} iterations)`
+        );
+      } else {
+        runtime.prompt.log.success(`Review cycle complete! (${cycleResult.iterations} iterations)`);
+      }
     } else if (completionState === "warning") {
       runtime.prompt.log.warn(
         `Review cycle complete with warnings: ${cycleResult.reason} (${cycleResult.iterations} iterations)`
@@ -498,6 +510,13 @@ export async function runForeground(
     } else {
       runtime.prompt.log.error(
         `Review stopped: ${cycleResult.reason} (${cycleResult.iterations} iterations)`
+      );
+    }
+
+    if (cycleResult.reviewOutcome === "findings-pending" && sessionId) {
+      runtime.prompt.note(
+        `Fix selected findings with:\nrr fix --session ${sessionId}`,
+        "Next Step"
       );
     }
 
@@ -531,12 +550,14 @@ export async function runForeground(
           state: cycleResult.finalStatus,
           endTime: runtime.timer.now(),
           reason: cycleResult.reason,
+          phase: cycleResult.phase,
           currentAgent: null,
           lastHeartbeat: runtime.timer.now(),
           worktreeProjectPath: cycleResult.retainedWorktree?.worktreeProjectPath,
           worktreeBranch: cycleResult.retainedWorktree?.worktreeBranch,
           worktreeMergeReady: cycleResult.retainedWorktree?.mergeReady,
           worktreeCommitSha: cycleResult.retainedWorktree?.commitSha,
+          artifactPath: cycleResult.artifactPath,
           reviewOutcome: cycleResult.reviewOutcome,
           handoffStatus: cycleResult.handoffStatus,
           handoffUpdatedAt: cycleResult.handoffUpdatedAt,
@@ -555,12 +576,14 @@ export async function runForeground(
           state: "failed",
           endTime: runtime.timer.now(),
           reason: "Review exited unexpectedly",
+          phase: undefined,
           currentAgent: null,
           lastHeartbeat: runtime.timer.now(),
           worktreeProjectPath: undefined,
           worktreeBranch: undefined,
           worktreeMergeReady: undefined,
           worktreeCommitSha: undefined,
+          artifactPath: undefined,
           reviewOutcome: undefined,
           handoffStatus: undefined,
           handoffUpdatedAt: undefined,
