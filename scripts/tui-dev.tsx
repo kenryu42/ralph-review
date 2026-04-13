@@ -13,6 +13,11 @@
  */
 import { createCliRenderer } from "@opentui/core";
 import { createRoot } from "@opentui/react";
+import type {
+  FindingFixResult,
+  FindingId,
+  StoredFinding,
+} from "@/lib/review-workflow/findings/types";
 import type { SessionState } from "@/lib/session-state";
 import { DetailPane } from "@/lib/tui/sessions/detail/DetailPane";
 import { SelectionCopyToastBoundary } from "@/lib/tui/shared/SelectionCopyToastBoundary";
@@ -264,6 +269,12 @@ interface MockData {
   fixes: FixEntry[];
   skipped: SkippedEntry[];
   findings: Finding[];
+  storedFindings: StoredFinding[];
+  selectedFindingIds: FindingId[];
+  selectedFindings: StoredFinding[];
+  fixResults: FindingFixResult[];
+  unresolvedSelectedFindings: StoredFinding[];
+  auditRegressionFindings: StoredFinding[];
   latestReviewIteration: number | null;
   totalFixes: number;
   totalSkipped: number;
@@ -284,6 +295,12 @@ function getMockData(state: MockState): MockData {
     fixes: [],
     skipped: [],
     findings: [],
+    storedFindings: [],
+    selectedFindingIds: [],
+    selectedFindings: [],
+    fixResults: [],
+    unresolvedSelectedFindings: [],
+    auditRegressionFindings: [],
     latestReviewIteration: null,
     totalFixes: 0,
     totalSkipped: 0,
@@ -409,6 +426,12 @@ async function main() {
         fixes={mockData.fixes}
         skipped={mockData.skipped}
         findings={mockData.findings}
+        storedFindings={mockData.storedFindings ?? []}
+        selectedFindingIds={mockData.selectedFindingIds ?? []}
+        selectedFindings={mockData.selectedFindings ?? []}
+        fixResults={mockData.fixResults ?? []}
+        unresolvedSelectedFindings={mockData.unresolvedSelectedFindings ?? []}
+        auditRegressionFindings={mockData.auditRegressionFindings ?? []}
         latestReviewIteration={mockData.latestReviewIteration}
         codexReviewText={mockData.codexReviewText}
         tmuxOutput={mockData.tmuxOutput}
