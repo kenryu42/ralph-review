@@ -519,6 +519,10 @@ function applyEntryToSummary(
     return next;
   }
 
+  if (entry.type !== "session_end") {
+    return next;
+  }
+
   next.status = entry.status;
   next.reason = entry.reason;
   next.endedAt = entry.timestamp;
