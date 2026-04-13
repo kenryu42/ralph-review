@@ -7,6 +7,7 @@ import {
   FIX_SUMMARY_END_TOKEN,
   FIX_SUMMARY_START_TOKEN,
 } from "@/lib/prompts/protocol";
+import type { StoredFinding } from "@/lib/review-workflow/findings/types";
 
 export function createFixerPrompt(reviewOutput: string): string {
   return `You are a **skeptical verification reviewer + surgical fixer**.
@@ -183,4 +184,76 @@ JSON rules:
 - Use [] when empty.
 - Priority must be exactly P0/P1/P2/P3.
 - The delimited JSON block must be the final output (no trailing text).`;
+}
+
+function formatSelectedFindings(findings: StoredFinding[]): string {
+  return findings
+    .map((finding) => {
+      return [
+        `- ${finding.id} [${finding.priority}] ${finding.filePath}:${finding.startLine}-${finding.endLine}`,
+        `  Title: ${finding.title}`,
+        `  Body: ${finding.body}`,
+      ].join("\n");
+    })
+    .join("\n");
+}
+
+export interface BatchFixerPromptOptions {
+  reviewedSnapshotPath: string;
+  mutableWorkspacePath: string;
+  selectedFindings: StoredFinding[];
+}
+
+export function createBatchFixerPrompt(options: BatchFixerPromptOptions): string {
+  return `You are a skeptical verification reviewer and surgical fixer.
+
+## Objective
+Verify the selected findings against the real code in \`${options.mutableWorkspacePath}\`, then apply only the smallest safe fixes you can prove.
+
+## Hard rules
+- Verify every finding against the real code first.
+- Default to SKIP when evidence is weak, ambiguous, or speculative.
+- Apply the smallest safe fix needed for each proven issue.
+- Do not broaden a finding into cleanup, refactoring, or unrelated work.
+- Do not hunt for new issues outside the selected findings.
+- The reviewed snapshot at \`${options.reviewedSnapshotPath}\` is the source of truth for what was selected.
+
+## Selected findings
+${formatSelectedFindings(options.selectedFindings)}
+
+## Required workflow
+1. Verify each selected finding independently against the real code.
+2. Decide fixed vs skipped for each finding before making edits.
+3. Apply fixes only for findings you can prove.
+4. Keep edits as local and minimal as possible.
+5. Return one result entry for every selected finding ID.
+
+## Human-readable notes
+- Keep notes concise.
+- Explain why each applied change is the smallest safe fix.
+- If you skip a finding, explain why verification did not justify a code change.
+
+## JSON (REQUIRED)
+${createFixerStructuredOutputInstructions()}
+
+${FIX_SUMMARY_START_TOKEN}
+{
+  "decision": "<NO_CHANGES_NEEDED | APPLY_SELECTIVELY | APPLY_MOST>",
+  "results": {
+    "F001": {
+      "status": "<fixed | skipped>",
+      "summary": "<what changed or why it was skipped>"
+    }
+  }
+}
+${FIX_SUMMARY_END_TOKEN}
+
+JSON rules:
+- Use the selected finding IDs as the object keys under \`results\`.
+- You must return one result entry for every selected finding ID.
+- Do not include any finding that was not selected.
+- Do not include the legacy iteration-stop field.
+- Use \`fixed\` only when you verified the issue and applied a real code change.
+- Use \`skipped\` when the finding was unproven, out of scope, or did not require a safe change.
+- The delimited JSON block must be the final output.`;
 }
