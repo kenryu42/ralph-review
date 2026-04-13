@@ -334,7 +334,6 @@ describe("DetailPane", () => {
     expect(frame).toContain("Guard missing config before dereference");
     expect(frame).toContain("Avoid stale review summary after restart");
     expect(frame).toContain("Stop leaking tmux pane handles on refresh");
-    expect(frame).toContain("+1 more");
     expect(frame).toContain("Handoff:");
     expect(frame).toContain("rr apply --session session-123");
     expect(frame).toContain('Press "l" to view full run details');

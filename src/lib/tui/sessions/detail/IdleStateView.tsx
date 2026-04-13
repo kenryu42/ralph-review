@@ -14,8 +14,6 @@ import { Spinner } from "@/lib/tui/shared/Spinner";
 import type { ProjectStats, SessionStats } from "@/lib/types";
 import { toSingleLine } from "./session-detail-parts";
 
-const LAST_RUN_FIX_PREVIEW_LIMIT = 3;
-
 function getLastRunStatusDisplay(status: SessionStats["status"]): { text: string; color: string } {
   switch (status) {
     case "completed":
@@ -74,9 +72,9 @@ export function IdleStateView({
   const lastRunStatusDisplay = lastSessionStats
     ? getLastRunStatusDisplay(lastSessionStats.status)
     : null;
-  const lastRunFixes = lastSessionStats ? extractFixesFromStats(lastSessionStats) : [];
-  const lastRunFixPreview = lastRunFixes.slice(0, LAST_RUN_FIX_PREVIEW_LIMIT);
-  const hiddenFixCount = Math.max(0, lastRunFixes.length - LAST_RUN_FIX_PREVIEW_LIMIT);
+  const lastRunFixes = lastSessionStats
+    ? extractFixesFromStats(lastSessionStats).sort((a, b) => a.priority.localeCompare(b.priority))
+    : [];
   const lastRunSummary = lastSessionStats
     ? `${formatLastRunIssueSummary(
         lastSessionStats.totalFixes,
@@ -161,18 +159,17 @@ export function IdleStateView({
           </box>
           <text fg={TUI_COLORS.text.secondary}>{lastRunSummary}</text>
 
-          {lastRunFixPreview.length > 0 && (
+          {lastRunFixes.length > 0 && (
             <box flexDirection="column" gap={0}>
               <text fg={TUI_COLORS.text.muted}>Recent fixes</text>
               <box flexDirection="column" paddingLeft={2}>
-                {lastRunFixPreview.map((fix) => (
+                {lastRunFixes.map((fix) => (
                   <box key={`${fix.id}-${fix.title}`} flexDirection="row">
                     <text fg={PRIORITY_COLORS[fix.priority]}>{fix.priority}</text>
                     <text fg={TUI_COLORS.text.dim}> ▸ </text>
                     <text fg={TUI_COLORS.text.secondary}>{toSingleLine(fix.title)}</text>
                   </box>
                 ))}
-                {hiddenFixCount > 0 && <text fg={TUI_COLORS.text.dim}>+{hiddenFixCount} more</text>}
               </box>
             </box>
           )}
