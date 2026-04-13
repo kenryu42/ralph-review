@@ -1,5 +1,17 @@
+import type {
+  AuditSummary,
+  FindingFixResult,
+  FindingId,
+  StoredFinding,
+} from "@/lib/review-workflow/findings/types";
 import type { AgentSettings } from "./config";
-import type { DerivedRunStatus, Priority, ReviewOutcome } from "./domain";
+import type {
+  DerivedRunStatus,
+  Priority,
+  ReviewOutcome,
+  ReviewPhase,
+  SessionStatus,
+} from "./domain";
 import type { FixSummary } from "./fix";
 import type { HandoffStatus } from "./handoff";
 import type { CodexReviewSummary, ReviewSummary } from "./review";
@@ -37,6 +49,8 @@ export interface SessionEndEntry {
   status: "completed" | "failed" | "interrupted";
   reason: string;
   iterations: number;
+  phase?: ReviewPhase;
+  sessionStatus?: SessionStatus;
   reviewOutcome?: ReviewOutcome;
   handoffStatus?: HandoffStatus;
   handoffUpdatedAt?: number;
@@ -54,6 +68,41 @@ export interface HandoffEntry {
   commitSha?: string;
 }
 
+export interface DiscoveryIterationEntry {
+  type: "discovery_iteration";
+  timestamp: number;
+  iteration: number;
+  duration?: number;
+  findings: StoredFinding[];
+  netNewFindingIds: FindingId[];
+  error?: IterationError;
+}
+
+export interface FindingSelectionEntry {
+  type: "finding_selection";
+  timestamp: number;
+  selectionMode: "all" | "priority" | "id";
+  selectedFindingIds: FindingId[];
+}
+
+export interface BatchFixEntry {
+  type: "batch_fix";
+  timestamp: number;
+  duration?: number;
+  selectedFindingIds: FindingId[];
+  fixResults: FindingFixResult[];
+  error?: IterationError;
+}
+
+export interface FinalAuditEntry {
+  type: "final_audit";
+  timestamp: number;
+  duration?: number;
+  selectedFindingIds: FindingId[];
+  summary: AuditSummary;
+  error?: IterationError;
+}
+
 export interface SessionSummary {
   schemaVersion: 2;
   logPath: string;
@@ -66,6 +115,8 @@ export interface SessionSummary {
   updatedAt: number;
   endedAt?: number;
   status: DerivedRunStatus;
+  sessionStatus?: SessionStatus;
+  phase?: ReviewPhase;
   reason?: string;
   iterations: number;
   hasIteration: boolean;
@@ -80,6 +131,20 @@ export interface SessionSummary {
   mergeReady?: boolean;
   commitSha?: string;
   worktreeBranch?: string;
+  totalFindings?: number;
+  totalSelectedFindings?: number;
+  totalAppliedFindings?: number;
+  totalSkippedFindings?: number;
+  totalUnresolvedSelectedFindings?: number;
+  totalAuditRegressions?: number;
 }
 
-export type LogEntry = SystemEntry | IterationEntry | SessionEndEntry | HandoffEntry;
+export type LogEntry =
+  | SystemEntry
+  | IterationEntry
+  | DiscoveryIterationEntry
+  | FindingSelectionEntry
+  | BatchFixEntry
+  | FinalAuditEntry
+  | SessionEndEntry
+  | HandoffEntry;

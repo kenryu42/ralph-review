@@ -1,5 +1,12 @@
 import type { ReasoningLevel } from "./config";
-import type { AgentType, DerivedRunStatus, Priority, ReviewOutcome } from "./domain";
+import type {
+  AgentType,
+  DerivedRunStatus,
+  Priority,
+  ReviewOutcome,
+  ReviewPhase,
+  SessionStatus,
+} from "./domain";
 import type { HandoffStatus } from "./handoff";
 import type { LogEntry } from "./log";
 
@@ -39,6 +46,8 @@ export interface SessionStats {
   handoffStatus?: HandoffStatus;
   handoffUpdatedAt?: number;
   status: DerivedRunStatus;
+  sessionStatus?: SessionStatus;
+  phase?: ReviewPhase;
   stop_iteration?: boolean;
   totalFixes: number;
   totalSkipped: number;
@@ -56,6 +65,12 @@ export interface SessionStats {
   fixerReasoning?: ReasoningLevel;
   fixerDisplayName: string;
   fixerModelDisplayName: string;
+  totalFindings?: number;
+  totalSelectedFindings?: number;
+  totalAppliedFindings?: number;
+  totalSkippedFindings?: number;
+  totalUnresolvedSelectedFindings?: number;
+  totalAuditRegressions?: number;
 }
 
 export interface ProjectStats {

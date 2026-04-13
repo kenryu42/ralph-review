@@ -1,8 +1,10 @@
+import type { SessionStatus } from "./domain";
+
 export interface RunState {
   sessionName: string;
   startTime: number; // Unix timestamp
   iteration: number;
-  status: "running" | "stopped" | "completed" | "failed";
+  status: SessionStatus | "stopped";
   lastOutput?: string;
 }
 
