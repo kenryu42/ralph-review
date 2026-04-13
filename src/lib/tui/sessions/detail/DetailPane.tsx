@@ -83,31 +83,33 @@ export function DetailPane({
       flexDirection="column"
       minHeight={0}
     >
-      {session ? (
-        <SessionDetailView
-          session={session}
-          fixes={fixes}
-          skipped={skipped}
-          findings={findings}
-          latestReviewIteration={latestReviewIteration}
-          codexReviewText={codexReviewText}
-          tmuxOutput={tmuxOutput}
-          maxIterations={maxIterations}
-          currentAgent={currentAgent}
-          reviewOptions={reviewOptions}
-          isStopping={isStopping}
-          activeSessionCount={activeSessionCount}
-          focused={focused}
-        />
-      ) : (
-        <IdleStateView
-          isGitRepo={isGitRepo}
-          isStarting={isStarting}
-          isStopping={isStopping}
-          lastSessionStats={lastSessionStats}
-          projectStats={projectStats}
-        />
-      )}
+      <scrollbox flexGrow={1} focused={focused}>
+        {session ? (
+          <SessionDetailView
+            session={session}
+            fixes={fixes}
+            skipped={skipped}
+            findings={findings}
+            latestReviewIteration={latestReviewIteration}
+            codexReviewText={codexReviewText}
+            tmuxOutput={tmuxOutput}
+            maxIterations={maxIterations}
+            currentAgent={currentAgent}
+            reviewOptions={reviewOptions}
+            isStopping={isStopping}
+            activeSessionCount={activeSessionCount}
+            focused={focused}
+          />
+        ) : (
+          <IdleStateView
+            isGitRepo={isGitRepo}
+            isStarting={isStarting}
+            isStopping={isStopping}
+            lastSessionStats={lastSessionStats}
+            projectStats={projectStats}
+          />
+        )}
+      </scrollbox>
     </box>
   );
 }
