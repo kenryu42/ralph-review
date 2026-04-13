@@ -39,7 +39,7 @@ function createActiveSession(overrides: Partial<ActiveSession> = {}): ActiveSess
 }
 
 function createWorkspaceState(overrides: Partial<WorkspaceState> = {}): WorkspaceState {
-  return {
+  const next: WorkspaceState = {
     sessionGroups: [],
     allSessions: [],
     projectSessions: [],
@@ -49,6 +49,12 @@ function createWorkspaceState(overrides: Partial<WorkspaceState> = {}): Workspac
     fixes: [],
     skipped: [],
     findings: [],
+    storedFindings: [],
+    selectedFindingIds: [],
+    selectedFindings: [],
+    fixResults: [],
+    unresolvedSelectedFindings: [],
+    auditRegressionFindings: [],
     iterationFixes: [],
     iterationSkipped: [],
     iterationFindings: [],
@@ -69,6 +75,16 @@ function createWorkspaceState(overrides: Partial<WorkspaceState> = {}): Workspac
     reviewOptions: undefined,
     outputVisible: false,
     ...overrides,
+  };
+
+  return {
+    ...next,
+    storedFindings: next.storedFindings ?? [],
+    selectedFindingIds: next.selectedFindingIds ?? [],
+    selectedFindings: next.selectedFindings ?? [],
+    fixResults: next.fixResults ?? [],
+    unresolvedSelectedFindings: next.unresolvedSelectedFindings ?? [],
+    auditRegressionFindings: next.auditRegressionFindings ?? [],
   };
 }
 

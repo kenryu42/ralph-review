@@ -1,5 +1,11 @@
 import { useEffect, useMemo, useRef } from "react";
 import { formatReviewType } from "@/lib/format";
+import type {
+  FindingFixResult,
+  FindingId,
+  StoredFinding,
+} from "@/lib/review-workflow/findings/types";
+import { storedFindingToFinding } from "@/lib/review-workflow/presentation";
 import type { SessionState } from "@/lib/session-state";
 import { resolveIssuesFoundDisplay } from "@/lib/tui/sessions/issues-found-display";
 import {
@@ -20,10 +26,12 @@ import type {
 } from "@/lib/types";
 import { parseCodexReviewText } from "@/lib/types";
 import {
+  FindingFixResultList,
   FindingsList,
   FixList,
   SectionHeader,
   SkippedList,
+  StoredFindingsList,
   toSingleLine,
 } from "./session-detail-parts";
 
@@ -32,6 +40,12 @@ interface SessionDetailViewProps {
   fixes: FixEntry[];
   skipped: SkippedEntry[];
   findings: Finding[];
+  storedFindings: StoredFinding[];
+  selectedFindingIds: FindingId[];
+  selectedFindings: StoredFinding[];
+  fixResults: FindingFixResult[];
+  unresolvedSelectedFindings: StoredFinding[];
+  auditRegressionFindings: StoredFinding[];
   latestReviewIteration: number | null;
   codexReviewText: string | null;
   tmuxOutput: string;
@@ -116,6 +130,12 @@ export function SessionDetailView({
   fixes,
   skipped,
   findings,
+  storedFindings,
+  selectedFindingIds,
+  selectedFindings,
+  fixResults,
+  unresolvedSelectedFindings,
+  auditRegressionFindings,
   latestReviewIteration,
   codexReviewText,
   tmuxOutput,
@@ -165,7 +185,10 @@ export function SessionDetailView({
   const statusDisplay = getStatusDisplay(
     session.state ?? "unknown",
     currentAgent,
-    session.state === "running" && currentAgent === null && session.iteration === undefined
+    session.state === "running" &&
+      currentAgent === null &&
+      session.iteration === undefined &&
+      session.currentPhase === undefined
   );
 
   const cachedLiveReviewSummary =
@@ -192,6 +215,44 @@ export function SessionDetailView({
       : displayFindings.length;
   const appliedCount = fixes.length;
   const skippedCount = skipped.length;
+  const batchFirstMode =
+    session.currentPhase !== undefined ||
+    session.sessionStatus !== undefined ||
+    session.reviewOutcome !== undefined ||
+    storedFindings.length > 0 ||
+    (session.accumulatedFindings?.length ?? 0) > 0 ||
+    selectedFindingIds.length > 0 ||
+    fixResults.length > 0 ||
+    unresolvedSelectedFindings.length > 0 ||
+    auditRegressionFindings.length > 0;
+  const inventoryFindings = session.accumulatedFindings ?? storedFindings;
+  const workflowFindingsById = new Map<string, StoredFinding>(
+    [...inventoryFindings, ...auditRegressionFindings].map((finding) => [finding.id, finding])
+  );
+  const workflowSelectedIds =
+    session.selectedFindingIds && session.selectedFindingIds.length > 0
+      ? session.selectedFindingIds
+      : selectedFindingIds;
+  const workflowSelectedFindings =
+    selectedFindings.length > 0
+      ? selectedFindings
+      : workflowSelectedIds
+          .map((findingId) => workflowFindingsById.get(findingId))
+          .filter((finding): finding is StoredFinding => finding !== undefined);
+  const workflowUnresolvedFindings =
+    unresolvedSelectedFindings.length > 0
+      ? unresolvedSelectedFindings
+      : (session.latestAudit?.unresolvedFindingIds ?? [])
+          .map((findingId) => workflowFindingsById.get(findingId))
+          .filter((finding): finding is StoredFinding => finding !== undefined);
+  const workflowRegressionFindings = session.latestAudit?.regressionFindings.length
+    ? session.latestAudit.regressionFindings
+    : auditRegressionFindings;
+  const batchDisplayFindings =
+    inventoryFindings.length > 0 ? inventoryFindings.map(storedFindingToFinding) : displayFindings;
+  const workflowLine = [session.currentPhase, session.sessionStatus, session.reviewOutcome]
+    .filter(Boolean)
+    .join(" · ");
 
   const sessionIdentity = formatSessionIdentityDisplay(session, activeSessionCount);
 
@@ -225,6 +286,15 @@ export function SessionDetailView({
         </text>
       </box>
 
+      {workflowLine && (
+        <box flexDirection="row" gap={1}>
+          <text fg={TUI_COLORS.text.muted}>Workflow:</text>
+          <text fg={TUI_COLORS.text.primary} wrapMode="none">
+            {workflowLine}
+          </text>
+        </box>
+      )}
+
       <box flexDirection="column">
         <box flexDirection="row" gap={1}>
           <text fg={TUI_COLORS.text.muted}>Session:</text>
@@ -241,34 +311,96 @@ export function SessionDetailView({
 
       <ProgressBar current={iteration} max={maxIterations} />
 
-      <box flexDirection="column" flexBasis={0} flexGrow={5} minHeight={0}>
-        <SectionHeader
-          title="Issues found"
-          count={verifyCount}
-          suffix={showingCodex ? <span fg={TUI_COLORS.text.dim}> · codex</span> : undefined}
-        />
-        <box flexGrow={1} minHeight={0}>
-          {showingCodex ? (
-            <CodexReviewDisplay text={displayCodexText ?? ""} height="100%" focused={focused} />
-          ) : (
-            <FindingsList findings={displayFindings} height="100%" focused={focused} />
+      {batchFirstMode ? (
+        <>
+          <box flexDirection="column" flexBasis={0} flexGrow={5} minHeight={0}>
+            <SectionHeader title="Findings inventory" count={batchDisplayFindings.length} />
+            <box flexGrow={1} minHeight={0}>
+              {inventoryFindings.length > 0 ? (
+                <StoredFindingsList findings={inventoryFindings} height="100%" focused={focused} />
+              ) : showingCodex ? (
+                <CodexReviewDisplay text={displayCodexText ?? ""} height="100%" focused={focused} />
+              ) : (
+                <FindingsList findings={batchDisplayFindings} height="100%" focused={focused} />
+              )}
+            </box>
+          </box>
+
+          {workflowSelectedFindings.length > 0 && (
+            <box flexDirection="column" flexBasis={0} flexGrow={2} minHeight={0}>
+              <SectionHeader title="Selected findings" count={workflowSelectedFindings.length} />
+              <box flexGrow={1} minHeight={0}>
+                <StoredFindingsList findings={workflowSelectedFindings} height="100%" />
+              </box>
+            </box>
           )}
-        </box>
-      </box>
 
-      <box flexDirection="column" flexBasis={0} flexGrow={3} minHeight={0}>
-        <SectionHeader title="Fix applied" count={appliedCount} />
-        <box flexGrow={1} minHeight={0}>
-          <FixList fixes={fixes} showFiles={true} height="100%" focused={false} />
-        </box>
-      </box>
+          {fixResults.length > 0 && (
+            <box flexDirection="column" flexBasis={0} flexGrow={2} minHeight={0}>
+              <SectionHeader title="Fix results" count={fixResults.length} />
+              <box flexGrow={1} minHeight={0}>
+                <FindingFixResultList
+                  results={fixResults}
+                  findingsById={workflowFindingsById}
+                  height="100%"
+                />
+              </box>
+            </box>
+          )}
 
-      <box flexDirection="column" flexBasis={0} flexGrow={2} minHeight={0}>
-        <SectionHeader title="Skipped" count={skippedCount} />
-        <box flexGrow={1} minHeight={0}>
-          <SkippedList skipped={skipped} height="100%" focused={false} />
-        </box>
-      </box>
+          {(workflowUnresolvedFindings.length > 0 || workflowRegressionFindings.length > 0) && (
+            <box flexDirection="column" flexBasis={0} flexGrow={3} minHeight={0}>
+              <SectionHeader
+                title="Final audit"
+                count={workflowUnresolvedFindings.length + workflowRegressionFindings.length}
+              />
+              {workflowUnresolvedFindings.length > 0 && (
+                <box flexDirection="column" minHeight={0}>
+                  <text fg={TUI_COLORS.text.muted}>Unresolved selected findings</text>
+                  <StoredFindingsList findings={workflowUnresolvedFindings} height={4} />
+                </box>
+              )}
+              {workflowRegressionFindings.length > 0 && (
+                <box flexDirection="column" minHeight={0}>
+                  <text fg={TUI_COLORS.text.muted}>Regression findings</text>
+                  <StoredFindingsList findings={workflowRegressionFindings} height={4} />
+                </box>
+              )}
+            </box>
+          )}
+        </>
+      ) : (
+        <>
+          <box flexDirection="column" flexBasis={0} flexGrow={5} minHeight={0}>
+            <SectionHeader
+              title="Issues found"
+              count={verifyCount}
+              suffix={showingCodex ? <span fg={TUI_COLORS.text.dim}> · codex</span> : undefined}
+            />
+            <box flexGrow={1} minHeight={0}>
+              {showingCodex ? (
+                <CodexReviewDisplay text={displayCodexText ?? ""} height="100%" focused={focused} />
+              ) : (
+                <FindingsList findings={displayFindings} height="100%" focused={focused} />
+              )}
+            </box>
+          </box>
+
+          <box flexDirection="column" flexBasis={0} flexGrow={3} minHeight={0}>
+            <SectionHeader title="Fix applied" count={appliedCount} />
+            <box flexGrow={1} minHeight={0}>
+              <FixList fixes={fixes} showFiles={true} height="100%" focused={false} />
+            </box>
+          </box>
+
+          <box flexDirection="column" flexBasis={0} flexGrow={2} minHeight={0}>
+            <SectionHeader title="Skipped" count={skippedCount} />
+            <box flexGrow={1} minHeight={0}>
+              <SkippedList skipped={skipped} height="100%" focused={false} />
+            </box>
+          </box>
+        </>
+      )}
     </box>
   );
 }

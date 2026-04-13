@@ -1,3 +1,8 @@
+import type {
+  FindingFixResult,
+  FindingId,
+  StoredFinding,
+} from "@/lib/review-workflow/findings/types";
 import type { ActiveSession, SessionState } from "@/lib/session-state";
 import type {
   AgentRole,
@@ -30,6 +35,12 @@ export interface WorkspaceState {
   fixes: FixEntry[];
   skipped: SkippedEntry[];
   findings: Finding[];
+  storedFindings: StoredFinding[];
+  selectedFindingIds: FindingId[];
+  selectedFindings: StoredFinding[];
+  fixResults: FindingFixResult[];
+  unresolvedSelectedFindings: StoredFinding[];
+  auditRegressionFindings: StoredFinding[];
   iterationFixes: FixEntry[];
   iterationSkipped: SkippedEntry[];
   iterationFindings: Finding[];

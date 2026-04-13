@@ -1,12 +1,14 @@
 import { formatDuration } from "@/lib/format";
 import {
   extractFixesFromStats,
+  formatBatchFirstIssueSummary,
   formatHandoffCommands,
   formatHandoffSummary,
   formatLastRunIssueSummary,
   formatPriorityBreakdown,
   formatProjectStatsSummary,
   formatRelativeTime,
+  hasBatchFirstSummary,
   PRIORITY_COLORS,
 } from "@/lib/tui/sessions/session-display";
 import { TUI_COLORS } from "@/lib/tui/shared/colors";
@@ -76,11 +78,15 @@ export function IdleStateView({
     ? extractFixesFromStats(lastSessionStats).sort((a, b) => a.priority.localeCompare(b.priority))
     : [];
   const lastRunSummary = lastSessionStats
-    ? `${formatLastRunIssueSummary(
-        lastSessionStats.totalFixes,
-        lastSessionStats.totalSkipped,
-        lastSessionStats.iterations
-      )}${
+    ? `${
+        hasBatchFirstSummary(lastSessionStats)
+          ? formatBatchFirstIssueSummary(lastSessionStats)
+          : formatLastRunIssueSummary(
+              lastSessionStats.totalFixes,
+              lastSessionStats.totalSkipped,
+              lastSessionStats.iterations
+            )
+      }${
         lastSessionStats.totalDuration !== undefined
           ? ` · ${formatDuration(lastSessionStats.totalDuration)}`
           : ""

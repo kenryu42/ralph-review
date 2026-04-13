@@ -104,6 +104,112 @@ describe("deriveWorkspaceLogData", () => {
     expect(result.codexReviewText).toBe("codex review summary");
     expect(result.findings).toEqual(result.iterationFindings);
   });
+
+  test("derives batch-first workflow data from lifecycle entries", () => {
+    const logEntries: LogEntry[] = [
+      {
+        type: "system",
+        timestamp: 100,
+        sessionId: "session-123",
+        projectPath: "/repo/project",
+        reviewer: { agent: "codex", model: "gpt-5.3-codex" },
+        fixer: { agent: "claude", model: "claude-opus-4-6" },
+        maxIterations: 5,
+      },
+      {
+        type: "discovery_iteration",
+        timestamp: 200,
+        iteration: 1,
+        phase: "discovery",
+        sessionStatus: "running",
+        findings: [
+          {
+            id: "F001",
+            fingerprint: "fp-1",
+            title: "Guard missing config",
+            body: "Missing null guard",
+            priority: "P0",
+            confidenceScore: 0.99,
+            filePath: "src/config.ts",
+            startLine: 10,
+            endLine: 12,
+          },
+          {
+            id: "F002",
+            fingerprint: "fp-2",
+            title: "Avoid stale cache",
+            body: "Cache can be stale",
+            priority: "P2",
+            confidenceScore: 0.88,
+            filePath: "src/cache.ts",
+            startLine: 20,
+            endLine: 24,
+          },
+        ],
+        netNewFindingIds: ["F001", "F002"],
+      },
+      {
+        type: "finding_selection",
+        timestamp: 300,
+        selectionMode: "id",
+        selectedFindingIds: ["F001"],
+      },
+      {
+        type: "batch_fix",
+        timestamp: 400,
+        selectedFindingIds: ["F001"],
+        fixResults: [
+          {
+            findingId: "F001",
+            status: "fixed",
+            summary: "Added a null guard",
+          },
+        ],
+      },
+      {
+        type: "final_audit",
+        timestamp: 500,
+        selectedFindingIds: ["F001"],
+        summary: {
+          resolvedFindingIds: [],
+          unresolvedFindingIds: ["F001"],
+          regressionFindings: [
+            {
+              id: "F010",
+              fingerprint: "fp-10",
+              title: "Regression in cache invalidation",
+              body: "Fix introduced a cache regression",
+              priority: "P1",
+              confidenceScore: 0.9,
+              filePath: "src/cache.ts",
+              startLine: 30,
+              endLine: 32,
+            },
+          ],
+        },
+      },
+    ];
+
+    const result = deriveWorkspaceLogData(logEntries);
+
+    expect(result.storedFindings.map((finding) => finding.id)).toEqual(["F001", "F002"]);
+    expect(result.findings.map((finding) => finding.title)).toEqual([
+      "Guard missing config",
+      "Avoid stale cache",
+    ]);
+    expect(result.selectedFindingIds).toEqual(["F001"]);
+    expect(result.selectedFindings.map((finding) => finding.id)).toEqual(["F001"]);
+    expect(result.fixResults).toHaveLength(1);
+    expect(result.fixResults[0]).toMatchObject({
+      findingId: "F001",
+      status: "fixed",
+      summary: "Added a null guard",
+    });
+    expect(result.unresolvedSelectedFindings.map((finding) => finding.id)).toEqual(["F001"]);
+    expect(result.auditRegressionFindings.map((finding) => finding.id)).toEqual(["F010"]);
+    expect(result.latestReviewIteration).toBeNull();
+    expect(result.codexReviewText).toBeNull();
+  });
 });
 
 describe("loadWorkspaceConfigSafe", () => {

@@ -1,3 +1,8 @@
+import type {
+  FindingFixResult,
+  FindingId,
+  StoredFinding,
+} from "@/lib/review-workflow/findings/types";
 import type { SessionState } from "@/lib/session-state";
 import { DetailPane } from "@/lib/tui/sessions/detail/DetailPane";
 import { SessionSidebar } from "@/lib/tui/sessions/sidebar/SessionSidebar";
@@ -20,6 +25,12 @@ interface WorkspaceProps {
   fixes: FixEntry[];
   skipped: SkippedEntry[];
   findings: Finding[];
+  storedFindings: StoredFinding[];
+  selectedFindingIds: FindingId[];
+  selectedFindings: StoredFinding[];
+  fixResults: FindingFixResult[];
+  unresolvedSelectedFindings: StoredFinding[];
+  auditRegressionFindings: StoredFinding[];
   latestReviewIteration: number | null;
   codexReviewText: string | null;
   tmuxOutput: string;
@@ -44,6 +55,12 @@ export function Workspace({
   fixes,
   skipped,
   findings,
+  storedFindings,
+  selectedFindingIds,
+  selectedFindings,
+  fixResults,
+  unresolvedSelectedFindings,
+  auditRegressionFindings,
   latestReviewIteration,
   codexReviewText,
   tmuxOutput,
@@ -73,6 +90,12 @@ export function Workspace({
           fixes={fixes}
           skipped={skipped}
           findings={findings}
+          storedFindings={storedFindings}
+          selectedFindingIds={selectedFindingIds}
+          selectedFindings={selectedFindings}
+          fixResults={fixResults}
+          unresolvedSelectedFindings={unresolvedSelectedFindings}
+          auditRegressionFindings={auditRegressionFindings}
           latestReviewIteration={latestReviewIteration}
           codexReviewText={codexReviewText}
           tmuxOutput={tmuxOutput}

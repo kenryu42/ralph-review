@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { testRender } from "@opentui/react/test-utils";
 import { act, createElement } from "react";
+import type {
+  FindingFixResult,
+  FindingId,
+  StoredFinding,
+} from "@/lib/review-workflow/findings/types";
 import type { SessionState } from "@/lib/session-state";
 import { DetailPane } from "@/lib/tui/sessions/detail/DetailPane";
 import type {
@@ -164,6 +169,12 @@ describe("DetailPane", () => {
     fixes = [],
     skipped = [],
     findings = [],
+    storedFindings = [],
+    selectedFindingIds = [],
+    selectedFindings = [],
+    fixResults = [],
+    unresolvedSelectedFindings = [],
+    auditRegressionFindings = [],
     latestReviewIteration = null,
     codexReviewText = null,
     tmuxOutput = "",
@@ -184,6 +195,12 @@ describe("DetailPane", () => {
     fixes?: FixEntry[];
     skipped?: SkippedEntry[];
     findings?: Finding[];
+    storedFindings?: StoredFinding[];
+    selectedFindingIds?: FindingId[];
+    selectedFindings?: StoredFinding[];
+    fixResults?: FindingFixResult[];
+    unresolvedSelectedFindings?: StoredFinding[];
+    auditRegressionFindings?: StoredFinding[];
     latestReviewIteration?: number | null;
     codexReviewText?: string | null;
     tmuxOutput?: string;
@@ -206,6 +223,12 @@ describe("DetailPane", () => {
         fixes,
         skipped,
         findings,
+        storedFindings,
+        selectedFindingIds,
+        selectedFindings,
+        fixResults,
+        unresolvedSelectedFindings,
+        auditRegressionFindings,
         latestReviewIteration,
         codexReviewText,
         tmuxOutput,
@@ -396,6 +419,142 @@ describe("DetailPane", () => {
     expect(frame).toContain("Fix title");
     expect(frame).toContain("Skipped");
     expect(frame).toContain("Skipped title");
+  });
+
+  test("renders batch-first workflow metadata, inventory, fix results, and audit details", async () => {
+    const frame = await renderFrame({
+      session: createSession({
+        currentPhase: "final-audit",
+        sessionStatus: "completed",
+        reviewOutcome: "audit-regressions",
+        accumulatedFindings: [
+          {
+            id: "F001",
+            fingerprint: "fp-1",
+            title: "Guard missing config",
+            body: "Null check is missing",
+            priority: "P0",
+            confidenceScore: 0.97,
+            filePath: "src/config.ts",
+            startLine: 10,
+            endLine: 12,
+          },
+          {
+            id: "F002",
+            fingerprint: "fp-2",
+            title: "Avoid stale cache",
+            body: "Cache can be stale",
+            priority: "P2",
+            confidenceScore: 0.91,
+            filePath: "src/cache.ts",
+            startLine: 20,
+            endLine: 22,
+          },
+        ],
+        selectedFindingIds: ["F001"],
+        latestAudit: {
+          resolvedFindingIds: [],
+          unresolvedFindingIds: ["F001"],
+          regressionFindings: [
+            {
+              id: "F010",
+              fingerprint: "fp-10",
+              title: "Regression in cache invalidation",
+              body: "Fix introduced a cache regression",
+              priority: "P1",
+              confidenceScore: 0.88,
+              filePath: "src/cache.ts",
+              startLine: 30,
+              endLine: 32,
+            },
+          ],
+        },
+      }),
+      reviewOptions: { baseBranch: "main" },
+      storedFindings: [
+        {
+          id: "F001",
+          fingerprint: "fp-1",
+          title: "Guard missing config",
+          body: "Null check is missing",
+          priority: "P0",
+          confidenceScore: 0.97,
+          filePath: "src/config.ts",
+          startLine: 10,
+          endLine: 12,
+        },
+        {
+          id: "F002",
+          fingerprint: "fp-2",
+          title: "Avoid stale cache",
+          body: "Cache can be stale",
+          priority: "P2",
+          confidenceScore: 0.91,
+          filePath: "src/cache.ts",
+          startLine: 20,
+          endLine: 22,
+        },
+      ],
+      selectedFindingIds: ["F001"],
+      selectedFindings: [
+        {
+          id: "F001",
+          fingerprint: "fp-1",
+          title: "Guard missing config",
+          body: "Null check is missing",
+          priority: "P0",
+          confidenceScore: 0.97,
+          filePath: "src/config.ts",
+          startLine: 10,
+          endLine: 12,
+        },
+      ],
+      fixResults: [
+        {
+          findingId: "F001",
+          status: "fixed",
+          summary: "Added a null guard",
+        },
+      ],
+      unresolvedSelectedFindings: [
+        {
+          id: "F001",
+          fingerprint: "fp-1",
+          title: "Guard missing config",
+          body: "Null check is missing",
+          priority: "P0",
+          confidenceScore: 0.97,
+          filePath: "src/config.ts",
+          startLine: 10,
+          endLine: 12,
+        },
+      ],
+      auditRegressionFindings: [
+        {
+          id: "F010",
+          fingerprint: "fp-10",
+          title: "Regression in cache invalidation",
+          body: "Fix introduced a cache regression",
+          priority: "P1",
+          confidenceScore: 0.88,
+          filePath: "src/cache.ts",
+          startLine: 30,
+          endLine: 32,
+        },
+      ],
+    });
+
+    expect(frame).toContain("Workflow:");
+    expect(frame).toContain("final-audit");
+    expect(frame).toContain("completed");
+    expect(frame).toContain("audit-regressions");
+    expect(frame).toContain("Findings inventory");
+    expect(frame).toContain("Guard missing config");
+    expect(frame).toContain("Selected findings");
+    expect(frame).toContain("Fix results");
+    expect(frame).toContain("Added a null guard");
+    expect(frame).toContain("Final audit");
+    expect(frame).toContain("Regression in cache invalidation");
   });
 
   test("renders codex review text when no structured findings are present", async () => {

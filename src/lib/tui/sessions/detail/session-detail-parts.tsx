@@ -1,3 +1,5 @@
+import type { FindingFixResult, StoredFinding } from "@/lib/review-workflow/findings/types";
+import { storedFindingToFinding } from "@/lib/review-workflow/presentation";
 import { PRIORITY_COLORS, UNKNOWN_PRIORITY_COLOR } from "@/lib/tui/sessions/session-display";
 import { TUI_COLORS } from "@/lib/tui/shared/colors";
 import type { Finding, FixEntry, Priority, SkippedEntry } from "@/lib/types";
@@ -91,6 +93,27 @@ export function FindingsList({
   );
 }
 
+export function StoredFindingsList({
+  findings,
+  height = 8,
+  focused = false,
+  scrollable = true,
+}: {
+  findings: StoredFinding[];
+  height?: BoxHeight;
+  focused?: boolean;
+  scrollable?: boolean;
+}) {
+  return (
+    <FindingsList
+      findings={findings.map(storedFindingToFinding)}
+      height={height}
+      focused={focused}
+      scrollable={scrollable}
+    />
+  );
+}
+
 export function FixList({
   fixes,
   showFiles,
@@ -177,6 +200,76 @@ export function SkippedList({
       </text>
     </box>
   ));
+
+  if (!scrollable) {
+    return <box paddingLeft={2}>{content}</box>;
+  }
+
+  return (
+    <scrollbox paddingLeft={2} height={height} focused={focused}>
+      {content}
+    </scrollbox>
+  );
+}
+
+function getFixResultColor(status: FindingFixResult["status"]): string {
+  switch (status) {
+    case "fixed":
+      return TUI_COLORS.status.success;
+    case "skipped":
+      return TUI_COLORS.status.warning;
+    case "failed":
+      return TUI_COLORS.status.error;
+    default:
+      return TUI_COLORS.text.dim;
+  }
+}
+
+export function FindingFixResultList({
+  results,
+  findingsById,
+  height = 6,
+  focused = false,
+  scrollable = true,
+}: {
+  results: FindingFixResult[];
+  findingsById: Map<string, StoredFinding>;
+  height?: BoxHeight;
+  focused?: boolean;
+  scrollable?: boolean;
+}) {
+  if (results.length === 0) {
+    return (
+      <text fg={TUI_COLORS.text.dim} paddingLeft={2}>
+        None yet
+      </text>
+    );
+  }
+
+  const content = results.map((result) => {
+    const finding = findingsById.get(result.findingId);
+    const location = finding ? `${finding.filePath}:${finding.startLine}-${finding.endLine}` : null;
+
+    return (
+      <box key={`${result.findingId}-${result.status}`} flexDirection="column">
+        <box flexDirection="row">
+          <text fg={getFixResultColor(result.status)}>{result.status.toUpperCase()}</text>
+          <text fg={TUI_COLORS.text.dim}> ▸ </text>
+          <text fg={TUI_COLORS.text.secondary} wrapMode="none">
+            {toSingleLine(finding?.title ?? result.findingId)}
+          </text>
+        </box>
+        {location && (
+          <text fg={TUI_COLORS.text.dim} paddingLeft={5} wrapMode="none">
+            {toSingleLine(location)}
+          </text>
+        )}
+        <text fg={TUI_COLORS.text.dim} paddingLeft={5}>
+          {toSingleLine(result.summary)}
+        </text>
+      </box>
+    );
+  });
 
   if (!scrollable) {
     return <box paddingLeft={2}>{content}</box>;

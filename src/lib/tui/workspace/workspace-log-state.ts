@@ -1,3 +1,7 @@
+import {
+  deriveWorkflowPresentationData,
+  storedFindingToFinding,
+} from "@/lib/review-workflow/presentation";
 import type { Config, Finding, FixEntry, LogEntry, ReviewOptions, SkippedEntry } from "@/lib/types";
 import { selectLatestReviewFromEntries } from "./workspace-refresh-utils";
 
@@ -9,6 +13,14 @@ export interface WorkspaceLogData {
   fixes: FixEntry[];
   skipped: SkippedEntry[];
   findings: Finding[];
+  storedFindings: ReturnType<typeof deriveWorkflowPresentationData>["storedFindings"];
+  selectedFindingIds: ReturnType<typeof deriveWorkflowPresentationData>["selectedFindingIds"];
+  selectedFindings: ReturnType<typeof deriveWorkflowPresentationData>["selectedFindings"];
+  fixResults: ReturnType<typeof deriveWorkflowPresentationData>["fixResults"];
+  unresolvedSelectedFindings: ReturnType<
+    typeof deriveWorkflowPresentationData
+  >["unresolvedSelectedFindings"];
+  auditRegressionFindings: ReturnType<typeof deriveWorkflowPresentationData>["regressionFindings"];
   iterationFixes: FixEntry[];
   iterationSkipped: SkippedEntry[];
   iterationFindings: Finding[];
@@ -26,6 +38,7 @@ export function deriveWorkspaceLogData(logEntries: LogEntry[]): WorkspaceLogData
   let latestFixesTimestamp = 0;
   let maxIterations = 0;
   let reviewOptions: ReviewOptions | undefined;
+  const workflow = deriveWorkflowPresentationData(logEntries);
 
   const latestReview = selectLatestReviewFromEntries(logEntries);
   const iterationFindings = latestReview.iterationFindings;
@@ -57,10 +70,20 @@ export function deriveWorkspaceLogData(logEntries: LogEntry[]): WorkspaceLogData
     }
   }
 
+  const findings = workflow.hasBatchFirstLifecycle
+    ? workflow.storedFindings.map(storedFindingToFinding)
+    : iterationFindings;
+
   return {
     fixes,
     skipped,
-    findings: iterationFindings,
+    findings,
+    storedFindings: workflow.storedFindings,
+    selectedFindingIds: workflow.selectedFindingIds,
+    selectedFindings: workflow.selectedFindings,
+    fixResults: workflow.fixResults,
+    unresolvedSelectedFindings: workflow.unresolvedSelectedFindings,
+    auditRegressionFindings: workflow.regressionFindings,
     iterationFixes,
     iterationSkipped,
     iterationFindings,
