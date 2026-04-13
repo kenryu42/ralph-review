@@ -4,6 +4,7 @@ import { testRender } from "@opentui/react/test-utils";
 import { act, createElement } from "react";
 import type { LogSession } from "@/lib/logger";
 import * as logger from "@/lib/logger";
+import { CLI_PATH } from "@/lib/paths";
 import type { ActiveSession } from "@/lib/session-state";
 import * as sessionState from "@/lib/session-state";
 import { SessionDetailPane } from "@/lib/tui/sessions/history/SessionListDetailPane";
@@ -109,6 +110,17 @@ function createDeferred<T>() {
       resolve?.(value);
     },
   };
+}
+
+function createStderrStream(text: string): ReadableStream<Uint8Array> {
+  const encoder = new TextEncoder();
+
+  return new ReadableStream({
+    start(controller) {
+      controller.enqueue(encoder.encode(text));
+      controller.close();
+    },
+  });
 }
 
 describe("SessionOverlay", () => {
@@ -581,6 +593,297 @@ describe("SessionOverlay", () => {
     expect(frame).toContain("Cannot delete a running session");
     expect(frame).toContain("Delete Session Log");
   });
+
+  test("opens a fix modal for pending-findings sessions and spawns rr fix --all", async () => {
+    const originalSpawn = Bun.spawn;
+    const spawnCalls: Array<{ cmd: string[]; cwd: string | undefined }> = [];
+    Bun.spawn = ((cmd: string[], options?: { cwd?: string }) => {
+      spawnCalls.push({ cmd, cwd: options?.cwd });
+      return {
+        exited: Promise.resolve(0),
+        stderr: createStderrStream(""),
+      };
+    }) as typeof Bun.spawn;
+
+    try {
+      const session = buildLogSession({
+        path: "/tmp/logs/session-a.jsonl",
+        name: "session-a.jsonl",
+      });
+      const sessionsDeferred = createDeferred<LogSession[]>();
+      const statsDeferred = createDeferred<SessionStats>();
+      const setup = await renderOverlay(
+        {},
+        {
+          sessions: sessionsDeferred.promise,
+          stats: statsDeferred.promise,
+        }
+      );
+
+      await act(async () => {
+        sessionsDeferred.resolve([session]);
+        statsDeferred.resolve(
+          buildSessionStats({
+            sessionId: "session-123",
+            reviewOutcome: "findings-pending",
+            entries: [
+              buildSystemEntry({ projectPath: "/repo/project" }),
+              {
+                type: "discovery_iteration",
+                timestamp: Date.now(),
+                iteration: 1,
+                phase: "discovery",
+                sessionStatus: "completed",
+                findings: [
+                  {
+                    id: "F001",
+                    fingerprint: "fp-1",
+                    title: "Guard missing config",
+                    body: "Null check is missing",
+                    priority: "P0",
+                    confidenceScore: 0.97,
+                    filePath: "src/config.ts",
+                    startLine: 10,
+                    endLine: 12,
+                  },
+                ],
+                netNewFindingIds: ["F001"],
+              },
+            ],
+          })
+        );
+        await setup.renderOnce();
+        await Promise.resolve();
+        await setup.renderOnce();
+      });
+
+      await pressKeyAndRender(setup, "f");
+      let frame = setup.captureCharFrame();
+      expect(frame).toContain("Fix Findings");
+
+      await pressKeyAndRender(setup, "enter");
+      await settleOverlay(setup);
+
+      expect(spawnCalls).toEqual([
+        {
+          cmd: [process.execPath, CLI_PATH, "fix", "--session", "session-123", "--all"],
+          cwd: "/repo/project",
+        },
+      ]);
+
+      frame = setup.captureCharFrame();
+      expect(frame).not.toContain("Fix Findings");
+    } finally {
+      Bun.spawn = originalSpawn;
+    }
+  });
+
+  test("spawns rr fix with repeated priority flags from the fix modal", async () => {
+    const originalSpawn = Bun.spawn;
+    const spawnCalls: Array<{ cmd: string[]; cwd: string | undefined }> = [];
+    Bun.spawn = ((cmd: string[], options?: { cwd?: string }) => {
+      spawnCalls.push({ cmd, cwd: options?.cwd });
+      return {
+        exited: Promise.resolve(0),
+        stderr: createStderrStream(""),
+      };
+    }) as typeof Bun.spawn;
+
+    try {
+      const session = buildLogSession({
+        path: "/tmp/logs/session-a.jsonl",
+        name: "session-a.jsonl",
+      });
+      const sessionsDeferred = createDeferred<LogSession[]>();
+      const statsDeferred = createDeferred<SessionStats>();
+      const setup = await renderOverlay(
+        {},
+        {
+          sessions: sessionsDeferred.promise,
+          stats: statsDeferred.promise,
+        }
+      );
+
+      await act(async () => {
+        sessionsDeferred.resolve([session]);
+        statsDeferred.resolve(
+          buildSessionStats({
+            sessionId: "session-123",
+            reviewOutcome: "findings-pending",
+            entries: [
+              buildSystemEntry({ projectPath: "/repo/project" }),
+              {
+                type: "discovery_iteration",
+                timestamp: Date.now(),
+                iteration: 1,
+                phase: "discovery",
+                sessionStatus: "completed",
+                findings: [
+                  {
+                    id: "F001",
+                    fingerprint: "fp-1",
+                    title: "Guard missing config",
+                    body: "Null check is missing",
+                    priority: "P0",
+                    confidenceScore: 0.97,
+                    filePath: "src/config.ts",
+                    startLine: 10,
+                    endLine: 12,
+                  },
+                  {
+                    id: "F002",
+                    fingerprint: "fp-2",
+                    title: "Avoid stale cache",
+                    body: "Cache can be stale",
+                    priority: "P1",
+                    confidenceScore: 0.92,
+                    filePath: "src/cache.ts",
+                    startLine: 20,
+                    endLine: 22,
+                  },
+                ],
+                netNewFindingIds: ["F001", "F002"],
+              },
+            ],
+          })
+        );
+        await setup.renderOnce();
+        await Promise.resolve();
+        await setup.renderOnce();
+      });
+
+      await pressKeyAndRender(setup, "f");
+      await pressKeyAndRender(setup, "right");
+      await pressKeyAndRender(setup, "space");
+      await pressKeyAndRender(setup, "down");
+      await pressKeyAndRender(setup, "space");
+      await pressKeyAndRender(setup, "enter");
+      await settleOverlay(setup);
+
+      expect(spawnCalls).toEqual([
+        {
+          cmd: [
+            process.execPath,
+            CLI_PATH,
+            "fix",
+            "--session",
+            "session-123",
+            "--priority",
+            "P0",
+            "--priority",
+            "P1",
+          ],
+          cwd: "/repo/project",
+        },
+      ]);
+    } finally {
+      Bun.spawn = originalSpawn;
+    }
+  });
+
+  test("spawns rr fix with repeated id flags from the fix modal", async () => {
+    const originalSpawn = Bun.spawn;
+    const spawnCalls: Array<{ cmd: string[]; cwd: string | undefined }> = [];
+    Bun.spawn = ((cmd: string[], options?: { cwd?: string }) => {
+      spawnCalls.push({ cmd, cwd: options?.cwd });
+      return {
+        exited: Promise.resolve(0),
+        stderr: createStderrStream(""),
+      };
+    }) as typeof Bun.spawn;
+
+    try {
+      const session = buildLogSession({
+        path: "/tmp/logs/session-a.jsonl",
+        name: "session-a.jsonl",
+      });
+      const sessionsDeferred = createDeferred<LogSession[]>();
+      const statsDeferred = createDeferred<SessionStats>();
+      const setup = await renderOverlay(
+        {},
+        {
+          sessions: sessionsDeferred.promise,
+          stats: statsDeferred.promise,
+        }
+      );
+
+      await act(async () => {
+        sessionsDeferred.resolve([session]);
+        statsDeferred.resolve(
+          buildSessionStats({
+            sessionId: "session-123",
+            reviewOutcome: "findings-pending",
+            entries: [
+              buildSystemEntry({ projectPath: "/repo/project" }),
+              {
+                type: "discovery_iteration",
+                timestamp: Date.now(),
+                iteration: 1,
+                phase: "discovery",
+                sessionStatus: "completed",
+                findings: [
+                  {
+                    id: "F001",
+                    fingerprint: "fp-1",
+                    title: "Guard missing config",
+                    body: "Null check is missing",
+                    priority: "P0",
+                    confidenceScore: 0.97,
+                    filePath: "src/config.ts",
+                    startLine: 10,
+                    endLine: 12,
+                  },
+                  {
+                    id: "F002",
+                    fingerprint: "fp-2",
+                    title: "Avoid stale cache",
+                    body: "Cache can be stale",
+                    priority: "P1",
+                    confidenceScore: 0.92,
+                    filePath: "src/cache.ts",
+                    startLine: 20,
+                    endLine: 22,
+                  },
+                ],
+                netNewFindingIds: ["F001", "F002"],
+              },
+            ],
+          })
+        );
+        await setup.renderOnce();
+        await Promise.resolve();
+        await setup.renderOnce();
+      });
+
+      await pressKeyAndRender(setup, "f");
+      await pressKeyAndRender(setup, "right");
+      await pressKeyAndRender(setup, "right");
+      await pressKeyAndRender(setup, "space");
+      await pressKeyAndRender(setup, "down");
+      await pressKeyAndRender(setup, "space");
+      await pressKeyAndRender(setup, "enter");
+      await settleOverlay(setup);
+
+      expect(spawnCalls).toEqual([
+        {
+          cmd: [
+            process.execPath,
+            CLI_PATH,
+            "fix",
+            "--session",
+            "session-123",
+            "--id",
+            "F001",
+            "--id",
+            "F002",
+          ],
+          cwd: "/repo/project",
+        },
+      ]);
+    } finally {
+      Bun.spawn = originalSpawn;
+    }
+  });
 });
 
 describe("SessionDetailPane", () => {
@@ -599,9 +902,10 @@ describe("SessionDetailPane", () => {
     stats: SessionStats,
     props: Partial<Parameters<typeof SessionDetailPane>[0]> = {}
   ): Promise<Awaited<ReturnType<typeof testRender>>> {
+    const renderHeight = props.height ?? 40;
     testSetup = await testRender(createElement(SessionDetailPane, { stats, ...props }), {
       width: 100,
-      height: 40,
+      height: renderHeight,
     });
 
     await act(async () => {
@@ -620,7 +924,7 @@ describe("SessionDetailPane", () => {
       commitSha: "abc1234",
     });
 
-    const setup = await renderDetailPane(stats);
+    const setup = await renderDetailPane(stats, { height: 70 });
     const frame = setup.captureCharFrame();
 
     expect(frame).toContain("completed");
@@ -750,6 +1054,113 @@ describe("SessionDetailPane", () => {
     expect(frame).toContain("P1");
     expect(frame).toContain("P2");
     expect(frame).toContain("P3");
+  });
+
+  test("renders the batch-first lifecycle and findings inventory", async () => {
+    const stats = buildSessionStats({
+      sessionId: "session-123",
+      sessionStatus: "completed",
+      phase: "complete",
+      reviewOutcome: "audit-regressions",
+      totalFindings: 2,
+      totalSelectedFindings: 1,
+      totalAppliedFindings: 1,
+      totalSkippedFindings: 0,
+      totalUnresolvedSelectedFindings: 1,
+      totalAuditRegressions: 1,
+      entries: [
+        buildSystemEntry({ projectPath: "/test/project" }),
+        {
+          type: "discovery_iteration",
+          timestamp: Date.now(),
+          iteration: 1,
+          phase: "discovery",
+          sessionStatus: "running",
+          findings: [
+            {
+              id: "F001",
+              fingerprint: "fp-1",
+              title: "Guard missing config",
+              body: "Null check is missing",
+              priority: "P0",
+              confidenceScore: 0.97,
+              filePath: "src/config.ts",
+              startLine: 10,
+              endLine: 12,
+            },
+            {
+              id: "F002",
+              fingerprint: "fp-2",
+              title: "Avoid stale cache",
+              body: "Cache can be stale",
+              priority: "P2",
+              confidenceScore: 0.92,
+              filePath: "src/cache.ts",
+              startLine: 20,
+              endLine: 22,
+            },
+          ],
+          netNewFindingIds: ["F001", "F002"],
+        },
+        {
+          type: "finding_selection",
+          timestamp: Date.now(),
+          selectionMode: "id",
+          selectedFindingIds: ["F001"],
+        },
+        {
+          type: "batch_fix",
+          timestamp: Date.now(),
+          selectedFindingIds: ["F001"],
+          fixResults: [
+            {
+              findingId: "F001",
+              status: "fixed",
+              summary: "Added a null guard",
+            },
+          ],
+        },
+        {
+          type: "final_audit",
+          timestamp: Date.now(),
+          selectedFindingIds: ["F001"],
+          summary: {
+            resolvedFindingIds: [],
+            unresolvedFindingIds: ["F001"],
+            regressionFindings: [
+              {
+                id: "F010",
+                fingerprint: "fp-10",
+                title: "Regression in cache invalidation",
+                body: "Fix introduced a cache regression",
+                priority: "P1",
+                confidenceScore: 0.9,
+                filePath: "src/cache.ts",
+                startLine: 30,
+                endLine: 32,
+              },
+            ],
+          },
+        },
+        buildSessionEndEntry({
+          phase: "complete",
+          sessionStatus: "completed",
+          reviewOutcome: "audit-regressions",
+          reason: "Selected fixes introduced one regression.",
+        }),
+      ],
+    });
+
+    const setup = await renderDetailPane(stats);
+    const frame = setup.captureCharFrame();
+
+    expect(frame).toContain("audit-regressions");
+    expect(frame).toContain("2 findings discovered");
+    expect(frame).toContain("Selection");
+    expect(frame).toContain("1 selected");
+    expect(frame).toContain("1 fixed");
+    expect(frame).toContain("1 regressions");
+    expect(frame).toContain("Guard missing config");
   });
 
   test("renders iteration timeline with findings and fixes", async () => {

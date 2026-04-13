@@ -2,10 +2,13 @@ import type { ScrollBoxRenderable } from "@opentui/core";
 import { type ReactNode, useRef } from "react";
 import { formatDuration } from "@/lib/format";
 import { getProjectNameFromLogPath } from "@/lib/logger";
+import { deriveWorkflowPresentationData } from "@/lib/review-workflow/presentation";
 import {
+  FindingFixResultList,
   FindingsList,
   SectionHeader,
   SkippedList,
+  StoredFindingsList,
   toSingleLine,
 } from "@/lib/tui/sessions/detail/session-detail-parts";
 import {
@@ -261,6 +264,44 @@ function IterationSection({ entry }: { entry: IterationEntry }) {
   );
 }
 
+function formatBatchFirstResult(stats: SessionStats): string {
+  const findingsText = `${stats.totalFindings ?? 0} findings discovered`;
+  const selectionText =
+    stats.totalSelectedFindings !== undefined ? ` · ${stats.totalSelectedFindings} selected` : "";
+  const remediationText =
+    stats.totalAppliedFindings !== undefined || stats.totalSkippedFindings !== undefined
+      ? ` · ${stats.totalAppliedFindings ?? 0} fixed · ${stats.totalSkippedFindings ?? 0} skipped`
+      : "";
+  const auditText =
+    stats.totalAuditRegressions !== undefined
+      ? ` · ${stats.totalAuditRegressions} regressions`
+      : stats.totalUnresolvedSelectedFindings !== undefined
+        ? ` · ${stats.totalUnresolvedSelectedFindings} unresolved`
+        : "";
+
+  return `${findingsText}${selectionText}${remediationText}${auditText}`;
+}
+
+function WorkflowSection({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <box
+      flexDirection="column"
+      gap={1}
+      border
+      borderStyle="single"
+      borderColor={TUI_COLORS.ui.border}
+      paddingLeft={1}
+      paddingRight={1}
+      paddingBottom={1}
+    >
+      <text fg={TUI_COLORS.text.faint}>
+        <strong>{title}</strong>
+      </text>
+      {children}
+    </box>
+  );
+}
+
 function SessionEndSection({ entry }: { entry: SessionEndEntry }) {
   return (
     <box
@@ -297,12 +338,15 @@ export function SessionDetailPane({
 }) {
   const scrollboxRef = useRef<ScrollBoxRenderable | null>(null);
   const scrollMetrics = useScrollMetrics(scrollboxRef, focused);
+  const workflow = deriveWorkflowPresentationData(stats.entries);
+  const hasBatchFirstSummary =
+    workflow.hasBatchFirstLifecycle ||
+    stats.reviewOutcome === "findings-pending" ||
+    stats.totalFindings !== undefined;
 
-  const issueSummary = formatLastRunIssueSummary(
-    stats.totalFixes,
-    stats.totalSkipped,
-    stats.iterations
-  );
+  const issueSummary = hasBatchFirstSummary
+    ? formatBatchFirstResult(stats)
+    : formatLastRunIssueSummary(stats.totalFixes, stats.totalSkipped, stats.iterations);
 
   const handoffSummary = formatHandoffSummary(stats.handoffStatus, stats.commitSha);
   const outcomeSummary = [stats.reviewOutcome, handoffSummary].filter(Boolean).join(" · ");
@@ -361,6 +405,13 @@ export function SessionDetailPane({
                 <text fg={TUI_COLORS.text.secondary}>{outcomeSummary}</text>
               </MetadataRow>
             )}
+            {(stats.phase || stats.sessionStatus) && (
+              <MetadataRow label="Workflow:">
+                <text fg={TUI_COLORS.text.secondary}>
+                  {[stats.phase, stats.sessionStatus].filter(Boolean).join(" · ")}
+                </text>
+              </MetadataRow>
+            )}
             {stats.commitSha && (
               <MetadataRow label="Commit:">
                 <text fg={TUI_COLORS.text.secondary}>{stats.commitSha}</text>
@@ -397,10 +448,70 @@ export function SessionDetailPane({
             )}
           </box>
 
-          {/* Iteration timeline */}
-          {iterationEntries.map((entry) => (
-            <IterationSection key={entry.iteration} entry={entry} />
-          ))}
+          {workflow.hasBatchFirstLifecycle ? (
+            <>
+              {workflow.discoveryEntries.map((entry) => (
+                <WorkflowSection
+                  key={`discovery-${entry.iteration}`}
+                  title={`Discovery Iteration ${entry.iteration}`}
+                >
+                  <text fg={TUI_COLORS.text.secondary} paddingLeft={2}>
+                    {entry.findings.length} findings discovered
+                  </text>
+                  <StoredFindingsList findings={entry.findings} scrollable={false} />
+                </WorkflowSection>
+              ))}
+
+              {workflow.selectionEntry && (
+                <WorkflowSection title="Selection">
+                  <text fg={TUI_COLORS.text.secondary} paddingLeft={2}>
+                    {workflow.selectionEntry.selectedFindingIds.length} selected via{" "}
+                    {workflow.selectionEntry.selectionMode}
+                  </text>
+                  {workflow.selectedFindings.length > 0 && (
+                    <StoredFindingsList findings={workflow.selectedFindings} scrollable={false} />
+                  )}
+                </WorkflowSection>
+              )}
+
+              {workflow.batchFixEntry && (
+                <WorkflowSection title="Batch Fix">
+                  <FindingFixResultList
+                    results={workflow.fixResults}
+                    findingsById={workflow.findingsById}
+                    scrollable={false}
+                  />
+                </WorkflowSection>
+              )}
+
+              {workflow.finalAuditEntry && (
+                <WorkflowSection title="Final Audit">
+                  {workflow.unresolvedSelectedFindings.length > 0 && (
+                    <box flexDirection="column">
+                      <text fg={TUI_COLORS.text.muted}>Unresolved selected findings</text>
+                      <StoredFindingsList
+                        findings={workflow.unresolvedSelectedFindings}
+                        scrollable={false}
+                      />
+                    </box>
+                  )}
+                  {workflow.regressionFindings.length > 0 && (
+                    <box flexDirection="column">
+                      <text fg={TUI_COLORS.text.muted}>Regression findings</text>
+                      <StoredFindingsList
+                        findings={workflow.regressionFindings}
+                        scrollable={false}
+                      />
+                    </box>
+                  )}
+                </WorkflowSection>
+              )}
+            </>
+          ) : (
+            iterationEntries.map((entry) => (
+              <IterationSection key={entry.iteration} entry={entry} />
+            ))
+          )}
 
           {/* Session end */}
           {sessionEndEntry && <SessionEndSection entry={sessionEndEntry} />}
