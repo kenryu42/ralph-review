@@ -1,2 +1,1 @@
-// Entry boundary for results modules.
-export {};
+export * from "@/lib/review-workflow/results/finalize-result";
