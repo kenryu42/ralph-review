@@ -26,6 +26,8 @@ export {
   isAgentType,
   type Priority,
   type ReviewOutcome,
+  type ReviewPhase,
+  type SessionStatus,
 } from "./domain";
 export { type FixEntry, type FixSummary, isFixSummary, type SkippedEntry } from "./fix";
 export type {
