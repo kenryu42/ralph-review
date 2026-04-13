@@ -85,6 +85,9 @@ function createCliHarness(overrides: Partial<CliDeps> = {}): CliHarness {
     runApply: async (argv) => {
       calls.push(`apply:${argv.join(",")}`);
     },
+    runFix: async (argv = []) => {
+      calls.push(`fix:${argv.join(",")}`);
+    },
     runDiscard: async (argv) => {
       calls.push(`discard:${argv.join(",")}`);
     },
@@ -286,6 +289,11 @@ describe("cli entrypoints", () => {
   test("dispatches all non-run command handlers", async () => {
     const scenarios = [
       { command: "init", args: [], expectedCall: "init" },
+      {
+        command: "fix",
+        args: ["--session", "session-1", "--all"],
+        expectedCall: "fix:--session,session-1,--all",
+      },
       {
         command: "apply",
         args: ["--session", "session-1"],

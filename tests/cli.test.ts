@@ -60,6 +60,7 @@ describe("cli", () => {
       expect(usage).toContain("init");
       expect(usage).toContain("config");
       expect(usage).toContain("run");
+      expect(usage).toContain("fix");
       expect(usage).toContain("apply");
       expect(usage).toContain("discard");
       expect(usage).toContain("revert");
@@ -103,6 +104,7 @@ describe("cli", () => {
       expect(names).toContain("init");
       expect(names).toContain("config");
       expect(names).toContain("run");
+      expect(names).toContain("fix");
       expect(names).toContain("apply");
       expect(names).toContain("discard");
       expect(names).toContain("revert");
@@ -132,6 +134,16 @@ describe("cli", () => {
       expect(optionNames).not.toContain("interactive");
       expect(optionNames).not.toContain("no-interactive");
       expect(optionNames).not.toContain("list");
+    });
+
+    test("fix command exposes session and selector options", () => {
+      const fixCmd = COMMANDS.find((c) => c.name === "fix");
+      expect(fixCmd).toBeDefined();
+      const optionNames = fixCmd?.options?.map((o) => o.name) ?? [];
+      expect(optionNames).toContain("session");
+      expect(optionNames).toContain("all");
+      expect(optionNames).toContain("priority");
+      expect(optionNames).toContain("id");
     });
 
     test("list command has ls alias", () => {
