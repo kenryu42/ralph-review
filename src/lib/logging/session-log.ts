@@ -11,6 +11,7 @@ import type {
   AgentType,
   DashboardData,
   DerivedRunStatus,
+  DiscoveryIterationEntry,
   HandoffEntry,
   IterationEntry,
   LogEntry,
@@ -368,6 +369,9 @@ function deriveRunStatusFromEntries(
   }
 
   if (!metrics.lastIteration) {
+    if (entries.some((entry) => entry.type === "discovery_iteration")) {
+      return "running";
+    }
     return "unknown";
   }
 
@@ -387,6 +391,13 @@ function getLastHandoffEntry(entries: LogEntry[]): HandoffEntry | undefined {
 
 function buildSessionSummary(logPath: string, entries: LogEntry[]): SessionSummary {
   const metrics = computeIterationMetrics(entries);
+  const discoveryIterations = entries.filter(
+    (entry): entry is DiscoveryIterationEntry => entry.type === "discovery_iteration"
+  );
+  const lastDiscoveryIteration = discoveryIterations.at(-1);
+  const discoveryDuration = discoveryIterations.reduce((total, entry) => {
+    return total + (entry.duration ?? 0);
+  }, 0);
   const systemEntry = entries.find((entry): entry is SystemEntry => entry.type === "system");
   const sessionEnd = getLastSessionEnd(entries);
   const handoffEntry = getLastHandoffEntry(entries);
@@ -409,20 +420,25 @@ function buildSessionSummary(logPath: string, entries: LogEntry[]): SessionSumma
     updatedAt: sessionEnd?.timestamp ?? lastTimestamp ?? Date.now(),
     endedAt: sessionEnd?.timestamp,
     status: deriveRunStatusFromEntries(entries, metrics),
+    sessionStatus: sessionEnd?.sessionStatus,
+    phase: sessionEnd?.phase ?? (lastDiscoveryIteration ? "discovery" : undefined),
     reason: sessionEnd?.reason,
-    iterations: metrics.iterations.length,
-    hasIteration: metrics.iterations.length > 0,
+    iterations:
+      metrics.iterations.length > 0 ? metrics.iterations.length : discoveryIterations.length,
+    hasIteration: metrics.iterations.length > 0 || discoveryIterations.length > 0,
     stop_iteration: metrics.lastIteration?.fixes?.stop_iteration,
     totalFixes: metrics.totalFixes,
     totalSkipped: metrics.totalSkipped,
     priorityCounts: metrics.priorityCounts,
-    totalDuration: metrics.totalDuration,
+    totalDuration:
+      metrics.totalDuration ?? (discoveryIterations.length > 0 ? discoveryDuration : undefined),
     reviewOutcome: sessionEnd?.reviewOutcome,
     handoffStatus: handoffEntry?.handoffStatus ?? sessionEnd?.handoffStatus,
     handoffUpdatedAt: handoffEntry?.timestamp ?? sessionEnd?.handoffUpdatedAt,
     mergeReady: sessionEnd?.mergeReady,
     commitSha: handoffEntry?.commitSha ?? sessionEnd?.commitSha,
     worktreeBranch: sessionEnd ? sessionEnd.worktreeBranch : systemEntry?.worktreeBranch,
+    totalFindings: lastDiscoveryIteration?.findings.length,
   };
 }
 
@@ -510,6 +526,20 @@ function applyEntryToSummary(
     return next;
   }
 
+  if (entry.type === "discovery_iteration") {
+    next.iterations = summary.iterations + 1;
+    next.hasIteration = true;
+    next.status = "running";
+    next.phase = "discovery";
+    next.totalFindings = entry.findings.length;
+
+    if (entry.duration !== undefined) {
+      next.totalDuration = (summary.totalDuration ?? 0) + entry.duration;
+    }
+
+    return next;
+  }
+
   if (entry.type === "handoff") {
     next.handoffStatus = entry.handoffStatus;
     next.handoffUpdatedAt = entry.timestamp;
@@ -526,6 +556,8 @@ function applyEntryToSummary(
   next.status = entry.status;
   next.reason = entry.reason;
   next.endedAt = entry.timestamp;
+  next.phase = entry.phase;
+  next.sessionStatus = entry.sessionStatus;
   next.reviewOutcome = entry.reviewOutcome;
   next.handoffStatus = entry.handoffStatus;
   next.handoffUpdatedAt = entry.handoffUpdatedAt;
