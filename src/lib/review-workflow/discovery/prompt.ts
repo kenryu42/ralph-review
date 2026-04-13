@@ -1,6 +1,7 @@
 import { mergeBaseWithHead } from "@/lib/git";
 import defaultReviewPromptContent from "@/lib/prompts/defaults/review.md" with { type: "text" };
 import { createReviewerStructuredOutputInstructions } from "@/lib/prompts/protocol";
+import type { StoredFinding } from "@/lib/review-workflow/findings/types";
 
 const defaultReviewPrompt: string = defaultReviewPromptContent;
 
@@ -34,6 +35,70 @@ export interface ReviewerPromptOptions {
   baseBranch?: string;
   commitSha?: string;
   customInstructions?: string;
+}
+
+export interface DiscoveryReviewerPromptOptions {
+  reviewedSnapshotPath: string;
+  baseBranch?: string;
+  commitSha?: string;
+  customInstructions?: string;
+  knownFindings?: StoredFinding[];
+  iteration?: number;
+}
+
+function formatKnownFindings(knownFindings: StoredFinding[]): string {
+  if (knownFindings.length === 0) {
+    return "";
+  }
+
+  const lines = knownFindings.map((finding) => {
+    return `- ${finding.id} [${finding.priority}] ${finding.filePath}:${finding.startLine}-${finding.endLine} ${finding.title}`;
+  });
+
+  return [
+    "Known findings already captured in the discovery inventory. Do not repeat them unless you have a materially different issue that is not already covered.",
+    ...lines,
+  ].join("\n");
+}
+
+function buildDiscoveryContext(options: DiscoveryReviewerPromptOptions): string[] {
+  const lines = [
+    `Review the frozen snapshot at \`${options.reviewedSnapshotPath}\`.`,
+    "Treat this snapshot as immutable read-only input for discovery.",
+    "Report only net-new actionable findings that are not already present in the known-finding inventory.",
+    'If there are no net-new actionable findings, return `"findings": []` with a valid overall summary instead of repeating earlier findings.',
+  ];
+
+  if (typeof options.iteration === "number" && options.iteration > 1) {
+    lines.push(`This is discovery pass ${options.iteration}.`);
+  }
+
+  if (options.baseBranch) {
+    lines.push(
+      `The snapshot is intended for review relative to base branch \`${options.baseBranch}\`.`
+    );
+  }
+
+  if (options.commitSha) {
+    lines.push(`The snapshot includes the changes from commit \`${options.commitSha}\`.`);
+  }
+
+  if (options.customInstructions) {
+    lines.push(`Additional review focus from user instructions:\n${options.customInstructions}`);
+  }
+
+  const knownFindingsSection = formatKnownFindings(options.knownFindings ?? []);
+  if (knownFindingsSection) {
+    lines.push(knownFindingsSection);
+  }
+
+  return lines;
+}
+
+export function createDiscoveryReviewerPrompt(options: DiscoveryReviewerPromptOptions): string {
+  const discoveryContext = buildDiscoveryContext(options).join("\n\n");
+
+  return `${defaultReviewPrompt.trim()}\n${createReviewerStructuredOutputInstructions()}\n\n${discoveryContext}`;
 }
 
 /** Target priority: commitSha > baseBranch > uncommitted (default), with custom focus overlay. */
