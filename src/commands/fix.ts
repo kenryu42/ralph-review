@@ -128,6 +128,14 @@ export function parseFixCommandOptions(args: string[]): ParsedFixCommandOptions 
     throw new CliError("fix", "missing_required", "session");
   }
 
+  const selectorModeCount =
+    (all ? 1 : 0) + (priorities.length > 0 ? 1 : 0) + (ids.length > 0 ? 1 : 0);
+  if (selectorModeCount > 1) {
+    throw new Error(
+      "Selector modes are mutually exclusive. Use only one of --all, --priority, or --id."
+    );
+  }
+
   const selector =
     all || priorities.length > 0 || ids.length > 0
       ? {
