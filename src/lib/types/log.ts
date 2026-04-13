@@ -64,7 +64,7 @@ export interface SessionEndEntry {
 export interface HandoffEntry {
   type: "handoff";
   timestamp: number;
-  handoffStatus: Extract<HandoffStatus, "applied-manual" | "discarded">;
+  handoffStatus: HandoffStatus;
   commitSha?: string;
 }
 
