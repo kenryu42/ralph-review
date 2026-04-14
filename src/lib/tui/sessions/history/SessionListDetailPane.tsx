@@ -456,7 +456,7 @@ export function SessionDetailPane({
                   title={`Discovery Iteration ${entry.iteration}`}
                 >
                   <text fg={TUI_COLORS.text.secondary} paddingLeft={2}>
-                    {entry.findings.length} findings discovered
+                    {entry.findings.length} issues found
                   </text>
                   <StoredFindingsList findings={entry.findings} scrollable={false} />
                 </WorkflowSection>

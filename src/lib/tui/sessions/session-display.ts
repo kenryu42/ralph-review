@@ -196,7 +196,7 @@ export function formatBatchFirstIssueSummary(
     | "totalAuditRegressions"
   >
 ): string {
-  const findingsText = `${stats.totalFindings ?? 0} findings discovered`;
+  const findingsText = `${stats.totalFindings ?? 0} issues found`;
   const selectionText =
     stats.totalSelectedFindings !== undefined ? ` · ${stats.totalSelectedFindings} selected` : "";
   const remediationText =

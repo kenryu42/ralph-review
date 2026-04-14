@@ -909,7 +909,7 @@ describe("SessionDetailPane", () => {
     const frame = setup.captureCharFrame();
 
     expect(frame).toContain("audit-regressions");
-    expect(frame).toContain("2 findings discovered");
+    expect(frame).toContain("2 issues found");
     expect(frame).toContain("Selection");
     expect(frame).toContain("1 selected");
     expect(frame).toContain("1 fixed");
