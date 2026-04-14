@@ -1,6 +1,6 @@
 import type { ActiveSession } from "@/lib/session-state";
 import type { PendingFixTarget } from "@/lib/tui/dashboard/dashboard-fix-state";
-import { FixFindingsOverlay } from "@/lib/tui/sessions/fix/FixFindingsOverlay";
+import { FixIssuesOverlay } from "@/lib/tui/sessions/fix/FixIssuesOverlay";
 import { SessionOverlay } from "@/lib/tui/sessions/history/SessionListOverlay";
 import type { DefaultReview } from "@/lib/types";
 import { HelpOverlay } from "./HelpOverlay";
@@ -55,7 +55,7 @@ export function DashboardOverlays({
         />
       )}
       {showFixFindings && pendingFixTarget && (
-        <FixFindingsOverlay
+        <FixIssuesOverlay
           sessionId={pendingFixTarget.sessionId}
           projectPath={pendingFixTarget.projectPath}
           findings={pendingFixTarget.findings}
