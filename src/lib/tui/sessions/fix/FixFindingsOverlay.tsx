@@ -2,6 +2,7 @@ import { useKeyboard, useRenderer } from "@opentui/react";
 import { useCallback, useMemo, useState } from "react";
 import { CLI_PATH } from "@/lib/paths";
 import type { FindingId, StoredFinding } from "@/lib/review-workflow/findings/types";
+import { formatFindingTitleForDisplay } from "@/lib/tui/sessions/finding-title";
 import { TUI_COLORS } from "@/lib/tui/shared/colors";
 import type { Priority } from "@/lib/types";
 
@@ -412,7 +413,7 @@ export function FixFindingsOverlay({
                         <text fg={TUI_COLORS.text.primary}>{finding.id}</text>
                         <text fg={TUI_COLORS.text.muted}>[{finding.priority}]</text>
                         <text fg={TUI_COLORS.text.primary} wrapMode="none">
-                          {finding.title}
+                          {formatFindingTitleForDisplay(finding.title)}
                         </text>
                       </box>
                       <text fg={TUI_COLORS.text.dim} paddingLeft={5} wrapMode="none">

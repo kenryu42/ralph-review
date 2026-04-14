@@ -1,5 +1,6 @@
 import type { FindingFixResult, StoredFinding } from "@/lib/review-workflow/findings/types";
 import { storedFindingToFinding } from "@/lib/review-workflow/presentation";
+import { formatFindingTitleForDisplay } from "@/lib/tui/sessions/finding-title";
 import { PRIORITY_COLORS, UNKNOWN_PRIORITY_COLOR } from "@/lib/tui/sessions/session-display";
 import { TUI_COLORS } from "@/lib/tui/shared/colors";
 import type { Finding, FixEntry, Priority, SkippedEntry } from "@/lib/types";
@@ -72,7 +73,7 @@ export function FindingsList({
           <text fg={priorityColor}>{priorityStr}</text>
           <text fg={TUI_COLORS.text.dim}> ▸ </text>
           <text fg={TUI_COLORS.text.secondary} wrapMode="none">
-            {toSingleLine(finding.title)}
+            {toSingleLine(formatFindingTitleForDisplay(finding.title))}
           </text>
         </box>
         <text fg={TUI_COLORS.text.dim} paddingLeft={5} wrapMode="none">
@@ -256,7 +257,7 @@ export function FindingFixResultList({
           <text fg={getFixResultColor(result.status)}>{result.status.toUpperCase()}</text>
           <text fg={TUI_COLORS.text.dim}> ▸ </text>
           <text fg={TUI_COLORS.text.secondary} wrapMode="none">
-            {toSingleLine(finding?.title ?? result.findingId)}
+            {toSingleLine(finding ? formatFindingTitleForDisplay(finding.title) : result.findingId)}
           </text>
         </box>
         {location && (
