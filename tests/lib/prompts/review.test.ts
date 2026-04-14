@@ -86,6 +86,41 @@ describe("createReviewerPrompt", () => {
 });
 
 describe("createDiscoveryReviewerPrompt", () => {
+  test("omits default review guidelines when requested", () => {
+    const prompt = createDiscoveryReviewerPrompt({
+      repoPath: REPO_PATH,
+      reviewedSnapshotPath: "/tmp/ralph-review/snapshots/session-123/reviewed",
+      includeDefaultReviewPrompt: false,
+    });
+
+    expect(prompt).not.toContain("# Review guidelines:");
+    expect(prompt).toContain("staged, unstaged, and untracked files");
+    expectStructuredOutputProtocol(prompt);
+  });
+
+  test("includes uncommitted review guidance when no explicit git target is provided", () => {
+    const prompt = createDiscoveryReviewerPrompt({
+      repoPath: REPO_PATH,
+      reviewedSnapshotPath: "/tmp/ralph-review/snapshots/session-123/reviewed",
+    });
+
+    expect(prompt).toContain("staged, unstaged, and untracked files");
+    expect(prompt).toContain("/tmp/ralph-review/snapshots/session-123/reviewed");
+    expectStructuredOutputProtocol(prompt);
+  });
+
+  test("includes base-branch review guidance when a base branch is provided", () => {
+    const prompt = createDiscoveryReviewerPrompt({
+      repoPath: REPO_PATH,
+      reviewedSnapshotPath: "/tmp/ralph-review/snapshots/session-123/reviewed",
+      baseBranch: resolveCurrentRef(REPO_PATH),
+    });
+
+    expect(prompt).toContain("Run `git diff");
+    expect(prompt).toContain("The merge base commit for this comparison is");
+    expectStructuredOutputProtocol(prompt);
+  });
+
   test("includes known findings inventory and requests only net-new findings on later passes", () => {
     const knownFindings: StoredFinding[] = [
       {
@@ -103,6 +138,7 @@ describe("createDiscoveryReviewerPrompt", () => {
     ];
 
     const prompt = createDiscoveryReviewerPrompt({
+      repoPath: REPO_PATH,
       reviewedSnapshotPath: "/tmp/ralph-review/snapshots/session-123/reviewed",
       customInstructions: "Focus on runtime failures.",
       knownFindings,

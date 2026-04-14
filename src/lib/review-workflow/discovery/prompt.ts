@@ -38,12 +38,33 @@ export interface ReviewerPromptOptions {
 }
 
 export interface DiscoveryReviewerPromptOptions {
+  repoPath?: string;
   reviewedSnapshotPath: string;
+  includeDefaultReviewPrompt?: boolean;
   baseBranch?: string;
   commitSha?: string;
   customInstructions?: string;
   knownFindings?: StoredFinding[];
   iteration?: number;
+}
+
+function resolveReviewScopeInstruction(
+  repoPath: string,
+  baseBranch?: string,
+  commitSha?: string
+): string {
+  if (commitSha) {
+    return COMMIT_PROMPT(commitSha);
+  }
+
+  if (baseBranch) {
+    const mergeBaseSha = mergeBaseWithHead(repoPath, baseBranch);
+    return mergeBaseSha
+      ? BASE_BRANCH_PROMPT(baseBranch, mergeBaseSha)
+      : BASE_BRANCH_PROMPT_BACKUP(baseBranch);
+  }
+
+  return UNCOMMITTED_PROMPT;
 }
 
 function formatKnownFindings(knownFindings: StoredFinding[]): string {
@@ -68,6 +89,12 @@ function buildDiscoveryContext(options: DiscoveryReviewerPromptOptions): string[
     "Report only net-new actionable findings that are not already present in the known-finding inventory.",
     'If there are no net-new actionable findings, return `"findings": []` with a valid overall summary instead of repeating earlier findings.',
   ];
+
+  if (options.repoPath) {
+    lines.push(
+      resolveReviewScopeInstruction(options.repoPath, options.baseBranch, options.commitSha)
+    );
+  }
 
   if (typeof options.iteration === "number" && options.iteration > 1) {
     lines.push(`This is discovery pass ${options.iteration}.`);
@@ -97,8 +124,10 @@ function buildDiscoveryContext(options: DiscoveryReviewerPromptOptions): string[
 
 export function createDiscoveryReviewerPrompt(options: DiscoveryReviewerPromptOptions): string {
   const discoveryContext = buildDiscoveryContext(options).join("\n\n");
+  const prefix =
+    options.includeDefaultReviewPrompt === false ? "" : `${defaultReviewPrompt.trim()}\n`;
 
-  return `${defaultReviewPrompt.trim()}\n${createReviewerStructuredOutputInstructions()}\n\n${discoveryContext}`;
+  return `${prefix}${createReviewerStructuredOutputInstructions()}\n\n${discoveryContext}`;
 }
 
 /** Target priority: commitSha > baseBranch > uncommitted (default), with custom focus overlay. */
@@ -108,17 +137,19 @@ export function createReviewerPrompt(options: ReviewerPromptOptions): string {
   let instruction: string;
 
   if (commitSha) {
-    instruction = withCustomFocus(COMMIT_PROMPT(commitSha), customInstructions);
+    instruction = withCustomFocus(
+      resolveReviewScopeInstruction(repoPath, undefined, commitSha),
+      customInstructions
+    );
   } else if (baseBranch) {
-    const mergeBaseSha = mergeBaseWithHead(repoPath, baseBranch);
-    const baseInstruction = mergeBaseSha
-      ? BASE_BRANCH_PROMPT(baseBranch, mergeBaseSha)
-      : BASE_BRANCH_PROMPT_BACKUP(baseBranch);
-    instruction = withCustomFocus(baseInstruction, customInstructions);
+    instruction = withCustomFocus(
+      resolveReviewScopeInstruction(repoPath, baseBranch),
+      customInstructions
+    );
   } else if (customInstructions) {
     instruction = customInstructions;
   } else {
-    instruction = UNCOMMITTED_PROMPT;
+    instruction = resolveReviewScopeInstruction(repoPath);
   }
 
   return `${defaultReviewPrompt.trim()}\n${createReviewerStructuredOutputInstructions()}\n\n${instruction}`;

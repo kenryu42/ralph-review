@@ -50,23 +50,21 @@ export const codexConfig: AgentConfig = {
       return prompt ? withModel([...args, prompt], model) : withModel(args, model);
     }
 
-    const baseReviewArgs = withReasoningEffort(["exec", "--json"], reasoning);
+    const baseReviewArgs = withReasoningEffort(["exec", "review", "--json"], reasoning);
 
-    if (reviewOptions?.customInstructions) {
-      const fullPrompt = prompt ? `review ${prompt}` : "review";
-      const customArgs = withReasoningEffort(["exec", "--full-auto", "--json"], reasoning);
-      return withModel([...customArgs, fullPrompt], model);
+    if (prompt) {
+      return withModel([...baseReviewArgs, prompt], model);
     }
 
     if (reviewOptions?.commitSha) {
-      return withModel([...baseReviewArgs, "review", "--commit", reviewOptions.commitSha], model);
+      return withModel([...baseReviewArgs, "--commit", reviewOptions.commitSha], model);
     }
 
     if (reviewOptions?.baseBranch) {
-      return withModel([...baseReviewArgs, "review", "--base", reviewOptions.baseBranch], model);
+      return withModel([...baseReviewArgs, "--base", reviewOptions.baseBranch], model);
     }
 
-    return withModel([...baseReviewArgs, "review", "--uncommitted"], model);
+    return withModel([...baseReviewArgs, "--uncommitted"], model);
   },
   buildEnv: defaultBuildEnv,
 };

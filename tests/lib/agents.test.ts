@@ -65,7 +65,7 @@ describe("agents", () => {
       expect(args).not.toContain("--uncommitted");
     });
 
-    test("uses exec mode for customInstructions", () => {
+    test("uses review mode when reviewer instructions are provided", () => {
       const reviewOptions: ReviewOptions = { customInstructions: "check security" };
       const args = AGENTS.codex.config.buildArgs(
         "reviewer",
@@ -74,37 +74,49 @@ describe("agents", () => {
         reviewOptions
       );
       expect(args).toContain("exec");
-      expect(args).toContain("--full-auto");
+      expect(args).toContain("review");
+      expect(args).toContain("--json");
+      expect(args).toContain("check security");
       expect(args).not.toContain("--uncommitted");
       expect(args).not.toContain("--commit");
       expect(args).not.toContain("--base");
-      // Should contain the review prompt
-      expect(args.some((a: string) => a.includes("review"))).toBe(true);
     });
 
-    test("uses exec mode when customInstructions is combined with commitSha", () => {
+    test("uses review mode when reviewer prompt has no repo review target", () => {
+      const args = AGENTS.codex.config.buildArgs("reviewer", "TARGETED_AUDIT_PROMPT", undefined);
+      expect(args).toContain("exec");
+      expect(args).toContain("review");
+      expect(args).toContain("TARGETED_AUDIT_PROMPT");
+      expect(args).not.toContain("--uncommitted");
+    });
+
+    test("uses review mode when prompt is combined with commitSha", () => {
       const reviewOptions: ReviewOptions = {
         commitSha: "abc123",
         customInstructions: "check security",
       };
       const args = AGENTS.codex.config.buildArgs("reviewer", "ignored", undefined, reviewOptions);
       expect(args).toContain("exec");
-      expect(args).toContain("--full-auto");
-      expect(args.some((a: string) => a.includes("review"))).toBe(true);
+      expect(args).toContain("review");
+      expect(args).toContain("--json");
+      expect(args).toContain("ignored");
+      expect(args).not.toContain("--commit");
       expect(args).not.toContain("--base");
       expect(args).not.toContain("--uncommitted");
     });
 
-    test("uses exec mode when customInstructions is combined with baseBranch", () => {
+    test("uses review mode when prompt is combined with baseBranch", () => {
       const reviewOptions: ReviewOptions = {
         baseBranch: "main",
         customInstructions: "check security",
       };
       const args = AGENTS.codex.config.buildArgs("reviewer", "ignored", undefined, reviewOptions);
       expect(args).toContain("exec");
-      expect(args).toContain("--full-auto");
-      expect(args.some((a: string) => a.includes("review"))).toBe(true);
+      expect(args).toContain("review");
+      expect(args).toContain("--json");
+      expect(args).toContain("ignored");
       expect(args).not.toContain("--commit");
+      expect(args).not.toContain("--base");
       expect(args).not.toContain("--uncommitted");
     });
 

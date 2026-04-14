@@ -323,9 +323,7 @@ describe("runReviewCycle", () => {
     const reviewerCalls = state.runAgentCalls.filter((call) => call.role === "reviewer");
     expect(reviewerCalls).toHaveLength(2);
     expect(state.runAgentCalls.some((call) => call.role === "fixer")).toBe(false);
-    expect(new Set(reviewerCalls.map((call) => call.cwd))).toEqual(
-      new Set([TEST_REVIEWED_SNAPSHOT_PATH])
-    );
+    expect(new Set(reviewerCalls.map((call) => call.cwd))).toEqual(new Set([TEST_WORKTREE_PATH]));
     expect(reviewerCalls[1]?.prompt).toContain("KNOWN=F001");
     expect(reviewerCalls[1]?.prompt).toContain("Focus on runtime failures.");
 

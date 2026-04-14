@@ -183,12 +183,15 @@ async function runReviewerIteration(
   deps: RunDiscoverySessionDependencies,
   reviewOptions: ReviewOptions | undefined,
   reviewedSnapshotPath: string,
+  reviewerCwd: string,
   iteration: number,
   knownFindings: StoredFinding[],
   wasInterrupted: () => boolean
 ): Promise<{ summary: ReviewSummary; duration: number }> {
   const promptOptions: DiscoveryReviewerPromptOptions = {
+    repoPath: reviewerCwd,
     reviewedSnapshotPath,
+    includeDefaultReviewPrompt: config.reviewer.agent !== "codex",
     baseBranch: reviewOptions?.baseBranch,
     commitSha: reviewOptions?.commitSha,
     customInstructions: reviewOptions?.customInstructions,
@@ -204,7 +207,7 @@ async function runReviewerIteration(
     deps,
     reviewerPrompt,
     reviewOptions,
-    reviewedSnapshotPath,
+    reviewerCwd,
     wasInterrupted
   );
   if (!reviewResult.success) {
@@ -226,7 +229,7 @@ async function runReviewerIteration(
       deps,
       retryPrompt,
       reviewOptions,
-      reviewedSnapshotPath,
+      reviewerCwd,
       wasInterrupted
     );
 
@@ -345,6 +348,7 @@ export async function runDiscoverySession(
     });
 
     worktree = deps.createSessionWorktree(projectPath, sessionId);
+    const reviewerCwd = worktree.agentProjectPath;
 
     await updateDiscoverySessionState(deps, projectPath, runtimeContext?.sessionId, {
       sessionPath,
@@ -381,7 +385,7 @@ export async function runDiscoverySession(
       config,
       deps,
       reviewOptions,
-      worktree.agentProjectPath,
+      reviewerCwd,
       sessionId,
       wasInterrupted
     );
@@ -429,6 +433,7 @@ export async function runDiscoverySession(
           deps,
           reviewOptions,
           reviewedSnapshot.reviewedSnapshotPath,
+          reviewerCwd,
           iteration,
           knownFindings,
           wasInterrupted
