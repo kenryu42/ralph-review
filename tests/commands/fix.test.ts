@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import * as p from "@clack/prompts";
 import { parseFixCommandOptions, runFix } from "@/commands/fix";
 import type { FindingsArtifact, StoredFinding } from "@/lib/review-workflow/findings/types";
 import { createConfig } from "../helpers/diagnostics";
@@ -107,41 +108,51 @@ describe("fix command", () => {
       };
       isTTY: boolean;
     }> = [];
+    const infoMessages: string[] = [];
     const errors: string[] = [];
     const exits: number[] = [];
+    const originalInfo = p.log.info;
 
-    await runFix(["--session", "session-123", "--priority", "P0", "--priority", "P1"], {
-      loadConfig: async () => createConfig(),
-      loadFindingsArtifactBySessionId: async () => createArtifact(),
-      runFixSession: async (_config, options) => {
-        calls.push({
-          sessionId: options.sessionId,
-          selector: options.selector,
-          isTTY: options.isTTY,
-        });
-        return {
-          phase: "selection",
-          sessionStatus: "pending-user",
-          reviewOutcome: "findings-pending",
-          reason: "No findings were selected. Findings remain pending.",
-          artifact: createArtifact(),
-          selection: {
-            selectedFindingIds: [],
-            selectedFindings: [],
-          },
-          fixResults: [],
-          unresolvedSelectedFindings: [],
-          unselectedFindings: createArtifact().findings,
-        };
-      },
-      isTTY: () => false,
-      logError: (message) => {
-        errors.push(message);
-      },
-      exit: (code) => {
-        exits.push(code);
-      },
-    });
+    p.log.info = ((message: string) => {
+      infoMessages.push(message);
+    }) as typeof p.log.info;
+
+    try {
+      await runFix(["--session", "session-123", "--priority", "P0", "--priority", "P1"], {
+        loadConfig: async () => createConfig(),
+        loadFindingsArtifactBySessionId: async () => createArtifact(),
+        runFixSession: async (_config, options) => {
+          calls.push({
+            sessionId: options.sessionId,
+            selector: options.selector,
+            isTTY: options.isTTY,
+          });
+          return {
+            phase: "selection",
+            sessionStatus: "pending-user",
+            reviewOutcome: "findings-pending",
+            reason: "No findings were selected. Findings remain pending.",
+            artifact: createArtifact(),
+            selection: {
+              selectedFindingIds: [],
+              selectedFindings: [],
+            },
+            fixResults: [],
+            unresolvedSelectedFindings: [],
+            unselectedFindings: createArtifact().findings,
+          };
+        },
+        isTTY: () => false,
+        logError: (message) => {
+          errors.push(message);
+        },
+        exit: (code) => {
+          exits.push(code);
+        },
+      });
+    } finally {
+      p.log.info = originalInfo;
+    }
 
     expect(calls).toEqual([
       {
@@ -152,6 +163,7 @@ describe("fix command", () => {
         isTTY: false,
       },
     ]);
+    expect(infoMessages).toEqual(["No findings were selected. Findings remain pending."]);
     expect(errors).toEqual([]);
     expect(exits).toEqual([]);
   });
