@@ -189,8 +189,7 @@ export function IdleStateView({
 
           {lastRunFindings.length > 0 && (
             <box flexDirection="column" gap={0}>
-              <text fg={TUI_COLORS.text.muted}>Issues found</text>
-              <box flexDirection="column" paddingLeft={2}>
+              <box flexDirection="column">
                 {lastRunFindings.map((finding) => {
                   const priorityDisplay = getFindingPriorityDisplay(finding.priority);
 
@@ -242,9 +241,11 @@ export function IdleStateView({
             </box>
           )}
 
-          <text fg={TUI_COLORS.text.dim}>
-            Press <span fg={TUI_COLORS.accent.key}>"l"</span> to view full run details
-          </text>
+          {lastRunFindings.length > 0 && (
+            <text fg={TUI_COLORS.text.dim}>
+              Press <span fg={TUI_COLORS.accent.key}>"f"</span> to fix issues
+            </text>
+          )}
         </box>
       )}
     </box>

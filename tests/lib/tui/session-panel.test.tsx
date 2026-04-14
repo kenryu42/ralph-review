@@ -399,7 +399,6 @@ describe("DetailPane", () => {
     expect(frame).toContain("Last run");
     expect(frame).toContain("3 fixes, 1 skipped in 2 iterations");
     expect(frame).not.toContain("Priorities:");
-    expect(frame).toContain("Issues found");
     expect(frame).toContain("Guard missing config before dereference");
     expect(frame).toContain("Avoid stale review summary after restart");
     expect(frame).toContain("Stop leaking tmux pane handles on refresh");
@@ -411,7 +410,6 @@ describe("DetailPane", () => {
     expect(frame).toContain("Stop leaking tmux pane handles on refresh");
     expect(frame).toContain("Handoff:");
     expect(frame).toContain("rr apply --session session-123");
-    expect(frame).toContain('Press "l" to view full run details');
   });
 
   test("renders auto-applied handoff status without apply command", async () => {
