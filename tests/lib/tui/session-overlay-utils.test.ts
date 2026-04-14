@@ -56,9 +56,7 @@ describe("resolveSessionOverlayKeyAction", () => {
         keyName: "escape",
         showHelp: false,
         showDeleteConfirm: true,
-        showFixModal: false,
         hasSelectedSession: true,
-        canFixSession: true,
       })
     ).toBe("close-delete-confirm");
 
@@ -67,35 +65,9 @@ describe("resolveSessionOverlayKeyAction", () => {
         keyName: "y",
         showHelp: false,
         showDeleteConfirm: true,
-        showFixModal: false,
         hasSelectedSession: true,
-        canFixSession: true,
       })
     ).toBe("confirm-delete");
-  });
-
-  test("handles fix modal keys before any other interaction", () => {
-    expect(
-      resolveSessionOverlayKeyAction({
-        keyName: "escape",
-        showHelp: false,
-        showDeleteConfirm: false,
-        showFixModal: true,
-        hasSelectedSession: true,
-        canFixSession: true,
-      })
-    ).toBe("close-fix-modal");
-
-    expect(
-      resolveSessionOverlayKeyAction({
-        keyName: "enter",
-        showHelp: false,
-        showDeleteConfirm: false,
-        showFixModal: true,
-        hasSelectedSession: true,
-        canFixSession: true,
-      })
-    ).toBe("confirm-fix");
   });
 
   test("toggles help and allows closing overlay when no modal is open", () => {
@@ -104,9 +76,7 @@ describe("resolveSessionOverlayKeyAction", () => {
         keyName: "h",
         showHelp: false,
         showDeleteConfirm: false,
-        showFixModal: false,
         hasSelectedSession: true,
-        canFixSession: true,
       })
     ).toBe("toggle-help");
 
@@ -115,9 +85,7 @@ describe("resolveSessionOverlayKeyAction", () => {
         keyName: "q",
         showHelp: false,
         showDeleteConfirm: false,
-        showFixModal: false,
         hasSelectedSession: true,
-        canFixSession: true,
       })
     ).toBe("close-overlay");
   });
@@ -128,33 +96,18 @@ describe("resolveSessionOverlayKeyAction", () => {
         keyName: "d",
         showHelp: false,
         showDeleteConfirm: false,
-        showFixModal: false,
         hasSelectedSession: false,
-        canFixSession: false,
       })
     ).toBe("none");
   });
 
-  test("opens the fix modal only for fixable sessions", () => {
+  test("does not open fix findings from the history overlay", () => {
     expect(
       resolveSessionOverlayKeyAction({
         keyName: "f",
         showHelp: false,
         showDeleteConfirm: false,
-        showFixModal: false,
         hasSelectedSession: true,
-        canFixSession: true,
-      })
-    ).toBe("open-fix-modal");
-
-    expect(
-      resolveSessionOverlayKeyAction({
-        keyName: "f",
-        showHelp: false,
-        showDeleteConfirm: false,
-        showFixModal: false,
-        hasSelectedSession: true,
-        canFixSession: false,
       })
     ).toBe("none");
   });

@@ -70,6 +70,7 @@ describe("resolveDashboardCloseAction", () => {
       showStopPicker: true,
       showHelp: true,
       showRunOverlay: true,
+      showFixFindings: true,
       showSession: true,
     });
 
@@ -81,6 +82,7 @@ describe("resolveDashboardCloseAction", () => {
       showStopPicker: false,
       showHelp: true,
       showRunOverlay: true,
+      showFixFindings: true,
       showSession: true,
     });
 
@@ -92,6 +94,7 @@ describe("resolveDashboardCloseAction", () => {
       showStopPicker: false,
       showHelp: false,
       showRunOverlay: true,
+      showFixFindings: true,
       showSession: true,
     });
 
@@ -103,6 +106,19 @@ describe("resolveDashboardCloseAction", () => {
       showStopPicker: false,
       showHelp: false,
       showRunOverlay: false,
+      showFixFindings: true,
+      showSession: true,
+    });
+
+    expect(result).toBe("delegate-fix-overlay");
+  });
+
+  test("delegates close key to session overlay when fix overlay is not visible", () => {
+    const result = resolveDashboardCloseAction({
+      showStopPicker: false,
+      showHelp: false,
+      showRunOverlay: false,
+      showFixFindings: false,
       showSession: true,
     });
 
@@ -114,6 +130,7 @@ describe("resolveDashboardCloseAction", () => {
       showStopPicker: false,
       showHelp: false,
       showRunOverlay: false,
+      showFixFindings: false,
       showSession: false,
     });
 
@@ -128,9 +145,11 @@ describe("resolveDashboardKeyAction", () => {
       showStopPicker: false,
       showHelp: true,
       showRunOverlay: false,
+      showFixFindings: false,
       showSession: false,
       activeSessionCount: 0,
       hasCurrentSession: false,
+      canFixPendingSession: false,
       isRunSpawning: false,
     });
 
@@ -143,9 +162,11 @@ describe("resolveDashboardKeyAction", () => {
       showStopPicker: false,
       showHelp: false,
       showRunOverlay: false,
+      showFixFindings: false,
       showSession: false,
       activeSessionCount: 0,
       hasCurrentSession: false,
+      canFixPendingSession: false,
       isRunSpawning: false,
     });
 
@@ -158,9 +179,11 @@ describe("resolveDashboardKeyAction", () => {
       showStopPicker: false,
       showHelp: true,
       showRunOverlay: false,
+      showFixFindings: false,
       showSession: false,
       activeSessionCount: 0,
       hasCurrentSession: false,
+      canFixPendingSession: false,
       isRunSpawning: false,
     });
 
@@ -173,9 +196,11 @@ describe("resolveDashboardKeyAction", () => {
       showStopPicker: false,
       showHelp: false,
       showRunOverlay: false,
+      showFixFindings: false,
       showSession: false,
       activeSessionCount: 1,
       hasCurrentSession: true,
+      canFixPendingSession: false,
       isRunSpawning: false,
     });
 
@@ -188,9 +213,11 @@ describe("resolveDashboardKeyAction", () => {
       showStopPicker: false,
       showHelp: false,
       showRunOverlay: false,
+      showFixFindings: false,
       showSession: false,
       activeSessionCount: 2,
       hasCurrentSession: true,
+      canFixPendingSession: false,
       isRunSpawning: false,
     });
 
@@ -203,9 +230,11 @@ describe("resolveDashboardKeyAction", () => {
       showStopPicker: false,
       showHelp: false,
       showRunOverlay: false,
+      showFixFindings: false,
       showSession: false,
       activeSessionCount: 0,
       hasCurrentSession: false,
+      canFixPendingSession: false,
       isRunSpawning: false,
     });
 
@@ -218,12 +247,31 @@ describe("resolveDashboardKeyAction", () => {
       showStopPicker: false,
       showHelp: false,
       showRunOverlay: false,
+      showFixFindings: false,
       showSession: false,
       activeSessionCount: 1,
       hasCurrentSession: true,
+      canFixPendingSession: false,
       isRunSpawning: false,
     });
 
     expect(result).toBe("none");
+  });
+
+  test("opens fix findings when pending findings are available", () => {
+    const result = resolveDashboardKeyAction({
+      keyName: "f",
+      showStopPicker: false,
+      showHelp: false,
+      showRunOverlay: false,
+      showFixFindings: false,
+      showSession: false,
+      activeSessionCount: 0,
+      hasCurrentSession: false,
+      canFixPendingSession: true,
+      isRunSpawning: false,
+    });
+
+    expect(result).toBe("open-fix-findings");
   });
 });

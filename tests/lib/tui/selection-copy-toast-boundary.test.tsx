@@ -154,7 +154,13 @@ describe("SelectionCopyToastBoundary", () => {
   test("copies text from a dashboard surface wrapped by the boundary", async () => {
     const copySpy = spyOn(clipboard, "copyToClipboard").mockResolvedValue();
     const setup = await renderBoundary(
-      <StatusBar hasSession focusedPane="detail" outputVisible={false} stopPickerOpen={false} />,
+      <StatusBar
+        hasSession
+        canFixPendingSession={false}
+        focusedPane="detail"
+        outputVisible={false}
+        stopPickerOpen={false}
+      />,
       {
         width: 120,
         height: 6,

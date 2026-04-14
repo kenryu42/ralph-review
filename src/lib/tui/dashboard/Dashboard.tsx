@@ -9,6 +9,7 @@ import { useWorkspaceState } from "@/lib/tui/workspace/use-workspace-state";
 import { Workspace } from "@/lib/tui/workspace/Workspace";
 import type { FocusedPane } from "@/lib/tui/workspace/workspace-types";
 import { DashboardOverlays } from "./DashboardOverlays";
+import { getPendingFixTarget } from "./dashboard-fix-state";
 import { cycleDashboardFocus, cycleDashboardFocusReverse } from "./dashboard-focus";
 import { Header } from "./Header";
 import { StatusBar } from "./StatusBar";
@@ -30,6 +31,7 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
   const [focusedPane, setFocusedPane] = useState<FocusedPane>("detail");
   const [outputVisible, setOutputVisible] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  const [showFixFindings, setShowFixFindings] = useState(false);
   const [showSession, setShowSession] = useState(false);
   const [showReviewModeOverlay, setShowReviewModeOverlay] = useState(false);
   const [showStopPicker, setShowStopPicker] = useState(false);
@@ -42,17 +44,26 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
 
   const projectName = basename(projectPath);
   const isExitingRef = useRef(false);
+  const pendingFixTarget = getPendingFixTarget(state.lastSessionStats, state.storedFindings);
+  const canFixPendingSession = pendingFixTarget !== null;
 
   useEffect(() => {
     if (state.currentSession) {
       clearRunStartState();
       setShowReviewModeOverlay(false);
+      setShowFixFindings(false);
     }
 
     if (state.projectSessions.length <= 1) {
       setShowStopPicker(false);
     }
   }, [clearRunStartState, state.currentSession, state.projectSessions.length]);
+
+  useEffect(() => {
+    if (!canFixPendingSession && showFixFindings) {
+      setShowFixFindings(false);
+    }
+  }, [canFixPendingSession, showFixFindings]);
 
   const shutdown = useCallback(
     async (after?: () => Promise<void>, exitCode: number = 0) => {
@@ -100,9 +111,11 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
         showStopPicker,
         showHelp,
         showRunOverlay: showReviewModeOverlay,
+        showFixFindings,
         showSession,
         activeSessionCount: state.allSessions.length,
         hasCurrentSession: Boolean(state.currentSession),
+        canFixPendingSession,
         isRunSpawning: isRunSpawning(),
       });
 
@@ -114,6 +127,7 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
           setShowHelp(false);
           return;
         case "delegate-run-overlay":
+        case "delegate-fix-overlay":
         case "delegate-session-overlay":
         case "none":
           return;
@@ -135,6 +149,10 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
         case "open-session":
           setShowSession(true);
           return;
+        case "open-fix-findings":
+          setShowSession(false);
+          setShowFixFindings(true);
+          return;
         case "stop-single-session": {
           const target = state.allSessions[0];
           if (target) {
@@ -152,10 +170,12 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
       }
     },
     [
+      canFixPendingSession,
       clearRunError,
       cycleFocus,
       cycleFocusReverse,
       isRunSpawning,
+      showFixFindings,
       showHelp,
       showReviewModeOverlay,
       showSession,
@@ -221,6 +241,7 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
         )}
         <StatusBar
           hasSession={hasSession}
+          canFixPendingSession={canFixPendingSession}
           focusedPane={focusedPane}
           outputVisible={outputVisible}
           stopPickerOpen={showStopPicker}
@@ -230,8 +251,10 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
         <DashboardOverlays
           showHelp={showHelp}
           showRunOverlay={showRunOverlay}
+          showFixFindings={showFixFindings}
           showSession={showSession}
           showStopPicker={showStopPicker}
+          pendingFixTarget={pendingFixTarget}
           canShowSession={!displayError}
           defaultReview={state.config?.defaultReview}
           sessions={state.allSessions}
@@ -241,6 +264,7 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
             setShowReviewModeOverlay(false);
             spawnRunProcess(args);
           }}
+          onCloseFixFindings={() => setShowFixFindings(false)}
           onCloseSession={() => setShowSession(false)}
           onSelectStopSession={(session) => {
             void stopSelectedSession(session);

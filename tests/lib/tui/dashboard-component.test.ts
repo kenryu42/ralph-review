@@ -134,12 +134,14 @@ async function mountDashboardHarness(options: DashboardHarnessOptions = {}) {
     DashboardOverlays: ({
       showHelp,
       showRunOverlay,
+      showFixFindings,
       showSession,
       showStopPicker,
       onSubmitRunOverlay,
     }: {
       showHelp: boolean;
       showRunOverlay: boolean;
+      showFixFindings: boolean;
       showSession: boolean;
       showStopPicker: boolean;
       onSubmitRunOverlay: (args: string[]) => void;
@@ -155,6 +157,7 @@ async function mountDashboardHarness(options: DashboardHarnessOptions = {}) {
         { flexDirection: "column" },
         showHelp ? createElement("text", { key: "help" }, "help overlay") : null,
         showRunOverlay ? createElement("text", { key: "run" }, "review overlay") : null,
+        showFixFindings ? createElement("text", { key: "fix" }, "fix overlay") : null,
         showSession ? createElement("text", { key: "session" }, "session overlay") : null,
         showStopPicker ? createElement("text", { key: "stop" }, "stop picker") : null
       );
@@ -336,6 +339,63 @@ describe("Dashboard component", () => {
       const errorFrame = await harness.press("\r", 4);
       expect(harness.spawnCalls).toHaveLength(1);
       expect(errorFrame).toContain("Error: spawn failed");
+    } finally {
+      await harness.destroy();
+    }
+  });
+
+  test("opens the dedicated fix overlay when pending findings are available", async () => {
+    const harness = await mountDashboardHarness({
+      workspaceState: {
+        lastSessionStats: {
+          sessionId: "session-123",
+          reviewOutcome: "findings-pending",
+          sessionPath: "/tmp/logs/session-123.jsonl",
+          sessionName: "session-123.jsonl",
+          timestamp: Date.now(),
+          status: "completed",
+          totalFixes: 0,
+          totalSkipped: 0,
+          priorityCounts: { P0: 1, P1: 0, P2: 0, P3: 0 },
+          iterations: 2,
+          entries: [
+            {
+              type: "system",
+              timestamp: Date.now(),
+              projectPath: "/repo/project",
+              reviewer: { agent: "claude" },
+              fixer: { agent: "codex" },
+              maxIterations: 5,
+            },
+          ],
+          reviewer: "claude",
+          reviewerModel: "sonnet-4",
+          reviewerDisplayName: "claude",
+          reviewerModelDisplayName: "sonnet-4",
+          fixer: "codex",
+          fixerModel: "gpt-5.3-codex",
+          fixerDisplayName: "codex",
+          fixerModelDisplayName: "gpt-5.3-codex",
+        } as NonNullable<WorkspaceState["lastSessionStats"]>,
+        storedFindings: [
+          {
+            id: "F001",
+            fingerprint: "fp-1",
+            title: "Guard missing config",
+            body: "Null check is missing",
+            priority: "P0",
+            confidenceScore: 0.97,
+            filePath: "src/config.ts",
+            startLine: 10,
+            endLine: 12,
+          },
+        ],
+      },
+    });
+
+    try {
+      const frame = await harness.press("f");
+      expect(frame).toContain("fix overlay");
     } finally {
       await harness.destroy();
     }

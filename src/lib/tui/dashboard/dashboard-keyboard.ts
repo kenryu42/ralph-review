@@ -2,6 +2,7 @@ export type DashboardCloseAction =
   | "close-stop-picker"
   | "close-help"
   | "delegate-run-overlay"
+  | "delegate-fix-overlay"
   | "delegate-session-overlay"
   | "shutdown";
 
@@ -12,6 +13,7 @@ export type DashboardKeyAction =
   | "cycle-focus-reverse"
   | "toggle-output"
   | "open-help"
+  | "open-fix-findings"
   | "open-session"
   | "stop-single-session"
   | "open-stop-picker"
@@ -21,6 +23,7 @@ interface ResolveDashboardCloseActionInput {
   showStopPicker: boolean;
   showHelp: boolean;
   showRunOverlay: boolean;
+  showFixFindings: boolean;
   showSession: boolean;
 }
 
@@ -28,6 +31,7 @@ export function resolveDashboardCloseAction({
   showStopPicker,
   showHelp,
   showRunOverlay,
+  showFixFindings,
   showSession,
 }: ResolveDashboardCloseActionInput): DashboardCloseAction {
   if (showStopPicker) {
@@ -42,6 +46,10 @@ export function resolveDashboardCloseAction({
     return "delegate-run-overlay";
   }
 
+  if (showFixFindings) {
+    return "delegate-fix-overlay";
+  }
+
   if (showSession) {
     return "delegate-session-overlay";
   }
@@ -53,6 +61,7 @@ interface ResolveDashboardKeyActionInput extends ResolveDashboardCloseActionInpu
   keyName: string;
   activeSessionCount: number;
   hasCurrentSession: boolean;
+  canFixPendingSession: boolean;
   isRunSpawning: boolean;
 }
 
@@ -61,9 +70,11 @@ export function resolveDashboardKeyAction({
   showStopPicker,
   showHelp,
   showRunOverlay,
+  showFixFindings,
   showSession,
   activeSessionCount,
   hasCurrentSession,
+  canFixPendingSession,
   isRunSpawning,
 }: ResolveDashboardKeyActionInput): DashboardKeyAction {
   if (keyName === "q" || keyName === "escape") {
@@ -71,11 +82,12 @@ export function resolveDashboardKeyAction({
       showStopPicker,
       showHelp,
       showRunOverlay,
+      showFixFindings,
       showSession,
     });
   }
 
-  if (showHelp || showSession || showRunOverlay || showStopPicker) {
+  if (showHelp || showSession || showRunOverlay || showFixFindings || showStopPicker) {
     return "none";
   }
 
@@ -97,6 +109,10 @@ export function resolveDashboardKeyAction({
 
   if (keyName === "l") {
     return "open-session";
+  }
+
+  if (keyName === "f" && canFixPendingSession) {
+    return "open-fix-findings";
   }
 
   if (keyName === "s") {

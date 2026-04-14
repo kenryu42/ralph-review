@@ -20,6 +20,7 @@ describe("StatusBar", () => {
   ): Promise<string> {
     const defaultProps: Parameters<typeof StatusBar>[0] = {
       hasSession: true,
+      canFixPendingSession: false,
       focusedPane: "detail",
       outputVisible: false,
       stopPickerOpen: false,
@@ -58,6 +59,16 @@ describe("StatusBar", () => {
     expect(frame).toContain("[Esc]");
     expect(frame).toContain("Cancel");
     expect(frame).not.toContain("Switch");
+  });
+
+  test("shows the fix shortcut only when findings are pending", async () => {
+    const withFix = await renderFrame({ canFixPendingSession: true });
+    expect(withFix).toContain("[f]");
+    expect(withFix).toContain("Fix");
+
+    const withoutFix = await renderFrame({ canFixPendingSession: false });
+    expect(withoutFix).not.toContain("[f]");
+    expect(withoutFix).not.toContain("Fix");
   });
 
   test("shows a live refresh warning when available", async () => {

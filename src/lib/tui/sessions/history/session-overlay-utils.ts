@@ -42,11 +42,8 @@ export type SessionOverlayKeyAction =
   | "none"
   | "toggle-help"
   | "open-delete-confirm"
-  | "open-fix-modal"
   | "close-delete-confirm"
   | "confirm-delete"
-  | "close-fix-modal"
-  | "confirm-fix"
   | "close-help"
   | "cycle-focus"
   | "close-overlay";
@@ -55,16 +52,12 @@ export function resolveSessionOverlayKeyAction({
   keyName,
   showHelp,
   showDeleteConfirm,
-  showFixModal,
   hasSelectedSession,
-  canFixSession,
 }: {
   keyName: string;
   showHelp: boolean;
   showDeleteConfirm: boolean;
-  showFixModal: boolean;
   hasSelectedSession: boolean;
-  canFixSession: boolean;
 }): SessionOverlayKeyAction {
   if (showDeleteConfirm) {
     if (keyName === "escape" || keyName === "n" || keyName === "q") {
@@ -72,16 +65,6 @@ export function resolveSessionOverlayKeyAction({
     }
     if (keyName === "y") {
       return "confirm-delete";
-    }
-    return "none";
-  }
-
-  if (showFixModal) {
-    if (keyName === "escape" || keyName === "q") {
-      return "close-fix-modal";
-    }
-    if (keyName === "enter" || keyName === "return") {
-      return "confirm-fix";
     }
     return "none";
   }
@@ -99,10 +82,6 @@ export function resolveSessionOverlayKeyAction({
 
   if (keyName === "d") {
     return hasSelectedSession ? "open-delete-confirm" : "none";
-  }
-
-  if (keyName === "f") {
-    return canFixSession ? "open-fix-modal" : "none";
   }
 
   if (keyName === "tab" || keyName === "left" || keyName === "right") {

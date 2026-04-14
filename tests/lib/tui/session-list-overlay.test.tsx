@@ -4,7 +4,6 @@ import { testRender } from "@opentui/react/test-utils";
 import { act, createElement } from "react";
 import type { LogSession } from "@/lib/logger";
 import * as logger from "@/lib/logger";
-import { CLI_PATH } from "@/lib/paths";
 import type { ActiveSession } from "@/lib/session-state";
 import * as sessionState from "@/lib/session-state";
 import { SessionDetailPane } from "@/lib/tui/sessions/history/SessionListDetailPane";
@@ -110,17 +109,6 @@ function createDeferred<T>() {
       resolve?.(value);
     },
   };
-}
-
-function createStderrStream(text: string): ReadableStream<Uint8Array> {
-  const encoder = new TextEncoder();
-
-  return new ReadableStream({
-    start(controller) {
-      controller.enqueue(encoder.encode(text));
-      controller.close();
-    },
-  });
 }
 
 describe("SessionOverlay", () => {
@@ -594,295 +582,61 @@ describe("SessionOverlay", () => {
     expect(frame).toContain("Delete Session Log");
   });
 
-  test("opens a fix modal for pending-findings sessions and spawns rr fix --all", async () => {
-    const originalSpawn = Bun.spawn;
-    const spawnCalls: Array<{ cmd: string[]; cwd: string | undefined }> = [];
-    Bun.spawn = ((cmd: string[], options?: { cwd?: string }) => {
-      spawnCalls.push({ cmd, cwd: options?.cwd });
-      return {
-        exited: Promise.resolve(0),
-        stderr: createStderrStream(""),
-      };
-    }) as typeof Bun.spawn;
+  test("does not open fixing from the history session overlay", async () => {
+    const session = buildLogSession({
+      path: "/tmp/logs/session-a.jsonl",
+      name: "session-a.jsonl",
+    });
+    const sessionsDeferred = createDeferred<LogSession[]>();
+    const statsDeferred = createDeferred<SessionStats>();
+    const setup = await renderOverlay(
+      {},
+      {
+        sessions: sessionsDeferred.promise,
+        stats: statsDeferred.promise,
+      }
+    );
 
-    try {
-      const session = buildLogSession({
-        path: "/tmp/logs/session-a.jsonl",
-        name: "session-a.jsonl",
-      });
-      const sessionsDeferred = createDeferred<LogSession[]>();
-      const statsDeferred = createDeferred<SessionStats>();
-      const setup = await renderOverlay(
-        {},
-        {
-          sessions: sessionsDeferred.promise,
-          stats: statsDeferred.promise,
-        }
-      );
-
-      await act(async () => {
-        sessionsDeferred.resolve([session]);
-        statsDeferred.resolve(
-          buildSessionStats({
-            sessionId: "session-123",
-            reviewOutcome: "findings-pending",
-            entries: [
-              buildSystemEntry({ projectPath: "/repo/project" }),
-              {
-                type: "discovery_iteration",
-                timestamp: Date.now(),
-                iteration: 1,
-                phase: "discovery",
-                sessionStatus: "completed",
-                findings: [
-                  {
-                    id: "F001",
-                    fingerprint: "fp-1",
-                    title: "Guard missing config",
-                    body: "Null check is missing",
-                    priority: "P0",
-                    confidenceScore: 0.97,
-                    filePath: "src/config.ts",
-                    startLine: 10,
-                    endLine: 12,
-                  },
-                ],
-                netNewFindingIds: ["F001"],
-              },
-            ],
-          })
-        );
-        await setup.renderOnce();
-        await Promise.resolve();
-        await setup.renderOnce();
-      });
-
-      await pressKeyAndRender(setup, "f");
-      let frame = setup.captureCharFrame();
-      expect(frame).toContain("Fix Findings");
-
-      await pressKeyAndRender(setup, "enter");
-      await settleOverlay(setup);
-
-      expect(spawnCalls).toEqual([
-        {
-          cmd: [process.execPath, CLI_PATH, "fix", "--session", "session-123", "--all"],
-          cwd: "/repo/project",
-        },
-      ]);
-
-      frame = setup.captureCharFrame();
-      expect(frame).not.toContain("Fix Findings");
-    } finally {
-      Bun.spawn = originalSpawn;
-    }
-  });
-
-  test("spawns rr fix with repeated priority flags from the fix modal", async () => {
-    const originalSpawn = Bun.spawn;
-    const spawnCalls: Array<{ cmd: string[]; cwd: string | undefined }> = [];
-    Bun.spawn = ((cmd: string[], options?: { cwd?: string }) => {
-      spawnCalls.push({ cmd, cwd: options?.cwd });
-      return {
-        exited: Promise.resolve(0),
-        stderr: createStderrStream(""),
-      };
-    }) as typeof Bun.spawn;
-
-    try {
-      const session = buildLogSession({
-        path: "/tmp/logs/session-a.jsonl",
-        name: "session-a.jsonl",
-      });
-      const sessionsDeferred = createDeferred<LogSession[]>();
-      const statsDeferred = createDeferred<SessionStats>();
-      const setup = await renderOverlay(
-        {},
-        {
-          sessions: sessionsDeferred.promise,
-          stats: statsDeferred.promise,
-        }
-      );
-
-      await act(async () => {
-        sessionsDeferred.resolve([session]);
-        statsDeferred.resolve(
-          buildSessionStats({
-            sessionId: "session-123",
-            reviewOutcome: "findings-pending",
-            entries: [
-              buildSystemEntry({ projectPath: "/repo/project" }),
-              {
-                type: "discovery_iteration",
-                timestamp: Date.now(),
-                iteration: 1,
-                phase: "discovery",
-                sessionStatus: "completed",
-                findings: [
-                  {
-                    id: "F001",
-                    fingerprint: "fp-1",
-                    title: "Guard missing config",
-                    body: "Null check is missing",
-                    priority: "P0",
-                    confidenceScore: 0.97,
-                    filePath: "src/config.ts",
-                    startLine: 10,
-                    endLine: 12,
-                  },
-                  {
-                    id: "F002",
-                    fingerprint: "fp-2",
-                    title: "Avoid stale cache",
-                    body: "Cache can be stale",
-                    priority: "P1",
-                    confidenceScore: 0.92,
-                    filePath: "src/cache.ts",
-                    startLine: 20,
-                    endLine: 22,
-                  },
-                ],
-                netNewFindingIds: ["F001", "F002"],
-              },
-            ],
-          })
-        );
-        await setup.renderOnce();
-        await Promise.resolve();
-        await setup.renderOnce();
-      });
-
-      await pressKeyAndRender(setup, "f");
-      await pressKeyAndRender(setup, "right");
-      await pressKeyAndRender(setup, "space");
-      await pressKeyAndRender(setup, "down");
-      await pressKeyAndRender(setup, "space");
-      await pressKeyAndRender(setup, "enter");
-      await settleOverlay(setup);
-
-      expect(spawnCalls).toEqual([
-        {
-          cmd: [
-            process.execPath,
-            CLI_PATH,
-            "fix",
-            "--session",
-            "session-123",
-            "--priority",
-            "P0",
-            "--priority",
-            "P1",
+    await act(async () => {
+      sessionsDeferred.resolve([session]);
+      statsDeferred.resolve(
+        buildSessionStats({
+          sessionId: "session-123",
+          reviewOutcome: "findings-pending",
+          entries: [
+            buildSystemEntry({ projectPath: "/repo/project" }),
+            {
+              type: "discovery_iteration",
+              timestamp: Date.now(),
+              iteration: 1,
+              phase: "discovery",
+              sessionStatus: "completed",
+              findings: [
+                {
+                  id: "F001",
+                  fingerprint: "fp-1",
+                  title: "Guard missing config",
+                  body: "Null check is missing",
+                  priority: "P0",
+                  confidenceScore: 0.97,
+                  filePath: "src/config.ts",
+                  startLine: 10,
+                  endLine: 12,
+                },
+              ],
+              netNewFindingIds: ["F001"],
+            },
           ],
-          cwd: "/repo/project",
-        },
-      ]);
-    } finally {
-      Bun.spawn = originalSpawn;
-    }
-  });
-
-  test("spawns rr fix with repeated id flags from the fix modal", async () => {
-    const originalSpawn = Bun.spawn;
-    const spawnCalls: Array<{ cmd: string[]; cwd: string | undefined }> = [];
-    Bun.spawn = ((cmd: string[], options?: { cwd?: string }) => {
-      spawnCalls.push({ cmd, cwd: options?.cwd });
-      return {
-        exited: Promise.resolve(0),
-        stderr: createStderrStream(""),
-      };
-    }) as typeof Bun.spawn;
-
-    try {
-      const session = buildLogSession({
-        path: "/tmp/logs/session-a.jsonl",
-        name: "session-a.jsonl",
-      });
-      const sessionsDeferred = createDeferred<LogSession[]>();
-      const statsDeferred = createDeferred<SessionStats>();
-      const setup = await renderOverlay(
-        {},
-        {
-          sessions: sessionsDeferred.promise,
-          stats: statsDeferred.promise,
-        }
+        })
       );
+      await setup.renderOnce();
+      await Promise.resolve();
+      await setup.renderOnce();
+    });
 
-      await act(async () => {
-        sessionsDeferred.resolve([session]);
-        statsDeferred.resolve(
-          buildSessionStats({
-            sessionId: "session-123",
-            reviewOutcome: "findings-pending",
-            entries: [
-              buildSystemEntry({ projectPath: "/repo/project" }),
-              {
-                type: "discovery_iteration",
-                timestamp: Date.now(),
-                iteration: 1,
-                phase: "discovery",
-                sessionStatus: "completed",
-                findings: [
-                  {
-                    id: "F001",
-                    fingerprint: "fp-1",
-                    title: "Guard missing config",
-                    body: "Null check is missing",
-                    priority: "P0",
-                    confidenceScore: 0.97,
-                    filePath: "src/config.ts",
-                    startLine: 10,
-                    endLine: 12,
-                  },
-                  {
-                    id: "F002",
-                    fingerprint: "fp-2",
-                    title: "Avoid stale cache",
-                    body: "Cache can be stale",
-                    priority: "P1",
-                    confidenceScore: 0.92,
-                    filePath: "src/cache.ts",
-                    startLine: 20,
-                    endLine: 22,
-                  },
-                ],
-                netNewFindingIds: ["F001", "F002"],
-              },
-            ],
-          })
-        );
-        await setup.renderOnce();
-        await Promise.resolve();
-        await setup.renderOnce();
-      });
-
-      await pressKeyAndRender(setup, "f");
-      await pressKeyAndRender(setup, "right");
-      await pressKeyAndRender(setup, "right");
-      await pressKeyAndRender(setup, "space");
-      await pressKeyAndRender(setup, "down");
-      await pressKeyAndRender(setup, "space");
-      await pressKeyAndRender(setup, "enter");
-      await settleOverlay(setup);
-
-      expect(spawnCalls).toEqual([
-        {
-          cmd: [
-            process.execPath,
-            CLI_PATH,
-            "fix",
-            "--session",
-            "session-123",
-            "--id",
-            "F001",
-            "--id",
-            "F002",
-          ],
-          cwd: "/repo/project",
-        },
-      ]);
-    } finally {
-      Bun.spawn = originalSpawn;
-    }
+    await pressKeyAndRender(setup, "f");
+    const frame = setup.captureCharFrame();
+    expect(frame).not.toContain("Fix Findings");
   });
 });
 

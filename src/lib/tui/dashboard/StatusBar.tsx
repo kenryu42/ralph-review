@@ -3,6 +3,7 @@ import type { FocusedPane } from "@/lib/tui/workspace/workspace-types";
 
 interface StatusBarProps {
   hasSession: boolean;
+  canFixPendingSession: boolean;
   focusedPane: FocusedPane;
   outputVisible: boolean;
   stopPickerOpen?: boolean;
@@ -23,6 +24,7 @@ function focusPaneLabel(pane: FocusedPane): string {
 
 export function StatusBar({
   hasSession,
+  canFixPendingSession,
   focusedPane,
   outputVisible,
   stopPickerOpen = false,
@@ -95,6 +97,12 @@ export function StatusBar({
           <span fg={TUI_COLORS.accent.key}>[l]</span>
           <span fg={TUI_COLORS.text.muted}> Logs</span>
         </text>
+        {canFixPendingSession && (
+          <text>
+            <span fg={TUI_COLORS.accent.key}>[f]</span>
+            <span fg={TUI_COLORS.text.muted}> Fix</span>
+          </text>
+        )}
         <text>
           <span fg={TUI_COLORS.accent.key}>[h]</span>
           <span fg={TUI_COLORS.text.muted}> Help</span>
