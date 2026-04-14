@@ -4,6 +4,7 @@ import {
   findLatestReviewerPhaseStart,
 } from "@/lib/tui/sessions/review-summary-parser";
 import {
+  extractFindingsFromStats,
   extractFixesFromStats,
   extractSkippedFromStats,
   formatHandoffCommands,
@@ -18,6 +19,7 @@ import {
   formatSessionIdentityDisplay,
 } from "@/lib/tui/sessions/session-display";
 import type {
+  Finding,
   FixEntry,
   IterationEntry,
   Priority,
@@ -131,6 +133,132 @@ describe("SessionPanel helpers", () => {
 
       const result = extractFixesFromStats(stats);
       expect(result).toHaveLength(1);
+    });
+  });
+
+  describe("extractFindingsFromStats", () => {
+    const createFinding = (title: string, priority = 1): Finding => ({
+      title,
+      body: `${title} body`,
+      confidence_score: 0.91,
+      priority,
+      code_location: {
+        absolute_file_path: "/test/project/src/file.ts",
+        line_range: { start: 10, end: 12 },
+      },
+    });
+
+    const createIterationEntry = (iteration: number, findings: Finding[]): IterationEntry => ({
+      type: "iteration",
+      timestamp: Date.now(),
+      iteration,
+      review: {
+        findings,
+        overall_correctness: "patch is correct",
+        overall_explanation: "ok",
+        overall_confidence_score: 0.95,
+      },
+    });
+
+    const createSystemEntry = (): SystemEntry => ({
+      type: "system",
+      timestamp: Date.now(),
+      projectPath: "/test/project",
+      reviewer: { agent: "claude", model: "opus" },
+      fixer: { agent: "claude", model: "opus" },
+      maxIterations: 3,
+    });
+
+    const createSessionStats = (entries: SessionStats["entries"]): SessionStats => ({
+      sessionPath: "/test/path",
+      sessionName: "test-session",
+      timestamp: Date.now(),
+      status: "completed",
+      totalFixes: 0,
+      totalSkipped: 0,
+      priorityCounts: { P0: 0, P1: 0, P2: 0, P3: 0 },
+      iterations: 0,
+      entries,
+      reviewer: "claude",
+      reviewerModel: "opus",
+      reviewerDisplayName: "Claude",
+      reviewerModelDisplayName: "Claude Opus 4.5",
+      fixer: "claude",
+      fixerModel: "opus",
+      fixerDisplayName: "Claude",
+      fixerModelDisplayName: "Claude Opus 4.5",
+    });
+
+    test("extracts unique findings from review iterations", () => {
+      const shared = createFinding("Guard missing config", 1);
+      const stats = createSessionStats([
+        createSystemEntry(),
+        createIterationEntry(1, [shared]),
+        createIterationEntry(2, [shared, createFinding("Avoid stale cache", 2)]),
+      ]);
+
+      const result = extractFindingsFromStats(stats);
+
+      expect(result).toHaveLength(2);
+      expect(result.map((finding) => finding.title)).toEqual([
+        "Guard missing config",
+        "Avoid stale cache",
+      ]);
+    });
+
+    test("prefers the latest discovery inventory for batch-first sessions", () => {
+      const stats = createSessionStats([
+        createSystemEntry(),
+        {
+          type: "discovery_iteration",
+          timestamp: Date.now(),
+          iteration: 1,
+          phase: "discovery",
+          sessionStatus: "running",
+          findings: [
+            {
+              id: "F001",
+              fingerprint: "fp-1",
+              title: "Old finding",
+              body: "old",
+              priority: "P2",
+              confidenceScore: 0.8,
+              filePath: "src/old.ts",
+              startLine: 1,
+              endLine: 2,
+            },
+          ],
+          netNewFindingIds: ["F001"],
+        },
+        {
+          type: "discovery_iteration",
+          timestamp: Date.now(),
+          iteration: 2,
+          phase: "discovery",
+          sessionStatus: "running",
+          findings: [
+            {
+              id: "F010",
+              fingerprint: "fp-10",
+              title: "Latest finding",
+              body: "latest",
+              priority: "P0",
+              confidenceScore: 0.94,
+              filePath: "src/latest.ts",
+              startLine: 3,
+              endLine: 4,
+            },
+          ],
+          netNewFindingIds: ["F010"],
+        },
+      ]);
+
+      const result = extractFindingsFromStats(stats);
+
+      expect(result).toHaveLength(1);
+      expect(result[0]?.title).toBe("Latest finding");
+      expect(result[0]?.priority).toBe(0);
+      expect(result[0]?.code_location.absolute_file_path).toBe("src/latest.ts");
     });
   });
 

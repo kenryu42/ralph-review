@@ -118,6 +118,29 @@ describe("DetailPane", () => {
         createSystemEntry(),
         createIterationEntry({
           iteration: 1,
+          review: {
+            findings: [
+              createFinding({
+                title: "[P1] Guard missing config before dereference",
+                priority: 1,
+                code_location: {
+                  absolute_file_path: "/test/project/src/config.ts",
+                  line_range: { start: 14, end: 18 },
+                },
+              }),
+              createFinding({
+                title: "[P2] Avoid stale review summary after restart",
+                priority: 2,
+                code_location: {
+                  absolute_file_path: "/test/project/src/session.ts",
+                  line_range: { start: 21, end: 24 },
+                },
+              }),
+            ],
+            overall_correctness: "patch is correct",
+            overall_explanation: "ok",
+            overall_confidence_score: 0.94,
+          },
           fixes: buildFixSummary({
             fixes: [
               buildFixEntry({
@@ -135,6 +158,29 @@ describe("DetailPane", () => {
         }),
         createIterationEntry({
           iteration: 2,
+          review: {
+            findings: [
+              createFinding({
+                title: "[P1] Stop leaking tmux pane handles on refresh",
+                priority: 1,
+                code_location: {
+                  absolute_file_path: "/test/project/src/tmux.ts",
+                  line_range: { start: 8, end: 12 },
+                },
+              }),
+              createFinding({
+                title: "[P3] Normalize lock timestamp parsing",
+                priority: 3,
+                code_location: {
+                  absolute_file_path: "/test/project/src/locks.ts",
+                  line_range: { start: 30, end: 32 },
+                },
+              }),
+            ],
+            overall_correctness: "patch is correct",
+            overall_explanation: "ok",
+            overall_confidence_score: 0.95,
+          },
           fixes: buildFixSummary({
             fixes: [
               buildFixEntry({
@@ -353,6 +399,12 @@ describe("DetailPane", () => {
     expect(frame).toContain("Last run");
     expect(frame).toContain("3 fixes, 1 skipped in 2 iterations");
     expect(frame).not.toContain("Priorities:");
+    expect(frame).toContain("Issues found");
+    expect(frame).toContain("Guard missing config before dereference");
+    expect(frame).toContain("Avoid stale review summary after restart");
+    expect(frame).toContain("Stop leaking tmux pane handles on refresh");
+    expect(frame).not.toContain("[P1] Guard missing config before dereference");
+    expect(frame).not.toContain("[P2] Avoid stale review summary after restart");
     expect(frame).toContain("Recent fixes");
     expect(frame).toContain("Guard missing config before dereference");
     expect(frame).toContain("Avoid stale review summary after restart");
@@ -399,7 +451,7 @@ describe("DetailPane", () => {
       currentAgent: "reviewer",
       reviewOptions: { baseBranch: "main" },
       latestReviewIteration: 2,
-      findings: [createFinding()],
+      findings: [createFinding({ title: "[P1] Trailing spaces in title" })],
       fixes: [buildFixEntry()],
       skipped: [buildSkippedEntry()],
       activeSessionCount: 2,
@@ -414,6 +466,7 @@ describe("DetailPane", () => {
     expect(frame).toContain("2 active sessions");
     expect(frame).toContain("Issues found");
     expect(frame).toContain("Trailing spaces in title");
+    expect(frame).not.toContain("[P1] Trailing spaces in title");
     expect(frame).toContain("/test/project/src/file.ts:10-12");
     expect(frame).toContain("Fix applied");
     expect(frame).toContain("Fix title");

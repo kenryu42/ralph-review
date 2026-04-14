@@ -1,6 +1,8 @@
+import { storedFindingToFinding } from "@/lib/review-workflow/presentation";
 import type { SessionState } from "@/lib/session-state";
 import { TUI_COLORS } from "@/lib/tui/shared/colors";
 import type {
+  Finding,
   FixEntry,
   HandoffStatus,
   Priority,
@@ -8,6 +10,7 @@ import type {
   SessionStats,
   SkippedEntry,
 } from "@/lib/types";
+import { parseCodexReviewText } from "@/lib/types";
 
 export const PRIORITY_COLORS: Record<Priority, string> = {
   P0: TUI_COLORS.status.error,
@@ -126,6 +129,61 @@ export function extractFixesFromStats(stats: SessionStats): FixEntry[] {
     }
   }
   return fixes;
+}
+
+function getFindingKey(finding: Finding): string {
+  const location = finding.code_location;
+  return [
+    finding.title,
+    location.absolute_file_path,
+    location.line_range.start,
+    location.line_range.end,
+  ].join(":");
+}
+
+export function extractFindingsFromStats(stats: SessionStats): Finding[] {
+  const latestDiscoveryEntry = [...stats.entries]
+    .reverse()
+    .find((entry) => entry.type === "discovery_iteration");
+
+  if (latestDiscoveryEntry) {
+    return latestDiscoveryEntry.findings.map(storedFindingToFinding);
+  }
+
+  const findings: Finding[] = [];
+  const seen = new Set<string>();
+
+  for (const entry of stats.entries) {
+    if (entry.type === "iteration") {
+      const reviewFindings =
+        entry.review?.findings ??
+        parseCodexReviewText(entry.codexReview?.text ?? "")?.findings ??
+        [];
+
+      for (const finding of reviewFindings) {
+        const key = getFindingKey(finding);
+        if (seen.has(key)) {
+          continue;
+        }
+        seen.add(key);
+        findings.push(finding);
+      }
+      continue;
+    }
+
+    if (entry.type === "session_end" && entry.terminalReview) {
+      for (const finding of entry.terminalReview.findings) {
+        const key = getFindingKey(finding);
+        if (seen.has(key)) {
+          continue;
+        }
+        seen.add(key);
+        findings.push(finding);
+      }
+    }
+  }
+
+  return findings;
 }
 
 export function extractSkippedFromStats(stats: SessionStats): SkippedEntry[] {

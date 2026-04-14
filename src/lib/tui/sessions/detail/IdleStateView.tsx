@@ -1,5 +1,7 @@
 import { formatDuration } from "@/lib/format";
+import { formatFindingTitleForDisplay } from "@/lib/tui/sessions/finding-title";
 import {
+  extractFindingsFromStats,
   extractFixesFromStats,
   formatBatchFirstIssueSummary,
   formatHandoffCommands,
@@ -13,7 +15,7 @@ import {
 } from "@/lib/tui/sessions/session-display";
 import { TUI_COLORS } from "@/lib/tui/shared/colors";
 import { Spinner } from "@/lib/tui/shared/Spinner";
-import type { ProjectStats, SessionStats } from "@/lib/types";
+import type { Priority, ProjectStats, SessionStats } from "@/lib/types";
 import { toSingleLine } from "./session-detail-parts";
 
 function getLastRunStatusDisplay(status: SessionStats["status"]): { text: string; color: string } {
@@ -29,6 +31,19 @@ function getLastRunStatusDisplay(status: SessionStats["status"]): { text: string
     default:
       return { text: "unknown", color: TUI_COLORS.status.inactive };
   }
+}
+
+function getFindingPriorityDisplay(priority: number | undefined): { text: string; color: string } {
+  if (priority === undefined) {
+    return { text: "P?", color: TUI_COLORS.text.dim };
+  }
+
+  const priorityKey = `P${priority}` as Priority;
+
+  return {
+    text: priorityKey,
+    color: PRIORITY_COLORS[priorityKey],
+  };
 }
 
 function getLastRunHandoffDisplay(stats: SessionStats): {
@@ -76,6 +91,13 @@ export function IdleStateView({
     : null;
   const lastRunFixes = lastSessionStats
     ? extractFixesFromStats(lastSessionStats).sort((a, b) => a.priority.localeCompare(b.priority))
+    : [];
+  const lastRunFindings = lastSessionStats
+    ? extractFindingsFromStats(lastSessionStats).sort((a, b) => {
+        const left = a.priority ?? Number.POSITIVE_INFINITY;
+        const right = b.priority ?? Number.POSITIVE_INFINITY;
+        return left - right || a.title.localeCompare(b.title);
+      })
     : [];
   const lastRunSummary = lastSessionStats
     ? `${
@@ -164,6 +186,30 @@ export function IdleStateView({
             <text fg={TUI_COLORS.text.dim}>({formatRelativeTime(lastSessionStats.timestamp)})</text>
           </box>
           <text fg={TUI_COLORS.text.secondary}>{lastRunSummary}</text>
+
+          {lastRunFindings.length > 0 && (
+            <box flexDirection="column" gap={0}>
+              <text fg={TUI_COLORS.text.muted}>Issues found</text>
+              <box flexDirection="column" paddingLeft={2}>
+                {lastRunFindings.map((finding) => {
+                  const priorityDisplay = getFindingPriorityDisplay(finding.priority);
+
+                  return (
+                    <box
+                      key={`${finding.code_location.absolute_file_path}:${finding.code_location.line_range.start}-${finding.code_location.line_range.end}:${finding.title}`}
+                      flexDirection="row"
+                    >
+                      <text fg={priorityDisplay.color}>{priorityDisplay.text}</text>
+                      <text fg={TUI_COLORS.text.dim}> ▸ </text>
+                      <text fg={TUI_COLORS.text.secondary}>
+                        {toSingleLine(formatFindingTitleForDisplay(finding.title))}
+                      </text>
+                    </box>
+                  );
+                })}
+              </box>
+            </box>
+          )}
 
           {lastRunFixes.length > 0 && (
             <box flexDirection="column" gap={0}>
