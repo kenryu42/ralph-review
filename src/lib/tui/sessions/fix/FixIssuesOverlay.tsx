@@ -797,11 +797,15 @@ export function FixIssuesOverlay({
         </box>
       </box>
 
-      <box backgroundColor="#111827" paddingLeft={1} paddingRight={1} flexDirection="column">
-        <text fg={TUI_COLORS.text.faint}>
-          <strong>Run target</strong> {commandPreview ?? baseCommandPreview}
+      <box backgroundColor="#111827" paddingLeft={1} paddingRight={1}>
+        <text>
+          <span fg={TUI_COLORS.text.faint}>
+            <strong>Run target </strong>
+            {commandPreview ?? baseCommandPreview}
+          </span>
+          <br />
+          <span fg={actionColor}>{actionMessage}</span>
         </text>
-        <text fg={actionColor}>{actionMessage}</text>
       </box>
 
       <box backgroundColor="#0f172a" paddingLeft={1} paddingRight={1}>

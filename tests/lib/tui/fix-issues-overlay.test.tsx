@@ -197,6 +197,19 @@ describe("FixIssuesOverlay", () => {
     };
   }
 
+  test("renders the run target line above the action message without overlap", async () => {
+    const overlay = await renderOverlay({ width: 100, height: 28 });
+    const frame = await overlay.press("\u001B[C");
+
+    expect(frame).toContain("Run target");
+    expect(frame).toContain("Select at least one priority");
+
+    const runTarget = findTextLocation(frame, "Run target");
+    const actionMessage = findTextLocation(frame, "Select at least one priority");
+
+    expect(actionMessage.y).toBeGreaterThan(runTarget.y);
+  });
+
   test("renders the wide modal with selection and details side by side", async () => {
     const overlay = await renderOverlay({ width: 120, height: 36 });
     const frame = overlay.frame();
