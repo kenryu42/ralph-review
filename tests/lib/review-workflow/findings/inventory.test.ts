@@ -55,7 +55,7 @@ describe("review-workflow/findings/inventory", () => {
     });
 
     const result = mergeFindingsIntoInventory([], [findingA, findingADuplicate, findingB], {
-      repoPath: "/repo",
+      pathRoots: ["/repo"],
     });
 
     expect(result.findings).toHaveLength(2);
@@ -72,7 +72,7 @@ describe("review-workflow/findings/inventory", () => {
           confidenceScore: 0.95,
         }),
       ],
-      { repoPath: "/repo" }
+      { pathRoots: ["/repo"] }
     );
 
     const repeated = mergeFindingsIntoInventory(
@@ -83,7 +83,7 @@ describe("review-workflow/findings/inventory", () => {
           confidenceScore: 0.11,
         }),
       ],
-      { repoPath: "/repo" }
+      { pathRoots: ["/repo"] }
     );
 
     expect(repeated.findings).toHaveLength(1);
@@ -103,7 +103,7 @@ describe("review-workflow/findings/inventory", () => {
           endLine: 44,
         }),
       ],
-      { repoPath: "/repo" }
+      { pathRoots: ["/repo"] }
     );
 
     const secondPass = mergeFindingsIntoInventory(
@@ -124,10 +124,50 @@ describe("review-workflow/findings/inventory", () => {
           endLine: 9,
         }),
       ],
-      { repoPath: "/repo" }
+      { pathRoots: ["/repo"] }
     );
 
     expect(secondPass.findings.map((finding) => finding.id)).toEqual(["F001", "F002", "F003"]);
     expect(secondPass.newFindings.map((finding) => finding.id)).toEqual(["F003"]);
+  });
+
+  test("stores finding paths relative to the real project when the reviewer reports a worktree path", () => {
+    const projectPath = "/Users/kenryu/Developer/420024-lab/ralph-review";
+    const reviewedSnapshotPath =
+      "/Users/kenryu/.config/ralph-review/ralph-review-75433236/snapshots/session-1";
+    const worktreePath =
+      "/Users/kenryu/.config/ralph-review/ralph-review-75433236/worktrees/d0b34499-37ce-40fa-981e-5d88a24a6630-1776137135107-bca7be6e";
+
+    const result = mergeFindingsIntoInventory(
+      [],
+      [
+        createRawFinding({
+          absolutePath: `${worktreePath}/src/lib/review-workflow/findings/artifact.ts`,
+          startLine: 205,
+          endLine: 208,
+        }),
+      ],
+      {
+        pathRoots: [projectPath, reviewedSnapshotPath, worktreePath],
+      }
+    );
+
+    expect(result.findings[0]?.filePath).toBe("src/lib/review-workflow/findings/artifact.ts");
+  });
+
+  test("keeps unmatched absolute finding paths intact", () => {
+    const result = mergeFindingsIntoInventory(
+      [],
+      [
+        createRawFinding({
+          absolutePath: "/tmp/external/dependency.ts",
+        }),
+      ],
+      {
+        pathRoots: ["/repo"],
+      }
+    );
+
+    expect(result.findings[0]?.filePath).toBe("/tmp/external/dependency.ts");
   });
 });

@@ -7,7 +7,7 @@ import type { FindingId, StoredFinding } from "@/lib/review-workflow/findings/ty
 import type { Finding } from "@/lib/types";
 
 interface MergeFindingsIntoInventoryOptions {
-  repoPath: string;
+  pathRoots: string[];
 }
 
 export interface MergeFindingsIntoInventoryResult {
@@ -76,7 +76,7 @@ export function mergeFindingsIntoInventory(
 
   for (const rawFinding of rawFindings) {
     const seed = createStoredFindingSeed(rawFinding, {
-      repoPath: options.repoPath,
+      pathRoots: options.pathRoots,
     });
 
     const directDuplicate = findingByFingerprint.get(seed.fingerprint);

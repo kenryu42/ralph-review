@@ -1,9 +1,8 @@
-import { join } from "node:path";
 import type { FindingFingerprint, StoredFinding } from "@/lib/review-workflow/findings/types";
 import type { Finding, Priority } from "@/lib/types";
 
 interface NormalizeFindingOptions {
-  repoPath: string;
+  pathRoots: string[];
 }
 
 export interface StoredFindingSeed {
@@ -26,31 +25,40 @@ function trimLeadingCurrentDir(value: string): string {
   return value.replace(/^\.\//, "");
 }
 
-function trimLeadingSlashes(value: string): string {
-  return value.replace(/^\/+/g, "");
+function isAbsolutePath(value: string): boolean {
+  return value.startsWith("/") || /^[A-Za-z]:\//u.test(value);
 }
 
-function normalizeRepoRelativePath(absoluteFilePath: string, repoPath: string): string {
-  const normalizedFilePath = normalizePathSeparators(absoluteFilePath).trim();
-  const normalizedRepoPath = normalizePathSeparators(repoPath).replace(/\/+$/g, "").trim();
+function normalizePathRoot(value: string): string {
+  return normalizePathSeparators(value).replace(/\/+$/g, "").trim();
+}
 
-  if (normalizedRepoPath.length > 0) {
-    const withTrailingSlash = `${normalizedRepoPath}/`;
+function normalizeRepoRelativePath(filePath: string, pathRoots: string[]): string {
+  const normalizedFilePath = normalizePathSeparators(filePath).trim();
+  if (normalizedFilePath.length === 0) {
+    return "";
+  }
+
+  if (!isAbsolutePath(normalizedFilePath)) {
+    return trimLeadingCurrentDir(normalizedFilePath);
+  }
+
+  const normalizedRoots = [
+    ...new Set(pathRoots.map(normalizePathRoot).filter((root) => root.length > 0)),
+  ].sort((left, right) => right.length - left.length || left.localeCompare(right));
+
+  for (const normalizedRoot of normalizedRoots) {
+    const withTrailingSlash = `${normalizedRoot}/`;
     if (normalizedFilePath.startsWith(withTrailingSlash)) {
       return trimLeadingCurrentDir(normalizedFilePath.slice(withTrailingSlash.length));
     }
 
-    if (normalizedFilePath === normalizedRepoPath) {
+    if (normalizedFilePath === normalizedRoot) {
       return "";
-    }
-
-    const pathJoined = normalizePathSeparators(join(normalizedRepoPath, normalizedFilePath));
-    if (pathJoined.startsWith(withTrailingSlash)) {
-      return trimLeadingCurrentDir(pathJoined.slice(withTrailingSlash.length));
     }
   }
 
-  return trimLeadingCurrentDir(trimLeadingSlashes(normalizedFilePath));
+  return normalizedFilePath;
 }
 
 function normalizeText(value: string): string {
@@ -154,7 +162,7 @@ export function createStoredFindingSeed(
 ): StoredFindingSeed {
   const filePath = normalizeRepoRelativePath(
     finding.code_location.absolute_file_path,
-    options.repoPath
+    options.pathRoots
   );
   const lineRange = normalizeLineRange(
     finding.code_location.line_range.start,

@@ -420,6 +420,7 @@ export async function runDiscoverySession(
       reviewOptions,
       sessionId: runtimeContext?.sessionId,
       projectPath,
+      findingPathRoots: [projectPath, reviewedSnapshot.reviewedSnapshotPath, reviewerCwd],
       sessionPath,
       reviewedSnapshotPath: reviewedSnapshot.reviewedSnapshotPath,
       initialSnapshotFingerprint: snapshotFingerprint,

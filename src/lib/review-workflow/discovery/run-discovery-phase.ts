@@ -11,6 +11,7 @@ interface RunDiscoveryPhaseOptions {
   reviewOptions?: ReviewOptions;
   sessionId?: string;
   projectPath: string;
+  findingPathRoots: string[];
   sessionPath: string;
   reviewedSnapshotPath: string;
   initialSnapshotFingerprint: string;
@@ -113,7 +114,7 @@ export async function runDiscoveryPhase(
 
     const reviewerResult = await options.runReviewerIteration(iteration, findings);
     const merged = mergeFindingsIntoInventory(findings, reviewerResult.findings, {
-      repoPath: options.reviewedSnapshotPath,
+      pathRoots: options.findingPathRoots,
     });
     findings = merged.findings;
     iterations = iteration;

@@ -205,7 +205,11 @@ export async function runFinalAuditPhase(
       options.artifact.findings,
       parsed.regressionFindings,
       {
-        repoPath: options.worktree.agentProjectPath,
+        pathRoots: [
+          options.artifact.projectPath,
+          options.artifact.reviewedSnapshotPath,
+          options.worktree.agentProjectPath,
+        ],
       }
     ).newFindings;
 
