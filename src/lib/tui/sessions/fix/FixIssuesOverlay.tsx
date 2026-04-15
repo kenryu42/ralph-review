@@ -205,6 +205,10 @@ function sortSelectedFindingIds(
   return findings.map((finding) => finding.id).filter((findingId) => selectedIds.has(findingId));
 }
 
+function getFindingAtIndex(findings: StoredFinding[], index: number): StoredFinding | null {
+  return findings[clampIndex(index, findings.length)] ?? null;
+}
+
 function buildFixCommandArgs(
   sessionId: string,
   mode: FixSelectionMode,
@@ -356,6 +360,15 @@ export function FixIssuesOverlay({
     () => filterFindings(findings, filterQuery),
     [filterQuery, findings]
   );
+  const selectedPrioritySet = useMemo(() => new Set(selectedPriorities), [selectedPriorities]);
+  const orderedSelectedFindingIds = useMemo(
+    () => sortSelectedFindingIds(selectedFindingIds, findings),
+    [selectedFindingIds, findings]
+  );
+  const selectedFindingIdSet = useMemo(
+    () => new Set(orderedSelectedFindingIds),
+    [orderedSelectedFindingIds]
+  );
 
   const impactedFiles = useMemo(() => {
     const counts = new Map<string, number>();
@@ -374,11 +387,10 @@ export function FixIssuesOverlay({
   }, [findings]);
 
   const selectedPriorityFindingIds = useMemo(() => {
-    const activePriorities = new Set(selectedPriorities);
     return findings
-      .filter((finding) => activePriorities.has(finding.priority))
+      .filter((finding) => selectedPrioritySet.has(finding.priority))
       .map((finding) => finding.id);
-  }, [findings, selectedPriorities]);
+  }, [findings, selectedPrioritySet]);
 
   const effectiveSelectedFindingIds = useMemo(() => {
     if (mode === "all") {
@@ -389,14 +401,11 @@ export function FixIssuesOverlay({
       return selectedPriorityFindingIds;
     }
 
-    return sortSelectedFindingIds(selectedFindingIds, findings);
-  }, [findings, mode, selectedFindingIds, selectedPriorityFindingIds]);
+    return orderedSelectedFindingIds;
+  }, [findings, mode, orderedSelectedFindingIds, selectedPriorityFindingIds]);
 
   const currentPriority = PRIORITIES[clampIndex(priorityIndex, PRIORITIES.length)] ?? "P0";
-  const currentFinding =
-    filteredFindings.length === 0
-      ? null
-      : filteredFindings[clampIndex(findingIndex, filteredFindings.length)];
+  const currentFinding = getFindingAtIndex(filteredFindings, findingIndex);
 
   const currentPriorityFindings = useMemo(
     () => findings.filter((finding) => finding.priority === currentPriority),
@@ -405,23 +414,19 @@ export function FixIssuesOverlay({
   const wrappedPriorityRows = useMemo(
     () =>
       priorityCounts.map((item) =>
-        buildPrioritySelectionRow(
-          item.priority,
-          item.count,
-          selectedPriorities.includes(item.priority)
-        )
+        buildPrioritySelectionRow(item.priority, item.count, selectedPrioritySet.has(item.priority))
       ),
-    [priorityCounts, selectedPriorities]
+    [priorityCounts, selectedPrioritySet]
   );
   const wrappedFindingRows = useMemo(
     () =>
       filteredFindings.map((finding) =>
         buildWrappedFindingRow(finding, {
-          isSelected: selectedFindingIds.includes(finding.id),
+          isSelected: selectedFindingIdSet.has(finding.id),
           contentWidth: selectionPanelContentWidth,
         })
       ),
-    [filteredFindings, selectedFindingIds, selectionPanelContentWidth]
+    [filteredFindings, selectedFindingIdSet, selectionPanelContentWidth]
   );
 
   const pendingCountLabel = `${findings.length} pending`;
@@ -431,7 +436,7 @@ export function FixIssuesOverlay({
     sessionId,
     mode,
     selectedPriorities,
-    sortSelectedFindingIds(selectedFindingIds, findings)
+    orderedSelectedFindingIds
   );
   const disabledReason = getSelectionDisabledReason(mode, selectedPriorities, selectedFindingIds);
   const fullCommand = commandPreview ?? baseCommandPreview;
@@ -562,10 +567,7 @@ export function FixIssuesOverlay({
   }, [priorityIndex]);
 
   const toggleCurrentFindingId = useCallback(() => {
-    const highlightedFinding =
-      filteredFindings.length === 0
-        ? null
-        : filteredFindings[clampIndex(findingIndex, filteredFindings.length)];
+    const highlightedFinding = getFindingAtIndex(filteredFindings, findingIndex);
     if (!highlightedFinding) {
       return;
     }
@@ -588,7 +590,7 @@ export function FixIssuesOverlay({
       sessionId,
       mode,
       selectedPriorities,
-      sortSelectedFindingIds(selectedFindingIds, findings)
+      orderedSelectedFindingIds
     );
     if (!commandArgs) {
       setError(disabledReason ?? "Choose a valid fix selection.");
@@ -621,12 +623,11 @@ export function FixIssuesOverlay({
     }
   }, [
     disabledReason,
-    findings,
     isFixing,
     mode,
     onClose,
+    orderedSelectedFindingIds,
     projectPath,
-    selectedFindingIds,
     selectedPriorities,
     sessionId,
   ]);
@@ -936,7 +937,7 @@ export function FixIssuesOverlay({
   }
 
   function renderPriorityDetail() {
-    const isPrioritySelected = selectedPriorities.includes(currentPriority);
+    const isPrioritySelected = selectedPrioritySet.has(currentPriority);
 
     return (
       <scrollbox focused={focusedPane === "details"} flexGrow={1} scrollY>
@@ -987,7 +988,7 @@ export function FixIssuesOverlay({
       );
     }
 
-    const isSelected = selectedFindingIds.includes(currentFinding.id);
+    const isSelected = selectedFindingIdSet.has(currentFinding.id);
 
     return (
       <scrollbox focused={focusedPane === "details"} flexGrow={1} scrollY>
