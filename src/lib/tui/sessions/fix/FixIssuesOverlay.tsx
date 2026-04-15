@@ -18,6 +18,7 @@ export interface FixIssuesOverlayProps {
 
 type FixSelectionMode = "all" | "priority" | "id";
 type OverlayFocus = "list" | "filter";
+type OverlayPane = "selection" | "details";
 
 const PRIORITIES: Priority[] = ["P0", "P1", "P2", "P3"];
 const MODE_ORDER: FixSelectionMode[] = ["all", "priority", "id"];
@@ -318,6 +319,7 @@ export function FixIssuesOverlay({
   const priorityListRef = useRef<ScrollBoxRenderable>(null);
   const [mode, setMode] = useState<FixSelectionMode>("all");
   const [focusArea, setFocusArea] = useState<OverlayFocus>("list");
+  const [focusedPane, setFocusedPane] = useState<OverlayPane>("selection");
   const [priorityIndex, setPriorityIndex] = useState(0);
   const [findingIndex, setFindingIndex] = useState(0);
   const [selectedPriorities, setSelectedPriorities] = useState<Priority[]>([]);
@@ -532,6 +534,10 @@ export function FixIssuesOverlay({
     [mode, setActiveMode]
   );
 
+  const cycleFocusedPane = useCallback(() => {
+    setFocusedPane((current) => (current === "selection" ? "details" : "selection"));
+  }, []);
+
   const closeOverlay = useCallback(() => {
     if (isFixing) {
       return;
@@ -627,7 +633,12 @@ export function FixIssuesOverlay({
 
   const handleListKeyDown = useCallback(
     (key: { name: string }) => {
-      if (focusArea === "filter") {
+      if (key.name === "tab") {
+        cycleFocusedPane();
+        return;
+      }
+
+      if (focusedPane === "selection" && focusArea === "filter") {
         return;
       }
 
@@ -650,30 +661,41 @@ export function FixIssuesOverlay({
         return;
       }
 
-      if (mode === "id" && (key.name === "/" || key.name === "tab")) {
+      if (mode === "id" && key.name === "/") {
+        setFocusedPane("selection");
         setFocusArea("filter");
         return;
       }
 
-      if (mode === "priority" && key.name === "up") {
+      if (focusedPane !== "selection") {
+        if (key.name === "enter" || key.name === "return") {
+          void confirmFixSelection();
+        }
+        return;
+      }
+
+      const isMoveUp = key.name === "up" || key.name === "k";
+      const isMoveDown = key.name === "down" || key.name === "j";
+
+      if (mode === "priority" && isMoveUp) {
         setPriorityIndex((current) => clampIndex(current - 1, PRIORITIES.length));
         setError(null);
         return;
       }
 
-      if (mode === "priority" && key.name === "down") {
+      if (mode === "priority" && isMoveDown) {
         setPriorityIndex((current) => clampIndex(current + 1, PRIORITIES.length));
         setError(null);
         return;
       }
 
-      if (mode === "id" && key.name === "up") {
+      if (mode === "id" && isMoveUp) {
         setFindingIndex((current) => clampIndex(current - 1, filteredFindings.length));
         setError(null);
         return;
       }
 
-      if (mode === "id" && key.name === "down") {
+      if (mode === "id" && isMoveDown) {
         setFindingIndex((current) => clampIndex(current + 1, filteredFindings.length));
         setError(null);
         return;
@@ -697,10 +719,12 @@ export function FixIssuesOverlay({
     },
     [
       closeOverlay,
+      cycleFocusedPane,
       confirmFixSelection,
       cycleMode,
       findings.length,
       focusArea,
+      focusedPane,
       filteredFindings.length,
       mode,
       toggleCurrentFindingId,
@@ -727,7 +751,9 @@ export function FixIssuesOverlay({
         : TUI_COLORS.text.muted;
 
   const selectionBorderColor =
-    focusArea === "filter" || mode !== "all" ? TUI_COLORS.ui.borderFocused : TUI_COLORS.ui.border;
+    focusedPane === "selection" ? TUI_COLORS.ui.borderFocused : TUI_COLORS.ui.border;
+  const detailsBorderColor =
+    focusedPane === "details" ? TUI_COLORS.ui.borderFocused : TUI_COLORS.ui.border;
 
   const updateFilterQuery = useCallback((nextValue: string) => {
     setFilterQuery(nextValue);
@@ -783,7 +809,12 @@ export function FixIssuesOverlay({
       return (
         <box flexDirection="column" gap={1} flexGrow={1} minHeight={0}>
           <text fg={TUI_COLORS.text.muted}>Select one or more priorities to batch together.</text>
-          <scrollbox ref={priorityListRef} focused={focusArea === "list"} flexGrow={1} scrollY>
+          <scrollbox
+            ref={priorityListRef}
+            focused={focusedPane === "selection" && focusArea === "list"}
+            flexGrow={1}
+            scrollY
+          >
             <box flexDirection="column">
               {wrappedPriorityRows.map((row, index) => {
                 const isHighlighted =
@@ -834,12 +865,17 @@ export function FixIssuesOverlay({
             setFocusArea("list");
           }}
           onKeyDown={(key) => {
-            if (key.name === "escape" || key.name === "down" || key.name === "tab") {
+            if (key.name === "tab") {
+              cycleFocusedPane();
+              return;
+            }
+
+            if (key.name === "escape" || key.name === "down") {
               setFocusArea("list");
             }
           }}
           placeholder="Type ID, title, path, or priority"
-          focused={focusArea === "filter"}
+          focused={focusedPane === "selection" && focusArea === "filter"}
           width="100%"
           backgroundColor="#111827"
           focusedBackgroundColor="#0f172a"
@@ -856,7 +892,12 @@ export function FixIssuesOverlay({
             <text fg={TUI_COLORS.text.dim}>No issues match the current filter.</text>
           </box>
         ) : (
-          <scrollbox ref={findingListRef} focused={focusArea === "list"} flexGrow={1} scrollY>
+          <scrollbox
+            ref={findingListRef}
+            focused={focusedPane === "selection" && focusArea === "list"}
+            flexGrow={1}
+            scrollY
+          >
             <box flexDirection="column">
               {wrappedFindingRows.map((row, index) => {
                 const isHighlighted = index === clampIndex(findingIndex, wrappedFindingRows.length);
@@ -898,7 +939,7 @@ export function FixIssuesOverlay({
     const isPrioritySelected = selectedPriorities.includes(currentPriority);
 
     return (
-      <scrollbox flexGrow={1}>
+      <scrollbox focused={focusedPane === "details"} flexGrow={1} scrollY>
         <box flexDirection="column" gap={1}>
           <DetailField label="Priority" value={<PriorityText priority={currentPriority} />} />
           <DetailField
@@ -937,7 +978,7 @@ export function FixIssuesOverlay({
   function renderFindingDetail() {
     if (!currentFinding) {
       return (
-        <scrollbox flexGrow={1}>
+        <scrollbox focused={focusedPane === "details"} flexGrow={1} scrollY>
           <box flexDirection="column" gap={1}>
             <DetailField label="Scope" value="Issue selection" />
             <text fg={TUI_COLORS.text.dim}>No issues match the current filter.</text>
@@ -949,7 +990,7 @@ export function FixIssuesOverlay({
     const isSelected = selectedFindingIds.includes(currentFinding.id);
 
     return (
-      <scrollbox flexGrow={1}>
+      <scrollbox focused={focusedPane === "details"} flexGrow={1} scrollY>
         <box flexDirection="column" gap={1}>
           <DetailField
             label="Issue"
@@ -985,7 +1026,7 @@ export function FixIssuesOverlay({
 
   function renderAllDetail() {
     return (
-      <scrollbox flexGrow={1}>
+      <scrollbox focused={focusedPane === "details"} flexGrow={1} scrollY>
         <box flexDirection="column" gap={1}>
           <DetailField label="Scope" value="All pending issues" />
           <text fg={TUI_COLORS.text.dim}>
@@ -1021,8 +1062,9 @@ export function FixIssuesOverlay({
   ];
 
   const footerKeys: Array<[string, string]> = [
+    ["Tab", "Focus pane"],
     ["←/→", "Scope"],
-    ["↑/↓", "Move"],
+    ["↑/↓ j/k", "Move"],
     ["Space", "Toggle"],
     ...(mode === "id" ? ([["/", "Filter"]] as Array<[string, string]>) : []),
     ["Enter", "Run"],
@@ -1112,7 +1154,7 @@ export function FixIssuesOverlay({
         <box
           border
           borderStyle="rounded"
-          borderColor={TUI_COLORS.ui.border}
+          borderColor={detailsBorderColor}
           title="Details"
           titleAlignment="left"
           flexGrow={1}
@@ -1151,19 +1193,24 @@ export function FixIssuesOverlay({
 
       <box
         flexDirection="row"
-        gap={2}
+        justifyContent="space-between"
         backgroundColor="#0f172a"
         paddingLeft={1}
         paddingRight={1}
         height={1}
         flexShrink={0}
       >
-        {footerKeys.map(([key, label]) => (
-          <text key={key}>
-            <span fg={TUI_COLORS.accent.key}>[{key}]</span>
-            <span fg={TUI_COLORS.text.muted}> {label}</span>
-          </text>
-        ))}
+        <box flexDirection="row" gap={2}>
+          {footerKeys.map(([key, label]) => (
+            <text key={key}>
+              <span fg={TUI_COLORS.accent.key}>[{key}]</span>
+              <span fg={TUI_COLORS.text.muted}> {label}</span>
+            </text>
+          ))}
+        </box>
+        <text fg={TUI_COLORS.text.dim}>
+          Focus: {focusedPane === "selection" ? "Selection" : "Details"}
+        </text>
       </box>
     </box>
   );

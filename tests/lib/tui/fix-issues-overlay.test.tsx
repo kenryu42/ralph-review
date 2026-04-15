@@ -124,6 +124,7 @@ describe("FixIssuesOverlay", () => {
         "\u001B[C": "right",
         "\u001B[D": "left",
         "\u001B": "escape",
+        "\t": "tab",
         "\r": "return",
         " ": "space",
         "/": "/",
@@ -236,8 +237,21 @@ describe("FixIssuesOverlay", () => {
     expect(frame).toContain("Fix Issues");
     expect(frame).toContain("3 pending");
     expect(frame).toContain("[←/→]");
-    expect(frame).toContain("Scope");
+    expect(frame).toContain("[Tab]");
     expect(details.y).toBeGreaterThan(selection.y);
+  });
+
+  test("cycles focus between selection and details with Tab", async () => {
+    const overlay = await renderOverlay();
+    let frame = overlay.frame();
+
+    expect(frame).toContain("Focus: Selection");
+
+    frame = await overlay.press("\t");
+    expect(frame).toContain("Focus: Details");
+
+    frame = await overlay.press("\t");
+    expect(frame).toContain("Focus: Selection");
   });
 
   test("renders the empty state when there are no findings", async () => {
@@ -312,6 +326,42 @@ describe("FixIssuesOverlay", () => {
     frame = await overlay.press(" ");
     expect(frame).toContain("Selected 2 of 3");
     expect(frame).toContain("--priority P1");
+    await overlay.press("\r");
+
+    expect(spawnCalls).toEqual([
+      {
+        cmd: [
+          process.execPath,
+          CLI_PATH,
+          "fix",
+          "--session",
+          "session-123",
+          "--priority",
+          "P0",
+          "--priority",
+          "P1",
+        ],
+        cwd: "/repo/project",
+      },
+    ]);
+  });
+
+  test("supports j/k navigation in priority mode", async () => {
+    const spawnCalls: Array<{ cmd: string[]; cwd: string | undefined }> = [];
+    Bun.spawn = ((cmd: string[], options?: { cwd?: string }) => {
+      spawnCalls.push({ cmd, cwd: options?.cwd });
+      return {
+        exited: Promise.resolve(0),
+        stderr: createStderrStream(""),
+      };
+    }) as typeof Bun.spawn;
+
+    const overlay = await renderOverlay();
+    await overlay.press("\u001B[C");
+    await overlay.press("j");
+    await overlay.press(" ");
+    await overlay.press("k");
+    await overlay.press(" ");
     await overlay.press("\r");
 
     expect(spawnCalls).toEqual([
@@ -410,6 +460,70 @@ describe("FixIssuesOverlay", () => {
         cwd: "/repo/project",
       },
     ]);
+  });
+
+  test("supports j/k navigation in issues mode", async () => {
+    const spawnCalls: Array<{ cmd: string[]; cwd: string | undefined }> = [];
+    Bun.spawn = ((cmd: string[], options?: { cwd?: string }) => {
+      spawnCalls.push({ cmd, cwd: options?.cwd });
+      return {
+        exited: Promise.resolve(0),
+        stderr: createStderrStream(""),
+      };
+    }) as typeof Bun.spawn;
+
+    const overlay = await renderOverlay();
+    await overlay.press("\u001B[C");
+    await overlay.press("\u001B[C");
+    await overlay.press("j");
+    await overlay.press(" ");
+    await overlay.press("k");
+    await overlay.press(" ");
+    await overlay.press("\r");
+
+    expect(spawnCalls).toEqual([
+      {
+        cmd: [
+          process.execPath,
+          CLI_PATH,
+          "fix",
+          "--session",
+          "session-123",
+          "--id",
+          "F001",
+          "--id",
+          "F002",
+        ],
+        cwd: "/repo/project",
+      },
+    ]);
+  });
+
+  test("scrolls long details content when details pane is focused", async () => {
+    const longBody = Array.from({ length: 40 }, (_, index) => `body line ${index + 1}`).join("\n");
+    const longFinding = createFinding("F001", "P0", {
+      body: longBody,
+      title: "[P0] Long body scroll validation",
+    });
+    const overlay = await renderOverlay({
+      findings: [longFinding],
+      width: 120,
+      height: 32,
+    });
+    await overlay.press("\u001B[C");
+    let frame = await overlay.press("\u001B[C");
+
+    expect(frame).toContain("body line 1");
+    expect(frame).not.toContain("body line 35");
+
+    frame = await overlay.press("\t");
+    expect(frame).toContain("Focus: Details");
+
+    for (let index = 0; index < 40; index += 1) {
+      frame = await overlay.press("\u001B[B");
+    }
+
+    expect(frame).toContain("body line 40");
   });
 
   test("preserves hidden id selections across filtering and runs them after returning to the list", async () => {
