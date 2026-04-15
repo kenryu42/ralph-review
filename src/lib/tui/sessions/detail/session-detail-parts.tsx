@@ -1,21 +1,14 @@
 import type { FindingFixResult, StoredFinding } from "@/lib/review-workflow/findings/types";
 import { storedFindingToFinding } from "@/lib/review-workflow/presentation";
 import { formatFindingTitleForDisplay } from "@/lib/tui/sessions/finding-title";
-import { PRIORITY_COLORS, UNKNOWN_PRIORITY_COLOR } from "@/lib/tui/sessions/session-display";
+import { PriorityText } from "@/lib/tui/sessions/priority-text";
 import { TUI_COLORS } from "@/lib/tui/shared/colors";
-import type { Finding, FixEntry, Priority, SkippedEntry } from "@/lib/types";
-import { VALID_PRIORITIES } from "@/lib/types/domain";
+import type { Finding, FixEntry, SkippedEntry } from "@/lib/types";
 
 type BoxHeight = number | "auto" | `${number}%`;
 
 export function toSingleLine(value: string): string {
   return value.replace(/\s+/g, " ").trim();
-}
-
-function priorityToString(priority: number | undefined): Priority | "P?" {
-  if (priority === undefined) return "P?";
-  const key = `P${priority}` as Priority;
-  return VALID_PRIORITIES.includes(key) ? key : "P?";
 }
 
 export function SectionHeader({
@@ -58,11 +51,6 @@ export function FindingsList({
   }
 
   const content = findings.map((finding, index) => {
-    const priorityStr = priorityToString(finding.priority);
-    const priorityColor =
-      finding.priority !== undefined
-        ? (PRIORITY_COLORS[`P${finding.priority}` as Priority] ?? UNKNOWN_PRIORITY_COLOR)
-        : UNKNOWN_PRIORITY_COLOR;
     const location = finding.code_location;
     const lineRange = `${location.line_range.start}-${location.line_range.end}`;
     const key = `${index}-${location.absolute_file_path}:${lineRange}`;
@@ -70,7 +58,9 @@ export function FindingsList({
     return (
       <box key={key} flexDirection="column">
         <box flexDirection="row">
-          <text fg={priorityColor}>{priorityStr}</text>
+          <text>
+            <PriorityText priority={finding.priority} />
+          </text>
           <text fg={TUI_COLORS.text.dim}> ▸ </text>
           <text fg={TUI_COLORS.text.secondary} wrapMode="none">
             {toSingleLine(formatFindingTitleForDisplay(finding.title))}
@@ -139,8 +129,8 @@ export function FixList({
   const content = fixes.map((fix, index) => (
     <box key={`${index}-${fix.id}`} flexDirection="column">
       <box flexDirection="row">
-        <text fg={PRIORITY_COLORS[fix.priority as Priority] ?? UNKNOWN_PRIORITY_COLOR}>
-          {fix.priority}
+        <text>
+          <PriorityText priority={fix.priority} />
         </text>
         <text fg={TUI_COLORS.text.dim}> ▸ </text>
         <text fg={TUI_COLORS.text.secondary} wrapMode="none">
@@ -188,8 +178,8 @@ export function SkippedList({
   const content = skipped.map((entry, index) => (
     <box key={`${index}-${entry.id}`} flexDirection="column">
       <box flexDirection="row">
-        <text fg={PRIORITY_COLORS[entry.priority as Priority] ?? UNKNOWN_PRIORITY_COLOR}>
-          {entry.priority ?? "P?"}
+        <text>
+          <PriorityText priority={entry.priority} />
         </text>
         <text fg={TUI_COLORS.text.dim}> ▸ </text>
         <text fg={TUI_COLORS.text.secondary} wrapMode="none">

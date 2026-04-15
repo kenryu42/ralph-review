@@ -6,6 +6,7 @@ import { CLI_PATH } from "@/lib/paths";
 import type { StoredFinding } from "@/lib/review-workflow/findings/types";
 import { buildWrappedFindingRow, FixIssuesOverlay } from "@/lib/tui/sessions/fix/FixIssuesOverlay";
 import { PRIORITY_COLORS } from "@/lib/tui/sessions/session-display";
+import { TUI_COLORS } from "@/lib/tui/shared/colors";
 
 function createStderrStream(text: string): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder();
@@ -366,11 +367,13 @@ describe("FixIssuesOverlay", () => {
       contentWidth: 32,
     });
 
-    const prioritySegment = row.lines
-      .flatMap((line) => line.segments)
-      .find((segment) => segment.text === "[P0]");
+    const prioritySegments = row.lines[0]?.segments.slice(1, 4);
 
-    expect(prioritySegment?.color).toBe(PRIORITY_COLORS.P0);
+    expect(prioritySegments).toEqual([
+      { text: "[", color: TUI_COLORS.text.dim },
+      { text: "P0", color: PRIORITY_COLORS.P0 },
+      { text: "]", color: TUI_COLORS.text.dim },
+    ]);
   });
 
   test("spawns rr fix with repeated id flags", async () => {

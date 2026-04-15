@@ -15,12 +15,12 @@ import {
   buildScrollBarRows,
   useScrollMetrics,
 } from "@/lib/tui/sessions/detail/session-detail-scroll";
+import { PriorityText } from "@/lib/tui/sessions/priority-text";
 import {
   formatHandoffSummary,
   formatLastRunIssueSummary,
   formatPriorityBreakdown,
   formatProjectNameForDisplay,
-  PRIORITY_COLORS,
 } from "@/lib/tui/sessions/session-display";
 import { TUI_COLORS } from "@/lib/tui/shared/colors";
 import type {
@@ -128,10 +128,8 @@ function PrioritySummaryRow({
     <box flexDirection="row" flexWrap="wrap" gap={1}>
       {formatPriorityBreakdown(priorityCounts).map((item) => (
         <text key={item.priority}>
-          <span fg={TUI_COLORS.text.dim}>[</span>
-          <span fg={PRIORITY_COLORS[item.priority]}>{item.priority}</span>
+          <PriorityText priority={item.priority} bracketed />
           <span fg={TUI_COLORS.text.muted}> {item.count}</span>
-          <span fg={TUI_COLORS.text.dim}>]</span>
         </text>
       ))}
     </box>
@@ -168,7 +166,9 @@ function DetailedFixList({ fixes }: { fixes: FixEntry[] }) {
         return (
           <box key={`${index}-${fix.id}`} flexDirection="column" paddingLeft={1} gap={0}>
             <box flexDirection="row" gap={1}>
-              <text fg={PRIORITY_COLORS[fix.priority]}>{fix.priority}</text>
+              <text>
+                <PriorityText priority={fix.priority} />
+              </text>
               <text fg={TUI_COLORS.text.dim}>▸</text>
               <text fg={TUI_COLORS.text.secondary}>
                 <strong>{toSingleLine(fix.title)}</strong>

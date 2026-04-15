@@ -1,5 +1,6 @@
 import { formatDuration } from "@/lib/format";
 import { formatFindingTitleForDisplay } from "@/lib/tui/sessions/finding-title";
+import { PriorityText } from "@/lib/tui/sessions/priority-text";
 import {
   extractFindingsFromStats,
   extractFixesFromStats,
@@ -11,11 +12,10 @@ import {
   formatProjectStatsSummary,
   formatRelativeTime,
   hasBatchFirstSummary,
-  PRIORITY_COLORS,
 } from "@/lib/tui/sessions/session-display";
 import { TUI_COLORS } from "@/lib/tui/shared/colors";
 import { Spinner } from "@/lib/tui/shared/Spinner";
-import type { Priority, ProjectStats, SessionStats } from "@/lib/types";
+import type { ProjectStats, SessionStats } from "@/lib/types";
 import { toSingleLine } from "./session-detail-parts";
 
 function getLastRunStatusDisplay(status: SessionStats["status"]): { text: string; color: string } {
@@ -31,19 +31,6 @@ function getLastRunStatusDisplay(status: SessionStats["status"]): { text: string
     default:
       return { text: "unknown", color: TUI_COLORS.status.inactive };
   }
-}
-
-function getFindingPriorityDisplay(priority: number | undefined): { text: string; color: string } {
-  if (priority === undefined) {
-    return { text: "P?", color: TUI_COLORS.text.dim };
-  }
-
-  const priorityKey = `P${priority}` as Priority;
-
-  return {
-    text: priorityKey,
-    color: PRIORITY_COLORS[priorityKey],
-  };
 }
 
 function getLastRunHandoffDisplay(stats: SessionStats): {
@@ -158,8 +145,10 @@ export function IdleStateView({
           <box flexDirection="row" paddingLeft={2} flexWrap="wrap">
             {formatPriorityBreakdown(projectStats.priorityCounts).map((item, idx, arr) => (
               <box key={item.priority} flexDirection="row">
-                <text fg={PRIORITY_COLORS[item.priority]}>{item.priority} </text>
-                <text fg={TUI_COLORS.text.muted}>{item.count}</text>
+                <text>
+                  <PriorityText priority={item.priority} />
+                  <span fg={TUI_COLORS.text.muted}> {item.count}</span>
+                </text>
                 {idx < arr.length - 1 && <text fg={TUI_COLORS.text.dim}> · </text>}
               </box>
             ))}
@@ -191,14 +180,14 @@ export function IdleStateView({
             <box flexDirection="column" gap={0}>
               <box flexDirection="column">
                 {lastRunFindings.map((finding) => {
-                  const priorityDisplay = getFindingPriorityDisplay(finding.priority);
-
                   return (
                     <box
                       key={`${finding.code_location.absolute_file_path}:${finding.code_location.line_range.start}-${finding.code_location.line_range.end}:${finding.title}`}
                       flexDirection="row"
                     >
-                      <text fg={priorityDisplay.color}>{priorityDisplay.text}</text>
+                      <text>
+                        <PriorityText priority={finding.priority} />
+                      </text>
                       <text fg={TUI_COLORS.text.dim}> ▸ </text>
                       <text fg={TUI_COLORS.text.secondary}>
                         {toSingleLine(formatFindingTitleForDisplay(finding.title))}
@@ -216,7 +205,9 @@ export function IdleStateView({
               <box flexDirection="column" paddingLeft={2}>
                 {lastRunFixes.map((fix) => (
                   <box key={`${fix.id}-${fix.title}`} flexDirection="row">
-                    <text fg={PRIORITY_COLORS[fix.priority]}>{fix.priority}</text>
+                    <text>
+                      <PriorityText priority={fix.priority} />
+                    </text>
                     <text fg={TUI_COLORS.text.dim}> ▸ </text>
                     <text fg={TUI_COLORS.text.secondary}>{toSingleLine(fix.title)}</text>
                   </box>

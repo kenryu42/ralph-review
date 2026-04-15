@@ -5,7 +5,7 @@ import { CLI_PATH } from "@/lib/paths";
 import type { FindingId, StoredFinding } from "@/lib/review-workflow/findings/types";
 import { toSingleLine } from "@/lib/tui/sessions/detail/session-detail-parts";
 import { formatFindingTitleForDisplay } from "@/lib/tui/sessions/finding-title";
-import { PRIORITY_COLORS } from "@/lib/tui/sessions/session-display";
+import { buildPriorityTextSegments, PriorityText } from "@/lib/tui/sessions/priority-text";
 import { TUI_COLORS } from "@/lib/tui/shared/colors";
 import type { Priority } from "@/lib/types";
 
@@ -33,6 +33,11 @@ interface FindingRowLine {
 
 interface WrappedFindingRow {
   finding: StoredFinding;
+  lines: FindingRowLine[];
+}
+
+interface PrioritySelectionRow {
+  priority: Priority;
   lines: FindingRowLine[];
 }
 
@@ -141,12 +146,11 @@ export function buildWrappedFindingRow(
 ): WrappedFindingRow {
   const checkbox = options.isSelected ? "[x]" : "[ ]";
   const findingIdPrefix = `${checkbox} ${finding.id} `;
-  const priorityText = `[${finding.priority}]`;
   const title = toSingleLine(formatFindingTitleForDisplay(finding.title));
   const availableWidth = Math.max(1, options.contentWidth - 2);
   const firstLineTitleWidth = Math.max(
     0,
-    availableWidth - findingIdPrefix.length - priorityText.length - 1
+    availableWidth - findingIdPrefix.length - "[P0]".length - 1
   );
   const titleLines = wrapTextWithInitialWidth(title, firstLineTitleWidth, availableWidth);
   const firstTitleLine = firstLineTitleWidth > 0 ? (titleLines[0] ?? "") : "";
@@ -158,13 +162,32 @@ export function buildWrappedFindingRow(
       {
         segments: [
           { text: findingIdPrefix },
-          { text: priorityText, color: PRIORITY_COLORS[finding.priority] },
+          ...buildPriorityTextSegments(finding.priority, { bracketed: true }),
           ...(firstTitleLine.length > 0 ? [{ text: ` ${firstTitleLine}` }] : []),
         ],
       },
       ...continuationLines.map((line) => ({
         segments: [{ text: line }],
       })),
+    ],
+  };
+}
+
+function buildPrioritySelectionRow(
+  priority: Priority,
+  count: number,
+  isSelected: boolean
+): PrioritySelectionRow {
+  return {
+    priority,
+    lines: [
+      {
+        segments: [
+          { text: `${isSelected ? "[x]" : "[ ]"} ` },
+          ...buildPriorityTextSegments(priority),
+          { text: ` · ${formatCountLabel(count)}` },
+        ],
+      },
     ],
   };
 }
@@ -270,7 +293,7 @@ function DetailField({
   color = TUI_COLORS.text.secondary,
 }: {
   label: string;
-  value: string;
+  value: React.ReactNode;
   color?: string;
 }) {
   return (
@@ -292,6 +315,7 @@ export function FixIssuesOverlay({
   const { width: terminalWidth, height: terminalHeight } = useTerminalDimensions();
   const tabSelectRef = useRef<TabSelectRenderable>(null);
   const findingListRef = useRef<ScrollBoxRenderable>(null);
+  const priorityListRef = useRef<ScrollBoxRenderable>(null);
   const [mode, setMode] = useState<FixSelectionMode>("all");
   const [focusArea, setFocusArea] = useState<OverlayFocus>("list");
   const [priorityIndex, setPriorityIndex] = useState(0);
@@ -376,6 +400,17 @@ export function FixIssuesOverlay({
     () => findings.filter((finding) => finding.priority === currentPriority),
     [currentPriority, findings]
   );
+  const wrappedPriorityRows = useMemo(
+    () =>
+      priorityCounts.map((item) =>
+        buildPrioritySelectionRow(
+          item.priority,
+          item.count,
+          selectedPriorities.includes(item.priority)
+        )
+      ),
+    [priorityCounts, selectedPriorities]
+  );
   const wrappedFindingRows = useMemo(
     () =>
       filteredFindings.map((finding) =>
@@ -456,6 +491,28 @@ export function FixIssuesOverlay({
       list.scrollTop = Math.max(0, bottom - viewportHeight);
     }
   }, [findingIndex, focusArea, mode, wrappedFindingRows]);
+
+  useEffect(() => {
+    if (mode !== "priority" || wrappedPriorityRows.length === 0) {
+      return;
+    }
+
+    const list = priorityListRef.current;
+    if (!list) {
+      return;
+    }
+
+    const currentIndex = clampIndex(priorityIndex, wrappedPriorityRows.length);
+    if (currentIndex < list.scrollTop) {
+      list.scrollTop = currentIndex;
+      return;
+    }
+
+    const viewportHeight = Math.max(1, list.height);
+    if (currentIndex >= list.scrollTop + viewportHeight) {
+      list.scrollTop = Math.max(0, currentIndex - viewportHeight + 1);
+    }
+  }, [mode, priorityIndex, wrappedPriorityRows]);
 
   const setActiveMode = useCallback((nextMode: FixSelectionMode) => {
     setMode(nextMode);
@@ -598,6 +655,18 @@ export function FixIssuesOverlay({
         return;
       }
 
+      if (mode === "priority" && key.name === "up") {
+        setPriorityIndex((current) => clampIndex(current - 1, PRIORITIES.length));
+        setError(null);
+        return;
+      }
+
+      if (mode === "priority" && key.name === "down") {
+        setPriorityIndex((current) => clampIndex(current + 1, PRIORITIES.length));
+        setError(null);
+        return;
+      }
+
       if (mode === "id" && key.name === "up") {
         setFindingIndex((current) => clampIndex(current - 1, filteredFindings.length));
         setError(null);
@@ -660,12 +729,6 @@ export function FixIssuesOverlay({
   const selectionBorderColor =
     focusArea === "filter" || mode !== "all" ? TUI_COLORS.ui.borderFocused : TUI_COLORS.ui.border;
 
-  const priorityOptions = priorityCounts.map((item) => ({
-    name: `${selectedPriorities.includes(item.priority) ? "[x]" : "[ ]"} ${item.priority} · ${formatCountLabel(item.count)}`,
-    description: "",
-    value: item.priority,
-  }));
-
   const updateFilterQuery = useCallback((nextValue: string) => {
     setFilterQuery(nextValue);
     setError(null);
@@ -720,21 +783,40 @@ export function FixIssuesOverlay({
       return (
         <box flexDirection="column" gap={1} flexGrow={1} minHeight={0}>
           <text fg={TUI_COLORS.text.muted}>Select one or more priorities to batch together.</text>
-          <select
-            options={priorityOptions}
-            selectedIndex={clampIndex(priorityIndex, PRIORITIES.length)}
-            focused={focusArea === "list"}
-            flexGrow={1}
-            showDescription={false}
-            showScrollIndicator
-            selectedBackgroundColor="#1f2940"
-            selectedTextColor={TUI_COLORS.text.primary}
-            descriptionColor={TUI_COLORS.text.dim}
-            onChange={(index) => {
-              setPriorityIndex(index);
-              setError(null);
-            }}
-          />
+          <scrollbox ref={priorityListRef} focused={focusArea === "list"} flexGrow={1} scrollY>
+            <box flexDirection="column">
+              {wrappedPriorityRows.map((row, index) => {
+                const isHighlighted =
+                  index === clampIndex(priorityIndex, wrappedPriorityRows.length);
+                const textColor = isHighlighted
+                  ? TUI_COLORS.text.primary
+                  : TUI_COLORS.text.secondary;
+
+                return (
+                  <box
+                    key={row.priority}
+                    flexDirection="column"
+                    backgroundColor={isHighlighted ? "#1f2940" : undefined}
+                    paddingLeft={1}
+                  >
+                    {row.lines.map((line, lineIndex) => (
+                      <text key={`${row.priority}-${lineIndex}`} fg={textColor} wrapMode="none">
+                        <span>{lineIndex === 0 && isHighlighted ? "▶ " : "  "}</span>
+                        {line.segments.map((segment, segmentIndex) => (
+                          <span
+                            key={`${row.priority}-${lineIndex}-${segmentIndex}`}
+                            fg={segment.color ?? textColor}
+                          >
+                            {segment.text}
+                          </span>
+                        ))}
+                      </text>
+                    ))}
+                  </box>
+                );
+              })}
+            </box>
+          </scrollbox>
         </box>
       );
     }
@@ -818,11 +900,7 @@ export function FixIssuesOverlay({
     return (
       <scrollbox flexGrow={1}>
         <box flexDirection="column" gap={1}>
-          <DetailField
-            label="Scope"
-            value={`Priority ${currentPriority}`}
-            color={PRIORITY_COLORS[currentPriority]}
-          />
+          <DetailField label="Priority" value={<PriorityText priority={currentPriority} />} />
           <DetailField
             label="Status"
             value={disabledReason ?? "Ready to run this priority batch."}
@@ -875,8 +953,12 @@ export function FixIssuesOverlay({
         <box flexDirection="column" gap={1}>
           <DetailField
             label="Issue"
-            value={`${currentFinding.id} [${currentFinding.priority}]`}
-            color={PRIORITY_COLORS[currentFinding.priority]}
+            value={
+              <>
+                <span>{currentFinding.id} </span>
+                <PriorityText priority={currentFinding.priority} bracketed />
+              </>
+            }
           />
           <DetailField label="Title" value={formatFindingTitleForDisplay(currentFinding.title)} />
           <text fg={TUI_COLORS.text.dim}>
@@ -982,9 +1064,7 @@ export function FixIssuesOverlay({
           {priorityCounts.map((item) => (
             <box key={item.priority}>
               <text>
-                <span fg={TUI_COLORS.text.dim}>[</span>
-                <span fg={PRIORITY_COLORS[item.priority]}>{item.priority}</span>
-                <span fg={TUI_COLORS.text.dim}>]</span>
+                <PriorityText priority={item.priority} bracketed />
                 <span fg={TUI_COLORS.text.muted}> {item.count}</span>
               </text>
             </box>
