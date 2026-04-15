@@ -1,5 +1,4 @@
 import type { SessionState } from "@/lib/session-state";
-import type { SessionStats } from "@/lib/types";
 
 const STOPPING_SESSION_UI_SETTLE_MS = 2_000;
 
@@ -13,8 +12,7 @@ export interface StoppingSessionState {
 }
 
 export function createStoppingSessionState(
-  session: Pick<SessionState, "sessionId" | "sessionPath">,
-  _now: number = Date.now()
+  session: Pick<SessionState, "sessionId" | "sessionPath">
 ): StoppingSessionState {
   return {
     sessionId: session.sessionId,
@@ -34,10 +32,7 @@ export function settleStoppingSessionState(
   };
 }
 
-export function shouldSuppressLastSessionStats(
-  marker: StoppingSessionState | null,
-  _sessionStats: SessionStats | null
-): boolean {
+export function shouldSuppressLastSessionStats(marker: StoppingSessionState | null): boolean {
   return marker !== null;
 }
 
@@ -48,7 +43,6 @@ export function shouldClearStoppingSessionState({
 }: {
   marker: StoppingSessionState;
   currentSession: SessionState | null;
-  lastSessionStats: SessionStats | null;
   now?: number;
 }): boolean {
   if (currentSession && currentSession.sessionId !== marker.sessionId) {

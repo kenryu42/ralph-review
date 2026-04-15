@@ -37,7 +37,6 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
   const [showStopPicker, setShowStopPicker] = useState(false);
   const { isStoppingRun, stopSelectedSession } = useDashboardStopControl({
     currentSession: state.currentSession,
-    lastSessionStats: state.lastSessionStats,
     setShowStopPicker,
     onError: setRunError,
   });
