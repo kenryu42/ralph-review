@@ -3,7 +3,9 @@ import { KeyEvent } from "@opentui/core";
 import { testRender } from "@opentui/react/test-utils";
 import { act, createElement } from "react";
 import { CLI_PATH } from "@/lib/paths";
-import { FixIssuesOverlay } from "@/lib/tui/sessions/fix/FixIssuesOverlay";
+import type { StoredFinding } from "@/lib/review-workflow/findings/types";
+import { buildWrappedFindingRow, FixIssuesOverlay } from "@/lib/tui/sessions/fix/FixIssuesOverlay";
+import { PRIORITY_COLORS } from "@/lib/tui/sessions/session-display";
 
 function createStderrStream(text: string): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder();
@@ -339,6 +341,36 @@ describe("FixIssuesOverlay", () => {
     expect(frame).toContain("Race condition in worker shutdown");
     expect(frame).toContain("Shut down the worker before disposing shared resources.");
     expect(frame).not.toContain("[P0] [P0] Race condition in worker shutdown");
+  });
+
+  test("renders wrapped issue rows without location text in the selection pane", async () => {
+    const overlay = await renderOverlay({ width: 120, height: 28 });
+    await overlay.press("\u001B[C");
+    const frame = await overlay.press("\u001B[C");
+
+    expect(frame).toContain("Race condition in");
+    expect(frame).toContain("worker shutdown");
+    expect(frame).toContain("Null guard missing");
+    expect(frame).toContain("overlay state");
+    expect(frame).toContain("Stale session");
+    expect(frame).not.toContain("src/core/worker.ts:10-18");
+  });
+
+  test("builds wrapped issue rows with a priority-colored token", () => {
+    const finding = createFinding("F001", "P0", {
+      title: "[P0] [P0] Race condition in worker shutdown",
+    }) as StoredFinding;
+
+    const row = buildWrappedFindingRow(finding, {
+      isSelected: false,
+      contentWidth: 32,
+    });
+
+    const prioritySegment = row.lines
+      .flatMap((line) => line.segments)
+      .find((segment) => segment.text === "[P0]");
+
+    expect(prioritySegment?.color).toBe(PRIORITY_COLORS.P0);
   });
 
   test("spawns rr fix with repeated id flags", async () => {

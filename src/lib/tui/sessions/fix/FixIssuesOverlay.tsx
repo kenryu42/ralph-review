@@ -1,4 +1,4 @@
-import type { TabSelectRenderable } from "@opentui/core";
+import type { ScrollBoxRenderable, TabSelectRenderable } from "@opentui/core";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CLI_PATH } from "@/lib/paths";
@@ -22,6 +22,20 @@ type OverlayFocus = "list" | "filter";
 const PRIORITIES: Priority[] = ["P0", "P1", "P2", "P3"];
 const MODE_ORDER: FixSelectionMode[] = ["all", "priority", "id"];
 
+interface FindingRowSegment {
+  text: string;
+  color?: string;
+}
+
+interface FindingRowLine {
+  segments: FindingRowSegment[];
+}
+
+interface WrappedFindingRow {
+  finding: StoredFinding;
+  lines: FindingRowLine[];
+}
+
 function clampIndex(index: number, max: number): number {
   if (max <= 0) {
     return 0;
@@ -44,6 +58,115 @@ function truncateHead(value: string, maxLength: number): string {
   }
 
   return `…${value.slice(-(maxLength - 1))}`;
+}
+
+function takeWrappedLine(value: string, maxWidth: number): { line: string; rest: string } {
+  const normalized = toSingleLine(value);
+  if (normalized.length === 0 || maxWidth <= 0) {
+    return { line: "", rest: normalized };
+  }
+
+  if (normalized.length <= maxWidth) {
+    return { line: normalized, rest: "" };
+  }
+
+  const slice = normalized.slice(0, maxWidth + 1);
+  const breakIndex = slice.lastIndexOf(" ");
+  if (breakIndex > 0) {
+    return {
+      line: normalized.slice(0, breakIndex).trimEnd(),
+      rest: normalized.slice(breakIndex + 1).trimStart(),
+    };
+  }
+
+  return {
+    line: normalized.slice(0, maxWidth),
+    rest: normalized.slice(maxWidth).trimStart(),
+  };
+}
+
+function wrapText(value: string, maxWidth: number): string[] {
+  const normalized = toSingleLine(value);
+  if (normalized.length === 0) {
+    return [""];
+  }
+
+  if (maxWidth <= 0) {
+    return [normalized];
+  }
+
+  const lines: string[] = [];
+  let remaining = normalized;
+
+  while (remaining.length > 0) {
+    const { line, rest } = takeWrappedLine(remaining, maxWidth);
+    if (line.length === 0 && rest.length === remaining.length) {
+      break;
+    }
+    lines.push(line);
+    remaining = rest;
+  }
+
+  return lines;
+}
+
+function wrapTextWithInitialWidth(
+  value: string,
+  firstLineWidth: number,
+  remainingWidth: number
+): string[] {
+  const normalized = toSingleLine(value);
+  if (normalized.length === 0) {
+    return [""];
+  }
+
+  if (firstLineWidth <= 0) {
+    return wrapText(normalized, remainingWidth);
+  }
+
+  const firstLine = takeWrappedLine(normalized, firstLineWidth);
+  if (firstLine.rest.length === 0) {
+    return [firstLine.line];
+  }
+
+  return [firstLine.line, ...wrapText(firstLine.rest, remainingWidth)];
+}
+
+export function buildWrappedFindingRow(
+  finding: StoredFinding,
+  options: {
+    isSelected: boolean;
+    contentWidth: number;
+  }
+): WrappedFindingRow {
+  const checkbox = options.isSelected ? "[x]" : "[ ]";
+  const findingIdPrefix = `${checkbox} ${finding.id} `;
+  const priorityText = `[${finding.priority}]`;
+  const title = toSingleLine(formatFindingTitleForDisplay(finding.title));
+  const availableWidth = Math.max(1, options.contentWidth - 2);
+  const firstLineTitleWidth = Math.max(
+    0,
+    availableWidth - findingIdPrefix.length - priorityText.length - 1
+  );
+  const titleLines = wrapTextWithInitialWidth(title, firstLineTitleWidth, availableWidth);
+  const firstTitleLine = firstLineTitleWidth > 0 ? (titleLines[0] ?? "") : "";
+  const continuationLines = firstLineTitleWidth > 0 ? titleLines.slice(1) : titleLines;
+
+  return {
+    finding,
+    lines: [
+      {
+        segments: [
+          { text: findingIdPrefix },
+          { text: priorityText, color: PRIORITY_COLORS[finding.priority] },
+          ...(firstTitleLine.length > 0 ? [{ text: ` ${firstTitleLine}` }] : []),
+        ],
+      },
+      ...continuationLines.map((line) => ({
+        segments: [{ text: line }],
+      })),
+    ],
+  };
 }
 
 function sortSelectedPriorities(selectedPriorities: Priority[]): Priority[] {
@@ -168,6 +291,7 @@ export function FixIssuesOverlay({
 }: FixIssuesOverlayProps) {
   const { width: terminalWidth, height: terminalHeight } = useTerminalDimensions();
   const tabSelectRef = useRef<TabSelectRenderable>(null);
+  const findingListRef = useRef<ScrollBoxRenderable>(null);
   const [mode, setMode] = useState<FixSelectionMode>("all");
   const [focusArea, setFocusArea] = useState<OverlayFocus>("list");
   const [priorityIndex, setPriorityIndex] = useState(0);
@@ -185,8 +309,12 @@ export function FixIssuesOverlay({
     ? Math.min(56, Math.max(44, Math.floor(contentWidth * 0.36)))
     : undefined;
   const stackedSelectionHeight = Math.max(
-    mode === "id" ? 9 : 7,
-    Math.floor(contentHeight * (mode === "id" ? 0.36 : 0.3))
+    mode === "id" ? 12 : 7,
+    Math.floor(contentHeight * (mode === "id" ? 0.48 : 0.3))
+  );
+  const selectionPanelContentWidth = Math.max(
+    18,
+    (selectionPanelWidth ?? contentWidth) - (mode === "id" ? 8 : 6)
   );
 
   const priorityCounts = useMemo(
@@ -248,6 +376,16 @@ export function FixIssuesOverlay({
     () => findings.filter((finding) => finding.priority === currentPriority),
     [currentPriority, findings]
   );
+  const wrappedFindingRows = useMemo(
+    () =>
+      filteredFindings.map((finding) =>
+        buildWrappedFindingRow(finding, {
+          isSelected: selectedFindingIds.includes(finding.id),
+          contentWidth: selectionPanelContentWidth,
+        })
+      ),
+    [filteredFindings, selectedFindingIds, selectionPanelContentWidth]
+  );
 
   const pendingCountLabel = `${findings.length} pending`;
   const selectedCountLabel = `Selected ${effectiveSelectedFindingIds.length} of ${findings.length}`;
@@ -290,6 +428,34 @@ export function FixIssuesOverlay({
       setFindingIndex(nextIndex);
     }
   }, [filteredFindings.length, findingIndex]);
+
+  useEffect(() => {
+    if (mode !== "id" || focusArea !== "list" || wrappedFindingRows.length === 0) {
+      return;
+    }
+
+    const list = findingListRef.current;
+    if (!list) {
+      return;
+    }
+
+    const currentIndex = clampIndex(findingIndex, wrappedFindingRows.length);
+    const top = wrappedFindingRows
+      .slice(0, currentIndex)
+      .reduce((total, row) => total + row.lines.length, 0);
+    const currentHeight = wrappedFindingRows[currentIndex]?.lines.length ?? 1;
+    const bottom = top + currentHeight;
+    const viewportHeight = Math.max(1, list.height);
+
+    if (top < list.scrollTop) {
+      list.scrollTop = top;
+      return;
+    }
+
+    if (bottom > list.scrollTop + viewportHeight) {
+      list.scrollTop = Math.max(0, bottom - viewportHeight);
+    }
+  }, [findingIndex, focusArea, mode, wrappedFindingRows]);
 
   const setActiveMode = useCallback((nextMode: FixSelectionMode) => {
     setMode(nextMode);
@@ -432,6 +598,18 @@ export function FixIssuesOverlay({
         return;
       }
 
+      if (mode === "id" && key.name === "up") {
+        setFindingIndex((current) => clampIndex(current - 1, filteredFindings.length));
+        setError(null);
+        return;
+      }
+
+      if (mode === "id" && key.name === "down") {
+        setFindingIndex((current) => clampIndex(current + 1, filteredFindings.length));
+        setError(null);
+        return;
+      }
+
       if (key.name === "enter" || key.name === "return") {
         void confirmFixSelection();
         return;
@@ -454,6 +632,7 @@ export function FixIssuesOverlay({
       cycleMode,
       findings.length,
       focusArea,
+      filteredFindings.length,
       mode,
       toggleCurrentFindingId,
       toggleCurrentPriority,
@@ -485,12 +664,6 @@ export function FixIssuesOverlay({
     name: `${selectedPriorities.includes(item.priority) ? "[x]" : "[ ]"} ${item.priority} · ${formatCountLabel(item.count)}`,
     description: "",
     value: item.priority,
-  }));
-
-  const findingOptions = filteredFindings.map((finding) => ({
-    name: `${selectedFindingIds.includes(finding.id) ? "[x]" : "[ ]"} ${finding.id} [${finding.priority}] ${toSingleLine(formatFindingTitleForDisplay(finding.title))}`,
-    description: `${finding.filePath}:${finding.startLine}-${finding.endLine}`,
-    value: finding.id,
   }));
 
   const updateFilterQuery = useCallback((nextValue: string) => {
@@ -601,24 +774,39 @@ export function FixIssuesOverlay({
             <text fg={TUI_COLORS.text.dim}>No issues match the current filter.</text>
           </box>
         ) : (
-          <select
-            options={findingOptions}
-            selectedIndex={clampIndex(findingIndex, filteredFindings.length)}
-            focused={focusArea === "list"}
-            flexGrow={1}
-            showDescription
-            showScrollIndicator
-            itemSpacing={1}
-            fastScrollStep={5}
-            selectedBackgroundColor="#1f2940"
-            selectedTextColor={TUI_COLORS.text.primary}
-            selectedDescriptionColor={TUI_COLORS.text.faint}
-            descriptionColor={TUI_COLORS.text.dim}
-            onChange={(index) => {
-              setFindingIndex(index);
-              setError(null);
-            }}
-          />
+          <scrollbox ref={findingListRef} focused={focusArea === "list"} flexGrow={1} scrollY>
+            <box flexDirection="column">
+              {wrappedFindingRows.map((row, index) => {
+                const isHighlighted = index === clampIndex(findingIndex, wrappedFindingRows.length);
+                const textColor = isHighlighted
+                  ? TUI_COLORS.text.primary
+                  : TUI_COLORS.text.secondary;
+
+                return (
+                  <box
+                    key={row.finding.id}
+                    flexDirection="column"
+                    backgroundColor={isHighlighted ? "#1f2940" : undefined}
+                    paddingLeft={1}
+                  >
+                    {row.lines.map((line, lineIndex) => (
+                      <text key={`${row.finding.id}-${lineIndex}`} fg={textColor} wrapMode="none">
+                        <span>{lineIndex === 0 && isHighlighted ? "▶ " : "  "}</span>
+                        {line.segments.map((segment, segmentIndex) => (
+                          <span
+                            key={`${row.finding.id}-${lineIndex}-${segmentIndex}`}
+                            fg={segment.color ?? textColor}
+                          >
+                            {segment.text}
+                          </span>
+                        ))}
+                      </text>
+                    ))}
+                  </box>
+                );
+              })}
+            </box>
+          </scrollbox>
         )}
       </box>
     );
