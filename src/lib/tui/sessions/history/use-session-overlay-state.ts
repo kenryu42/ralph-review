@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { LogSession } from "@/lib/logger";
 import { computeSessionStats, deleteSessionFiles, listLogSessions } from "@/lib/logger";
 import { listAllActiveSessions } from "@/lib/session-state";
+import { getErrorMessage } from "@/lib/tui/shared/error-message";
 import type { SessionStats } from "@/lib/types";
 
 interface DeleteSelectionResult {
@@ -21,10 +22,6 @@ export interface SessionOverlayState {
   setSelectedPath: (path: string | null) => void;
   clearDeleteError: () => void;
   deleteSelectedSession: () => Promise<DeleteSelectionResult>;
-}
-
-function toErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 export function useSessionOverlayState(): SessionOverlayState {
@@ -64,7 +61,7 @@ export function useSessionOverlayState(): SessionOverlayState {
         }
         setSessions([]);
         setSelectedPath(null);
-        setSessionsError(toErrorMessage(error));
+        setSessionsError(getErrorMessage(error));
       } finally {
         if (!cancelled) {
           setIsLoading(false);
@@ -106,7 +103,7 @@ export function useSessionOverlayState(): SessionOverlayState {
         if (statsRequestIdRef.current !== requestId) {
           return;
         }
-        setStatsError(toErrorMessage(error));
+        setStatsError(getErrorMessage(error));
       })
       .finally(() => {
         if (statsRequestIdRef.current !== requestId) {
@@ -154,7 +151,7 @@ export function useSessionOverlayState(): SessionOverlayState {
 
       return { deleted: true };
     } catch (error) {
-      setDeleteError(toErrorMessage(error));
+      setDeleteError(getErrorMessage(error));
       return { deleted: false };
     } finally {
       setIsDeleting(false);

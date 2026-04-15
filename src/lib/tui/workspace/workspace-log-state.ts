@@ -2,12 +2,9 @@ import {
   deriveWorkflowPresentationData,
   storedFindingToFinding,
 } from "@/lib/review-workflow/presentation";
+import { getErrorMessage } from "@/lib/tui/shared/error-message";
 import type { Config, Finding, FixEntry, LogEntry, ReviewOptions, SkippedEntry } from "@/lib/types";
 import { selectLatestReviewFromEntries } from "./workspace-refresh-utils";
-
-function toErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 export interface WorkspaceLogData {
   fixes: FixEntry[];
@@ -111,7 +108,7 @@ export async function loadWorkspaceConfigSafe(
   } catch (error) {
     return {
       config: null,
-      configWarning: `Unable to load config: ${toErrorMessage(error)}`,
+      configWarning: `Unable to load config: ${getErrorMessage(error)}`,
     };
   }
 }

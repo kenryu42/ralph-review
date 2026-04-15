@@ -7,16 +7,11 @@ import {
   settleStoppingSessionState,
   shouldClearStoppingSessionState,
 } from "@/lib/tui/dashboard/dashboard-stop-state";
-import type { SessionStats } from "@/lib/types";
+import { getErrorMessage } from "@/lib/tui/shared/error-message";
 import { stopSelectedDashboardSession } from "./dashboard-stop";
-
-function toErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 interface DashboardStopControlOptions {
   currentSession: SessionState | null;
-  lastSessionStats: SessionStats | null;
   setShowStopPicker: (value: boolean) => void;
   onError: (message: string) => void;
 }
@@ -28,7 +23,6 @@ export interface DashboardStopControl {
 
 export function useDashboardStopControl({
   currentSession,
-  lastSessionStats,
   setShowStopPicker,
   onError,
 }: DashboardStopControlOptions): DashboardStopControl {
@@ -44,7 +38,6 @@ export function useDashboardStopControl({
       shouldClearStoppingSessionState({
         marker: stoppingSession,
         currentSession,
-        lastSessionStats,
       })
     ) {
       setStoppingSession(null);
@@ -65,7 +58,7 @@ export function useDashboardStopControl({
     return () => {
       clearTimeout(timeout);
     };
-  }, [currentSession, lastSessionStats, stoppingSession]);
+  }, [currentSession, stoppingSession]);
 
   const stopSelectedSession = useCallback(
     async (session: ActiveSession) => {
@@ -88,7 +81,7 @@ export function useDashboardStopControl({
       } catch (error) {
         setStoppingSession(null);
         setIsStoppingRun(false);
-        onError(toErrorMessage(error));
+        onError(getErrorMessage(error));
       }
     },
     [onError, setShowStopPicker]

@@ -1,9 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import { CLI_PATH } from "@/lib/paths";
-
-function toErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
+import { getErrorMessage } from "@/lib/tui/shared/error-message";
 
 export interface DashboardRunControl {
   runError: string | null;
@@ -56,12 +53,12 @@ export function useDashboardRunControl(projectPath: string): DashboardRunControl
           .catch((error) => {
             isRunSpawningRef.current = false;
             setIsStartingRun(false);
-            setRunError(toErrorMessage(error));
+            setRunError(getErrorMessage(error));
           });
       } catch (error) {
         isRunSpawningRef.current = false;
         setIsStartingRun(false);
-        setRunError(toErrorMessage(error));
+        setRunError(getErrorMessage(error));
       }
     },
     [projectPath]
