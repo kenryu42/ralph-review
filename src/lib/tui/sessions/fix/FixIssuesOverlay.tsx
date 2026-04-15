@@ -34,6 +34,18 @@ function formatCountLabel(count: number): string {
   return `${count} finding${count === 1 ? "" : "s"}`;
 }
 
+function truncateHead(value: string, maxLength: number): string {
+  if (maxLength <= 1) {
+    return "…";
+  }
+
+  if (value.length <= maxLength) {
+    return value;
+  }
+
+  return `…${value.slice(-(maxLength - 1))}`;
+}
+
 function sortSelectedPriorities(selectedPriorities: Priority[]): Priority[] {
   return PRIORITIES.filter((priority) => selectedPriorities.includes(priority));
 }
@@ -129,17 +141,6 @@ function getSelectionDisabledReason(
   return null;
 }
 
-function PriorityChip({ priority, count }: { priority: Priority; count: number }) {
-  return (
-    <box backgroundColor="#111827" paddingLeft={1} paddingRight={1}>
-      <text>
-        <span fg={PRIORITY_COLORS[priority]}>{priority}</span>
-        <span fg={TUI_COLORS.text.dim}> {count}</span>
-      </text>
-    </box>
-  );
-}
-
 function DetailField({
   label,
   value,
@@ -202,6 +203,22 @@ export function FixIssuesOverlay({
     [filterQuery, findings]
   );
 
+  const impactedFiles = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const finding of findings) {
+      counts.set(finding.filePath, (counts.get(finding.filePath) ?? 0) + 1);
+    }
+
+    return [...counts.entries()]
+      .map(([path, count]) => ({ path, count }))
+      .sort((a, b) => {
+        if (b.count !== a.count) {
+          return b.count - a.count;
+        }
+        return a.path.localeCompare(b.path);
+      });
+  }, [findings]);
+
   const selectedPriorityFindingIds = useMemo(() => {
     const activePriorities = new Set(selectedPriorities);
     return findings
@@ -242,6 +259,13 @@ export function FixIssuesOverlay({
     sortSelectedFindingIds(selectedFindingIds, findings)
   );
   const disabledReason = getSelectionDisabledReason(mode, selectedPriorities, selectedFindingIds);
+  const fullCommand = commandPreview ?? baseCommandPreview;
+  const commandTail = fullCommand.startsWith("rr fix")
+    ? fullCommand.slice("rr fix".length)
+    : ` ${fullCommand}`;
+
+  const pathReservedRight = selectedCountLabel.length + 3;
+  const maxPathWidth = Math.max(10, terminalWidth - 2 - pathReservedRight);
 
   useEffect(() => {
     if (mode !== "id" && focusArea === "filter") {
@@ -389,6 +413,10 @@ export function FixIssuesOverlay({
         return;
       }
 
+      if (findings.length === 0) {
+        return;
+      }
+
       if (key.name === "left") {
         cycleMode(-1);
         return;
@@ -424,6 +452,7 @@ export function FixIssuesOverlay({
       closeOverlay,
       confirmFixSelection,
       cycleMode,
+      findings.length,
       focusArea,
       mode,
       toggleCurrentFindingId,
@@ -469,26 +498,48 @@ export function FixIssuesOverlay({
     setError(null);
   }, []);
 
+  if (findings.length === 0) {
+    return (
+      <box
+        position="absolute"
+        left={0}
+        top={0}
+        width="100%"
+        height="100%"
+        backgroundColor="#0d0d1a"
+        justifyContent="center"
+        alignItems="center"
+      >
+        <box flexDirection="column" gap={1} alignItems="center">
+          <text fg={TUI_COLORS.text.primary}>
+            <strong>Fix Issues</strong>
+          </text>
+          <text fg={TUI_COLORS.text.muted}>No pending findings.</text>
+          <text>
+            <span fg={TUI_COLORS.accent.key}>[Esc]</span>
+            <span fg={TUI_COLORS.text.muted}> Close</span>
+          </text>
+        </box>
+      </box>
+    );
+  }
+
   function renderSelectionPanel() {
     if (mode === "all") {
       return (
-        <scrollbox flexGrow={1} focused={mode === "all"}>
-          <box flexDirection="column" gap={1}>
-            <text fg={TUI_COLORS.text.secondary}>Fix every pending issue in one batch run.</text>
-            <text fg={TUI_COLORS.text.muted}>
-              {findings.length} issues will be sent to the fixer immediately.
-            </text>
-            <text fg={TUI_COLORS.text.dim}>
-              <strong>Priority Breakdown</strong>
-            </text>
-            {priorityCounts.map((item) => (
-              <box key={item.priority} flexDirection="row" justifyContent="space-between">
-                <text fg={PRIORITY_COLORS[item.priority]}>{item.priority}</text>
-                <text fg={TUI_COLORS.text.secondary}>{formatCountLabel(item.count)}</text>
-              </box>
-            ))}
-          </box>
-        </scrollbox>
+        <box flexDirection="column" gap={1} flexGrow={1} minHeight={0}>
+          <text fg={TUI_COLORS.text.secondary}>
+            <strong>Batch everything pending</strong>
+          </text>
+          <text fg={TUI_COLORS.text.muted}>
+            The fixer receives all {formatCountLabel(findings.length)} in one run.
+          </text>
+          <text fg={TUI_COLORS.text.dim}>
+            <span>Press </span>
+            <span fg={TUI_COLORS.accent.key}>Enter</span>
+            <span> to start, or switch tabs to narrow scope.</span>
+          </text>
+        </box>
       );
     }
 
@@ -589,14 +640,12 @@ export function FixIssuesOverlay({
             value={disabledReason ?? "Ready to run this priority batch."}
             color={disabledReason ? TUI_COLORS.status.warning : TUI_COLORS.text.secondary}
           />
-          <DetailField label="Run target" value={commandPreview ?? baseCommandPreview} />
           <DetailField
             label="Selection"
             value={isPrioritySelected ? "Included in this batch" : "Not selected"}
             color={isPrioritySelected ? TUI_COLORS.status.success : TUI_COLORS.text.muted}
           />
           <DetailField label="Matches" value={formatCountLabel(currentPriorityFindings.length)} />
-          <DetailField label="Current batch" value={selectedCountLabel} />
           <text fg={TUI_COLORS.text.dim}>
             <strong>Matching Issues</strong>
           </text>
@@ -625,8 +674,6 @@ export function FixIssuesOverlay({
         <scrollbox flexGrow={1}>
           <box flexDirection="column" gap={1}>
             <DetailField label="Scope" value="Issue selection" />
-            <DetailField label="Current batch" value={selectedCountLabel} />
-            <DetailField label="Run target" value={commandPreview ?? baseCommandPreview} />
             <text fg={TUI_COLORS.text.dim}>No issues match the current filter.</text>
           </box>
         </scrollbox>
@@ -661,7 +708,6 @@ export function FixIssuesOverlay({
             label="Location"
             value={`${currentFinding.filePath}:${currentFinding.startLine}-${currentFinding.endLine}`}
           />
-          <DetailField label="Current batch" value={selectedCountLabel} />
         </box>
       </scrollbox>
     );
@@ -672,20 +718,27 @@ export function FixIssuesOverlay({
       <scrollbox flexGrow={1}>
         <box flexDirection="column" gap={1}>
           <DetailField label="Scope" value="All pending issues" />
-          <DetailField label="Current batch" value={selectedCountLabel} />
-          <DetailField label="Run target" value={commandPreview ?? baseCommandPreview} />
           <text fg={TUI_COLORS.text.dim}>
-            <strong>What happens next</strong>
+            <strong>What runs</strong>
           </text>
           <text fg={TUI_COLORS.text.secondary}>
-            The fixer will receive every pending issue in a single batch.
+            Every pending finding, passed together via --all.
           </text>
-          {priorityCounts.map((item) => (
-            <box key={`all-${item.priority}`} flexDirection="row" justifyContent="space-between">
-              <text fg={PRIORITY_COLORS[item.priority]}>{item.priority}</text>
-              <text fg={TUI_COLORS.text.secondary}>{formatCountLabel(item.count)}</text>
-            </box>
-          ))}
+          <text fg={TUI_COLORS.text.dim}>
+            <strong>Impacted files</strong>
+          </text>
+          {impactedFiles.length === 0 ? (
+            <text fg={TUI_COLORS.text.dim}>No findings.</text>
+          ) : (
+            impactedFiles.map(({ path, count }) => (
+              <box key={path} flexDirection="row" justifyContent="space-between">
+                <text fg={TUI_COLORS.text.secondary} wrapMode="none">
+                  {path}
+                </text>
+                <text fg={TUI_COLORS.text.muted}>{formatCountLabel(count)}</text>
+              </box>
+            ))
+          )}
         </box>
       </scrollbox>
     );
@@ -697,10 +750,14 @@ export function FixIssuesOverlay({
     { name: "Issues", description: "Select specific issues", value: "id" },
   ];
 
-  const footerText =
-    mode === "id"
-      ? "[←/→] Scope  [↑/↓] Move  [Space] Toggle  [/] Filter  [Enter] Run  [Esc] Back/Close"
-      : "[←/→] Scope  [↑/↓] Move  [Space] Toggle  [Enter] Run  [Esc] Close";
+  const footerKeys: Array<[string, string]> = [
+    ["←/→", "Scope"],
+    ["↑/↓", "Move"],
+    ["Space", "Toggle"],
+    ...(mode === "id" ? ([["/", "Filter"]] as Array<[string, string]>) : []),
+    ["Enter", "Run"],
+    ["Esc", mode === "id" && focusArea === "filter" ? "Back" : "Close"],
+  ];
 
   return (
     <box
@@ -709,34 +766,40 @@ export function FixIssuesOverlay({
       top={0}
       width="100%"
       height="100%"
-      backgroundColor="#0b1020"
-      border
-      borderStyle="double"
-      borderColor={TUI_COLORS.ui.borderFocused}
-      title="Fix Issues"
-      titleAlignment="left"
-      padding={1}
+      backgroundColor="#0d0d1a"
       flexDirection="column"
+      padding={1}
       gap={1}
     >
-      <box flexDirection="column" gap={1}>
-        <box flexDirection="row" justifyContent="space-between">
-          <text fg={TUI_COLORS.text.primary}>
-            <strong>Session {sessionId}</strong>
+      <box flexDirection="column" height={3} flexShrink={0}>
+        <box flexDirection="row" justifyContent="space-between" height={1} flexShrink={0}>
+          <text>
+            <span fg={TUI_COLORS.text.primary}>
+              <strong>Fix Issues</strong>
+            </span>
+            <span fg={TUI_COLORS.text.dim}> · </span>
+            <span fg={TUI_COLORS.text.secondary}>Session {sessionId}</span>
           </text>
-          <text fg={TUI_COLORS.text.primary}>{pendingCountLabel}</text>
+          <text fg={TUI_COLORS.text.secondary}>{pendingCountLabel}</text>
         </box>
 
-        <box flexDirection="row" justifyContent="space-between">
+        <box flexDirection="row" justifyContent="space-between" height={1} flexShrink={0}>
           <text fg={TUI_COLORS.text.dim} wrapMode="none">
-            {projectPath}
+            {truncateHead(projectPath, maxPathWidth)}
           </text>
-          <text fg={TUI_COLORS.text.faint}>{selectedCountLabel}</text>
+          <text fg={TUI_COLORS.text.muted}>{selectedCountLabel}</text>
         </box>
 
-        <box flexDirection="row" gap={1} flexWrap="wrap">
+        <box flexDirection="row" gap={1} flexWrap="wrap" height={1} flexShrink={0}>
           {priorityCounts.map((item) => (
-            <PriorityChip key={item.priority} priority={item.priority} count={item.count} />
+            <box key={item.priority}>
+              <text>
+                <span fg={TUI_COLORS.text.dim}>[</span>
+                <span fg={PRIORITY_COLORS[item.priority]}>{item.priority}</span>
+                <span fg={TUI_COLORS.text.dim}>]</span>
+                <span fg={TUI_COLORS.text.muted}> {item.count}</span>
+              </text>
+            </box>
           ))}
         </box>
       </box>
@@ -797,19 +860,42 @@ export function FixIssuesOverlay({
         </box>
       </box>
 
-      <box backgroundColor="#111827" paddingLeft={1} paddingRight={1}>
-        <text>
-          <span fg={TUI_COLORS.text.faint}>
-            <strong>Run target </strong>
-            {commandPreview ?? baseCommandPreview}
-          </span>
-          <br />
-          <span fg={actionColor}>{actionMessage}</span>
-        </text>
+      <box
+        flexDirection="column"
+        backgroundColor="#111827"
+        paddingLeft={1}
+        paddingRight={1}
+        height={2}
+        flexShrink={0}
+      >
+        <box height={1} flexShrink={0}>
+          <text wrapMode="none">
+            <span fg={TUI_COLORS.accent.key}>
+              <strong>rr fix</strong>
+            </span>
+            <span fg={TUI_COLORS.text.faint}>{commandTail}</span>
+          </text>
+        </box>
+        <box height={1} flexShrink={0}>
+          <text fg={actionColor}>{actionMessage}</text>
+        </box>
       </box>
 
-      <box backgroundColor="#0f172a" paddingLeft={1} paddingRight={1}>
-        <text fg={TUI_COLORS.text.muted}>{footerText}</text>
+      <box
+        flexDirection="row"
+        gap={2}
+        backgroundColor="#0f172a"
+        paddingLeft={1}
+        paddingRight={1}
+        height={1}
+        flexShrink={0}
+      >
+        {footerKeys.map(([key, label]) => (
+          <text key={key}>
+            <span fg={TUI_COLORS.accent.key}>[{key}]</span>
+            <span fg={TUI_COLORS.text.muted}> {label}</span>
+          </text>
+        ))}
       </box>
     </box>
   );

@@ -197,23 +197,22 @@ describe("FixIssuesOverlay", () => {
     };
   }
 
-  test("renders the run target line above the action message without overlap", async () => {
+  test("renders the command preview line above the action message without overlap", async () => {
     const overlay = await renderOverlay({ width: 100, height: 28 });
     const frame = await overlay.press("\u001B[C");
 
-    expect(frame).toContain("Run target");
+    expect(frame).toContain("rr fix");
     expect(frame).toContain("Select at least one priority");
 
-    const runTarget = findTextLocation(frame, "Run target");
+    const commandLine = findTextLocation(frame, "rr fix");
     const actionMessage = findTextLocation(frame, "Select at least one priority");
 
-    expect(actionMessage.y).toBeGreaterThan(runTarget.y);
+    expect(actionMessage.y).toBeGreaterThan(commandLine.y);
   });
 
   test("renders the wide modal with selection and details side by side", async () => {
     const overlay = await renderOverlay({ width: 120, height: 36 });
     const frame = overlay.frame();
-    const lines = frame.split("\n");
     const selection = findTextLocation(frame, "Selection");
     const details = findTextLocation(frame, "Details");
 
@@ -221,8 +220,6 @@ describe("FixIssuesOverlay", () => {
     expect(frame).toContain("3 pending");
     expect(frame).toContain("Selected 3 of 3");
     expect(frame).toContain("rr fix --session session-123 --all");
-    expect(lines[0]?.trimStart().startsWith("╔")).toBe(true);
-    expect(lines[lines.length - 2]?.trimStart().startsWith("╚")).toBe(true);
     expect(selection.y).toBe(details.y);
     expect(details.x).toBeGreaterThan(selection.x + 10);
   });
@@ -230,16 +227,40 @@ describe("FixIssuesOverlay", () => {
   test("renders the compact modal with stacked selection and details", async () => {
     const overlay = await renderOverlay({ width: 96, height: 24 });
     const frame = overlay.frame();
-    const lines = frame.split("\n");
     const selection = findTextLocation(frame, "Selection");
     const details = findTextLocation(frame, "Details");
 
     expect(frame).toContain("Fix Issues");
     expect(frame).toContain("3 pending");
-    expect(frame).toContain("[←/→] Scope");
-    expect(lines[0]?.trimStart().startsWith("╔")).toBe(true);
-    expect(lines[lines.length - 2]?.trimStart().startsWith("╚")).toBe(true);
+    expect(frame).toContain("[←/→]");
+    expect(frame).toContain("Scope");
     expect(details.y).toBeGreaterThan(selection.y);
+  });
+
+  test("renders the empty state when there are no findings", async () => {
+    const overlay = await renderOverlay({ findings: [] });
+    const frame = overlay.frame();
+
+    expect(frame).toContain("Fix Issues");
+    expect(frame).toContain("No pending findings.");
+    expect(frame).toContain("[Esc]");
+    expect(frame).toContain("Close");
+
+    await overlay.press("\u001B");
+    expect(overlay.getCloseCount()).toBe(1);
+  });
+
+  test("shows batch copy with correct pluralization in all mode", async () => {
+    const singleFinding = defaultFindings[0];
+    if (!singleFinding) {
+      throw new Error("expected at least one default finding");
+    }
+
+    const overlay = await renderOverlay({ findings: [singleFinding] });
+    const frame = overlay.frame();
+
+    expect(frame).toContain("1 finding");
+    expect(frame).not.toContain("1 findings");
   });
 
   test("spawns rr fix --all by default and closes on success", async () => {
