@@ -1,6 +1,6 @@
 import type { TextareaRenderable } from "@opentui/core";
 import { useKeyboard } from "@opentui/react";
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { TUI_COLORS } from "@/lib/tui/shared/colors";
 import type { DefaultReview } from "@/lib/types";
 
@@ -20,8 +20,13 @@ type ReviewTextareaKeyBinding = {
   action: "submit";
 };
 
+type ReviewModeStep = "picker" | "branch-picker" | "editor";
+
+const MANUAL_BRANCH_VALUE = "__manual__";
+
 interface ReviewModeOverlayProps {
   defaultReview?: DefaultReview;
+  projectPath: string;
   onClose: () => void;
   onSubmit: (args: string[]) => void;
 }
@@ -126,16 +131,62 @@ export function buildReviewRunArgs(mode: ReviewModeSelection, value?: string): s
     : [metadata.runFlag, trimmedValue];
 }
 
-export function ReviewModeOverlay({ defaultReview, onClose, onSubmit }: ReviewModeOverlayProps) {
+function getGitBranches(projectPath: string): string[] {
+  try {
+    const currentResult = Bun.spawnSync(["git", "branch", "--show-current"], {
+      cwd: projectPath,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const currentBranch =
+      currentResult.exitCode === 0 ? currentResult.stdout.toString().trim() : "";
+
+    const branchesResult = Bun.spawnSync(["git", "branch", "--format=%(refname:short)"], {
+      cwd: projectPath,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    if (branchesResult.exitCode !== 0) {
+      return [];
+    }
+
+    return branchesResult.stdout
+      .toString()
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0 && line !== currentBranch)
+      .sort((a, b) => a.localeCompare(b));
+  } catch {
+    return [];
+  }
+}
+
+export function ReviewModeOverlay({
+  defaultReview,
+  projectPath,
+  onClose,
+  onSubmit,
+}: ReviewModeOverlayProps) {
   const [selectedMode, setSelectedMode] = useState<ReviewModeSelection>(
     getInitialReviewMode(defaultReview)
   );
   const [drafts, setDrafts] = useState<ReviewModeDrafts>(() => createInitialDrafts(defaultReview));
-  const [step, setStep] = useState<"picker" | "editor">("picker");
+  const [step, setStep] = useState<ReviewModeStep>("picker");
   const [error, setError] = useState<string | null>(null);
   const textareaRef = useRef<TextareaRenderable>(null);
 
   const editorMode = step === "editor" && selectedMode !== "uncommitted" ? selectedMode : null;
+
+  const branchOptions = useMemo(() => {
+    const branches = getGitBranches(projectPath);
+    const options = branches.map((name) => ({ name, description: `Local branch`, value: name }));
+    options.push({
+      name: "Type manually...",
+      description: "Enter a branch name or ref",
+      value: MANUAL_BRANCH_VALUE,
+    });
+    return options;
+  }, [projectPath]);
 
   useKeyboard((key) => {
     if (step === "editor" && editorMode) {
@@ -147,6 +198,15 @@ export function ReviewModeOverlay({ defaultReview, onClose, onSubmit }: ReviewMo
       if (key.name === "enter" || key.name === "return") {
         const nextValue = syncEditorDraft(editorMode);
         submitSelectedMode(editorMode, nextValue);
+      }
+      return;
+    }
+
+    if (step === "branch-picker") {
+      if (key.name === "escape") {
+        setError(null);
+        setStep("picker");
+        return;
       }
       return;
     }
@@ -187,6 +247,11 @@ export function ReviewModeOverlay({ defaultReview, onClose, onSubmit }: ReviewMo
         return;
       }
 
+      if (selectedMode === "base") {
+        openBranchPicker();
+        return;
+      }
+
       openEditor(selectedMode);
     }
   });
@@ -219,11 +284,15 @@ export function ReviewModeOverlay({ defaultReview, onClose, onSubmit }: ReviewMo
     setStep("editor");
   }
 
+  function openBranchPicker() {
+    setError(null);
+    setStep("branch-picker");
+  }
+
   function returnToPicker() {
-    if (!editorMode) {
-      return;
+    if (editorMode) {
+      syncEditorDraft(editorMode);
     }
-    syncEditorDraft(editorMode);
     setError(null);
     setStep("picker");
   }
@@ -254,6 +323,39 @@ export function ReviewModeOverlay({ defaultReview, onClose, onSubmit }: ReviewMo
             );
           })}
         </box>
+      </box>
+    );
+  }
+
+  function renderBranchPicker() {
+    return (
+      <box flexDirection="column" gap={1}>
+        <text fg={TUI_COLORS.text.muted}>Select a base branch to compare against.</text>
+        <select
+          focused
+          options={branchOptions}
+          height={Math.min(branchOptions.length, 12)}
+          showScrollIndicator
+          onSelect={(_index, option) => {
+            if (!option) {
+              return;
+            }
+            if (option.value === MANUAL_BRANCH_VALUE) {
+              setSelectedMode("base");
+              setStep("editor");
+              return;
+            }
+            submitSelectedMode("base", option.value as string);
+          }}
+        />
+        {error && <text fg={TUI_COLORS.status.error}>{error}</text>}
+        <text>
+          <span fg={TUI_COLORS.accent.key}>[Enter]</span>
+          <span fg={TUI_COLORS.text.muted}> Select</span>
+          <span fg={TUI_COLORS.text.dim}> </span>
+          <span fg={TUI_COLORS.accent.key}>[Esc]</span>
+          <span fg={TUI_COLORS.text.muted}> Back</span>
+        </text>
       </box>
     );
   }
@@ -304,13 +406,23 @@ export function ReviewModeOverlay({ defaultReview, onClose, onSubmit }: ReviewMo
       <box
         border
         borderStyle="double"
-        title={editorMode ? REVIEW_MODE_EDITOR_META[editorMode].title : "Review Mode"}
+        title={
+          editorMode
+            ? REVIEW_MODE_EDITOR_META[editorMode].title
+            : step === "branch-picker"
+              ? REVIEW_MODE_EDITOR_META.base.title
+              : "Review Mode"
+        }
         titleAlignment="left"
         padding={2}
         width={74}
         backgroundColor="#1a1a2e"
       >
-        {editorMode ? renderEditor(editorMode) : renderPicker()}
+        {editorMode
+          ? renderEditor(editorMode)
+          : step === "branch-picker"
+            ? renderBranchPicker()
+            : renderPicker()}
       </box>
     </box>
   );

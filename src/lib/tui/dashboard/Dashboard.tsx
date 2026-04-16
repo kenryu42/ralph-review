@@ -256,6 +256,7 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
           pendingFixTarget={pendingFixTarget}
           canShowSession={!displayError}
           defaultReview={state.config?.defaultReview}
+          projectPath={projectPath}
           sessions={state.allSessions}
           onCloseHelp={() => setShowHelp(false)}
           onCloseRunOverlay={() => setShowReviewModeOverlay(false)}

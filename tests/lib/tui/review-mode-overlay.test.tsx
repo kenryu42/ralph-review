@@ -56,6 +56,7 @@ describe("ReviewModeOverlay", () => {
   ) {
     const defaultProps: Parameters<typeof ReviewModeOverlay>[0] = {
       defaultReview: { type: "uncommitted" },
+      projectPath: "/tmp/test-project",
       onClose: () => {},
       onSubmit: () => {},
       ...props,
