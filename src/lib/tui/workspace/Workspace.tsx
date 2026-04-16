@@ -45,6 +45,7 @@ interface WorkspaceProps {
   startupMode: DashboardStartupMode;
   isStopping: boolean;
   activeSessionCount: number;
+  canFixPendingSession: boolean;
   outputVisible: boolean;
   focusedPane: FocusedPane;
 }
@@ -75,6 +76,7 @@ export function Workspace({
   startupMode,
   isStopping,
   activeSessionCount,
+  canFixPendingSession,
   outputVisible,
   focusedPane,
 }: WorkspaceProps) {
@@ -110,6 +112,7 @@ export function Workspace({
           startupMode={startupMode}
           isStopping={isStopping}
           activeSessionCount={activeSessionCount}
+          canFixPendingSession={canFixPendingSession}
           focused={focusedPane === "detail"}
         />
       </box>

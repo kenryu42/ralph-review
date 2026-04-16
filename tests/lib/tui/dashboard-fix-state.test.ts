@@ -65,6 +65,23 @@ describe("dashboard fix state", () => {
     });
   });
 
+  test("builds a pending fix target from a failed session with persisted findings", () => {
+    const target = getPendingFixTarget(
+      createSessionStats({
+        status: "failed",
+        sessionStatus: "failed",
+        reviewOutcome: "incomplete",
+      }),
+      [createFinding()]
+    );
+
+    expect(target).toEqual({
+      sessionId: "session-123",
+      projectPath: "/repo/project",
+      findings: [createFinding()],
+    });
+  });
+
   test("returns null when there is nothing actionable to fix", () => {
     expect(getPendingFixTarget(null, [createFinding()])).toBeNull();
     expect(

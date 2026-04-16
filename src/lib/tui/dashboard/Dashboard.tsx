@@ -235,6 +235,7 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
             startupMode={startupMode}
             isStopping={isStoppingRun}
             activeSessionCount={state.projectSessions.length}
+            canFixPendingSession={canFixPendingSession}
             outputVisible={outputVisible}
             focusedPane={focusedPane}
           />

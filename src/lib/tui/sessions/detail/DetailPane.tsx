@@ -42,6 +42,7 @@ interface DetailPaneProps {
   startupMode: DashboardStartupMode;
   isStopping: boolean;
   activeSessionCount: number;
+  canFixPendingSession?: boolean;
   focused?: boolean;
 }
 
@@ -69,6 +70,7 @@ export function DetailPane({
   startupMode,
   isStopping,
   activeSessionCount,
+  canFixPendingSession = false,
   focused = false,
 }: DetailPaneProps) {
   const borderColor = focused ? TUI_COLORS.ui.borderFocused : TUI_COLORS.ui.border;
@@ -131,6 +133,7 @@ export function DetailPane({
             isStopping={isStopping}
             lastSessionStats={lastSessionStats}
             projectStats={projectStats}
+            canFixPendingSession={canFixPendingSession}
           />
         )}
       </scrollbox>

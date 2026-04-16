@@ -415,6 +415,64 @@ describe("Dashboard component", () => {
     }
   });
 
+  test("reopens the fix overlay after a failed session when findings are still available", async () => {
+    const harness = await mountDashboardHarness({
+      workspaceState: {
+        lastSessionStats: {
+          sessionId: "session-123",
+          reviewOutcome: "incomplete",
+          sessionStatus: "failed",
+          sessionPath: "/tmp/logs/session-123.jsonl",
+          sessionName: "session-123.jsonl",
+          timestamp: Date.now(),
+          status: "failed",
+          totalFixes: 0,
+          totalSkipped: 0,
+          priorityCounts: { P0: 1, P1: 0, P2: 0, P3: 0 },
+          iterations: 2,
+          entries: [
+            {
+              type: "system",
+              timestamp: Date.now(),
+              projectPath: "/repo/project",
+              reviewer: { agent: "claude" },
+              fixer: { agent: "codex" },
+              maxIterations: 5,
+            },
+          ],
+          reviewer: "claude",
+          reviewerModel: "sonnet-4",
+          reviewerDisplayName: "claude",
+          reviewerModelDisplayName: "sonnet-4",
+          fixer: "codex",
+          fixerModel: "gpt-5.3-codex",
+          fixerDisplayName: "codex",
+          fixerModelDisplayName: "gpt-5.3-codex",
+        } as NonNullable<WorkspaceState["lastSessionStats"]>,
+        storedFindings: [
+          {
+            id: "F001",
+            fingerprint: "fp-1",
+            title: "Guard missing config",
+            body: "Null check is missing",
+            priority: "P0",
+            confidenceScore: 0.97,
+            filePath: "src/config.ts",
+            startLine: 10,
+            endLine: 12,
+          },
+        ],
+      },
+    });
+
+    try {
+      const frame = await harness.press("f");
+      expect(frame).toContain("fix overlay");
+    } finally {
+      await harness.destroy();
+    }
+  });
+
   test("shows a fix startup banner while the fixer session is launching", async () => {
     const harness = await mountDashboardHarness({
       workspaceState: {

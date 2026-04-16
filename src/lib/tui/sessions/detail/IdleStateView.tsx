@@ -65,6 +65,7 @@ interface IdleStateViewProps {
   isStopping: boolean;
   lastSessionStats: SessionStats | null;
   projectStats: ProjectStats | null;
+  canFixPendingSession: boolean;
 }
 
 export function IdleStateView({
@@ -73,6 +74,7 @@ export function IdleStateView({
   isStopping,
   lastSessionStats,
   projectStats,
+  canFixPendingSession,
 }: IdleStateViewProps) {
   const lastRunStatusDisplay = lastSessionStats
     ? getLastRunStatusDisplay(lastSessionStats.status)
@@ -238,7 +240,7 @@ export function IdleStateView({
             </box>
           )}
 
-          {lastRunFindings.length > 0 && (
+          {canFixPendingSession && (
             <text fg={TUI_COLORS.text.dim}>
               Press <span fg={TUI_COLORS.accent.key}>"f"</span> to fix issues
             </text>

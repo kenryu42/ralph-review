@@ -11,11 +11,15 @@ function getSystemEntry(stats: SessionStats): SystemEntry | undefined {
   return stats.entries.find((entry): entry is SystemEntry => entry.type === "system");
 }
 
+function hasRetryableFindings(stats: SessionStats): boolean {
+  return stats.reviewOutcome === "findings-pending" || stats.status === "failed";
+}
+
 export function getPendingFixTarget(
   lastSessionStats: SessionStats | null,
   findings: StoredFinding[]
 ): PendingFixTarget | null {
-  if (!lastSessionStats || lastSessionStats.reviewOutcome !== "findings-pending") {
+  if (!lastSessionStats || !hasRetryableFindings(lastSessionStats)) {
     return null;
   }
 
