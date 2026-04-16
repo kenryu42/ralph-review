@@ -4,6 +4,7 @@ import type {
   StoredFinding,
 } from "@/lib/review-workflow/findings/types";
 import type { SessionState } from "@/lib/session-state";
+import type { DashboardStartupMode } from "@/lib/tui/dashboard/use-dashboard-run-control";
 import { DetailPane } from "@/lib/tui/sessions/detail/DetailPane";
 import { SessionSidebar } from "@/lib/tui/sessions/sidebar/SessionSidebar";
 import { OutputDrawer } from "@/lib/tui/shared/OutputDrawer";
@@ -41,7 +42,7 @@ interface WorkspaceProps {
   isGitRepo: boolean;
   currentAgent: AgentRole | null;
   reviewOptions: ReviewOptions | undefined;
-  isStarting: boolean;
+  startupMode: DashboardStartupMode;
   isStopping: boolean;
   activeSessionCount: number;
   outputVisible: boolean;
@@ -71,7 +72,7 @@ export function Workspace({
   isGitRepo,
   currentAgent,
   reviewOptions,
-  isStarting,
+  startupMode,
   isStopping,
   activeSessionCount,
   outputVisible,
@@ -106,7 +107,7 @@ export function Workspace({
           isGitRepo={isGitRepo}
           currentAgent={currentAgent}
           reviewOptions={reviewOptions}
-          isStarting={isStarting}
+          startupMode={startupMode}
           isStopping={isStopping}
           activeSessionCount={activeSessionCount}
           focused={focusedPane === "detail"}

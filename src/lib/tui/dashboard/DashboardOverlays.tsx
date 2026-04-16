@@ -22,6 +22,7 @@ interface DashboardOverlaysProps {
   onCloseRunOverlay: () => void;
   onSubmitRunOverlay: (args: string[]) => void;
   onCloseFixFindings: () => void;
+  onSubmitFixOverlay: (args: string[]) => void;
   onCloseSession: () => void;
   onSelectStopSession: (session: ActiveSession) => void;
   onCloseStopPicker: () => void;
@@ -42,6 +43,7 @@ export function DashboardOverlays({
   onCloseRunOverlay,
   onSubmitRunOverlay,
   onCloseFixFindings,
+  onSubmitFixOverlay,
   onCloseSession,
   onSelectStopSession,
   onCloseStopPicker,
@@ -62,6 +64,7 @@ export function DashboardOverlays({
           sessionId={pendingFixTarget.sessionId}
           projectPath={pendingFixTarget.projectPath}
           findings={pendingFixTarget.findings}
+          onSubmit={onSubmitFixOverlay}
           onClose={onCloseFixFindings}
         />
       )}

@@ -2,20 +2,23 @@ import { useCallback, useRef, useState } from "react";
 import { CLI_PATH } from "@/lib/paths";
 import { getErrorMessage } from "@/lib/tui/shared/error-message";
 
+export type DashboardStartupMode = "review" | "fix" | null;
+
 export interface DashboardRunControl {
   runError: string | null;
-  isStartingRun: boolean;
+  startupMode: DashboardStartupMode;
   clearRunError: () => void;
   clearRunStartState: () => void;
   setRunError: (message: string | null) => void;
   spawnRunProcess: (runArgs: string[]) => void;
-  isRunSpawning: () => boolean;
+  spawnFixProcess: (fixArgs: string[]) => void;
+  isStartupSpawning: () => boolean;
 }
 
 export function useDashboardRunControl(projectPath: string): DashboardRunControl {
   const [runError, setRunError] = useState<string | null>(null);
-  const [isStartingRun, setIsStartingRun] = useState(false);
-  const isRunSpawningRef = useRef(false);
+  const [startupMode, setStartupMode] = useState<DashboardStartupMode>(null);
+  const isStartupSpawningRef = useRef(false);
 
   const clearRunError = useCallback(() => {
     setRunError(null);
@@ -23,17 +26,21 @@ export function useDashboardRunControl(projectPath: string): DashboardRunControl
 
   const clearRunStartState = useCallback(() => {
     setRunError(null);
-    setIsStartingRun(false);
+    setStartupMode(null);
   }, []);
 
-  const spawnRunProcess = useCallback(
-    (runArgs: string[]) => {
-      isRunSpawningRef.current = true;
+  const spawnCommand = useCallback(
+    (
+      command: "run" | "fix",
+      argv: string[],
+      nextStartupMode: Exclude<DashboardStartupMode, null>
+    ) => {
+      isStartupSpawningRef.current = true;
       setRunError(null);
-      setIsStartingRun(true);
+      setStartupMode(nextStartupMode);
 
       try {
-        const subprocess = Bun.spawn([process.execPath, CLI_PATH, "run", ...runArgs], {
+        const subprocess = Bun.spawn([process.execPath, CLI_PATH, command, ...argv], {
           cwd: projectPath,
           stdin: "ignore",
           stdout: "ignore",
@@ -42,37 +49,53 @@ export function useDashboardRunControl(projectPath: string): DashboardRunControl
 
         void subprocess.exited
           .then(async (exitCode) => {
-            isRunSpawningRef.current = false;
+            isStartupSpawningRef.current = false;
 
             if (exitCode !== 0) {
               const stderr = await new Response(subprocess.stderr).text();
-              setIsStartingRun(false);
+              setStartupMode(null);
               setRunError(stderr.trim() || `Command failed with exit code ${exitCode}`);
             }
           })
           .catch((error) => {
-            isRunSpawningRef.current = false;
-            setIsStartingRun(false);
+            isStartupSpawningRef.current = false;
+            setStartupMode(null);
             setRunError(getErrorMessage(error));
           });
       } catch (error) {
-        isRunSpawningRef.current = false;
-        setIsStartingRun(false);
+        isStartupSpawningRef.current = false;
+        setStartupMode(null);
         setRunError(getErrorMessage(error));
       }
     },
     [projectPath]
   );
 
-  const isRunSpawning = useCallback(() => isRunSpawningRef.current, []);
+  const spawnRunProcess = useCallback(
+    (runArgs: string[]) => {
+      spawnCommand("run", runArgs, "review");
+    },
+    [spawnCommand]
+  );
+
+  const spawnFixProcess = useCallback(
+    (fixArgs: string[]) => {
+      const commandArgs = fixArgs[0] === "fix" ? fixArgs.slice(1) : fixArgs;
+      spawnCommand("fix", commandArgs, "fix");
+    },
+    [spawnCommand]
+  );
+
+  const isStartupSpawning = useCallback(() => isStartupSpawningRef.current, []);
 
   return {
     runError,
-    isStartingRun,
+    startupMode,
     clearRunError,
     clearRunStartState,
     setRunError,
     spawnRunProcess,
-    isRunSpawning,
+    spawnFixProcess,
+    isStartupSpawning,
   };
 }

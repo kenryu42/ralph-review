@@ -230,7 +230,7 @@ describe("DetailPane", () => {
     isGitRepo = true,
     currentAgent = null,
     reviewOptions = undefined,
-    isStarting = false,
+    startupMode = null,
     isStopping = false,
     activeSessionCount = 1,
     lastSessionStats = null,
@@ -256,7 +256,7 @@ describe("DetailPane", () => {
     isGitRepo?: boolean;
     currentAgent?: AgentRole | null;
     reviewOptions?: ReviewOptions | undefined;
-    isStarting?: boolean;
+    startupMode?: "review" | "fix" | null;
     isStopping?: boolean;
     activeSessionCount?: number;
     lastSessionStats?: SessionStats | null;
@@ -284,7 +284,7 @@ describe("DetailPane", () => {
         isGitRepo,
         currentAgent,
         reviewOptions,
-        isStarting,
+        startupMode,
         isStopping,
         activeSessionCount,
         lastSessionStats,
@@ -362,7 +362,7 @@ describe("DetailPane", () => {
   test("renders the idle starting banner", async () => {
     const frame = await renderFrame({
       session: null,
-      isStarting: true,
+      startupMode: "review",
     });
 
     expect(frame).toContain("Starting review...");

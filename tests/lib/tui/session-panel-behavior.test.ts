@@ -257,7 +257,7 @@ describe("DetailPane status rendering", () => {
         isGitRepo: true,
         currentAgent,
         reviewOptions: undefined,
-        isStarting: false,
+        startupMode: null,
         isStopping: false,
         activeSessionCount: 1,
         focused: false,

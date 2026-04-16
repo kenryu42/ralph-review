@@ -1,7 +1,6 @@
 import type { ScrollBoxRenderable, TabSelectRenderable } from "@opentui/core";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CLI_PATH } from "@/lib/paths";
 import type { FindingSelectionMode } from "@/lib/review-workflow/findings/selection";
 import type { FindingId, StoredFinding } from "@/lib/review-workflow/findings/types";
 import { toSingleLine } from "@/lib/tui/sessions/detail/session-detail-parts";
@@ -15,6 +14,7 @@ export interface FixIssuesOverlayProps {
   sessionId: string;
   projectPath: string;
   findings: StoredFinding[];
+  onSubmit: (args: string[]) => void;
   onClose: () => void;
 }
 
@@ -362,6 +362,7 @@ export function FixIssuesOverlay({
   sessionId,
   projectPath,
   findings,
+  onSubmit,
   onClose,
 }: FixIssuesOverlayProps) {
   const { width: terminalWidth, height: terminalHeight } = useTerminalDimensions();
@@ -377,7 +378,6 @@ export function FixIssuesOverlay({
   const [selectedFindingIds, setSelectedFindingIds] = useState<FindingId[]>([]);
   const [filterQuery, setFilterQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [isFixing, setIsFixing] = useState(false);
 
   const isWideLayout = terminalWidth >= 110 && terminalHeight >= 28;
   const contentWidth = Math.max(40, terminalWidth - 2);
@@ -583,12 +583,8 @@ export function FixIssuesOverlay({
   }, []);
 
   const closeOverlay = useCallback(() => {
-    if (isFixing) {
-      return;
-    }
-
     onClose();
-  }, [isFixing, onClose]);
+  }, [onClose]);
 
   const toggleCurrentPriority = useCallback(() => {
     const priority = PRIORITIES[clampIndex(priorityIndex, PRIORITIES.length)];
@@ -621,10 +617,6 @@ export function FixIssuesOverlay({
   }, [filteredFindings, findingIndex, findings]);
 
   const confirmFixSelection = useCallback(async () => {
-    if (isFixing) {
-      return;
-    }
-
     const commandArgs = buildFixCommandArgs(
       sessionId,
       mode,
@@ -637,36 +629,14 @@ export function FixIssuesOverlay({
     }
 
     setError(null);
-    setIsFixing(true);
-
-    try {
-      const subprocess = Bun.spawn([process.execPath, CLI_PATH, ...commandArgs], {
-        cwd: projectPath,
-        stdin: "ignore",
-        stdout: "ignore",
-        stderr: "pipe",
-      });
-      const exitCode = await subprocess.exited;
-
-      if (exitCode !== 0) {
-        const stderr = await new Response(subprocess.stderr).text();
-        setError(stderr.trim() || `rr fix failed with exit code ${exitCode}`);
-        setIsFixing(false);
-        return;
-      }
-
-      onClose();
-    } catch (spawnError) {
-      setError(spawnError instanceof Error ? spawnError.message : String(spawnError));
-      setIsFixing(false);
-    }
+    onSubmit(commandArgs);
+    onClose();
   }, [
     disabledReason,
-    isFixing,
     mode,
+    onSubmit,
     onClose,
     orderedSelectedFindingIds,
-    projectPath,
     selectedPriorities,
     sessionId,
   ]);
@@ -764,19 +734,15 @@ export function FixIssuesOverlay({
 
   const actionMessage = error
     ? error
-    : isFixing
-      ? "Starting rr fix..."
-      : disabledReason
-        ? disabledReason
-        : "Press Enter to run the selected fix batch.";
+    : disabledReason
+      ? disabledReason
+      : "Press Enter to run the selected fix batch.";
 
   const actionColor = error
     ? TUI_COLORS.status.error
-    : isFixing
-      ? TUI_COLORS.status.pending
-      : disabledReason
-        ? TUI_COLORS.status.warning
-        : TUI_COLORS.text.muted;
+    : disabledReason
+      ? TUI_COLORS.status.warning
+      : TUI_COLORS.text.muted;
 
   const selectionBorderColor =
     focusedPane === "selection" ? TUI_COLORS.ui.borderFocused : TUI_COLORS.ui.border;

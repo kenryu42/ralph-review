@@ -4,6 +4,7 @@ import type {
   StoredFinding,
 } from "@/lib/review-workflow/findings/types";
 import type { SessionState } from "@/lib/session-state";
+import type { DashboardStartupMode } from "@/lib/tui/dashboard/use-dashboard-run-control";
 import { TUI_COLORS } from "@/lib/tui/shared/colors";
 import type {
   AgentRole,
@@ -38,7 +39,7 @@ interface DetailPaneProps {
   isGitRepo: boolean;
   currentAgent: AgentRole | null;
   reviewOptions: ReviewOptions | undefined;
-  isStarting: boolean;
+  startupMode: DashboardStartupMode;
   isStopping: boolean;
   activeSessionCount: number;
   focused?: boolean;
@@ -65,7 +66,7 @@ export function DetailPane({
   isGitRepo,
   currentAgent,
   reviewOptions,
-  isStarting,
+  startupMode,
   isStopping,
   activeSessionCount,
   focused = false,
@@ -126,7 +127,7 @@ export function DetailPane({
         ) : (
           <IdleStateView
             isGitRepo={isGitRepo}
-            isStarting={isStarting}
+            startupMode={startupMode}
             isStopping={isStopping}
             lastSessionStats={lastSessionStats}
             projectStats={projectStats}

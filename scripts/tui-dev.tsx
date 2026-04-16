@@ -442,7 +442,7 @@ async function main() {
         isGitRepo={mockData.isGitRepo}
         currentAgent={mockData.currentAgent}
         reviewOptions={mockData.reviewOptions}
-        isStarting={false}
+        startupMode={null}
         isStopping={false}
         activeSessionCount={mockData.session ? 1 : 0}
         focused={true}

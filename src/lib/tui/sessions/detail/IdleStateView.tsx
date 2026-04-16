@@ -1,4 +1,5 @@
 import { formatDuration } from "@/lib/format";
+import type { DashboardStartupMode } from "@/lib/tui/dashboard/use-dashboard-run-control";
 import { formatFindingTitleForDisplay } from "@/lib/tui/sessions/finding-title";
 import { PriorityText } from "@/lib/tui/sessions/priority-text";
 import {
@@ -60,7 +61,7 @@ function getLastRunHandoffDisplay(stats: SessionStats): {
 
 interface IdleStateViewProps {
   isGitRepo: boolean;
-  isStarting: boolean;
+  startupMode: DashboardStartupMode;
   isStopping: boolean;
   lastSessionStats: SessionStats | null;
   projectStats: ProjectStats | null;
@@ -68,7 +69,7 @@ interface IdleStateViewProps {
 
 export function IdleStateView({
   isGitRepo,
-  isStarting,
+  startupMode,
   isStopping,
   lastSessionStats,
   projectStats,
@@ -121,10 +122,15 @@ export function IdleStateView({
           <Spinner color={TUI_COLORS.status.warning} />
           <text fg={TUI_COLORS.status.warning}>Stopping review...</text>
         </box>
-      ) : isStarting ? (
+      ) : startupMode === "review" ? (
         <box flexDirection="row" gap={1}>
           <Spinner color={TUI_COLORS.status.pending} />
           <text fg={TUI_COLORS.status.pending}>Starting review...</text>
+        </box>
+      ) : startupMode === "fix" ? (
+        <box flexDirection="row" gap={1}>
+          <Spinner color={TUI_COLORS.status.pending} />
+          <text fg={TUI_COLORS.status.pending}>Starting fix...</text>
         </box>
       ) : (
         <text fg={TUI_COLORS.text.faint}>

@@ -62,7 +62,8 @@ type BoxHeight = number | "auto" | `${number}%`;
 function getStatusDisplay(
   status: string,
   currentAgent: AgentRole | null,
-  isPreparing = false
+  isPreparing = false,
+  currentPhase?: string
 ): { text: string; color: string } {
   switch (status) {
     case "completed":
@@ -83,7 +84,10 @@ function getStatusDisplay(
       }
       return { text: "running", color: TUI_COLORS.status.success };
     case "pending":
-      return { text: "starting review", color: TUI_COLORS.status.pending };
+      return {
+        text: currentPhase && currentPhase !== "discovery" ? "starting fix" : "starting review",
+        color: TUI_COLORS.status.pending,
+      };
     default:
       return { text: "unknown", color: TUI_COLORS.status.inactive };
   }
@@ -188,7 +192,8 @@ export function SessionDetailView({
     session.state === "running" &&
       currentAgent === null &&
       session.iteration === undefined &&
-      session.currentPhase === undefined
+      session.currentPhase === undefined,
+    session.currentPhase
   );
 
   const cachedLiveReviewSummary =

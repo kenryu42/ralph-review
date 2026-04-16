@@ -21,12 +21,13 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
   const state = useWorkspaceState(projectPath, branch, refreshInterval);
   const {
     runError,
-    isStartingRun,
+    startupMode,
     clearRunError,
     clearRunStartState,
     setRunError,
     spawnRunProcess,
-    isRunSpawning,
+    spawnFixProcess,
+    isStartupSpawning,
   } = useDashboardRunControl(projectPath);
   const [focusedPane, setFocusedPane] = useState<FocusedPane>("detail");
   const [outputVisible, setOutputVisible] = useState(false);
@@ -115,7 +116,7 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
         activeSessionCount: state.allSessions.length,
         hasCurrentSession: Boolean(state.currentSession),
         canFixPendingSession,
-        isRunSpawning: isRunSpawning(),
+        isRunSpawning: isStartupSpawning(),
       });
 
       switch (action) {
@@ -173,7 +174,7 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
       clearRunError,
       cycleFocus,
       cycleFocusReverse,
-      isRunSpawning,
+      isStartupSpawning,
       showFixFindings,
       showHelp,
       showReviewModeOverlay,
@@ -231,7 +232,7 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
             isGitRepo={state.isGitRepo}
             currentAgent={state.currentAgent}
             reviewOptions={state.reviewOptions}
-            isStarting={isStartingRun}
+            startupMode={startupMode}
             isStopping={isStoppingRun}
             activeSessionCount={state.projectSessions.length}
             outputVisible={outputVisible}
@@ -265,6 +266,10 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
             spawnRunProcess(args);
           }}
           onCloseFixFindings={() => setShowFixFindings(false)}
+          onSubmitFixOverlay={(args) => {
+            setShowFixFindings(false);
+            spawnFixProcess(args);
+          }}
           onCloseSession={() => setShowSession(false)}
           onSelectStopSession={(session) => {
             void stopSelectedSession(session);

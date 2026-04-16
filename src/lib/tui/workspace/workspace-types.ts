@@ -4,6 +4,7 @@ import type {
   StoredFinding,
 } from "@/lib/review-workflow/findings/types";
 import type { ActiveSession, SessionState } from "@/lib/session-state";
+import type { DashboardStartupMode } from "@/lib/tui/dashboard/use-dashboard-run-control";
 import type {
   AgentRole,
   Config,
@@ -60,4 +61,5 @@ export interface WorkspaceState {
   currentAgent: AgentRole | null;
   reviewOptions: ReviewOptions | undefined;
   outputVisible: boolean;
+  startupMode?: DashboardStartupMode;
 }
