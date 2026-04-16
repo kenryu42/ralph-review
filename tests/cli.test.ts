@@ -76,6 +76,7 @@ describe("cli", () => {
     test("excludes hidden commands from main help", () => {
       const usage = printUsage();
       expect(usage).not.toContain("_run-foreground");
+      expect(usage).not.toContain("_fix-foreground");
     });
 
     test("includes version in help", () => {
@@ -116,6 +117,7 @@ describe("cli", () => {
       expect(names).toContain("doctor");
       expect(names).toContain("update");
       expect(names).toContain("_run-foreground");
+      expect(names).toContain("_fix-foreground");
     });
 
     test("run command has correct options", () => {

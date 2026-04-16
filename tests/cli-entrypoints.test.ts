@@ -88,6 +88,9 @@ function createCliHarness(overrides: Partial<CliDeps> = {}): CliHarness {
     runFix: async (argv = []) => {
       calls.push(`fix:${argv.join(",")}`);
     },
+    runFixForeground: async (argv = []) => {
+      calls.push(`_fix-foreground:${argv.join(",")}`);
+    },
     runDiscard: async (argv) => {
       calls.push(`discard:${argv.join(",")}`);
     },
@@ -293,6 +296,11 @@ describe("cli entrypoints", () => {
         command: "fix",
         args: ["--session", "session-1", "--all"],
         expectedCall: "fix:--session,session-1,--all",
+      },
+      {
+        command: "_fix-foreground",
+        args: ["--session", "session-1", "--id", "F001"],
+        expectedCall: "_fix-foreground:--session,session-1,--id,F001",
       },
       {
         command: "apply",

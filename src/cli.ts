@@ -7,7 +7,7 @@ import { runConfig } from "./commands/config";
 import { runDashboard } from "./commands/dashboard";
 import { runDiscard } from "./commands/discard";
 import { runDoctor } from "./commands/doctor";
-import { runFix } from "./commands/fix";
+import { runFix, runFixForeground } from "./commands/fix";
 import { runInit } from "./commands/init";
 import { runList } from "./commands/list";
 import { runLog } from "./commands/log";
@@ -41,6 +41,7 @@ export interface CliDeps {
   runConfig: typeof runConfig;
   startReview: typeof startReview;
   runFix: typeof runFix;
+  runFixForeground: typeof runFixForeground;
   runApply: typeof runApply;
   runDiscard: typeof runDiscard;
   runRevert: typeof runRevert;
@@ -78,6 +79,7 @@ const DEFAULT_CLI_DEPS: CliDeps = {
   runConfig,
   startReview,
   runFix,
+  runFixForeground,
   runApply,
   runDiscard,
   runRevert,
@@ -184,6 +186,10 @@ export async function runCli(
 
       case "fix":
         await cliDeps.runFix(commandArgs);
+        break;
+
+      case "_fix-foreground":
+        await cliDeps.runFixForeground(commandArgs);
         break;
 
       case "apply":

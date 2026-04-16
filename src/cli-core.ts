@@ -315,6 +315,36 @@ export const COMMANDS: CommandDef[] = [
       SIMPLIFIER_OPTION,
     ],
   },
+  {
+    name: "_fix-foreground",
+    description: "Internal: run fixer session in tmux foreground",
+    hidden: true,
+    options: [
+      {
+        name: "session",
+        alias: "s",
+        type: "string",
+        description: "Session ID whose persisted findings should be fixed",
+      },
+      {
+        name: "all",
+        type: "boolean",
+        description: "Select all persisted findings for remediation",
+      },
+      {
+        name: "priority",
+        type: "string",
+        placeholder: "P0|P1|P2|P3",
+        description: "Select findings by priority (repeatable)",
+      },
+      {
+        name: "id",
+        type: "string",
+        placeholder: "F001",
+        description: "Select findings by ID (repeatable)",
+      },
+    ],
+  },
 ];
 
 export function getCommandDef(name: string): CommandDef | undefined {

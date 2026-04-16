@@ -266,4 +266,73 @@ describe("review-workflow/remediation/runFixSession", () => {
     expect(result.sessionStatus).toBe("failed");
     expect(result.reason).toContain("Reviewed snapshot fingerprint mismatch");
   });
+
+  test("publishes remediation progress updates for session-state consumers", async () => {
+    const updates: Array<Record<string, unknown>> = [];
+
+    const result = await runFixSession(
+      createConfig(),
+      {
+        sessionId: "session-123",
+        selector: {
+          ids: ["F001"],
+        },
+        isTTY: false,
+        onProgress: async (nextUpdates) => {
+          updates.push(nextUpdates as Record<string, unknown>);
+        },
+      },
+      createDependencies()
+    );
+
+    expect(result.reviewOutcome).toBe("fixed-selected");
+    expect(updates).toContainEqual({
+      currentPhase: "selection",
+      phase: "selection",
+      sessionStatus: "running",
+      currentAgent: null,
+      selectedFindingIds: ["F001"],
+    });
+    expect(updates).toContainEqual({
+      currentPhase: "selection",
+      phase: "selection",
+      sessionStatus: "running",
+      currentAgent: null,
+      worktreeProjectPath: "/tmp/worktree",
+      worktreeBranch: "rr-worktree-session-123",
+      selectedFindingIds: ["F001"],
+      sourceFingerprint: "fingerprint-1",
+      reviewedSnapshotPath: "/tmp/reviewed",
+    });
+    expect(updates).toContainEqual({
+      currentPhase: "batch-fix",
+      phase: "batch-fix",
+      sessionStatus: "running",
+      currentAgent: "fixer",
+      selectedFindingIds: ["F001"],
+    });
+    expect(updates).toContainEqual({
+      currentPhase: "final-audit",
+      phase: "final-audit",
+      sessionStatus: "running",
+      currentAgent: "reviewer",
+      selectedFindingIds: ["F001"],
+    });
+    expect(updates.at(-1)).toEqual({
+      currentPhase: "complete",
+      phase: "complete",
+      sessionStatus: "completed",
+      currentAgent: null,
+      selectedFindingIds: ["F001"],
+      latestAudit: {
+        resolvedFindingIds: ["F001"],
+        unresolvedFindingIds: [],
+        regressionFindings: [],
+      },
+      reviewOutcome: "fixed-selected",
+      handoffStatus: undefined,
+      handoffUpdatedAt: undefined,
+      commitSha: undefined,
+    });
+  });
 });

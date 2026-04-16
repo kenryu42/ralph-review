@@ -19,6 +19,7 @@ import type {
   RemediationSelection,
 } from "@/lib/review-workflow/remediation/types";
 import { finalizeResult } from "@/lib/review-workflow/results/finalize-result";
+import type { SessionState } from "@/lib/session-state";
 import type { Config, Priority, ReviewPhase } from "@/lib/types";
 
 interface FixSessionSelector {
@@ -31,6 +32,7 @@ export interface RunFixSessionOptions {
   sessionId: string;
   selector?: FixSessionSelector;
   isTTY: boolean;
+  onProgress?: (updates: Partial<SessionState>) => Promise<void> | void;
 }
 
 export interface RunFixSessionDependencies {
@@ -293,6 +295,13 @@ function getSelectedArtifactSelection(selection: RemediationSelection): FindingI
   return [...selection.selectedFindingIds].sort((left, right) => left.localeCompare(right));
 }
 
+async function emitProgress(
+  onProgress: RunFixSessionOptions["onProgress"],
+  updates: Partial<SessionState>
+): Promise<void> {
+  await onProgress?.(updates);
+}
+
 export async function runFixSession(
   config: Config,
   options: RunFixSessionOptions,
@@ -317,6 +326,18 @@ export async function runFixSession(
         unselectedFindings: [...artifact.findings],
         reason: resolvedSelection.error,
       });
+      await emitProgress(options.onProgress, {
+        currentPhase: result.phase,
+        phase: result.phase,
+        sessionStatus: result.sessionStatus,
+        currentAgent: null,
+        selectedFindingIds: result.selection.selectedFindingIds,
+        reviewOutcome: result.reviewOutcome,
+        latestAudit: result.audit,
+        handoffStatus: result.handoffStatus,
+        handoffUpdatedAt: result.handoffUpdatedAt,
+        commitSha: result.commitSha,
+      });
       return result;
     }
 
@@ -328,6 +349,18 @@ export async function runFixSession(
         reviewOutcome: "findings-pending",
         reason: "Selection cancelled. Findings remain pending.",
         unselectedFindings: [...artifact.findings],
+      });
+      await emitProgress(options.onProgress, {
+        currentPhase: result.phase,
+        phase: result.phase,
+        sessionStatus: result.sessionStatus,
+        currentAgent: null,
+        selectedFindingIds: result.selection.selectedFindingIds,
+        reviewOutcome: result.reviewOutcome,
+        latestAudit: result.audit,
+        handoffStatus: result.handoffStatus,
+        handoffUpdatedAt: result.handoffUpdatedAt,
+        commitSha: result.commitSha,
       });
       return result;
     }
@@ -344,6 +377,13 @@ export async function runFixSession(
       selectionMode: resolvedSelection.mode,
       selectedFindingIds: resolvedSelection.selection.selectedFindingIds,
     });
+    await emitProgress(options.onProgress, {
+      currentPhase: "selection",
+      phase: "selection",
+      sessionStatus: "running",
+      currentAgent: null,
+      selectedFindingIds: resolvedSelection.selection.selectedFindingIds,
+    });
 
     if (resolvedSelection.selection.selectedFindingIds.length === 0) {
       result = buildResult({
@@ -354,6 +394,18 @@ export async function runFixSession(
         reason: "No findings were selected. Findings remain pending.",
         selection: resolvedSelection.selection,
         unselectedFindings: [...artifact.findings],
+      });
+      await emitProgress(options.onProgress, {
+        currentPhase: result.phase,
+        phase: result.phase,
+        sessionStatus: result.sessionStatus,
+        currentAgent: null,
+        selectedFindingIds: result.selection.selectedFindingIds,
+        reviewOutcome: result.reviewOutcome,
+        latestAudit: result.audit,
+        handoffStatus: result.handoffStatus,
+        handoffUpdatedAt: result.handoffUpdatedAt,
+        commitSha: result.commitSha,
       });
       return result;
     }
@@ -371,7 +423,25 @@ export async function runFixSession(
       artifact.sessionId,
       artifact.projectPath
     );
+    await emitProgress(options.onProgress, {
+      currentPhase: "selection",
+      phase: "selection",
+      sessionStatus: "running",
+      currentAgent: null,
+      worktreeProjectPath: worktree.worktreeProjectPath,
+      worktreeBranch: worktree.retainedBranch,
+      sourceFingerprint: artifact.sourceFingerprint,
+      reviewedSnapshotPath: artifact.reviewedSnapshotPath,
+      selectedFindingIds: resolvedSelection.selection.selectedFindingIds,
+    });
 
+    await emitProgress(options.onProgress, {
+      currentPhase: "batch-fix",
+      phase: "batch-fix",
+      sessionStatus: "running",
+      currentAgent: "fixer",
+      selectedFindingIds: resolvedSelection.selection.selectedFindingIds,
+    });
     const batchFix = await deps.runBatchFixPhase({
       config,
       artifact: artifactWithSelection,
@@ -386,6 +456,13 @@ export async function runFixSession(
       batchFix.fixResults
     );
 
+    await emitProgress(options.onProgress, {
+      currentPhase: "final-audit",
+      phase: "final-audit",
+      sessionStatus: "running",
+      currentAgent: "reviewer",
+      selectedFindingIds: resolvedSelection.selection.selectedFindingIds,
+    });
     const auditPhase = await deps.runFinalAuditPhase({
       config,
       artifact: artifactWithFixResults,
@@ -407,12 +484,36 @@ export async function runFixSession(
       audit: auditPhase.summary,
       worktree,
     });
+    await emitProgress(options.onProgress, {
+      currentPhase: result.phase,
+      phase: result.phase,
+      sessionStatus: result.sessionStatus,
+      currentAgent: null,
+      selectedFindingIds: result.selection.selectedFindingIds,
+      latestAudit: result.audit,
+      reviewOutcome: result.reviewOutcome,
+      handoffStatus: result.handoffStatus,
+      handoffUpdatedAt: result.handoffUpdatedAt,
+      commitSha: result.commitSha,
+    });
     return result;
   } catch (error) {
     result = buildResult({
       artifact: artifact ?? undefined,
       reason: error instanceof Error ? error.message : String(error),
       unselectedFindings: artifact?.findings ?? [],
+    });
+    await emitProgress(options.onProgress, {
+      currentPhase: result.phase,
+      phase: result.phase,
+      sessionStatus: result.sessionStatus,
+      currentAgent: null,
+      selectedFindingIds: result.selection.selectedFindingIds,
+      latestAudit: result.audit,
+      reviewOutcome: result.reviewOutcome,
+      handoffStatus: result.handoffStatus,
+      handoffUpdatedAt: result.handoffUpdatedAt,
+      commitSha: result.commitSha,
     });
     return result;
   } finally {
