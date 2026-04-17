@@ -40,7 +40,10 @@ function createArtifact(): FindingsArtifact {
     logPath: "/tmp/session-123.jsonl",
     reviewedSnapshotRef: "snapshot-ref",
     reviewedSnapshotPath: "/tmp/reviewed",
-    sourceFingerprint: "fingerprint-1",
+    reviewedSnapshotFingerprint: "reviewed-fingerprint-1",
+    handoffSnapshotPath: "/tmp/handoff",
+    handoffSnapshotFingerprint: "handoff-fingerprint-1",
+    sourceRepoFingerprint: "repo-fingerprint-1",
     findings: [createFinding("F001", "P0"), createFinding("F002", "P1")],
     selectedFindingIds: [],
     createdAt: "2026-01-01T00:00:00.000Z",
@@ -533,5 +536,68 @@ describe("fix command", () => {
       },
     ]);
     expect(harness.clearIntervalCalls).toHaveLength(1);
+  });
+
+  test("reports a retained worktree when final audit fails after fixes", async () => {
+    const artifact = createArtifact();
+    const selectedFinding = artifact.findings[0];
+    const unselectedFinding = artifact.findings[1];
+    if (!selectedFinding || !unselectedFinding) {
+      throw new Error("expected default findings to exist");
+    }
+
+    const harness = createFixHarness({
+      runFixSessionResult: {
+        phase: "final-audit",
+        sessionStatus: "failed",
+        reviewOutcome: "incomplete",
+        reason: "Structured JSON output was missing or invalid.",
+        artifact,
+        selection: {
+          selectedFindingIds: ["F001"],
+          selectedFindings: [selectedFinding],
+        },
+        fixResults: [
+          {
+            findingId: "F001",
+            status: "fixed",
+            summary: "Applied selected finding.",
+          },
+        ],
+        unresolvedSelectedFindings: [],
+        unselectedFindings: [unselectedFinding],
+        retainedWorktree: {
+          worktreeProjectPath: "/tmp/worktree",
+          worktreeBranch: "rr-worktree-session-123-fix",
+          mergeReady: true,
+          commitSha: "retained-commit-sha",
+        },
+      },
+    });
+
+    await runFixForeground(["--session", "session-123", "--id", "F001"], {
+      ...harness.deps,
+      env: {
+        RR_PROJECT_PATH: "/repo/project",
+        RR_SESSION_ID: "session-123",
+        RR_SESSION_PATH: artifact.logPath,
+      },
+    });
+
+    expect(harness.errors).toEqual(["Structured JSON output was missing or invalid."]);
+    expect(harness.notes).toContainEqual({
+      title: "Worktree",
+      message:
+        "Retained worktree for review:\nPath: /tmp/worktree\nBranch: rr-worktree-session-123-fix",
+    });
+    expect(harness.updateSessionStateCalls.at(-1)?.updates).toMatchObject({
+      state: "failed",
+      phase: "final-audit",
+      reviewOutcome: "incomplete",
+      worktreeProjectPath: "/tmp/worktree",
+      worktreeBranch: "rr-worktree-session-123-fix",
+      worktreeMergeReady: true,
+      worktreeCommitSha: "retained-commit-sha",
+    });
   });
 });

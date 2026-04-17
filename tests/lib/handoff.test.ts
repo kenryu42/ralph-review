@@ -6,6 +6,7 @@ import {
   computeWorkingTreeFingerprint,
   createSessionWorktree,
   discardSessionWorktree,
+  materializeWorkingTreeSnapshot,
 } from "@/lib/git";
 import {
   applyPendingHandoff,
@@ -183,6 +184,39 @@ describe("handoff", () => {
       expect(await Bun.file(join(repoPath, "app.txt")).text()).toBe("fixed draft\n");
       expect(await Bun.file(join(repoPath, "cache.local")).text()).toBe("after\n");
       expect(await listProjectPendingHandoffs(storageRoot, repoPath)).toEqual([]);
+    } finally {
+      discardSessionWorktree(worktree);
+    }
+  });
+
+  test("does not delete ignored files when remediation provides a git-scoped source snapshot copy", async () => {
+    await writeFile(join(repoPath, ".gitignore"), "*.local\n");
+    runGitIn(repoPath, ["add", ".gitignore"]);
+    runGitIn(repoPath, ["commit", "-m", "add ignore rule"]);
+
+    await writeFile(join(repoPath, "app.txt"), "draft\n");
+    await writeFile(join(repoPath, "cache.local"), "before\n");
+
+    const worktree = createSessionWorktree(repoPath, "session-git-scoped-copy", storageRoot);
+
+    try {
+      const gitScopedCopy = join(storageRoot, "git-scoped-copy");
+      materializeWorkingTreeSnapshot(worktree.sourceSnapshotDir ?? "", gitScopedCopy);
+      worktree.sourceSnapshotPath = gitScopedCopy;
+
+      await writeFile(join(worktree.worktreeProjectPath, "app.txt"), "fixed draft\n");
+      await writeFile(join(repoPath, "cache.local"), "after\n");
+
+      const handoff = await createOrAutoApplyHandoff(storageRoot, {
+        sessionId: "session-git-scoped-copy",
+        projectPath: repoPath,
+        logPath: join(repoPath, ".ralph-review", "logs", "session-git-scoped-copy.jsonl"),
+        worktree,
+      });
+
+      expect(handoff?.handoffStatus).toBe("applied-auto");
+      expect(await Bun.file(join(repoPath, "app.txt")).text()).toBe("fixed draft\n");
+      expect(await Bun.file(join(repoPath, "cache.local")).text()).toBe("after\n");
     } finally {
       discardSessionWorktree(worktree);
     }

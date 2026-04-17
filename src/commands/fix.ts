@@ -531,6 +531,13 @@ export async function runFixForeground(
     });
     if (handoffNote) {
       commandDeps.note(handoffNote, "Handoff");
+    } else if (result.retainedWorktree) {
+      commandDeps.note(
+        `Retained worktree for review:\n` +
+          `Path: ${result.retainedWorktree.worktreeProjectPath}\n` +
+          `Branch: ${result.retainedWorktree.worktreeBranch}`,
+        "Worktree"
+      );
     }
   } finally {
     commandDeps.clearInterval(heartbeatTimer);
@@ -545,6 +552,10 @@ export async function runFixForeground(
         sessionStatus: result.sessionStatus,
         currentAgent: null,
         lastHeartbeat: commandDeps.now(),
+        worktreeProjectPath: result.retainedWorktree?.worktreeProjectPath,
+        worktreeBranch: result.retainedWorktree?.worktreeBranch,
+        worktreeMergeReady: result.retainedWorktree?.mergeReady,
+        worktreeCommitSha: result.retainedWorktree?.commitSha,
         reviewOutcome: result.reviewOutcome,
         handoffStatus: result.handoffStatus,
         handoffUpdatedAt: result.handoffUpdatedAt,
@@ -562,6 +573,10 @@ export async function runFixForeground(
         sessionStatus: undefined,
         currentAgent: null,
         lastHeartbeat: commandDeps.now(),
+        worktreeProjectPath: undefined,
+        worktreeBranch: undefined,
+        worktreeMergeReady: undefined,
+        worktreeCommitSha: undefined,
         reviewOutcome: undefined,
         handoffStatus: undefined,
         handoffUpdatedAt: undefined,
