@@ -129,6 +129,7 @@ describe("review-workflow/findings/artifact", () => {
       expect(await Bun.file(join(persisted.reviewedSnapshotPath, "src/file.ts")).text()).toBe(
         "export const value = 1;\n"
       );
+      expect(await Bun.file(join(persisted.reviewedSnapshotPath, ".git")).exists()).toBe(false);
       expect(persisted.reviewedSnapshotFingerprint).toBe(
         await computeSnapshotFingerprint(persisted.reviewedSnapshotPath)
       );
@@ -151,6 +152,64 @@ describe("review-workflow/findings/artifact", () => {
     } finally {
       discardSessionWorktree(worktree);
     }
+  });
+
+  test("validates discovery snapshots after discovery worktree cleanup", async () => {
+    const repoPath = join(tempDir, "repo-after-cleanup");
+    await mkdir(repoPath, { recursive: true });
+    initTestRepo(repoPath);
+    await Bun.write(join(repoPath, "src/file.ts"), "export const value = 1;\n", {
+      createPath: true,
+    });
+    runGitIn(repoPath, ["add", "src/file.ts"]);
+    runGitIn(repoPath, ["commit", "-m", "initial commit"]);
+
+    const worktree = createSessionWorktree(repoPath, "session-cleanup-validation", tempDir);
+    let loadedArtifact: FindingsArtifact | null = null;
+
+    try {
+      const persisted = await persistDiscoverySnapshots(
+        tempDir,
+        repoPath,
+        "session-cleanup-validation",
+        {
+          reviewedSnapshotSourcePath: worktree.worktreeProjectPath,
+          handoffSnapshotSourceDir: worktree.sourceSnapshotDir ?? "",
+          sourceRepoFingerprint: worktree.sourceFingerprint ?? "",
+        }
+      );
+
+      const artifact: FindingsArtifact = {
+        artifactVersion: 1,
+        sessionId: "session-cleanup-validation",
+        projectPath: repoPath,
+        logPath: "/tmp/logs/session-cleanup-validation.jsonl",
+        reviewedSnapshotRef: worktree.retainedBranch,
+        reviewedSnapshotPath: persisted.reviewedSnapshotPath,
+        reviewedSnapshotFingerprint: persisted.reviewedSnapshotFingerprint,
+        handoffSnapshotPath: persisted.handoffSnapshotPath,
+        handoffSnapshotFingerprint: persisted.handoffSnapshotFingerprint,
+        sourceRepoFingerprint: persisted.sourceRepoFingerprint,
+        findings: [createStoredFinding("F001")],
+        selectedFindingIds: [],
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      };
+
+      await saveFindingsArtifact(tempDir, artifact);
+      loadedArtifact = await loadFindingsArtifact(tempDir, repoPath, "session-cleanup-validation");
+    } finally {
+      discardSessionWorktree(worktree);
+    }
+
+    if (!loadedArtifact) {
+      throw new Error("Expected artifact to load");
+    }
+
+    await expect(validateArtifactSnapshots(loadedArtifact)).resolves.toEqual({
+      reviewedSnapshotFingerprint: loadedArtifact.reviewedSnapshotFingerprint,
+      handoffSnapshotFingerprint: loadedArtifact.handoffSnapshotFingerprint,
+    });
   });
 
   test("includes hidden files in snapshot fingerprints and validation", async () => {
@@ -393,6 +452,49 @@ describe("review-workflow/findings/artifact", () => {
     await expect(validateArtifactSnapshots(loaded)).rejects.toThrow(
       "Reviewed snapshot fingerprint mismatch"
     );
+  });
+
+  test("rejects legacy reviewed snapshots that still contain root .git metadata", async () => {
+    const reviewedSnapshotPath = join(tempDir, "snapshot-with-git-metadata");
+    const handoffSnapshotPath = join(tempDir, "snapshot-without-git-metadata");
+
+    await mkdir(reviewedSnapshotPath, { recursive: true });
+    initTestRepo(reviewedSnapshotPath);
+    await Bun.write(join(reviewedSnapshotPath, "src/file.ts"), "export const value = 1;\n", {
+      createPath: true,
+    });
+    runGitIn(reviewedSnapshotPath, ["add", "src/file.ts"]);
+    runGitIn(reviewedSnapshotPath, ["commit", "-m", "snapshot commit"]);
+
+    await Bun.write(join(handoffSnapshotPath, "src/file.ts"), "export const value = 1;\n", {
+      createPath: true,
+    });
+
+    const artifact: FindingsArtifact = {
+      artifactVersion: 1,
+      sessionId: "session-legacy-git-metadata",
+      projectPath: "/repo/project",
+      logPath: "/tmp/logs/session-legacy-git-metadata.jsonl",
+      reviewedSnapshotRef: "legacy-ref",
+      reviewedSnapshotPath,
+      reviewedSnapshotFingerprint: await computeSnapshotFingerprint(reviewedSnapshotPath),
+      handoffSnapshotPath,
+      handoffSnapshotFingerprint: await computeSnapshotFingerprint(handoffSnapshotPath),
+      sourceRepoFingerprint: "repo-fingerprint-1",
+      findings: [createStoredFinding("F001")],
+      selectedFindingIds: [],
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+
+    await saveFindingsArtifact(tempDir, artifact);
+
+    const loaded = await loadFindingsArtifact(tempDir, artifact.projectPath, artifact.sessionId);
+    if (!loaded) {
+      throw new Error("Expected artifact to load");
+    }
+
+    await expect(validateArtifactSnapshots(loaded)).rejects.toThrow("contains root .git metadata");
   });
 
   test("rejects legacy single-snapshot artifacts even when artifactVersion stays at 1", async () => {

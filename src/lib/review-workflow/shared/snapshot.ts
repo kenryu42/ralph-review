@@ -11,6 +11,14 @@ export interface FrozenDiscoverySnapshots {
   sourceRepoFingerprint: string;
 }
 
+export interface SnapshotCopyOptions {
+  excludeRootEntries?: string[];
+}
+
+export interface SnapshotFingerprintOptions {
+  excludeRootEntries?: string[];
+}
+
 function formatCommandError(stderr: string, stdout: string): string {
   return stderr || stdout || "command failed";
 }
@@ -43,6 +51,24 @@ function quoteForShell(value: string): string {
   return `'${value.replace(/'/g, "'\\''")}'`;
 }
 
+function normalizeRootEntry(entry: string): string {
+  return entry.replace(/^\/+/u, "").replace(/^\.\//u, "").replace(/\/+$/u, "");
+}
+
+function normalizeRootEntries(entries: string[] | undefined): string[] {
+  return [
+    ...new Set((entries ?? []).map(normalizeRootEntry).filter((entry) => entry.length > 0)),
+  ].sort((left, right) => left.localeCompare(right));
+}
+
+function escapeForPerlDoubleQuotedString(value: string): string {
+  return value
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"')
+    .replace(/\$/g, "\\$")
+    .replace(/@/g, "\\@");
+}
+
 export function snapshotDirectoryExists(path: string): boolean {
   return (
     Bun.spawnSync(["test", "-d", path], {
@@ -58,24 +84,45 @@ export function assertSnapshotDirectoryExists(description: string, snapshotPath:
   }
 }
 
+export function rootEntryExists(snapshotPath: string, entry: string): boolean {
+  return (
+    Bun.spawnSync(["test", "-e", join(snapshotPath, normalizeRootEntry(entry))], {
+      stdout: "ignore",
+      stderr: "ignore",
+    }).exitCode === 0
+  );
+}
+
 export function copySnapshotDirectoryPreservingMetadata(
   sourcePath: string,
-  destinationPath: string
+  destinationPath: string,
+  options?: SnapshotCopyOptions
 ): void {
   assertSnapshotDirectoryExists("Snapshot source path", sourcePath);
   const normalizedSourcePath = sourcePath.replace(/\/+$/u, "");
   const normalizedDestinationPath = destinationPath.replace(/\/+$/u, "");
   const sourcePathQuoted = quoteForShell(sourcePath);
   const destinationPathQuoted = quoteForShell(destinationPath);
+  const excludeRootEntries = normalizeRootEntries(options?.excludeRootEntries);
   const excludeDestinationFromSource =
     normalizedDestinationPath.length > normalizedSourcePath.length &&
     normalizedDestinationPath.startsWith(`${normalizedSourcePath}/`);
   const destinationRelativeToSource = excludeDestinationFromSource
     ? normalizedDestinationPath.slice(normalizedSourcePath.length + 1)
     : "";
-  const tarExcludeClause = excludeDestinationFromSource
-    ? ` --exclude=${quoteForShell(`./${destinationRelativeToSource}`)}`
-    : "";
+
+  const tarExcludes: string[] = [];
+  for (const rootEntry of excludeRootEntries) {
+    tarExcludes.push(`--exclude=${quoteForShell(`./${rootEntry}`)}`);
+    tarExcludes.push(`--exclude=${quoteForShell(`./${rootEntry}/*`)}`);
+  }
+
+  if (excludeDestinationFromSource) {
+    tarExcludes.push(`--exclude=${quoteForShell(`./${destinationRelativeToSource}`)}`);
+    tarExcludes.push(`--exclude=${quoteForShell(`./${destinationRelativeToSource}/*`)}`);
+  }
+
+  const tarExcludeClause = tarExcludes.length > 0 ? ` ${tarExcludes.join(" ")}` : "";
   runCommand(
     sourcePath,
     [
@@ -91,20 +138,34 @@ export async function hasRootGitignore(path: string): Promise<boolean> {
   return await Bun.file(join(path, ".gitignore")).exists();
 }
 
-export async function computeSnapshotDirectoryFingerprint(snapshotPath: string): Promise<string> {
+export async function computeSnapshotDirectoryFingerprint(
+  snapshotPath: string,
+  options?: SnapshotFingerprintOptions
+): Promise<string> {
   assertSnapshotDirectoryExists("Snapshot path", snapshotPath);
+  const excludedRootEntries = normalizeRootEntries(options?.excludeRootEntries);
+  const excludedRootEntriesPerl = excludedRootEntries
+    .map((entry) => `"${escapeForPerlDoubleQuotedString(entry)}" => 1`)
+    .join(", ");
 
   const script = `
 find . -mindepth 1 \\( -type f -o -type l \\) -print0 |
-perl -0ne '
+perl -0e '
   use strict;
   use warnings;
+  use Digest::SHA ();
 
-  my @paths = sort grep { length $_ } split(/\\0/, $_);
-  my @parts = ("snapshot-v2");
+  my %excluded_root_entries = (${excludedRootEntriesPerl});
+
+  my $input = do { local $/; <STDIN> // "" };
+  my @paths = sort grep { length $_ } split(/\\0/, $input);
+  my $aggregate = Digest::SHA->new(256);
+  $aggregate->add("snapshot-v3\\0");
 
   for my $path (@paths) {
     $path =~ s#^\\./##;
+    my ($root_entry) = split(/\\//, $path, 2);
+    next if exists $excluded_root_entries{$root_entry};
 
     my @stat = lstat($path);
     die "Failed to stat $path" if !@stat;
@@ -112,25 +173,25 @@ perl -0ne '
 
     if (-l $path) {
       my $target = readlink($path);
-      push @parts, "l", $path, $mode, defined($target) ? $target : "";
+      $target = "" if !defined $target;
+      $aggregate->add("l\\0", $path, "\\0", $mode, "\\0", $target, "\\0");
       next;
     }
 
     if (-f $path) {
-      open my $fh, "-|", "git", "hash-object", "--no-filters", "--", $path
-        or die "Failed to hash file $path: $!";
-      my $hash = <$fh>;
-      close $fh or die "Failed to hash file $path";
-      chomp $hash;
-      push @parts, "f", $path, $mode, $hash;
+      open my $fh, "<", $path or die "Failed to open $path: $!";
+      binmode $fh;
+      my $file_hasher = Digest::SHA->new(256);
+      $file_hasher->addfile($fh);
+      close $fh or die "Failed to close $path";
+      my $hash = $file_hasher->hexdigest;
+      $aggregate->add("f\\0", $path, "\\0", $mode, "\\0", $hash, "\\0");
       next;
     }
   }
 
-  binmode STDOUT;
-  print join("\\0", @parts);
-' |
-git hash-object --stdin
+  print $aggregate->hexdigest;
+'
 `;
 
   return runCommand(

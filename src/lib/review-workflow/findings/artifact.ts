@@ -11,10 +11,16 @@ import {
   assertSnapshotDirectoryExists as assertSnapshotDirectoryExistsSync,
   computeSnapshotDirectoryFingerprint,
   copySnapshotDirectoryPreservingMetadata,
+  rootEntryExists,
+  type SnapshotCopyOptions,
+  type SnapshotFingerprintOptions,
   snapshotDirectoryExists,
 } from "@/lib/review-workflow/shared/snapshot";
 
 const FINDINGS_ARTIFACT_VERSION = 1;
+const REVIEWED_SNAPSHOT_EXCLUDE_OPTIONS: SnapshotCopyOptions & SnapshotFingerprintOptions = {
+  excludeRootEntries: [".git"],
+};
 
 function normalizeIsoTimestamp(value: string): string {
   const date = new Date(value);
@@ -242,9 +248,12 @@ async function readFindingsArtifactFile(artifactPath: string): Promise<FindingsA
   return parsed;
 }
 
-export async function computeSnapshotFingerprint(snapshotPath: string): Promise<string> {
+export async function computeSnapshotFingerprint(
+  snapshotPath: string,
+  options?: SnapshotFingerprintOptions
+): Promise<string> {
   await assertSnapshotDirectoryExists(snapshotPath);
-  return await computeSnapshotDirectoryFingerprint(snapshotPath);
+  return await computeSnapshotDirectoryFingerprint(snapshotPath, options);
 }
 
 export function getFindingsArtifactPath(
@@ -275,27 +284,28 @@ async function persistSnapshotCopy(
   sourceSnapshotPath: string,
   destinationSnapshotPath: string,
   sessionId: string,
-  label: string
+  label: string,
+  options?: SnapshotCopyOptions & SnapshotFingerprintOptions
 ): Promise<string> {
   await assertNamedSnapshotDirectoryExists(`${label} path`, sourceSnapshotPath);
 
-  const sourceFingerprint = await computeSnapshotFingerprint(sourceSnapshotPath);
+  const sourceFingerprint = await computeSnapshotFingerprint(sourceSnapshotPath, options);
 
   if (sourceSnapshotPath !== destinationSnapshotPath) {
     const storedSnapshotExists = await directoryExists(destinationSnapshotPath);
     if (storedSnapshotExists) {
-      const storedFingerprint = await computeSnapshotFingerprint(destinationSnapshotPath);
+      const storedFingerprint = await computeSnapshotFingerprint(destinationSnapshotPath, options);
       if (storedFingerprint !== sourceFingerprint) {
         throw new Error(
           `${label} already exists for session ${sessionId} at ${destinationSnapshotPath}`
         );
       }
     } else {
-      copySnapshotDirectoryPreservingMetadata(sourceSnapshotPath, destinationSnapshotPath);
+      copySnapshotDirectoryPreservingMetadata(sourceSnapshotPath, destinationSnapshotPath, options);
     }
   }
 
-  return await computeSnapshotFingerprint(destinationSnapshotPath);
+  return await computeSnapshotFingerprint(destinationSnapshotPath, options);
 }
 
 export async function persistDiscoverySnapshots(
@@ -319,7 +329,8 @@ export async function persistDiscoverySnapshots(
     options.reviewedSnapshotSourcePath,
     reviewedSnapshotPath,
     sessionId,
-    "Reviewed snapshot"
+    "Reviewed snapshot",
+    REVIEWED_SNAPSHOT_EXCLUDE_OPTIONS
   );
 
   const handoffSnapshotPath = getHandoffSnapshotPath(storageRoot, projectPath, sessionId);
@@ -463,6 +474,11 @@ export async function validateArtifactSnapshots(artifact: FindingsArtifact): Pro
   handoffSnapshotFingerprint: string;
 }> {
   await assertNamedSnapshotDirectoryExists("Reviewed snapshot path", artifact.reviewedSnapshotPath);
+  if (rootEntryExists(artifact.reviewedSnapshotPath, ".git")) {
+    throw new Error(
+      `Reviewed snapshot for session ${artifact.sessionId} contains root .git metadata and is unsupported. Re-run discovery to regenerate findings artifacts.`
+    );
+  }
   const computedReviewedFingerprint = await computeSnapshotFingerprint(
     artifact.reviewedSnapshotPath
   );

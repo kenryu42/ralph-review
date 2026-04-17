@@ -108,7 +108,9 @@ async function defaultMaterializeSnapshotIntoWorkspace(
     }
   );
   assertCommandSucceeded(clearResult, `Failed to clear mutable workspace at ${destinationPath}`);
-  copySnapshotDirectoryPreservingMetadata(sourceSnapshotPath, destinationPath);
+  copySnapshotDirectoryPreservingMetadata(sourceSnapshotPath, destinationPath, {
+    excludeRootEntries: [".git"],
+  });
 }
 
 async function defaultCreateSourceSnapshotCopy(
@@ -120,7 +122,9 @@ async function defaultCreateSourceSnapshotCopy(
     getProjectWorktreesDir(CONFIG_DIR, projectPath),
     `${sessionId}-source-snapshot-${Date.now()}-${crypto.randomUUID()}`
   );
-  copySnapshotDirectoryPreservingMetadata(sourceSnapshotPath, destinationPath);
+  copySnapshotDirectoryPreservingMetadata(sourceSnapshotPath, destinationPath, {
+    excludeRootEntries: [".git"],
+  });
   return destinationPath;
 }
 
