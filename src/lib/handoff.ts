@@ -15,6 +15,7 @@ import {
   removeHandoffRef,
 } from "@/lib/git";
 import { getProjectStorageDir } from "@/lib/logger";
+import { hasRootGitignore } from "@/lib/review-workflow/shared/snapshot";
 import type {
   ArchivedAppliedHandoffArtifact,
   ArchivedHandoffMatchResult,
@@ -526,6 +527,16 @@ export async function createOrAutoApplyHandoff(
     const sourceFingerprint = options.worktree.sourceFingerprint;
     if (!sourceFingerprint) {
       throw new Error("Session worktree is missing its source fingerprint.");
+    }
+
+    const sourceSnapshotHasGitignore = await hasRootGitignore(sourceSnapshotPath);
+    if (sourceSnapshotHasGitignore) {
+      const worktreeHasGitignore = await hasRootGitignore(options.worktree.worktreeProjectPath);
+      if (!worktreeHasGitignore) {
+        throw new Error(
+          "Session worktree is missing .gitignore while source snapshot includes .gitignore. Hidden files may have been dropped during remediation snapshot restore."
+        );
+      }
     }
 
     materializeGitScopedCopy(options.worktree.worktreeProjectPath, finalSnapshotPath);

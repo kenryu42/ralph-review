@@ -7,6 +7,12 @@ import type {
   FindingId,
   FindingsArtifact,
 } from "@/lib/review-workflow/findings/types";
+import {
+  assertSnapshotDirectoryExists as assertSnapshotDirectoryExistsSync,
+  computeSnapshotDirectoryFingerprint,
+  copySnapshotDirectoryPreservingMetadata,
+  snapshotDirectoryExists,
+} from "@/lib/review-workflow/shared/snapshot";
 
 const FINDINGS_ARTIFACT_VERSION = 1;
 
@@ -200,57 +206,11 @@ function isFindingsArtifact(value: unknown): value is FindingsArtifact {
   return true;
 }
 
-function hashDirectoryEntry(
-  hasher: Bun.CryptoHasher,
-  snapshotPath: string,
-  absolutePath: string,
-  relativePath: string
-): Promise<void> {
-  const file = Bun.file(absolutePath);
-
-  return file
-    .arrayBuffer()
-    .then((buffer) => {
-      hasher.update("FILE\n");
-      hasher.update(relativePath);
-      hasher.update("\n");
-      hasher.update(String(buffer.byteLength));
-      hasher.update("\n");
-      hasher.update(new Uint8Array(buffer));
-      hasher.update("\n");
-    })
-    .catch(() => {
-      throw new Error(
-        `Failed to read snapshot file while hashing: ${join(snapshotPath, relativePath)}`
-      );
-    });
-}
-
-async function listRelativeFiles(rootPath: string): Promise<string[]> {
-  const glob = new Bun.Glob("**/*");
-  const relativeFiles: string[] = [];
-
-  for await (const relativePath of glob.scan({ cwd: rootPath, onlyFiles: true })) {
-    relativeFiles.push(relativePath);
-  }
-
-  relativeFiles.sort((left, right) => left.localeCompare(right));
-  return relativeFiles;
-}
-
 async function assertNamedSnapshotDirectoryExists(
   description: string,
   snapshotPath: string
 ): Promise<void> {
-  const glob = new Bun.Glob("**/*");
-
-  try {
-    for await (const _ of glob.scan({ cwd: snapshotPath, onlyFiles: true })) {
-      break;
-    }
-  } catch {
-    throw new Error(`${description} is missing: ${snapshotPath}`);
-  }
+  assertSnapshotDirectoryExistsSync(description, snapshotPath);
 }
 
 async function assertSnapshotDirectoryExists(snapshotPath: string): Promise<void> {
@@ -258,39 +218,7 @@ async function assertSnapshotDirectoryExists(snapshotPath: string): Promise<void
 }
 
 async function directoryExists(path: string): Promise<boolean> {
-  const glob = new Bun.Glob("**/*");
-
-  try {
-    for await (const _ of glob.scan({ cwd: path, onlyFiles: true })) {
-      break;
-    }
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function ensureDirectory(path: string): void {
-  const result = Bun.spawnSync(["mkdir", "-p", path], {
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-
-  if (result.exitCode !== 0) {
-    const stderr = result.stderr.toString().trim();
-    throw new Error(`Failed to create directory ${path}: ${stderr || "mkdir failed"}`);
-  }
-}
-
-async function copySnapshotFiles(sourcePath: string, destinationPath: string): Promise<void> {
-  ensureDirectory(destinationPath);
-
-  for (const relativePath of await listRelativeFiles(sourcePath)) {
-    const sourceFile = Bun.file(join(sourcePath, relativePath));
-    await Bun.write(join(destinationPath, relativePath), await sourceFile.arrayBuffer(), {
-      createPath: true,
-    });
-  }
+  return snapshotDirectoryExists(path);
 }
 
 async function readFindingsArtifactFile(artifactPath: string): Promise<FindingsArtifact | null> {
@@ -316,17 +244,7 @@ async function readFindingsArtifactFile(artifactPath: string): Promise<FindingsA
 
 export async function computeSnapshotFingerprint(snapshotPath: string): Promise<string> {
   await assertSnapshotDirectoryExists(snapshotPath);
-
-  const relativeFiles = await listRelativeFiles(snapshotPath);
-  const hasher = new Bun.CryptoHasher("sha256");
-  hasher.update("snapshot-v1\n");
-
-  for (const relativePath of relativeFiles) {
-    const absolutePath = join(snapshotPath, relativePath);
-    await hashDirectoryEntry(hasher, snapshotPath, absolutePath, relativePath);
-  }
-
-  return hasher.digest("hex");
+  return await computeSnapshotDirectoryFingerprint(snapshotPath);
 }
 
 export function getFindingsArtifactPath(
@@ -373,7 +291,7 @@ async function persistSnapshotCopy(
         );
       }
     } else {
-      await copySnapshotFiles(sourceSnapshotPath, destinationSnapshotPath);
+      copySnapshotDirectoryPreservingMetadata(sourceSnapshotPath, destinationSnapshotPath);
     }
   }
 

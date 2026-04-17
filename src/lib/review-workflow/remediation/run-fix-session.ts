@@ -25,6 +25,7 @@ import type {
   RemediationSelection,
 } from "@/lib/review-workflow/remediation/types";
 import { finalizeResult } from "@/lib/review-workflow/results/finalize-result";
+import { copySnapshotDirectoryPreservingMetadata } from "@/lib/review-workflow/shared/snapshot";
 import type { SessionState } from "@/lib/session-state";
 import type { Config, Priority, ReviewPhase } from "@/lib/types";
 
@@ -70,18 +71,6 @@ export interface RunFixSessionDependencies {
   discardSessionWorktree: typeof discardSessionWorktree;
 }
 
-async function listRelativeFiles(rootPath: string): Promise<string[]> {
-  const glob = new Bun.Glob("**/*");
-  const relativeFiles: string[] = [];
-
-  for await (const relativePath of glob.scan({ cwd: rootPath, onlyFiles: true })) {
-    relativeFiles.push(relativePath);
-  }
-
-  relativeFiles.sort((left, right) => left.localeCompare(right));
-  return relativeFiles;
-}
-
 function assertCommandSucceeded(result: ReturnType<typeof Bun.spawnSync>, context: string): void {
   if (result.exitCode === 0) {
     return;
@@ -90,15 +79,6 @@ function assertCommandSucceeded(result: ReturnType<typeof Bun.spawnSync>, contex
   const stderr = result.stderr ? result.stderr.toString().trim() : "";
   const stdout = result.stdout ? result.stdout.toString().trim() : "";
   throw new Error(`${context}: ${stderr || stdout || "command failed"}`);
-}
-
-async function copySnapshotDirectory(sourcePath: string, destinationPath: string): Promise<void> {
-  for (const relativePath of await listRelativeFiles(sourcePath)) {
-    const sourceFile = Bun.file(join(sourcePath, relativePath));
-    await Bun.write(join(destinationPath, relativePath), await sourceFile.arrayBuffer(), {
-      createPath: true,
-    });
-  }
 }
 
 async function defaultMaterializeSnapshotIntoWorkspace(
@@ -128,7 +108,7 @@ async function defaultMaterializeSnapshotIntoWorkspace(
     }
   );
   assertCommandSucceeded(clearResult, `Failed to clear mutable workspace at ${destinationPath}`);
-  await copySnapshotDirectory(sourceSnapshotPath, destinationPath);
+  copySnapshotDirectoryPreservingMetadata(sourceSnapshotPath, destinationPath);
 }
 
 async function defaultCreateSourceSnapshotCopy(
@@ -140,7 +120,7 @@ async function defaultCreateSourceSnapshotCopy(
     getProjectWorktreesDir(CONFIG_DIR, projectPath),
     `${sessionId}-source-snapshot-${Date.now()}-${crypto.randomUUID()}`
   );
-  await copySnapshotDirectory(sourceSnapshotPath, destinationPath);
+  copySnapshotDirectoryPreservingMetadata(sourceSnapshotPath, destinationPath);
   return destinationPath;
 }
 

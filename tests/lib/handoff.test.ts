@@ -222,6 +222,45 @@ describe("handoff", () => {
     }
   });
 
+  test("fails early when source snapshot has .gitignore but remediation workspace lost it", async () => {
+    await writeFile(join(repoPath, ".gitignore"), "node_modules\ncoverage\ndocs\noutput\n");
+    runGitIn(repoPath, ["add", ".gitignore"]);
+    runGitIn(repoPath, ["commit", "-m", "add ignore rules"]);
+
+    await writeFile(join(repoPath, "app.txt"), "draft\n");
+    await writeFile(join(repoPath, "node_modules/cache.js"), "before\n");
+    await writeFile(join(repoPath, "coverage/lcov.info"), "before\n");
+    await writeFile(join(repoPath, "docs/plans/plan.md"), "before\n");
+    await writeFile(join(repoPath, "output/image.txt"), "before\n");
+
+    const worktree = createSessionWorktree(repoPath, "session-missing-gitignore", storageRoot);
+
+    try {
+      const gitScopedCopy = join(storageRoot, "session-missing-gitignore-source-copy");
+      materializeWorkingTreeSnapshot(worktree.sourceSnapshotDir ?? "", gitScopedCopy);
+      worktree.sourceSnapshotPath = gitScopedCopy;
+
+      await Bun.file(join(worktree.worktreeProjectPath, ".gitignore")).delete();
+      await writeFile(join(worktree.worktreeProjectPath, "app.txt"), "fixed draft\n");
+      await writeFile(join(worktree.worktreeProjectPath, "node_modules/cache.js"), "after\n");
+      await writeFile(join(worktree.worktreeProjectPath, "coverage/lcov.info"), "after\n");
+
+      await expect(
+        createOrAutoApplyHandoff(storageRoot, {
+          sessionId: "session-missing-gitignore",
+          projectPath: repoPath,
+          logPath: join(repoPath, ".ralph-review", "logs", "session-missing-gitignore.jsonl"),
+          worktree,
+        })
+      ).rejects.toThrow("source snapshot includes .gitignore");
+      expect(await readPendingHandoff(storageRoot, repoPath, "session-missing-gitignore")).toBe(
+        null
+      );
+    } finally {
+      discardSessionWorktree(worktree);
+    }
+  });
+
   test("auto-applies in sha256 repositories when the source repo still matches the session snapshot", async () => {
     await rm(repoPath, { recursive: true, force: true });
     repoPath = await mkdtemp(join(tmpdir(), "ralph-handoff-sha256-repo-"));

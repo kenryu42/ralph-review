@@ -153,6 +153,59 @@ describe("review-workflow/findings/artifact", () => {
     }
   });
 
+  test("includes hidden files in snapshot fingerprints and validation", async () => {
+    const reviewedSnapshotPath = join(tempDir, "snapshot-reviewed-hidden");
+    const handoffSnapshotPath = join(tempDir, "snapshot-handoff-hidden");
+    await Bun.write(join(reviewedSnapshotPath, ".gitignore"), "node_modules\n", {
+      createPath: true,
+    });
+    await Bun.write(join(reviewedSnapshotPath, "src/file.ts"), "export const value = 1;\n", {
+      createPath: true,
+    });
+    await Bun.write(join(handoffSnapshotPath, ".gitignore"), "node_modules\n", {
+      createPath: true,
+    });
+    await Bun.write(join(handoffSnapshotPath, "src/file.ts"), "export const value = 1;\n", {
+      createPath: true,
+    });
+
+    const reviewedSnapshotFingerprint = await computeSnapshotFingerprint(reviewedSnapshotPath);
+    const handoffSnapshotFingerprint = await computeSnapshotFingerprint(handoffSnapshotPath);
+    const artifact: FindingsArtifact = {
+      artifactVersion: 1,
+      sessionId: "session-hidden-file-fingerprint",
+      projectPath: "/repo/project",
+      logPath: "/tmp/logs/session-hidden-file-fingerprint.jsonl",
+      reviewedSnapshotRef: "snap-hidden",
+      reviewedSnapshotPath,
+      reviewedSnapshotFingerprint,
+      handoffSnapshotPath,
+      handoffSnapshotFingerprint,
+      sourceRepoFingerprint: "repo-fingerprint-1",
+      findings: [createStoredFinding("F001")],
+      selectedFindingIds: [],
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+
+    await saveFindingsArtifact(tempDir, artifact);
+
+    await Bun.file(join(reviewedSnapshotPath, ".gitignore")).delete();
+
+    const fingerprintAfterHiddenFileRemoval =
+      await computeSnapshotFingerprint(reviewedSnapshotPath);
+    expect(fingerprintAfterHiddenFileRemoval).not.toBe(reviewedSnapshotFingerprint);
+
+    const loaded = await loadFindingsArtifact(tempDir, artifact.projectPath, artifact.sessionId);
+    if (!loaded) {
+      throw new Error("Expected artifact to load");
+    }
+
+    await expect(validateArtifactSnapshots(loaded)).rejects.toThrow(
+      "Reviewed snapshot fingerprint mismatch"
+    );
+  });
+
   test("updates selection, fix results, and audit summary", async () => {
     const snapshotPath = join(tempDir, "snapshot-selection");
     await Bun.write(join(snapshotPath, "README.md"), "snapshot file", { createPath: true });
