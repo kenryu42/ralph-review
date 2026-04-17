@@ -1,7 +1,13 @@
 import { join } from "node:path";
 import * as p from "@clack/prompts";
 import { CONFIG_DIR } from "@/lib/config";
-import { createSessionWorktree, discardSessionWorktree, type GitSessionWorktree } from "@/lib/git";
+import {
+  createSessionWorktree,
+  discardSessionWorktree,
+  finalizeSessionWorktree,
+  type GitSessionWorktree,
+  type RetainedSessionWorktree,
+} from "@/lib/git";
 import { appendLog, getProjectWorktreesDir } from "@/lib/logging";
 import { runFinalAuditPhase } from "@/lib/review-workflow/audit/run-final-audit-phase";
 import {
@@ -9,7 +15,7 @@ import {
   loadFindingsArtifactBySessionId,
   updateAuditSummary,
   updateSelection,
-  validateArtifactSnapshot,
+  validateArtifactSnapshots,
 } from "@/lib/review-workflow/findings/artifact";
 import { selectFindings } from "@/lib/review-workflow/findings/selection";
 import type { FindingId, FindingsArtifact } from "@/lib/review-workflow/findings/types";
@@ -37,7 +43,7 @@ export interface RunFixSessionOptions {
 
 export interface RunFixSessionDependencies {
   loadFindingsArtifactBySessionId: typeof loadFindingsArtifactBySessionId;
-  validateArtifactSnapshot: typeof validateArtifactSnapshot;
+  validateArtifactSnapshots: typeof validateArtifactSnapshots;
   createSessionWorktree: typeof createSessionWorktree;
   materializeSnapshotIntoWorkspace: (
     sourceSnapshotPath: string,
@@ -60,6 +66,7 @@ export interface RunFixSessionDependencies {
   ) => Promise<Awaited<ReturnType<typeof runFinalAuditPhase>>>;
   updateAuditSummary: typeof updateAuditSummary;
   finalizeResult: typeof finalizeResult;
+  finalizeSessionWorktree: typeof finalizeSessionWorktree;
   discardSessionWorktree: typeof discardSessionWorktree;
 }
 
@@ -157,7 +164,7 @@ async function defaultPromptForSelection(artifact: FindingsArtifact): Promise<Fi
 
 const DEFAULT_RUN_FIX_SESSION_DEPENDENCIES: RunFixSessionDependencies = {
   loadFindingsArtifactBySessionId,
-  validateArtifactSnapshot,
+  validateArtifactSnapshots,
   createSessionWorktree,
   materializeSnapshotIntoWorkspace: defaultMaterializeSnapshotIntoWorkspace,
   createSourceSnapshotCopy: defaultCreateSourceSnapshotCopy,
@@ -169,6 +176,7 @@ const DEFAULT_RUN_FIX_SESSION_DEPENDENCIES: RunFixSessionDependencies = {
   runFinalAuditPhase,
   updateAuditSummary,
   finalizeResult,
+  finalizeSessionWorktree,
   discardSessionWorktree,
 };
 
@@ -302,13 +310,26 @@ async function emitProgress(
   await onProgress?.(updates);
 }
 
+function isStructuredJsonError(error: unknown): boolean {
+  return (
+    error instanceof Error && error.message === "Structured JSON output was missing or invalid."
+  );
+}
+
 export async function runFixSession(
   config: Config,
   options: RunFixSessionOptions,
   deps: RunFixSessionDependencies = DEFAULT_RUN_FIX_SESSION_DEPENDENCIES
 ): Promise<FixSessionResult> {
   let artifact: FindingsArtifact | null = null;
+  let artifactForResult: FindingsArtifact | undefined;
   let worktree: GitSessionWorktree | null = null;
+  let shouldDiscardWorktree = true;
+  let phase: ReviewPhase = "selection";
+  let selection = emptySelection();
+  let fixResults: FixSessionResult["fixResults"] = [];
+  let audit: FixSessionResult["audit"];
+  let retainedWorktree: RetainedSessionWorktree | undefined;
   let result = buildResult({
     reason: `Findings artifact not found for session ${options.sessionId}.`,
   });
@@ -318,6 +339,7 @@ export async function runFixSession(
     if (!artifact) {
       return result;
     }
+    artifactForResult = artifact;
 
     const resolvedSelection = await resolveSelection(artifact, options, deps);
     if (resolvedSelection.error) {
@@ -371,6 +393,8 @@ export async function runFixSession(
       artifact.sessionId,
       getSelectedArtifactSelection(resolvedSelection.selection)
     );
+    artifactForResult = artifactWithSelection;
+    selection = resolvedSelection.selection;
     await deps.appendLog(artifact.logPath, {
       type: "finding_selection",
       timestamp: Date.now(),
@@ -410,16 +434,16 @@ export async function runFixSession(
       return result;
     }
 
-    await deps.validateArtifactSnapshot(artifactWithSelection);
+    await deps.validateArtifactSnapshots(artifactWithSelection);
 
     worktree = deps.createSessionWorktree(artifact.projectPath, `${artifact.sessionId}-fix`);
     await deps.materializeSnapshotIntoWorkspace(
       artifact.reviewedSnapshotPath,
       worktree.agentProjectPath
     );
-    worktree.sourceFingerprint = artifact.sourceFingerprint;
+    worktree.sourceFingerprint = artifact.sourceRepoFingerprint;
     worktree.sourceSnapshotPath = await deps.createSourceSnapshotCopy(
-      artifact.reviewedSnapshotPath,
+      artifact.handoffSnapshotPath,
       artifact.sessionId,
       artifact.projectPath
     );
@@ -430,11 +454,12 @@ export async function runFixSession(
       currentAgent: null,
       worktreeProjectPath: worktree.worktreeProjectPath,
       worktreeBranch: worktree.retainedBranch,
-      sourceFingerprint: artifact.sourceFingerprint,
+      sourceRepoFingerprint: artifact.sourceRepoFingerprint,
       reviewedSnapshotPath: artifact.reviewedSnapshotPath,
       selectedFindingIds: resolvedSelection.selection.selectedFindingIds,
     });
 
+    phase = "batch-fix";
     await emitProgress(options.onProgress, {
       currentPhase: "batch-fix",
       phase: "batch-fix",
@@ -448,6 +473,7 @@ export async function runFixSession(
       selection: resolvedSelection.selection,
       worktree,
     });
+    fixResults = batchFix.fixResults;
 
     const artifactWithFixResults = await deps.appendFixResults(
       CONFIG_DIR,
@@ -455,7 +481,9 @@ export async function runFixSession(
       artifact.sessionId,
       batchFix.fixResults
     );
+    artifactForResult = artifactWithFixResults;
 
+    phase = "final-audit";
     await emitProgress(options.onProgress, {
       currentPhase: "final-audit",
       phase: "final-audit",
@@ -469,6 +497,7 @@ export async function runFixSession(
       selection: resolvedSelection.selection,
       worktree,
     });
+    audit = auditPhase.summary;
 
     const artifactWithAudit = await deps.updateAuditSummary(
       CONFIG_DIR,
@@ -476,6 +505,7 @@ export async function runFixSession(
       artifact.sessionId,
       auditPhase.summary
     );
+    artifactForResult = artifactWithAudit;
 
     result = await deps.finalizeResult({
       artifact: artifactWithAudit,
@@ -495,17 +525,45 @@ export async function runFixSession(
       handoffStatus: result.handoffStatus,
       handoffUpdatedAt: result.handoffUpdatedAt,
       commitSha: result.commitSha,
+      worktreeProjectPath: result.retainedWorktree?.worktreeProjectPath,
+      worktreeBranch: result.retainedWorktree?.worktreeBranch,
+      worktreeMergeReady: result.retainedWorktree?.mergeReady,
+      worktreeCommitSha: result.retainedWorktree?.commitSha,
     });
     return result;
   } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    if (worktree && phase === "final-audit" && isStructuredJsonError(error)) {
+      try {
+        retainedWorktree = deps.finalizeSessionWorktree(worktree) ?? undefined;
+        if (retainedWorktree) {
+          shouldDiscardWorktree = false;
+        }
+      } catch {
+        retainedWorktree = undefined;
+      }
+    }
+
+    const resultArtifact = artifactForResult ?? artifact ?? undefined;
     result = buildResult({
-      artifact: artifact ?? undefined,
-      reason: error instanceof Error ? error.message : String(error),
-      unselectedFindings: artifact?.findings ?? [],
+      artifact: resultArtifact,
+      phase,
+      reason,
+      selection,
+      fixResults,
+      audit,
+      retainedWorktree,
+      unresolvedSelectedFindings: selection.selectedFindings.filter(
+        (finding) => audit?.unresolvedFindingIds.includes(finding.id) === true
+      ),
+      unselectedFindings:
+        resultArtifact?.findings.filter(
+          (finding) => !selection.selectedFindingIds.includes(finding.id)
+        ) ?? [],
     });
     await emitProgress(options.onProgress, {
-      currentPhase: result.phase,
-      phase: result.phase,
+      currentPhase: phase,
+      phase: phase,
       sessionStatus: result.sessionStatus,
       currentAgent: null,
       selectedFindingIds: result.selection.selectedFindingIds,
@@ -514,6 +572,10 @@ export async function runFixSession(
       handoffStatus: result.handoffStatus,
       handoffUpdatedAt: result.handoffUpdatedAt,
       commitSha: result.commitSha,
+      worktreeProjectPath: retainedWorktree?.worktreeProjectPath,
+      worktreeBranch: retainedWorktree?.worktreeBranch,
+      worktreeMergeReady: retainedWorktree?.mergeReady,
+      worktreeCommitSha: retainedWorktree?.commitSha,
     });
     return result;
   } finally {
@@ -530,12 +592,15 @@ export async function runFixSession(
           reviewOutcome: result.reviewOutcome,
           handoffStatus: result.handoffStatus,
           handoffUpdatedAt: result.handoffUpdatedAt,
+          mergeReady: result.retainedWorktree?.mergeReady,
           commitSha: result.commitSha,
+          worktreeBranch: result.retainedWorktree?.worktreeBranch,
+          worktreeProjectPath: result.retainedWorktree?.worktreeProjectPath,
         })
         .catch(() => {});
     }
 
-    if (worktree) {
+    if (worktree && shouldDiscardWorktree) {
       try {
         deps.discardSessionWorktree(worktree);
       } catch {

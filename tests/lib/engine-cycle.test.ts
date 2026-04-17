@@ -55,6 +55,7 @@ const TEST_SESSION_ID = "session-123";
 const TEST_SESSION_PATH = "/tmp/session-123.jsonl";
 const TEST_WORKTREE_PATH = "/tmp/rr-worktree";
 const TEST_REVIEWED_SNAPSHOT_PATH = "/tmp/rr-storage/snapshots/session-123/reviewed";
+const TEST_HANDOFF_SNAPSHOT_PATH = "/tmp/rr-storage/snapshots/session-123/handoff";
 
 function createHarnessState(): HarnessState {
   return {
@@ -159,7 +160,7 @@ function createDependencies(state: HarnessState): RunReviewCycleDeps {
     retainedBranch: "rr-worktree-session-123",
     headKind: "detached",
     sourceSnapshotDir: "/tmp/source-snapshot-dir",
-    sourceFingerprint: "source-worktree-fingerprint",
+    sourceFingerprint: "source-repo-fingerprint",
   };
 
   return {
@@ -266,23 +267,26 @@ function createDependencies(state: HarnessState): RunReviewCycleDeps {
       }
       return next;
     },
-    persistReviewedSnapshot: async (_storageRoot, projectPath, sessionId, sourceSnapshotPath) => {
-      state.operationLog.push("persist-reviewed-snapshot");
+    persistDiscoverySnapshots: async (_storageRoot, projectPath, sessionId, options) => {
+      state.operationLog.push("persist-discovery-snapshots");
       state.persistedSnapshots.push({
         projectPath,
         sessionId,
-        sourceSnapshotPath,
+        sourceSnapshotPath: options.reviewedSnapshotSourcePath,
       });
       return {
         reviewedSnapshotPath: TEST_REVIEWED_SNAPSHOT_PATH,
-        sourceFingerprint: "snapshot-fingerprint",
+        reviewedSnapshotFingerprint: "reviewed-snapshot-fingerprint",
+        handoffSnapshotPath: TEST_HANDOFF_SNAPSHOT_PATH,
+        handoffSnapshotFingerprint: "handoff-snapshot-fingerprint",
+        sourceRepoFingerprint: "source-repo-fingerprint",
       };
     },
     saveFindingsArtifact: async (_storageRoot, artifact) => {
       state.savedArtifacts.push(artifact);
       return artifact;
     },
-    computeSnapshotFingerprint: async () => "snapshot-fingerprint",
+    computeSnapshotFingerprint: async () => "reviewed-snapshot-fingerprint",
   };
 }
 
@@ -337,7 +341,14 @@ describe("runReviewCycle", () => {
 
     expect(state.savedArtifacts).toHaveLength(1);
     expect(state.savedArtifacts[0]?.reviewedSnapshotPath).toBe(TEST_REVIEWED_SNAPSHOT_PATH);
-    expect(state.savedArtifacts[0]?.sourceFingerprint).toBe("snapshot-fingerprint");
+    expect(state.savedArtifacts[0]?.reviewedSnapshotFingerprint).toBe(
+      "reviewed-snapshot-fingerprint"
+    );
+    expect(state.savedArtifacts[0]?.handoffSnapshotPath).toBe(TEST_HANDOFF_SNAPSHOT_PATH);
+    expect(state.savedArtifacts[0]?.handoffSnapshotFingerprint).toBe(
+      "handoff-snapshot-fingerprint"
+    );
+    expect(state.savedArtifacts[0]?.sourceRepoFingerprint).toBe("source-repo-fingerprint");
     expect(state.savedArtifacts[0]?.findings.map((finding) => finding.id)).toEqual(["F001"]);
     expect(state.savedArtifacts[0]?.selectedFindingIds).toEqual([]);
 
@@ -430,9 +441,9 @@ describe("runReviewCycle", () => {
       },
     ]);
     expect(state.operationLog.indexOf("run-agent:code-simplifier")).toBeLessThan(
-      state.operationLog.indexOf("persist-reviewed-snapshot")
+      state.operationLog.indexOf("persist-discovery-snapshots")
     );
-    expect(state.operationLog.indexOf("persist-reviewed-snapshot")).toBeLessThan(
+    expect(state.operationLog.indexOf("persist-discovery-snapshots")).toBeLessThan(
       state.operationLog.indexOf("run-agent:reviewer")
     );
   });

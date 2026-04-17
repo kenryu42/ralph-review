@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { materializeWorkingTreeSnapshot } from "@/lib/git";
 import { getProjectStorageDir } from "@/lib/logging";
 import type {
   AuditSummary,
@@ -148,7 +149,31 @@ function isFindingsArtifact(value: unknown): value is FindingsArtifact {
     return false;
   }
 
-  if (typeof value.sourceFingerprint !== "string" || value.sourceFingerprint.trim().length === 0) {
+  if (
+    typeof value.reviewedSnapshotFingerprint !== "string" ||
+    value.reviewedSnapshotFingerprint.trim().length === 0
+  ) {
+    return false;
+  }
+
+  if (
+    typeof value.handoffSnapshotPath !== "string" ||
+    value.handoffSnapshotPath.trim().length === 0
+  ) {
+    return false;
+  }
+
+  if (
+    typeof value.handoffSnapshotFingerprint !== "string" ||
+    value.handoffSnapshotFingerprint.trim().length === 0
+  ) {
+    return false;
+  }
+
+  if (
+    typeof value.sourceRepoFingerprint !== "string" ||
+    value.sourceRepoFingerprint.trim().length === 0
+  ) {
     return false;
   }
 
@@ -213,7 +238,10 @@ async function listRelativeFiles(rootPath: string): Promise<string[]> {
   return relativeFiles;
 }
 
-async function assertSnapshotDirectoryExists(snapshotPath: string): Promise<void> {
+async function assertNamedSnapshotDirectoryExists(
+  description: string,
+  snapshotPath: string
+): Promise<void> {
   const glob = new Bun.Glob("**/*");
 
   try {
@@ -221,8 +249,12 @@ async function assertSnapshotDirectoryExists(snapshotPath: string): Promise<void
       break;
     }
   } catch {
-    throw new Error(`Reviewed snapshot path is missing: ${snapshotPath}`);
+    throw new Error(`${description} is missing: ${snapshotPath}`);
   }
+}
+
+async function assertSnapshotDirectoryExists(snapshotPath: string): Promise<void> {
+  await assertNamedSnapshotDirectoryExists("Reviewed snapshot path", snapshotPath);
 }
 
 async function directoryExists(path: string): Promise<boolean> {
@@ -313,35 +345,77 @@ export function getReviewedSnapshotPath(
   return join(getProjectStorageDir(storageRoot, projectPath), "snapshots", sessionId, "reviewed");
 }
 
-export async function persistReviewedSnapshot(
+export function getHandoffSnapshotPath(
   storageRoot: string,
   projectPath: string,
-  sessionId: string,
-  sourceSnapshotPath: string
-): Promise<{ reviewedSnapshotPath: string; sourceFingerprint: string }> {
-  await assertSnapshotDirectoryExists(sourceSnapshotPath);
+  sessionId: string
+): string {
+  return join(getProjectStorageDir(storageRoot, projectPath), "snapshots", sessionId, "handoff");
+}
 
-  const reviewedSnapshotPath = getReviewedSnapshotPath(storageRoot, projectPath, sessionId);
+async function persistSnapshotCopy(
+  sourceSnapshotPath: string,
+  destinationSnapshotPath: string,
+  sessionId: string,
+  label: string
+): Promise<string> {
+  await assertNamedSnapshotDirectoryExists(`${label} path`, sourceSnapshotPath);
+
   const sourceFingerprint = await computeSnapshotFingerprint(sourceSnapshotPath);
 
-  if (sourceSnapshotPath !== reviewedSnapshotPath) {
-    const storedSnapshotExists = await directoryExists(reviewedSnapshotPath);
+  if (sourceSnapshotPath !== destinationSnapshotPath) {
+    const storedSnapshotExists = await directoryExists(destinationSnapshotPath);
     if (storedSnapshotExists) {
-      const storedFingerprint = await computeSnapshotFingerprint(reviewedSnapshotPath);
+      const storedFingerprint = await computeSnapshotFingerprint(destinationSnapshotPath);
       if (storedFingerprint !== sourceFingerprint) {
         throw new Error(
-          `Reviewed snapshot already exists for session ${sessionId} at ${reviewedSnapshotPath}`
+          `${label} already exists for session ${sessionId} at ${destinationSnapshotPath}`
         );
       }
     } else {
-      await copySnapshotFiles(sourceSnapshotPath, reviewedSnapshotPath);
+      await copySnapshotFiles(sourceSnapshotPath, destinationSnapshotPath);
     }
   }
 
-  const persistedFingerprint = await computeSnapshotFingerprint(reviewedSnapshotPath);
+  return await computeSnapshotFingerprint(destinationSnapshotPath);
+}
+
+export async function persistDiscoverySnapshots(
+  storageRoot: string,
+  projectPath: string,
+  sessionId: string,
+  options: {
+    reviewedSnapshotSourcePath: string;
+    handoffSnapshotSourceDir: string;
+    sourceRepoFingerprint: string;
+  }
+): Promise<{
+  reviewedSnapshotPath: string;
+  reviewedSnapshotFingerprint: string;
+  handoffSnapshotPath: string;
+  handoffSnapshotFingerprint: string;
+  sourceRepoFingerprint: string;
+}> {
+  const reviewedSnapshotPath = getReviewedSnapshotPath(storageRoot, projectPath, sessionId);
+  const reviewedSnapshotFingerprint = await persistSnapshotCopy(
+    options.reviewedSnapshotSourcePath,
+    reviewedSnapshotPath,
+    sessionId,
+    "Reviewed snapshot"
+  );
+
+  const handoffSnapshotPath = getHandoffSnapshotPath(storageRoot, projectPath, sessionId);
+  if (!(await directoryExists(handoffSnapshotPath))) {
+    materializeWorkingTreeSnapshot(options.handoffSnapshotSourceDir, handoffSnapshotPath);
+  }
+  const handoffSnapshotFingerprint = await computeSnapshotFingerprint(handoffSnapshotPath);
+
   return {
     reviewedSnapshotPath,
-    sourceFingerprint: persistedFingerprint,
+    reviewedSnapshotFingerprint,
+    handoffSnapshotPath,
+    handoffSnapshotFingerprint,
+    sourceRepoFingerprint: options.sourceRepoFingerprint,
   };
 }
 
@@ -466,18 +540,31 @@ export async function updateAuditSummary(
   });
 }
 
-export async function validateArtifactSnapshot(
-  artifact: FindingsArtifact
-): Promise<{ fingerprint: string }> {
-  const computedFingerprint = await computeSnapshotFingerprint(artifact.reviewedSnapshotPath);
+export async function validateArtifactSnapshots(artifact: FindingsArtifact): Promise<{
+  reviewedSnapshotFingerprint: string;
+  handoffSnapshotFingerprint: string;
+}> {
+  await assertNamedSnapshotDirectoryExists("Reviewed snapshot path", artifact.reviewedSnapshotPath);
+  const computedReviewedFingerprint = await computeSnapshotFingerprint(
+    artifact.reviewedSnapshotPath
+  );
 
-  if (computedFingerprint !== artifact.sourceFingerprint) {
+  if (computedReviewedFingerprint !== artifact.reviewedSnapshotFingerprint) {
     throw new Error(
-      `Reviewed snapshot fingerprint mismatch for session ${artifact.sessionId}. Expected ${artifact.sourceFingerprint}, got ${computedFingerprint}`
+      `Reviewed snapshot fingerprint mismatch for session ${artifact.sessionId}. Expected ${artifact.reviewedSnapshotFingerprint}, got ${computedReviewedFingerprint}`
+    );
+  }
+
+  await assertNamedSnapshotDirectoryExists("Handoff snapshot path", artifact.handoffSnapshotPath);
+  const computedHandoffFingerprint = await computeSnapshotFingerprint(artifact.handoffSnapshotPath);
+  if (computedHandoffFingerprint !== artifact.handoffSnapshotFingerprint) {
+    throw new Error(
+      `Handoff snapshot fingerprint mismatch for session ${artifact.sessionId}. Expected ${artifact.handoffSnapshotFingerprint}, got ${computedHandoffFingerprint}`
     );
   }
 
   return {
-    fingerprint: computedFingerprint,
+    reviewedSnapshotFingerprint: computedReviewedFingerprint,
+    handoffSnapshotFingerprint: computedHandoffFingerprint,
   };
 }

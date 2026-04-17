@@ -1,19 +1,21 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createSessionWorktree, discardSessionWorktree } from "@/lib/git";
 import {
   appendFixResults,
   computeSnapshotFingerprint,
   getFindingsArtifactPath,
+  getHandoffSnapshotPath,
   getReviewedSnapshotPath,
   loadFindingsArtifact,
   loadFindingsArtifactBySessionId,
-  persistReviewedSnapshot,
+  persistDiscoverySnapshots,
   saveFindingsArtifact,
   updateAuditSummary,
   updateSelection,
-  validateArtifactSnapshot,
+  validateArtifactSnapshots,
 } from "@/lib/review-workflow/findings/artifact";
 import type {
   AuditSummary,
@@ -38,6 +40,25 @@ function createStoredFinding(id: FindingId): StoredFinding {
   };
 }
 
+function runGitIn(repoPath: string, args: string[]): void {
+  const result = Bun.spawnSync(["git", ...args], {
+    cwd: repoPath,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  if (result.exitCode !== 0) {
+    throw new Error(`git ${args.join(" ")} failed: ${result.stderr.toString()}`);
+  }
+}
+
+function initTestRepo(repoPath: string): void {
+  runGitIn(repoPath, ["init", "--initial-branch=main"]);
+  runGitIn(repoPath, ["config", "core.autocrlf", "false"]);
+  runGitIn(repoPath, ["config", "user.name", "Tester"]);
+  runGitIn(repoPath, ["config", "user.email", "test@example.com"]);
+  runGitIn(repoPath, ["config", "commit.gpgsign", "false"]);
+}
+
 describe("review-workflow/findings/artifact", () => {
   let tempDir: string;
 
@@ -57,7 +78,10 @@ describe("review-workflow/findings/artifact", () => {
       logPath: "/tmp/logs/session-123.jsonl",
       reviewedSnapshotRef: "abc123",
       reviewedSnapshotPath: join(tempDir, "snapshot"),
-      sourceFingerprint: "fingerprint-1",
+      reviewedSnapshotFingerprint: "reviewed-fingerprint-1",
+      handoffSnapshotPath: join(tempDir, "handoff"),
+      handoffSnapshotFingerprint: "handoff-fingerprint-1",
+      sourceRepoFingerprint: "repo-fingerprint-1",
       findings: [createStoredFinding("F001")],
       selectedFindingIds: [],
       createdAt: "2026-01-01T00:00:00.000Z",
@@ -75,40 +99,65 @@ describe("review-workflow/findings/artifact", () => {
     expect(loaded?.findings.map((finding) => finding.id)).toEqual(["F001"]);
   });
 
-  test("persists reviewed snapshots under project storage and keeps them immutable", async () => {
-    const sourceSnapshotPath = join(tempDir, "source-snapshot");
-    await Bun.write(join(sourceSnapshotPath, "src/file.ts"), "export const value = 1;\n", {
+  test("persists reviewed and handoff snapshots under project storage and keeps them immutable", async () => {
+    const repoPath = join(tempDir, "repo");
+    await mkdir(repoPath, { recursive: true });
+    initTestRepo(repoPath);
+    await Bun.write(join(repoPath, "src/file.ts"), "export const value = 1;\n", {
       createPath: true,
     });
+    await Bun.write(join(repoPath, "cache.local"), "ignored\n");
+    await Bun.write(join(repoPath, ".gitignore"), "*.local\n");
+    runGitIn(repoPath, ["add", "src/file.ts", ".gitignore"]);
+    runGitIn(repoPath, ["commit", "-m", "initial commit"]);
 
-    const persisted = await persistReviewedSnapshot(
-      tempDir,
-      "/repo/project",
-      "session-snapshot",
-      sourceSnapshotPath
-    );
+    const worktree = createSessionWorktree(repoPath, "session-snapshot", tempDir);
 
-    expect(persisted.reviewedSnapshotPath).toBe(
-      getReviewedSnapshotPath(tempDir, "/repo/project", "session-snapshot")
-    );
-    expect(await Bun.file(join(persisted.reviewedSnapshotPath, "src/file.ts")).text()).toBe(
-      "export const value = 1;\n"
-    );
-    expect(persisted.sourceFingerprint).toBe(
-      await computeSnapshotFingerprint(persisted.reviewedSnapshotPath)
-    );
+    try {
+      const persisted = await persistDiscoverySnapshots(tempDir, repoPath, "session-snapshot", {
+        reviewedSnapshotSourcePath: repoPath,
+        handoffSnapshotSourceDir: worktree.sourceSnapshotDir ?? "",
+        sourceRepoFingerprint: worktree.sourceFingerprint ?? "",
+      });
 
-    await Bun.write(join(sourceSnapshotPath, "src/file.ts"), "export const value = 2;\n");
-    expect(await Bun.file(join(persisted.reviewedSnapshotPath, "src/file.ts")).text()).toBe(
-      "export const value = 1;\n"
-    );
+      expect(persisted.reviewedSnapshotPath).toBe(
+        getReviewedSnapshotPath(tempDir, repoPath, "session-snapshot")
+      );
+      expect(persisted.handoffSnapshotPath).toBe(
+        getHandoffSnapshotPath(tempDir, repoPath, "session-snapshot")
+      );
+      expect(await Bun.file(join(persisted.reviewedSnapshotPath, "src/file.ts")).text()).toBe(
+        "export const value = 1;\n"
+      );
+      expect(persisted.reviewedSnapshotFingerprint).toBe(
+        await computeSnapshotFingerprint(persisted.reviewedSnapshotPath)
+      );
+      expect(persisted.handoffSnapshotFingerprint).toBe(
+        await computeSnapshotFingerprint(persisted.handoffSnapshotPath)
+      );
+      expect(await Bun.file(join(persisted.handoffSnapshotPath, "cache.local")).exists()).toBe(
+        false
+      );
+      const sourceRepoFingerprint = worktree.sourceFingerprint;
+      if (!sourceRepoFingerprint) {
+        throw new Error("Expected worktree source fingerprint");
+      }
+      expect(persisted.sourceRepoFingerprint).toBe(sourceRepoFingerprint);
+
+      await Bun.write(join(repoPath, "src/file.ts"), "export const value = 2;\n");
+      expect(await Bun.file(join(persisted.reviewedSnapshotPath, "src/file.ts")).text()).toBe(
+        "export const value = 1;\n"
+      );
+    } finally {
+      discardSessionWorktree(worktree);
+    }
   });
 
   test("updates selection, fix results, and audit summary", async () => {
     const snapshotPath = join(tempDir, "snapshot-selection");
     await Bun.write(join(snapshotPath, "README.md"), "snapshot file", { createPath: true });
 
-    const sourceFingerprint = await computeSnapshotFingerprint(snapshotPath);
+    const reviewedSnapshotFingerprint = await computeSnapshotFingerprint(snapshotPath);
     const artifact: FindingsArtifact = {
       artifactVersion: 1,
       sessionId: "session-select",
@@ -116,7 +165,10 @@ describe("review-workflow/findings/artifact", () => {
       logPath: "/tmp/logs/session-select.jsonl",
       reviewedSnapshotRef: "def456",
       reviewedSnapshotPath: snapshotPath,
-      sourceFingerprint,
+      reviewedSnapshotFingerprint,
+      handoffSnapshotPath: snapshotPath,
+      handoffSnapshotFingerprint: reviewedSnapshotFingerprint,
+      sourceRepoFingerprint: "repo-fingerprint-1",
       findings: [createStoredFinding("F001"), createStoredFinding("F002")],
       selectedFindingIds: [],
       createdAt: "2026-01-01T00:00:00.000Z",
@@ -173,17 +225,20 @@ describe("review-workflow/findings/artifact", () => {
   });
 
   test("loads an artifact by session id across project storage", async () => {
-    const sourceSnapshotPath = join(tempDir, "lookup-source-snapshot");
-    await Bun.write(join(sourceSnapshotPath, "README.md"), "snapshot file\n", {
+    const repoPath = join(tempDir, "lookup-repo");
+    await mkdir(repoPath, { recursive: true });
+    initTestRepo(repoPath);
+    await Bun.write(join(repoPath, "app.ts"), "export const value = 1;\n", {
       createPath: true,
     });
-
-    const persisted = await persistReviewedSnapshot(
-      tempDir,
-      "/repo/project-a",
-      "session-lookup",
-      sourceSnapshotPath
-    );
+    runGitIn(repoPath, ["add", "app.ts"]);
+    runGitIn(repoPath, ["commit", "-m", "initial commit"]);
+    const worktree = createSessionWorktree(repoPath, "session-lookup", tempDir);
+    const persisted = await persistDiscoverySnapshots(tempDir, repoPath, "session-lookup", {
+      reviewedSnapshotSourcePath: repoPath,
+      handoffSnapshotSourceDir: worktree.sourceSnapshotDir ?? "",
+      sourceRepoFingerprint: worktree.sourceFingerprint ?? "",
+    });
     const artifact: FindingsArtifact = {
       artifactVersion: 1,
       sessionId: "session-lookup",
@@ -191,20 +246,27 @@ describe("review-workflow/findings/artifact", () => {
       logPath: "/tmp/logs/session-lookup.jsonl",
       reviewedSnapshotRef: "lookup-ref",
       reviewedSnapshotPath: persisted.reviewedSnapshotPath,
-      sourceFingerprint: persisted.sourceFingerprint,
+      reviewedSnapshotFingerprint: persisted.reviewedSnapshotFingerprint,
+      handoffSnapshotPath: persisted.handoffSnapshotPath,
+      handoffSnapshotFingerprint: persisted.handoffSnapshotFingerprint,
+      sourceRepoFingerprint: persisted.sourceRepoFingerprint,
       findings: [createStoredFinding("F001")],
       selectedFindingIds: [],
       createdAt: "2026-01-01T00:00:00.000Z",
       updatedAt: "2026-01-01T00:00:00.000Z",
     };
 
-    await saveFindingsArtifact(tempDir, artifact);
+    try {
+      await saveFindingsArtifact(tempDir, artifact);
 
-    const loaded = await loadFindingsArtifactBySessionId(tempDir, "session-lookup");
+      const loaded = await loadFindingsArtifactBySessionId(tempDir, "session-lookup");
 
-    expect(loaded).not.toBeNull();
-    expect(loaded?.projectPath).toBe("/repo/project-a");
-    expect(loaded?.sessionId).toBe("session-lookup");
+      expect(loaded).not.toBeNull();
+      expect(loaded?.projectPath).toBe("/repo/project-a");
+      expect(loaded?.sessionId).toBe("session-lookup");
+    } finally {
+      discardSessionWorktree(worktree);
+    }
   });
 
   test("fails when artifact is missing", async () => {
@@ -221,7 +283,10 @@ describe("review-workflow/findings/artifact", () => {
       logPath: "/tmp/logs/session-missing-snapshot.jsonl",
       reviewedSnapshotRef: "snap-1",
       reviewedSnapshotPath: join(tempDir, "does-not-exist"),
-      sourceFingerprint: "fingerprint-1",
+      reviewedSnapshotFingerprint: "reviewed-fingerprint-1",
+      handoffSnapshotPath: join(tempDir, "does-not-exist-handoff"),
+      handoffSnapshotFingerprint: "handoff-fingerprint-1",
+      sourceRepoFingerprint: "repo-fingerprint-1",
       findings: [createStoredFinding("F001")],
       selectedFindingIds: [],
       createdAt: "2026-01-01T00:00:00.000Z",
@@ -235,14 +300,18 @@ describe("review-workflow/findings/artifact", () => {
       throw new Error("Expected artifact to load");
     }
 
-    await expect(validateArtifactSnapshot(loaded)).rejects.toThrow(
+    await expect(validateArtifactSnapshots(loaded)).rejects.toThrow(
       "Reviewed snapshot path is missing"
     );
   });
 
-  test("fails when snapshot fingerprint does not match", async () => {
+  test("fails when either snapshot fingerprint does not match", async () => {
     const snapshotPath = join(tempDir, "snapshot-fingerprint");
     await Bun.write(join(snapshotPath, "src/file.ts"), "const value = 1;", { createPath: true });
+    const handoffSnapshotPath = join(tempDir, "handoff-fingerprint");
+    await Bun.write(join(handoffSnapshotPath, "src/file.ts"), "const value = 1;", {
+      createPath: true,
+    });
 
     const artifact: FindingsArtifact = {
       artifactVersion: 1,
@@ -251,7 +320,10 @@ describe("review-workflow/findings/artifact", () => {
       logPath: "/tmp/logs/session-fingerprint-mismatch.jsonl",
       reviewedSnapshotRef: "snap-2",
       reviewedSnapshotPath: snapshotPath,
-      sourceFingerprint: "not-the-real-fingerprint",
+      reviewedSnapshotFingerprint: "not-the-real-reviewed-fingerprint",
+      handoffSnapshotPath,
+      handoffSnapshotFingerprint: "not-the-real-handoff-fingerprint",
+      sourceRepoFingerprint: "repo-fingerprint-1",
       findings: [createStoredFinding("F001")],
       selectedFindingIds: [],
       createdAt: "2026-01-01T00:00:00.000Z",
@@ -265,8 +337,37 @@ describe("review-workflow/findings/artifact", () => {
       throw new Error("Expected artifact to load");
     }
 
-    await expect(validateArtifactSnapshot(loaded)).rejects.toThrow(
+    await expect(validateArtifactSnapshots(loaded)).rejects.toThrow(
       "Reviewed snapshot fingerprint mismatch"
+    );
+  });
+
+  test("rejects legacy single-snapshot artifacts even when artifactVersion stays at 1", async () => {
+    const artifactPath = getFindingsArtifactPath(tempDir, "/repo/project", "legacy-session");
+    await Bun.write(
+      artifactPath,
+      JSON.stringify(
+        {
+          artifactVersion: 1,
+          sessionId: "legacy-session",
+          projectPath: "/repo/project",
+          logPath: "/tmp/logs/legacy-session.jsonl",
+          reviewedSnapshotRef: "legacy-ref",
+          reviewedSnapshotPath: "/tmp/reviewed",
+          sourceFingerprint: "legacy-fingerprint",
+          findings: [createStoredFinding("F001")],
+          selectedFindingIds: [],
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        },
+        null,
+        2
+      ),
+      { createPath: true }
+    );
+
+    await expect(loadFindingsArtifact(tempDir, "/repo/project", "legacy-session")).rejects.toThrow(
+      "Findings artifact has invalid schema"
     );
   });
 });

@@ -36,7 +36,10 @@ export interface FindingsArtifact {
   logPath: string;
   reviewedSnapshotRef: string;
   reviewedSnapshotPath: string;
-  sourceFingerprint: string;
+  reviewedSnapshotFingerprint: string;
+  handoffSnapshotPath: string;
+  handoffSnapshotFingerprint: string;
+  sourceRepoFingerprint: string;
   findings: StoredFinding[];
   selectedFindingIds: FindingId[];
   fixResults?: FindingFixResult[];

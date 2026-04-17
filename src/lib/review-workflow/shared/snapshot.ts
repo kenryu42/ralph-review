@@ -1,29 +1,34 @@
-import type { persistReviewedSnapshot as persistReviewedSnapshotType } from "@/lib/review-workflow/findings/artifact";
+import type { GitSessionWorktree } from "@/lib/git";
+import type { persistDiscoverySnapshots as persistDiscoverySnapshotsType } from "@/lib/review-workflow/findings/artifact";
 
-export interface FrozenReviewedSnapshot {
+export interface FrozenDiscoverySnapshots {
   reviewedSnapshotPath: string;
   reviewedSnapshotRef: string;
-  sourceFingerprint: string;
+  reviewedSnapshotFingerprint: string;
+  handoffSnapshotPath: string;
+  handoffSnapshotFingerprint: string;
+  sourceRepoFingerprint: string;
 }
 
-export async function freezeReviewedSnapshot(
+export async function freezeDiscoverySnapshots(
   storageRoot: string,
   projectPath: string,
   sessionId: string,
-  sourceSnapshotPath: string,
-  reviewedSnapshotRef: string,
-  persistReviewedSnapshot: typeof persistReviewedSnapshotType
-): Promise<FrozenReviewedSnapshot> {
-  const persisted = await persistReviewedSnapshot(
-    storageRoot,
-    projectPath,
-    sessionId,
-    sourceSnapshotPath
-  );
+  worktree: GitSessionWorktree,
+  persistDiscoverySnapshots: typeof persistDiscoverySnapshotsType
+): Promise<FrozenDiscoverySnapshots> {
+  const persisted = await persistDiscoverySnapshots(storageRoot, projectPath, sessionId, {
+    reviewedSnapshotSourcePath: worktree.agentProjectPath,
+    handoffSnapshotSourceDir: worktree.sourceSnapshotDir ?? "",
+    sourceRepoFingerprint: worktree.sourceFingerprint ?? "",
+  });
 
   return {
     reviewedSnapshotPath: persisted.reviewedSnapshotPath,
-    reviewedSnapshotRef,
-    sourceFingerprint: persisted.sourceFingerprint,
+    reviewedSnapshotRef: worktree.retainedBranch,
+    reviewedSnapshotFingerprint: persisted.reviewedSnapshotFingerprint,
+    handoffSnapshotPath: persisted.handoffSnapshotPath,
+    handoffSnapshotFingerprint: persisted.handoffSnapshotFingerprint,
+    sourceRepoFingerprint: persisted.sourceRepoFingerprint,
   };
 }

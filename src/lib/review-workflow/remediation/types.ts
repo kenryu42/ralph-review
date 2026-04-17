@@ -1,3 +1,4 @@
+import type { RetainedSessionWorktree } from "@/lib/git";
 import type {
   AuditSummary,
   FindingFixResult,
@@ -38,4 +39,5 @@ export interface FixSessionResult {
   handoffStatus?: HandoffStatus;
   handoffUpdatedAt?: number;
   commitSha?: string;
+  retainedWorktree?: RetainedSessionWorktree;
 }

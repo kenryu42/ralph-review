@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import type { RetainedSessionWorktree } from "@/lib/git";
 import type {
   FindingId,
   FindingsArtifact,
@@ -36,7 +37,10 @@ function createArtifact(): FindingsArtifact {
     logPath: "/tmp/session-123.jsonl",
     reviewedSnapshotRef: "snapshot-ref",
     reviewedSnapshotPath: "/tmp/reviewed",
-    sourceFingerprint: "fingerprint-1",
+    reviewedSnapshotFingerprint: "reviewed-fingerprint-1",
+    handoffSnapshotPath: "/tmp/handoff",
+    handoffSnapshotFingerprint: "handoff-fingerprint-1",
+    sourceRepoFingerprint: "repo-fingerprint-1",
     findings: [
       createFinding("F001", "P0"),
       createFinding("F002", "P1"),
@@ -66,6 +70,10 @@ function createDependencies(
     artifact?: FindingsArtifact;
     promptSelectionIds?: string[] | null;
     validateError?: Error;
+    auditError?: Error;
+    finalizeSessionWorktreeResult?: RetainedSessionWorktree | null;
+    discardedWorktrees?: string[];
+    finalizedWorktrees?: string[];
   } = {}
 ): RunFixSessionDependencies {
   const artifact = state.artifact ?? createArtifact();
@@ -80,12 +88,15 @@ function createDependencies(
 
   return {
     loadFindingsArtifactBySessionId: async () => artifact,
-    validateArtifactSnapshot: async () => {
+    validateArtifactSnapshots: async () => {
       if (state.validateError) {
         throw state.validateError;
       }
 
-      return { fingerprint: artifact.sourceFingerprint };
+      return {
+        reviewedSnapshotFingerprint: artifact.reviewedSnapshotFingerprint,
+        handoffSnapshotFingerprint: artifact.handoffSnapshotFingerprint,
+      };
     },
     createSessionWorktree: () => worktree,
     materializeSnapshotIntoWorkspace: async (sourceSnapshotPath, destinationPath) => {
@@ -93,7 +104,7 @@ function createDependencies(
       expect(destinationPath).toBe(worktree.agentProjectPath);
     },
     createSourceSnapshotCopy: async (sourceSnapshotPath) => {
-      expect(sourceSnapshotPath).toBe(artifact.reviewedSnapshotPath);
+      expect(sourceSnapshotPath).toBe(artifact.handoffSnapshotPath);
       return "/tmp/source-snapshot-copy";
     },
     updateSelection: async (_storageRoot, projectPath, sessionId, selectedFindingIds) => {
@@ -120,15 +131,21 @@ function createDependencies(
       ...artifact,
       fixResults,
     }),
-    runFinalAuditPhase: async ({ selection }) => ({
-      phase: "final-audit",
-      sessionStatus: "completed",
-      summary: {
-        resolvedFindingIds: [...selection.selectedFindingIds],
-        unresolvedFindingIds: [],
-        regressionFindings: [],
-      },
-    }),
+    runFinalAuditPhase: async ({ selection }) => {
+      if (state.auditError) {
+        throw state.auditError;
+      }
+
+      return {
+        phase: "final-audit",
+        sessionStatus: "completed",
+        summary: {
+          resolvedFindingIds: [...selection.selectedFindingIds],
+          unresolvedFindingIds: [],
+          regressionFindings: [],
+        },
+      };
+    },
     updateAuditSummary: async (_storageRoot, _projectPath, _sessionId, latestAudit) => ({
       ...artifact,
       latestAudit,
@@ -147,7 +164,20 @@ function createDependencies(
         (finding) => !selection.selectedFindingIds.includes(finding.id)
       ),
     }),
-    discardSessionWorktree: () => {},
+    finalizeSessionWorktree: (currentWorktree) => {
+      state.finalizedWorktrees?.push(currentWorktree.worktreeProjectPath);
+      return (
+        state.finalizeSessionWorktreeResult ?? {
+          worktreeProjectPath: currentWorktree.worktreeProjectPath,
+          worktreeBranch: currentWorktree.retainedBranch,
+          mergeReady: true,
+          commitSha: "retained-commit-sha",
+        }
+      );
+    },
+    discardSessionWorktree: (currentWorktree) => {
+      state.discardedWorktrees?.push(currentWorktree.worktreeProjectPath);
+    },
   };
 }
 
@@ -301,7 +331,7 @@ describe("review-workflow/remediation/runFixSession", () => {
       worktreeProjectPath: "/tmp/worktree",
       worktreeBranch: "rr-worktree-session-123",
       selectedFindingIds: ["F001"],
-      sourceFingerprint: "fingerprint-1",
+      sourceRepoFingerprint: "repo-fingerprint-1",
       reviewedSnapshotPath: "/tmp/reviewed",
     });
     expect(updates).toContainEqual({
@@ -334,5 +364,47 @@ describe("review-workflow/remediation/runFixSession", () => {
       handoffUpdatedAt: undefined,
       commitSha: undefined,
     });
+  });
+
+  test("retains the worktree when final audit output stays invalid after fixes", async () => {
+    const finalizedWorktrees: string[] = [];
+    const discardedWorktrees: string[] = [];
+
+    const result = await runFixSession(
+      createConfig(),
+      {
+        sessionId: "session-123",
+        selector: {
+          ids: ["F001"],
+        },
+        isTTY: false,
+      },
+      createDependencies({
+        auditError: new Error("Structured JSON output was missing or invalid."),
+        finalizedWorktrees,
+        discardedWorktrees,
+      })
+    );
+
+    expect(result.sessionStatus).toBe("failed");
+    expect(result.phase).toBe("final-audit");
+    expect(result.reviewOutcome).toBe("incomplete");
+    expect(result.reason).toBe("Structured JSON output was missing or invalid.");
+    expect(result.selection.selectedFindingIds).toEqual(["F001"]);
+    expect(result.fixResults).toEqual([
+      {
+        findingId: "F001",
+        status: "fixed",
+        summary: "Applied F001",
+      },
+    ]);
+    expect(result.retainedWorktree).toEqual({
+      worktreeProjectPath: "/tmp/worktree",
+      worktreeBranch: "rr-worktree-session-123",
+      mergeReady: true,
+      commitSha: "retained-commit-sha",
+    });
+    expect(finalizedWorktrees).toEqual(["/tmp/worktree"]);
+    expect(discardedWorktrees).toEqual([]);
   });
 });

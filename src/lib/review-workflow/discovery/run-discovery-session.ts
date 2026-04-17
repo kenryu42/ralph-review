@@ -19,11 +19,11 @@ import type { DiscoverySessionResult } from "@/lib/review-workflow/discovery/typ
 import {
   computeSnapshotFingerprint,
   getFindingsArtifactPath,
-  persistReviewedSnapshot,
+  persistDiscoverySnapshots,
   saveFindingsArtifact,
 } from "@/lib/review-workflow/findings/artifact";
 import type { FindingsArtifact, StoredFinding } from "@/lib/review-workflow/findings/types";
-import { freezeReviewedSnapshot } from "@/lib/review-workflow/shared/snapshot";
+import { freezeDiscoverySnapshots } from "@/lib/review-workflow/shared/snapshot";
 import { type SessionState, updateSessionState } from "@/lib/session";
 import { parseReviewSummaryOutput } from "@/lib/structured-output";
 import type {
@@ -57,7 +57,7 @@ export interface RunDiscoverySessionDependencies {
   createLogSession: typeof createLogSession;
   getGitBranch: typeof getGitBranch;
   parseReviewSummaryOutput: typeof parseReviewSummaryOutput;
-  persistReviewedSnapshot: typeof persistReviewedSnapshot;
+  persistDiscoverySnapshots: typeof persistDiscoverySnapshots;
   saveFindingsArtifact: typeof saveFindingsArtifact;
   computeSnapshotFingerprint: typeof computeSnapshotFingerprint;
 }
@@ -78,7 +78,7 @@ export const DEFAULT_RUN_DISCOVERY_SESSION_DEPENDENCIES: RunDiscoverySessionDepe
   createLogSession,
   getGitBranch,
   parseReviewSummaryOutput,
-  persistReviewedSnapshot,
+  persistDiscoverySnapshots,
   saveFindingsArtifact,
   computeSnapshotFingerprint,
 };
@@ -300,7 +300,7 @@ function createFindingsArtifact(
   sessionId: string,
   projectPath: string,
   sessionPath: string,
-  reviewedSnapshot: Awaited<ReturnType<typeof freezeReviewedSnapshot>>,
+  reviewedSnapshot: Awaited<ReturnType<typeof freezeDiscoverySnapshots>>,
   findings: StoredFinding[]
 ): FindingsArtifact {
   const timestamp = new Date().toISOString();
@@ -312,7 +312,10 @@ function createFindingsArtifact(
     logPath: sessionPath,
     reviewedSnapshotRef: reviewedSnapshot.reviewedSnapshotRef,
     reviewedSnapshotPath: reviewedSnapshot.reviewedSnapshotPath,
-    sourceFingerprint: reviewedSnapshot.sourceFingerprint,
+    reviewedSnapshotFingerprint: reviewedSnapshot.reviewedSnapshotFingerprint,
+    handoffSnapshotPath: reviewedSnapshot.handoffSnapshotPath,
+    handoffSnapshotFingerprint: reviewedSnapshot.handoffSnapshotFingerprint,
+    sourceRepoFingerprint: reviewedSnapshot.sourceRepoFingerprint,
     findings,
     selectedFindingIds: [],
     createdAt: timestamp,
@@ -390,17 +393,14 @@ export async function runDiscoverySession(
       wasInterrupted
     );
 
-    const reviewedSnapshot = await freezeReviewedSnapshot(
+    const reviewedSnapshot = await freezeDiscoverySnapshots(
       CONFIG_DIR,
       projectPath,
       sessionId,
-      worktree.agentProjectPath,
-      worktree.retainedBranch,
-      deps.persistReviewedSnapshot
+      worktree,
+      deps.persistDiscoverySnapshots
     );
-    const snapshotFingerprint = await deps.computeSnapshotFingerprint(
-      reviewedSnapshot.reviewedSnapshotPath
-    );
+    const snapshotFingerprint = reviewedSnapshot.reviewedSnapshotFingerprint;
     const artifactPath = getFindingsArtifactPath(CONFIG_DIR, projectPath, sessionId);
 
     await updateDiscoverySessionState(deps, projectPath, runtimeContext?.sessionId, {
@@ -410,7 +410,7 @@ export async function runDiscoverySession(
       currentAgent: null,
       artifactPath,
       reviewedSnapshotPath: reviewedSnapshot.reviewedSnapshotPath,
-      sourceFingerprint: reviewedSnapshot.sourceFingerprint,
+      sourceRepoFingerprint: reviewedSnapshot.sourceRepoFingerprint,
       accumulatedFindings: [],
       selectedFindingIds: [],
     });
@@ -491,7 +491,7 @@ export async function runDiscoverySession(
       currentAgent: null,
       artifactPath,
       reviewedSnapshotPath: reviewedSnapshot.reviewedSnapshotPath,
-      sourceFingerprint: reviewedSnapshot.sourceFingerprint,
+      sourceRepoFingerprint: reviewedSnapshot.sourceRepoFingerprint,
       accumulatedFindings: phaseResult.findings,
       selectedFindingIds: [],
       reviewOutcome: "findings-pending",
