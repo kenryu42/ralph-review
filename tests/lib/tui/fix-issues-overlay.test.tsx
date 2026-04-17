@@ -120,12 +120,11 @@ describe("FixIssuesOverlay", () => {
       };
 
       await act(async () => {
-        const keyName = sequenceMap[sequence];
-        if (keyName && testSetup) {
+        if (testSetup) {
           testSetup.renderer.keyInput.emit(
             "keypress",
             new KeyEvent({
-              name: keyName,
+              name: sequenceMap[sequence] ?? sequence,
               sequence,
               ctrl: false,
               shift: false,
@@ -138,8 +137,6 @@ describe("FixIssuesOverlay", () => {
               raw: sequence,
             })
           );
-        } else {
-          testSetup?.renderer.keyInput.processInput(sequence);
         }
       });
 

@@ -329,12 +329,12 @@ export function ReviewModeOverlay({
 
   function renderBranchPicker() {
     return (
-      <box flexDirection="column" gap={1}>
+      <box flexDirection="column" gap={1} flexGrow={1}>
         <text fg={TUI_COLORS.text.muted}>Select a base branch to compare against.</text>
         <select
           focused
           options={branchOptions}
-          height={Math.min(branchOptions.length, 12)}
+          flexGrow={1}
           showScrollIndicator
           onSelect={(_index, option) => {
             if (!option) {
@@ -416,6 +416,7 @@ export function ReviewModeOverlay({
         titleAlignment="left"
         padding={2}
         width={74}
+        height={step === "branch-picker" ? "30%" : "auto"}
         backgroundColor="#1a1a2e"
       >
         {editorMode

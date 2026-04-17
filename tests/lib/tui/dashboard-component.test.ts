@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
+import { KeyEvent } from "@opentui/core";
 import { useKeyboard } from "@opentui/react";
 import { testRender } from "@opentui/react/test-utils";
 import { act, createElement } from "react";
@@ -203,7 +204,34 @@ async function mountDashboardHarness(options: DashboardHarnessOptions = {}) {
 
   async function press(sequence: string, cycles: number = 2): Promise<string> {
     await act(async () => {
-      testSetup.renderer.keyInput.processInput(sequence);
+      const keyName =
+        {
+          "\u001B[A": "up",
+          "\u001B[B": "down",
+          "\u001B[C": "right",
+          "\u001B[D": "left",
+          "\u001B": "escape",
+          "\t": "tab",
+          "\r": "return",
+          " ": "space",
+        }[sequence] ?? sequence;
+
+      testSetup.renderer.keyInput.emit(
+        "keypress",
+        new KeyEvent({
+          name: keyName,
+          sequence,
+          ctrl: false,
+          shift: false,
+          meta: false,
+          option: false,
+          eventType: "press",
+          repeated: false,
+          source: "raw",
+          number: false,
+          raw: sequence,
+        })
+      );
       await Promise.resolve();
       await testSetup.renderOnce();
     });

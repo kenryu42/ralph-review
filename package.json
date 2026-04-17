@@ -78,8 +78,8 @@
   "peerDependencies": {},
   "dependencies": {
     "@clack/prompts": "1.0.0-alpha.9",
-    "@opentui/core": "^0.1.75",
-    "@opentui/react": "^0.1.75",
+    "@opentui/core": "^0.1.100",
+    "@opentui/react": "^0.1.100",
     "react": "^19.0.0"
   }
 }
