@@ -329,7 +329,7 @@ export function ReviewModeOverlay({
 
   function renderBranchPicker() {
     return (
-      <box flexDirection="column" gap={1} flexGrow={1}>
+      <box flexDirection="column" gap={1} margin={1} flexGrow={1}>
         <text fg={TUI_COLORS.text.muted}>Select a base branch to compare against.</text>
         <select
           focused
