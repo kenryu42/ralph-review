@@ -2,6 +2,7 @@
  * Codex agent configuration and stream handling
  */
 
+import { REVIEW_SUMMARY_END_TOKEN, REVIEW_SUMMARY_START_TOKEN } from "@/lib/prompts/protocol";
 import {
   type AgentConfig,
   type AgentRole,
@@ -111,6 +112,10 @@ function findSessionFileForThread(threadId: string, sessionsRoot: string): strin
 
 type ExitedReviewModeMatch = { reviewOutput: string | null };
 
+function containsStructuredReviewBlock(text: string): boolean {
+  return text.includes(REVIEW_SUMMARY_START_TOKEN) && text.includes(REVIEW_SUMMARY_END_TOKEN);
+}
+
 function matchExitedReviewMode(line: string): ExitedReviewModeMatch | null {
   const event = parseJsonlEvent<Record<string, unknown>>(line);
   if (!event || event.type !== "event_msg") {
@@ -133,6 +138,10 @@ function matchExitedReviewMode(line: string): ExitedReviewModeMatch | null {
   }
 
   if (typeof reviewOutput === "object" && reviewOutput !== null) {
+    const explanation = (reviewOutput as Record<string, unknown>).overall_explanation;
+    if (typeof explanation === "string" && containsStructuredReviewBlock(explanation)) {
+      return { reviewOutput: explanation };
+    }
     return { reviewOutput: JSON.stringify(reviewOutput) };
   }
 

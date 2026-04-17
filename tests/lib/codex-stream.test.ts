@@ -4,6 +4,7 @@ import {
   formatCodexEventForDisplay,
   parseCodexStreamEvent,
 } from "@/lib/agents/codex";
+import { REVIEW_SUMMARY_END_TOKEN, REVIEW_SUMMARY_START_TOKEN } from "@/lib/prompts/protocol";
 
 const TEST_THREAD_ID = "019c7011-02b8-7171-bf4f-1655372d8cf6";
 
@@ -49,6 +50,21 @@ function createReviewOutput(overallExplanation: string): Record<string, unknown>
     overall_correctness: "patch is correct",
     overall_explanation: overallExplanation,
     overall_confidence_score: 0.9,
+  };
+}
+
+function createWrappedStructuredAuditOutput(): Record<string, unknown> {
+  return {
+    findings: [],
+    overall_correctness: "",
+    overall_explanation: `${REVIEW_SUMMARY_START_TOKEN}
+{
+  "resolvedFindingIds": ["F001"],
+  "unresolvedFindingIds": [],
+  "regressionFindings": []
+}
+${REVIEW_SUMMARY_END_TOKEN}`,
+    overall_confidence_score: 0,
   };
 }
 
@@ -569,6 +585,24 @@ describe("codex-stream", () => {
       );
 
       expect(result).toBe(JSON.stringify(reviewOutput));
+    });
+
+    test("unwraps structured json embedded in exited_review_mode.overall_explanation", async () => {
+      const homeDir = createHomeDir();
+      process.env.HOME = homeDir;
+      const reviewOutput = createWrappedStructuredAuditOutput();
+
+      await writeExitedReviewModeSession(homeDir, TEST_THREAD_ID, reviewOutput);
+
+      const result = await extractCodexResult(
+        buildSessionStreamJsonl(TEST_THREAD_ID, "Fallback stream message")
+      );
+
+      const overallExplanation = reviewOutput.overall_explanation;
+      if (typeof overallExplanation !== "string") {
+        throw new Error("Expected wrapped overall_explanation string");
+      }
+      expect(result).toBe(overallExplanation);
     });
 
     test("uses trimmed string from exited_review_mode.review_output", async () => {
