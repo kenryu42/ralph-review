@@ -416,7 +416,7 @@ export function ReviewModeOverlay({
         titleAlignment="left"
         padding={2}
         width={74}
-        height={step === "branch-picker" ? "30%" : "auto"}
+        height={step === "branch-picker" ? "25%" : "auto"}
         backgroundColor="#1a1a2e"
       >
         {editorMode
