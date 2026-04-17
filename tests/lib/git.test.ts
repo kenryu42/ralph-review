@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtemp, realpath, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  applyBinaryPatch,
+  createBinaryPatch,
   createCheckpoint,
   createSessionWorktree,
   discardCheckpoint,
@@ -132,6 +134,43 @@ describe("ensureGitRepository", () => {
   test("returns false for a non-git directory", () => {
     // tempDir without git init
     expect(ensureGitRepository(tempDir)).toBe(false);
+  });
+});
+
+describe("binary patch rewriting", () => {
+  let tempDir: string;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "git-patch-test-"));
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  test("rewrites new-file no-index headers so git apply can validate them", async () => {
+    const repoPath = join(tempDir, "repo");
+    const fromPath = join(tempDir, "from");
+    const toPath = join(tempDir, "to");
+    const patchPath = join(tempDir, "handoff.patch");
+
+    await mkdir(repoPath, { recursive: true });
+    await mkdir(fromPath, { recursive: true });
+    initTestRepo(repoPath);
+    await Bun.write(join(repoPath, ".gitignore"), "coverage\n", { createPath: true });
+    runGitIn(repoPath, ["add", ".gitignore"]);
+    runGitIn(repoPath, ["commit", "-m", "initial commit"]);
+
+    await Bun.write(join(toPath, "coverage/lcov.info"), "coverage data\n", { createPath: true });
+
+    const patch = await createBinaryPatch(fromPath, toPath, patchPath);
+
+    expect(patch).toContain("diff --git a/coverage/lcov.info b/coverage/lcov.info");
+    expect(patch).toContain("+++ b/coverage/lcov.info");
+    expect(patch).not.toContain(`${toPath}/coverage/lcov.info`);
+
+    expect(() => applyBinaryPatch(repoPath, patchPath)).not.toThrow();
+    expect(await Bun.file(join(repoPath, "coverage/lcov.info")).text()).toBe("coverage data\n");
   });
 });
 

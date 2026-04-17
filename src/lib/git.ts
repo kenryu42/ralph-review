@@ -582,15 +582,24 @@ function normalizePatchPathPrefix(path: string): string {
 function rewriteNoIndexPatchPaths(patch: string, fromPath: string, toPath: string): string {
   const normalizedFromPath = normalizePatchPathPrefix(fromPath);
   const normalizedToPath = normalizePatchPathPrefix(toPath);
+  const replacements: Array<[from: string, to: string]> = [
+    [`a/${fromPath}/`, "a/"],
+    [`a/${normalizedFromPath}/`, "a/"],
+    [`a/${toPath}/`, "a/"],
+    [`a/${normalizedToPath}/`, "a/"],
+    [`b/${fromPath}/`, "b/"],
+    [`b/${normalizedFromPath}/`, "b/"],
+    [`b/${toPath}/`, "b/"],
+    [`b/${normalizedToPath}/`, "b/"],
+  ];
 
   return patch
     .split("\n")
     .map((line) =>
-      line
-        .replace(`a/${fromPath}/`, "a/")
-        .replace(`b/${toPath}/`, "b/")
-        .replace(`a/${normalizedFromPath}/`, "a/")
-        .replace(`b/${normalizedToPath}/`, "b/")
+      replacements.reduce(
+        (rewritten, [match, replacement]) => rewritten.replace(match, replacement),
+        line
+      )
     )
     .join("\n");
 }
