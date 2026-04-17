@@ -43,7 +43,10 @@ function createArtifact(findings: StoredFinding[]): FindingsArtifact {
     logPath: "/tmp/session-123.jsonl",
     reviewedSnapshotRef: "snapshot-ref",
     reviewedSnapshotPath: "/tmp/reviewed",
-    sourceFingerprint: "fingerprint-1",
+    reviewedSnapshotFingerprint: "reviewed-fingerprint-1",
+    handoffSnapshotPath: "/tmp/handoff",
+    handoffSnapshotFingerprint: "handoff-fingerprint-1",
+    sourceRepoFingerprint: "repo-fingerprint-1",
     findings,
     selectedFindingIds: [],
     createdAt: "2026-01-01T00:00:00.000Z",
@@ -94,6 +97,7 @@ describe("review-workflow/audit/runFinalAuditPhase", () => {
           expect(selectedFindings.map((finding) => finding.id)).toEqual(["F001"]);
           return "TARGETED_AUDIT_PROMPT";
         },
+        createReviewerSummaryRetryReminder: () => "RETRY_PROMPT",
         AGENTS: {
           claude: {
             config: {
@@ -132,5 +136,67 @@ describe("review-workflow/audit/runFinalAuditPhase", () => {
     expect(result.summary.regressionFindings).toHaveLength(1);
     expect(result.summary.regressionFindings[0]?.id).toBe("F003");
     expect(appendedEntries).toHaveLength(1);
+  });
+
+  test("retries once when the first audit response is missing structured json", async () => {
+    const findings = [createFinding("F001")];
+    const artifact = createArtifact(findings);
+    const prompts: string[] = [];
+    let callCount = 0;
+
+    const result = await runFinalAuditPhase(
+      {
+        config: createConfig(),
+        artifact,
+        selection: {
+          selectedFindingIds: ["F001"],
+          selectedFindings: [getFirstFinding(findings)],
+        },
+        worktree: createWorktree(),
+      },
+      {
+        createTargetedAuditPrompt: () => "TARGETED_AUDIT_PROMPT",
+        createReviewerSummaryRetryReminder: () => "RETRY_PROMPT",
+        AGENTS: {
+          claude: {
+            config: {
+              command: "mock",
+              buildArgs: () => [],
+              buildEnv: () => ({}),
+            },
+            extractResult: async (output: string) => output,
+            detectSessionId: () => null,
+            getUpdateInstructions: () => [],
+          },
+        } as unknown as RunFinalAuditPhaseDependencies["AGENTS"],
+        runAgent: async (_role, _config, prompt) => {
+          prompts.push(prompt ?? "");
+          callCount += 1;
+          if (callCount === 1) {
+            return {
+              success: true,
+              output: "not valid json",
+              exitCode: 0,
+              duration: 1,
+            };
+          }
+
+          return {
+            success: true,
+            output: `<<<RR_REVIEW_SUMMARY_JSON_START>>>
+{"resolvedFindingIds":["F001"],"unresolvedFindingIds":[],"regressionFindings":[]}
+<<<RR_REVIEW_SUMMARY_JSON_END>>>`,
+            exitCode: 0,
+            duration: 1,
+          };
+        },
+        appendLog: async () => {},
+        collectChangedFileHints: () => [],
+      }
+    );
+
+    expect(result.summary.resolvedFindingIds).toEqual(["F001"]);
+    expect(result.summary.unresolvedFindingIds).toEqual([]);
+    expect(prompts).toEqual(["TARGETED_AUDIT_PROMPT", "TARGETED_AUDIT_PROMPT\nRETRY_PROMPT"]);
   });
 });

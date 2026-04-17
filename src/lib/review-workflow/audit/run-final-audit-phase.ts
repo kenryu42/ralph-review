@@ -1,7 +1,11 @@
 import { AGENTS, runAgent } from "@/lib/agents";
 import type { GitSessionWorktree } from "@/lib/git";
 import { appendLog } from "@/lib/logging";
-import { REVIEW_SUMMARY_END_TOKEN, REVIEW_SUMMARY_START_TOKEN } from "@/lib/prompts/protocol";
+import {
+  createReviewerSummaryRetryReminder,
+  REVIEW_SUMMARY_END_TOKEN,
+  REVIEW_SUMMARY_START_TOKEN,
+} from "@/lib/prompts/protocol";
 import { createTargetedAuditPrompt } from "@/lib/review-workflow/audit/prompt";
 import type { FinalAuditPhaseResult } from "@/lib/review-workflow/audit/types";
 import { mergeFindingsIntoInventory } from "@/lib/review-workflow/findings/inventory";
@@ -25,6 +29,7 @@ export interface RunFinalAuditPhaseOptions {
 
 export interface RunFinalAuditPhaseDependencies {
   createTargetedAuditPrompt: typeof createTargetedAuditPrompt;
+  createReviewerSummaryRetryReminder: typeof createReviewerSummaryRetryReminder;
   AGENTS: typeof AGENTS;
   runAgent: typeof runAgent;
   appendLog: typeof appendLog;
@@ -33,6 +38,7 @@ export interface RunFinalAuditPhaseDependencies {
 
 const DEFAULT_RUN_FINAL_AUDIT_PHASE_DEPENDENCIES: RunFinalAuditPhaseDependencies = {
   createTargetedAuditPrompt,
+  createReviewerSummaryRetryReminder,
   AGENTS,
   runAgent,
   appendLog,
@@ -141,6 +147,26 @@ function collectChangedFileHints(
     .slice(0, 200);
 }
 
+function isStructuredJsonError(error: unknown): boolean {
+  return (
+    error instanceof Error && error.message === "Structured JSON output was missing or invalid."
+  );
+}
+
+async function parseTargetedAuditOutput(
+  agent: RunFinalAuditPhaseDependencies["AGENTS"][keyof RunFinalAuditPhaseDependencies["AGENTS"]],
+  output: string
+): Promise<TargetedAuditOutput> {
+  const extractedText = await agent.extractResult(output);
+  return parseFramedJson({
+    extractedText,
+    rawOutput: output,
+    startToken: REVIEW_SUMMARY_START_TOKEN,
+    endToken: REVIEW_SUMMARY_END_TOKEN,
+    validate: isTargetedAuditOutput,
+  });
+}
+
 export async function runFinalAuditPhase(
   options: RunFinalAuditPhaseOptions,
   deps: RunFinalAuditPhaseDependencies = DEFAULT_RUN_FINAL_AUDIT_PHASE_DEPENDENCIES
@@ -159,28 +185,39 @@ export async function runFinalAuditPhase(
       changedFileHints,
     });
 
-    const iterationResult = await deps.runAgent(
-      "reviewer",
-      options.config,
-      prompt,
-      options.config.iterationTimeout,
-      undefined,
-      options.worktree.agentProjectPath
-    );
+    const runAudit = async (prompt: string) =>
+      await deps.runAgent(
+        "reviewer",
+        options.config,
+        prompt,
+        options.config.iterationTimeout,
+        undefined,
+        options.worktree.agentProjectPath
+      );
+
+    let iterationResult = await runAudit(prompt);
 
     if (!iterationResult.success) {
       throw new Error(`Final audit reviewer failed with exit code ${iterationResult.exitCode}`);
     }
 
     const reviewerModule = deps.AGENTS[options.config.reviewer.agent];
-    const extractedText = await reviewerModule.extractResult(iterationResult.output);
-    const parsed = parseFramedJson({
-      extractedText,
-      rawOutput: iterationResult.output,
-      startToken: REVIEW_SUMMARY_START_TOKEN,
-      endToken: REVIEW_SUMMARY_END_TOKEN,
-      validate: isTargetedAuditOutput,
-    });
+    let parsed: TargetedAuditOutput;
+
+    try {
+      parsed = await parseTargetedAuditOutput(reviewerModule, iterationResult.output);
+    } catch (error) {
+      if (!isStructuredJsonError(error)) {
+        throw error;
+      }
+
+      iterationResult = await runAudit(`${prompt}\n${deps.createReviewerSummaryRetryReminder()}`);
+      if (!iterationResult.success) {
+        throw new Error(`Final audit reviewer failed with exit code ${iterationResult.exitCode}`);
+      }
+
+      parsed = await parseTargetedAuditOutput(reviewerModule, iterationResult.output);
+    }
 
     const selectedIdSet = new Set(options.selection.selectedFindingIds);
     const reportedIds = [...parsed.resolvedFindingIds, ...parsed.unresolvedFindingIds];
