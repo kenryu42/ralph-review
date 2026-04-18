@@ -265,7 +265,6 @@ export const DASHBOARD_CSS = `
   .status-no-issues { background: rgba(126, 178, 255, 0.18); color: var(--accent-3); }
   .status-has-skipped { background: rgba(244, 195, 79, 0.18); color: var(--warning); }
   .status-pending-findings { background: rgba(244, 195, 79, 0.18); color: var(--warning); }
-  .status-audit-regressions { background: rgba(255, 123, 123, 0.18); color: var(--danger); }
   .status-completed { background: rgba(69, 212, 159, 0.18); color: var(--success); }
   .status-running { background: rgba(126, 178, 255, 0.18); color: var(--accent-3); }
   .status-failed { background: rgba(255, 123, 123, 0.18); color: var(--danger); }

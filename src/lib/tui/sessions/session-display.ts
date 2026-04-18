@@ -226,20 +226,16 @@ export function hasBatchFirstSummary(
     | "reviewOutcome"
     | "totalFindings"
     | "totalSelectedFindings"
-    | "totalAppliedFindings"
-    | "totalSkippedFindings"
+    | "totalResolvedSelectedFindings"
     | "totalUnresolvedSelectedFindings"
-    | "totalAuditRegressions"
   >
 ): boolean {
   return (
     stats.reviewOutcome === "findings-pending" ||
     stats.totalFindings !== undefined ||
     stats.totalSelectedFindings !== undefined ||
-    stats.totalAppliedFindings !== undefined ||
-    stats.totalSkippedFindings !== undefined ||
-    stats.totalUnresolvedSelectedFindings !== undefined ||
-    stats.totalAuditRegressions !== undefined
+    stats.totalResolvedSelectedFindings !== undefined ||
+    stats.totalUnresolvedSelectedFindings !== undefined
   );
 }
 
@@ -248,27 +244,20 @@ export function formatBatchFirstIssueSummary(
     SessionStats,
     | "totalFindings"
     | "totalSelectedFindings"
-    | "totalAppliedFindings"
-    | "totalSkippedFindings"
+    | "totalResolvedSelectedFindings"
     | "totalUnresolvedSelectedFindings"
-    | "totalAuditRegressions"
   >
 ): string {
   const findingsText = `${stats.totalFindings ?? 0} issues found`;
   const selectionText =
     stats.totalSelectedFindings !== undefined ? ` · ${stats.totalSelectedFindings} selected` : "";
   const remediationText =
-    stats.totalAppliedFindings !== undefined || stats.totalSkippedFindings !== undefined
-      ? ` · ${stats.totalAppliedFindings ?? 0} fixed · ${stats.totalSkippedFindings ?? 0} skipped`
+    stats.totalResolvedSelectedFindings !== undefined ||
+    stats.totalUnresolvedSelectedFindings !== undefined
+      ? ` · ${stats.totalResolvedSelectedFindings ?? 0} resolved · ${stats.totalUnresolvedSelectedFindings ?? 0} unresolved`
       : "";
-  const auditText =
-    stats.totalAuditRegressions !== undefined
-      ? ` · ${stats.totalAuditRegressions} regressions`
-      : stats.totalUnresolvedSelectedFindings !== undefined
-        ? ` · ${stats.totalUnresolvedSelectedFindings} unresolved`
-        : "";
 
-  return `${findingsText}${selectionText}${remediationText}${auditText}`;
+  return `${findingsText}${selectionText}${remediationText}`;
 }
 
 export function formatRelativeTime(timestamp: number): string {

@@ -311,19 +311,6 @@ describe("DetailPane status rendering", () => {
     expect(frame).toContain("running reviewer agent");
   });
 
-  test("renders the code simplifier label when that agent is active", async () => {
-    const frame = await renderFrame({
-      session: createSession({
-        state: "running",
-        iteration: 1,
-        currentAgent: "code-simplifier",
-      }),
-      currentAgent: "code-simplifier",
-    });
-
-    expect(frame).toContain("running code simplifier agent");
-  });
-
   test("renders a generic running status once iteration one has started", async () => {
     const frame = await renderFrame({
       session: createSession({

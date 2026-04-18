@@ -73,46 +73,6 @@ describe("html", () => {
       expect(html).toContain("5");
     });
 
-    test("renders code simplifier in log overview when configured", () => {
-      const systemEntry: SystemEntry = {
-        type: "system",
-        timestamp: Date.now(),
-        projectPath: "/path/to/project",
-        gitBranch: "main",
-        reviewer: { agent: "droid", model: "gpt-5.2" },
-        fixer: { agent: "opencode", model: "llm-proxy/claude-opus-4-5-thinking" },
-        codeSimplifier: { agent: "codex", model: "gpt-5.2-codex" },
-        maxIterations: 5,
-      };
-
-      const html = generateLogHtml([systemEntry]);
-      expect(html).toContain("Code Simplified");
-      expect(html).toContain("status status-has-fixes");
-      expect(html).not.toContain("gpt-5.2-codex");
-    });
-
-    test("falls back to reviewer settings when simplifier is enabled without config", () => {
-      const systemEntry: SystemEntry = {
-        type: "system",
-        timestamp: Date.now(),
-        projectPath: "/path/to/project",
-        gitBranch: "code-simplifier",
-        reviewer: { agent: "droid", model: "gpt-5.2", reasoning: "high" },
-        fixer: {
-          agent: "opencode",
-          model: "llm-proxy/claude-opus-4-5-thinking",
-          reasoning: "high",
-        },
-        maxIterations: 5,
-        reviewOptions: { simplifier: true },
-      };
-
-      const html = generateLogHtml([systemEntry]);
-      expect(html).toContain("Code Simplified");
-      expect(html).toContain("status status-has-fixes");
-      expect(html).not.toContain("inherits reviewer settings");
-    });
-
     test("renders iteration entry with fixes", () => {
       const iterEntry: IterationEntry = {
         type: "iteration",
@@ -343,32 +303,10 @@ describe("html", () => {
           fixResults: [
             {
               findingId: "F001",
-              status: "fixed",
+              status: "unresolved",
               summary: "Added a null guard",
             },
           ],
-        },
-        {
-          type: "final_audit",
-          timestamp: Date.now(),
-          selectedFindingIds: ["F001"],
-          summary: {
-            resolvedFindingIds: [],
-            unresolvedFindingIds: ["F001"],
-            regressionFindings: [
-              {
-                id: "F010",
-                fingerprint: "fp-10",
-                title: "Regression in cache invalidation",
-                body: "Fix introduced a cache regression",
-                priority: "P1",
-                confidenceScore: 0.88,
-                filePath: "src/cache.ts",
-                startLine: 30,
-                endLine: 32,
-              },
-            ],
-          },
         },
       ];
 
@@ -379,8 +317,6 @@ describe("html", () => {
       expect(html).toContain("1 selected");
       expect(html).toContain("Batch Fix");
       expect(html).toContain("Added a null guard");
-      expect(html).toContain("Final Audit");
-      expect(html).toContain("Regression in cache invalidation");
     });
   });
 
@@ -738,58 +674,6 @@ describe("html", () => {
       expect(html).toContain(
         '\\u003c/script\\u003e\\u003cimg src=x onerror=\\"x\\"\\u003e \\u0026 unsafe'
       );
-    });
-
-    test("includes code simplified badge in session detail rendering when present", () => {
-      const data = createTestDashboardData();
-      const session = data.projects[0]?.sessions[0];
-      if (!session) {
-        throw new Error("Expected a test session");
-      }
-
-      const systemEntry: SystemEntry = {
-        type: "system",
-        timestamp: Date.now(),
-        projectPath: "/logs/work-project-a",
-        reviewer: { agent: "claude", model: "claude-sonnet-4-20250514" },
-        fixer: { agent: "claude", model: "claude-sonnet-4-20250514" },
-        codeSimplifier: { agent: "codex", model: "gpt-5.2-codex" },
-        maxIterations: 5,
-      };
-      session.entries = [systemEntry];
-
-      const html = generateDashboardHtml(data);
-
-      expect(html).toContain("CODE");
-      expect(html).toContain("SIMPLIFIED");
-      expect(html).toContain("stat stat-code-simplified");
-      expect(html).toContain('"codeSimplifier":{"agent":"codex","model":"gpt-5.2-codex"}');
-    });
-
-    test("embeds simplifier-enabled reviewOptions for code simplified badge", () => {
-      const data = createTestDashboardData();
-      const session = data.projects[0]?.sessions[0];
-      if (!session) {
-        throw new Error("Expected a test session");
-      }
-
-      const systemEntry: SystemEntry = {
-        type: "system",
-        timestamp: Date.now(),
-        projectPath: "/logs/work-project-a",
-        reviewer: { agent: "droid", model: "gpt-5.2" },
-        fixer: { agent: "opencode", model: "llm-proxy/claude-opus-4-5-thinking" },
-        maxIterations: 5,
-        reviewOptions: { simplifier: true },
-      };
-      session.entries = [systemEntry];
-
-      const html = generateDashboardHtml(data);
-
-      expect(html).toContain('"reviewOptions":{"simplifier":true}');
-      expect(html).toContain("CODE");
-      expect(html).toContain("SIMPLIFIED");
-      expect(html).toContain("stat stat-code-simplified");
     });
 
     test("sorts insights rows by totalIssues descending", () => {

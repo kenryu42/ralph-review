@@ -385,8 +385,7 @@ function deriveRunStatusFromEntries(
 
   if (
     latestLifecycleEntry.type === "discovery_iteration" ||
-    latestLifecycleEntry.type === "batch_fix" ||
-    latestLifecycleEntry.type === "final_audit"
+    latestLifecycleEntry.type === "batch_fix"
   ) {
     if (latestLifecycleEntry.error) {
       return latestLifecycleEntry.error.message.toLowerCase().includes("interrupt")
@@ -527,8 +526,12 @@ function applyEntryToSummary(
   }
 
   if (entry.type === "batch_fix") {
-    const appliedFindings = entry.fixResults.filter((result) => result.status === "fixed").length;
-    const skippedFindings = entry.fixResults.filter((result) => result.status === "skipped").length;
+    const resolvedFindings = entry.fixResults.filter(
+      (result) => result.status === "resolved"
+    ).length;
+    const unresolvedFindings = entry.fixResults.filter(
+      (result) => result.status === "unresolved"
+    ).length;
     const failed = entry.error !== undefined;
     const interrupted = entry.error?.message.toLowerCase().includes("interrupt") === true;
 
@@ -537,29 +540,10 @@ function applyEntryToSummary(
     next.phase = "batch-fix";
     next.endedAt = undefined;
     next.reason = failed ? entry.error?.message : undefined;
-    next.totalAppliedFindings = appliedFindings;
-    next.totalSkippedFindings = skippedFindings;
-    next.totalFixes = appliedFindings;
-    next.totalSkipped = skippedFindings;
-
-    if (entry.duration !== undefined) {
-      next.totalDuration = (summary.totalDuration ?? 0) + entry.duration;
-    }
-
-    return next;
-  }
-
-  if (entry.type === "final_audit") {
-    const failed = entry.error !== undefined;
-    const interrupted = entry.error?.message.toLowerCase().includes("interrupt") === true;
-
-    next.status = interrupted ? "interrupted" : failed ? "failed" : "running";
-    next.sessionStatus = interrupted ? "interrupted" : failed ? "failed" : "running";
-    next.phase = "final-audit";
-    next.endedAt = undefined;
-    next.reason = failed ? entry.error?.message : undefined;
-    next.totalUnresolvedSelectedFindings = entry.summary.unresolvedFindingIds.length;
-    next.totalAuditRegressions = entry.summary.regressionFindings.length;
+    next.totalResolvedSelectedFindings = resolvedFindings;
+    next.totalUnresolvedSelectedFindings = unresolvedFindings;
+    next.totalFixes = resolvedFindings;
+    next.totalSkipped = unresolvedFindings;
 
     if (entry.duration !== undefined) {
       next.totalDuration = (summary.totalDuration ?? 0) + entry.duration;
@@ -994,10 +978,8 @@ export async function computeSessionStats(session: LogSession): Promise<SessionS
     totalDuration: summary?.totalDuration ?? metrics.totalDuration,
     totalFindings: summary?.totalFindings,
     totalSelectedFindings: summary?.totalSelectedFindings,
-    totalAppliedFindings: summary?.totalAppliedFindings,
-    totalSkippedFindings: summary?.totalSkippedFindings,
+    totalResolvedSelectedFindings: summary?.totalResolvedSelectedFindings,
     totalUnresolvedSelectedFindings: summary?.totalUnresolvedSelectedFindings,
-    totalAuditRegressions: summary?.totalAuditRegressions,
     entries,
     reviewer,
     reviewerModel,

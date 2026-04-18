@@ -41,11 +41,6 @@ describe("getCurrentAgentFromSessionState", () => {
     const data: SessionState = { ...baseSessionState, currentAgent: "fixer" };
     expect(getCurrentAgentFromSessionState(data)).toBe("fixer");
   });
-
-  test("returns code-simplifier when currentAgent is code-simplifier", () => {
-    const data: SessionState = { ...baseSessionState, currentAgent: "code-simplifier" };
-    expect(getCurrentAgentFromSessionState(data)).toBe("code-simplifier");
-  });
 });
 
 describe("selectLatestReviewFromEntries", () => {

@@ -314,49 +314,25 @@ describe("buildDashboardViewModel", () => {
     });
   });
 
-  test("uses an audit-regressions badge for failed final audit sessions", () => {
-    const session = createSession({
-      reviewOutcome: "audit-regressions",
-      totalAuditRegressions: 2,
-      totalAppliedFindings: 3,
-    });
-
-    const viewModel = buildDashboardViewModel(createDashboardData([[session]]));
-    const sessionVm = viewModel.sessionsByPath[session.sessionPath];
-    expect(sessionVm).toBeDefined();
-    if (!sessionVm) throw new Error("expected session view model to exist");
-
-    expect(sessionVm.badge).toEqual({
-      label: "Audit regressions",
-      className: "status-audit-regressions",
-    });
-  });
-
-  test("detects code simplifier from system entry and maps sessions by path across projects", () => {
-    const codeSimplifierSession = createSession({
+  test("maps sessions by path across projects", () => {
+    const firstSession = createSession({
       sessionPath: "/logs/project-1/session-a.jsonl",
-      entries: [createSystemEntry({ codeSimplifier: { agent: "codex", model: "gpt-5-codex" } })],
+      entries: [createSystemEntry()],
     });
-    const reviewOptionSession = createSession({
+    const secondSession = createSession({
       sessionPath: "/logs/project-2/session-b.jsonl",
-      entries: [createSystemEntry({ reviewOptions: { simplifier: true } })],
-    });
-    const plainSession = createSession({
-      sessionPath: "/logs/project-2/session-c.jsonl",
       entries: [createSystemEntry()],
     });
 
     const viewModel = buildDashboardViewModel(
-      createDashboardData([[codeSimplifierSession], [reviewOptionSession, plainSession]])
+      createDashboardData([[firstSession], [secondSession]])
     );
 
     expect(Object.keys(viewModel.sessionsByPath).sort()).toEqual([
       "/logs/project-1/session-a.jsonl",
       "/logs/project-2/session-b.jsonl",
-      "/logs/project-2/session-c.jsonl",
     ]);
-    expect(viewModel.sessionsByPath[codeSimplifierSession.sessionPath]?.codeSimplified).toBe(true);
-    expect(viewModel.sessionsByPath[reviewOptionSession.sessionPath]?.codeSimplified).toBe(true);
-    expect(viewModel.sessionsByPath[plainSession.sessionPath]?.codeSimplified).toBe(false);
+    expect(viewModel.sessionsByPath[firstSession.sessionPath]?.codeSimplified).toBe(false);
+    expect(viewModel.sessionsByPath[secondSession.sessionPath]?.codeSimplified).toBe(false);
   });
 });

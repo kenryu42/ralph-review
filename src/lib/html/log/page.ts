@@ -18,9 +18,8 @@ function formatAgent(settings: AgentSettings | undefined): string {
   return settings.model ? `${settings.agent} (${settings.model})` : settings.agent;
 }
 
-function isCodeSimplified(systemEntry: SystemEntry | undefined): boolean {
-  if (!systemEntry) return false;
-  return Boolean(systemEntry.codeSimplifier || systemEntry.reviewOptions?.simplifier);
+function isCodeSimplified(_systemEntry: SystemEntry | undefined): boolean {
+  return false;
 }
 
 function isValidLineRange(lineRange: LineRange | undefined): lineRange is LineRange {
@@ -315,15 +314,13 @@ export function generateLogHtml(entries: LogEntry[]): string {
             </section>
           `
           : "",
-        workflow.finalAuditEntry
+        workflow.unresolvedSelectedFindings.length > 0 || workflow.regressionFindings.length > 0
           ? `
             <section class="card iteration">
               <div class="iteration-header">
-                <div class="iteration-title">Final Audit</div>
+                <div class="iteration-title">Remediation Follow-up</div>
                 <div class="iteration-meta">
-                  <span>${formatDate(workflow.finalAuditEntry.timestamp)}</span>
-                  <span class="dot">•</span>
-                  <span>${formatDuration(workflow.finalAuditEntry.duration)}</span>
+                  <span>${formatDate(workflow.batchFixEntry?.timestamp ?? Date.now())}</span>
                 </div>
               </div>
               ${

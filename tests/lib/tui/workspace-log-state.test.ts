@@ -10,7 +10,6 @@ describe("deriveWorkspaceLogData", () => {
   test("derives review and fix data from log entries", () => {
     const reviewOptions: ReviewOptions = {
       baseBranch: "main",
-      simplifier: true,
     };
 
     const logEntries: LogEntry[] = [
@@ -161,32 +160,10 @@ describe("deriveWorkspaceLogData", () => {
         fixResults: [
           {
             findingId: "F001",
-            status: "fixed",
+            status: "unresolved",
             summary: "Added a null guard",
           },
         ],
-      },
-      {
-        type: "final_audit",
-        timestamp: 500,
-        selectedFindingIds: ["F001"],
-        summary: {
-          resolvedFindingIds: [],
-          unresolvedFindingIds: ["F001"],
-          regressionFindings: [
-            {
-              id: "F010",
-              fingerprint: "fp-10",
-              title: "Regression in cache invalidation",
-              body: "Fix introduced a cache regression",
-              priority: "P1",
-              confidenceScore: 0.9,
-              filePath: "src/cache.ts",
-              startLine: 30,
-              endLine: 32,
-            },
-          ],
-        },
       },
     ];
 
@@ -202,11 +179,11 @@ describe("deriveWorkspaceLogData", () => {
     expect(result.fixResults).toHaveLength(1);
     expect(result.fixResults[0]).toMatchObject({
       findingId: "F001",
-      status: "fixed",
+      status: "unresolved",
       summary: "Added a null guard",
     });
     expect(result.unresolvedSelectedFindings.map((finding) => finding.id)).toEqual(["F001"]);
-    expect(result.auditRegressionFindings.map((finding) => finding.id)).toEqual(["F010"]);
+    expect(result.auditRegressionFindings).toEqual([]);
     expect(result.latestReviewIteration).toBeNull();
     expect(result.codexReviewText).toBeNull();
   });

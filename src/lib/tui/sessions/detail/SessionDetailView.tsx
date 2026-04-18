@@ -74,9 +74,6 @@ function getStatusDisplay(
       return { text: "interrupted", color: TUI_COLORS.status.warning };
     case "running":
       if (currentAgent) {
-        if (currentAgent === "code-simplifier") {
-          return { text: "running code simplifier agent", color: TUI_COLORS.status.success };
-        }
         return { text: `running ${currentAgent} agent`, color: TUI_COLORS.status.success };
       }
       if (isPreparing) {
@@ -247,12 +244,11 @@ export function SessionDetailView({
   const workflowUnresolvedFindings =
     unresolvedSelectedFindings.length > 0
       ? unresolvedSelectedFindings
-      : (session.latestAudit?.unresolvedFindingIds ?? [])
-          .map((findingId) => workflowFindingsById.get(findingId))
+      : fixResults
+          .filter((result) => result.status === "unresolved")
+          .map((result) => workflowFindingsById.get(result.findingId))
           .filter((finding): finding is StoredFinding => finding !== undefined);
-  const workflowRegressionFindings = session.latestAudit?.regressionFindings.length
-    ? session.latestAudit.regressionFindings
-    : auditRegressionFindings;
+  const workflowRegressionFindings = auditRegressionFindings;
   const batchDisplayFindings =
     inventoryFindings.length > 0 ? inventoryFindings.map(storedFindingToFinding) : displayFindings;
   const workflowLine = [session.currentPhase, session.sessionStatus, session.reviewOutcome]
@@ -356,7 +352,7 @@ export function SessionDetailView({
           {(workflowUnresolvedFindings.length > 0 || workflowRegressionFindings.length > 0) && (
             <box flexDirection="column" flexBasis={0} flexGrow={3} minHeight={0}>
               <SectionHeader
-                title="Final audit"
+                title="Remediation follow-up"
                 count={workflowUnresolvedFindings.length + workflowRegressionFindings.length}
               />
               {workflowUnresolvedFindings.length > 0 && (

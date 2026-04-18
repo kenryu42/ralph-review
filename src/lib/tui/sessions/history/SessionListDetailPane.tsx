@@ -269,17 +269,12 @@ function formatBatchFirstResult(stats: SessionStats): string {
   const selectionText =
     stats.totalSelectedFindings !== undefined ? ` · ${stats.totalSelectedFindings} selected` : "";
   const remediationText =
-    stats.totalAppliedFindings !== undefined || stats.totalSkippedFindings !== undefined
-      ? ` · ${stats.totalAppliedFindings ?? 0} fixed · ${stats.totalSkippedFindings ?? 0} skipped`
+    stats.totalResolvedSelectedFindings !== undefined ||
+    stats.totalUnresolvedSelectedFindings !== undefined
+      ? ` · ${stats.totalResolvedSelectedFindings ?? 0} resolved · ${stats.totalUnresolvedSelectedFindings ?? 0} unresolved`
       : "";
-  const auditText =
-    stats.totalAuditRegressions !== undefined
-      ? ` · ${stats.totalAuditRegressions} regressions`
-      : stats.totalUnresolvedSelectedFindings !== undefined
-        ? ` · ${stats.totalUnresolvedSelectedFindings} unresolved`
-        : "";
 
-  return `${findingsText}${selectionText}${remediationText}${auditText}`;
+  return `${findingsText}${selectionText}${remediationText}`;
 }
 
 function WorkflowSection({ title, children }: { title: string; children: ReactNode }) {
@@ -484,8 +479,9 @@ export function SessionDetailPane({
                 </WorkflowSection>
               )}
 
-              {workflow.finalAuditEntry && (
-                <WorkflowSection title="Final Audit">
+              {(workflow.unresolvedSelectedFindings.length > 0 ||
+                workflow.regressionFindings.length > 0) && (
+                <WorkflowSection title="Remediation Follow-up">
                   {workflow.unresolvedSelectedFindings.length > 0 && (
                     <box flexDirection="column">
                       <text fg={TUI_COLORS.text.muted}>Unresolved selected findings</text>

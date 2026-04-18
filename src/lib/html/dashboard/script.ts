@@ -127,8 +127,7 @@ const DASHBOARD_SCRIPT_TEMPLATE = `
   const getSessionSystemEntry = (session) =>
     session.entries?.find((entry) => entry.type === "system");
 
-  const isCodeSimplified = (systemEntry) =>
-    Boolean(systemEntry?.codeSimplifier || systemEntry?.reviewOptions?.simplifier);
+  const isCodeSimplified = () => false;
 
   const getPriorityPillClass = (priority) => {
     switch (priority) {

@@ -815,13 +815,11 @@ describe("SessionDetailPane", () => {
       sessionId: "session-123",
       sessionStatus: "completed",
       phase: "complete",
-      reviewOutcome: "audit-regressions",
+      reviewOutcome: "incomplete",
       totalFindings: 2,
       totalSelectedFindings: 1,
-      totalAppliedFindings: 1,
-      totalSkippedFindings: 0,
+      totalResolvedSelectedFindings: 0,
       totalUnresolvedSelectedFindings: 1,
-      totalAuditRegressions: 1,
       entries: [
         buildSystemEntry({ projectPath: "/test/project" }),
         {
@@ -869,38 +867,16 @@ describe("SessionDetailPane", () => {
           fixResults: [
             {
               findingId: "F001",
-              status: "fixed",
+              status: "unresolved",
               summary: "Added a null guard",
             },
           ],
         },
-        {
-          type: "final_audit",
-          timestamp: Date.now(),
-          selectedFindingIds: ["F001"],
-          summary: {
-            resolvedFindingIds: [],
-            unresolvedFindingIds: ["F001"],
-            regressionFindings: [
-              {
-                id: "F010",
-                fingerprint: "fp-10",
-                title: "Regression in cache invalidation",
-                body: "Fix introduced a cache regression",
-                priority: "P1",
-                confidenceScore: 0.9,
-                filePath: "src/cache.ts",
-                startLine: 30,
-                endLine: 32,
-              },
-            ],
-          },
-        },
         buildSessionEndEntry({
           phase: "complete",
           sessionStatus: "completed",
-          reviewOutcome: "audit-regressions",
-          reason: "Selected fixes introduced one regression.",
+          reviewOutcome: "incomplete",
+          reason: "Some selected findings remain unresolved after remediation.",
         }),
       ],
     });
@@ -908,12 +884,12 @@ describe("SessionDetailPane", () => {
     const setup = await renderDetailPane(stats);
     const frame = setup.captureCharFrame();
 
-    expect(frame).toContain("audit-regressions");
+    expect(frame).toContain("incomplete");
     expect(frame).toContain("2 issues found");
     expect(frame).toContain("Selection");
     expect(frame).toContain("1 selected");
-    expect(frame).toContain("1 fixed");
-    expect(frame).toContain("1 regressions");
+    expect(frame).toContain("0 resolved");
+    expect(frame).toContain("1 unresolved");
     expect(frame).toContain("Guard missing config");
   });
 

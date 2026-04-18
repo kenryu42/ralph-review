@@ -97,13 +97,6 @@ function getSessionBadge(session: SessionStats): SessionBadgeViewModel {
     };
   }
 
-  if (session.reviewOutcome === "audit-regressions") {
-    return {
-      label: "Audit regressions",
-      className: "status-audit-regressions",
-    };
-  }
-
   if (session.reviewOutcome === "fixed-selected") {
     return {
       label: "Fixed selected",
@@ -153,8 +146,8 @@ function getSessionSystemEntry(session: SessionStats): SystemEntry | undefined {
   return session.entries.find((entry): entry is SystemEntry => entry.type === "system");
 }
 
-function isCodeSimplified(systemEntry: SystemEntry | undefined): boolean {
-  return Boolean(systemEntry?.codeSimplifier || systemEntry?.reviewOptions?.simplifier);
+function isCodeSimplified(_systemEntry: SystemEntry | undefined): boolean {
+  return false;
 }
 
 function formatRoleDisplay(name: string, model: string, reasoning: string): string {

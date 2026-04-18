@@ -205,11 +205,9 @@ export function SkippedList({
 
 function getFixResultColor(status: FindingFixResult["status"]): string {
   switch (status) {
-    case "fixed":
+    case "resolved":
       return TUI_COLORS.status.success;
-    case "skipped":
-      return TUI_COLORS.status.warning;
-    case "failed":
+    case "unresolved":
       return TUI_COLORS.status.error;
     default:
       return TUI_COLORS.text.dim;

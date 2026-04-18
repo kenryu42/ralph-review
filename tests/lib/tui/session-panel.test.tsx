@@ -475,9 +475,9 @@ describe("DetailPane", () => {
   test("renders batch-first workflow metadata, inventory, fix results, and audit details", async () => {
     const frame = await renderFrame({
       session: createSession({
-        currentPhase: "final-audit",
+        currentPhase: "complete",
         sessionStatus: "completed",
-        reviewOutcome: "audit-regressions",
+        reviewOutcome: "incomplete",
         accumulatedFindings: [
           {
             id: "F001",
@@ -503,23 +503,6 @@ describe("DetailPane", () => {
           },
         ],
         selectedFindingIds: ["F001"],
-        latestAudit: {
-          resolvedFindingIds: [],
-          unresolvedFindingIds: ["F001"],
-          regressionFindings: [
-            {
-              id: "F010",
-              fingerprint: "fp-10",
-              title: "Regression in cache invalidation",
-              body: "Fix introduced a cache regression",
-              priority: "P1",
-              confidenceScore: 0.88,
-              filePath: "src/cache.ts",
-              startLine: 30,
-              endLine: 32,
-            },
-          ],
-        },
       }),
       reviewOptions: { baseBranch: "main" },
       storedFindings: [
@@ -563,7 +546,7 @@ describe("DetailPane", () => {
       fixResults: [
         {
           findingId: "F001",
-          status: "fixed",
+          status: "unresolved",
           summary: "Added a null guard",
         },
       ],
@@ -596,15 +579,15 @@ describe("DetailPane", () => {
     });
 
     expect(frame).toContain("Workflow:");
-    expect(frame).toContain("final-audit");
+    expect(frame).toContain("complete");
     expect(frame).toContain("completed");
-    expect(frame).toContain("audit-regressions");
+    expect(frame).toContain("incomplete");
     expect(frame).toContain("Findings inventory");
     expect(frame).toContain("Guard missing config");
     expect(frame).toContain("Selected findings");
     expect(frame).toContain("Fix results");
     expect(frame).toContain("Added a null guard");
-    expect(frame).toContain("Final audit");
+    expect(frame).toContain("Remediation follow-up");
     expect(frame).toContain("Regression in cache invalidation");
   });
 
