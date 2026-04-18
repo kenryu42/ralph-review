@@ -111,7 +111,7 @@ describe("review-workflow/remediation/runBatchFixPhase", () => {
           return {
             success: true,
             output: `<<<RR_FIX_SUMMARY_JSON_START>>>
-{"decision":"APPLY_SELECTIVELY","results":{"F001":{"status":"fixed","summary":"Applied guard"},"F002":{"status":"skipped","summary":"SKIP: insufficient evidence"}}}
+{"decision":"APPLY_SELECTIVELY","results":{"F001":{"status":"resolved","summary":"Applied guard"},"F002":{"status":"unresolved","summary":"SKIP: insufficient evidence"}}}
 <<<RR_FIX_SUMMARY_JSON_END>>>`,
             exitCode: 0,
             duration: 1,
@@ -134,12 +134,12 @@ describe("review-workflow/remediation/runBatchFixPhase", () => {
     expect(result.fixResults).toEqual([
       {
         findingId: "F001",
-        status: "fixed",
+        status: "resolved",
         summary: "Applied guard",
       },
       {
         findingId: "F002",
-        status: "skipped",
+        status: "unresolved",
         summary: "SKIP: insufficient evidence",
       },
     ]);

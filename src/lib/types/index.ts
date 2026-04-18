@@ -15,8 +15,6 @@ export {
   type ReasoningLevel,
   type RetryConfig,
   type RetryOverrideConfig,
-  type RunConfig,
-  type RunOverrideConfig,
 } from "./config";
 export {
   type AgentRole,

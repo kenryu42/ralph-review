@@ -1,6 +1,5 @@
 import type { RetainedSessionWorktree } from "@/lib/git";
 import type {
-  AuditSummary,
   FindingFixResult,
   FindingId,
   FindingsArtifact,
@@ -19,12 +18,6 @@ export interface BatchFixResult {
   fixResults: FindingFixResult[];
 }
 
-export interface FinalAuditResult {
-  phase: Extract<ReviewPhase, "final-audit">;
-  sessionStatus: SessionStatus;
-  latestAudit: AuditSummary;
-}
-
 export interface FixSessionResult {
   phase: ReviewPhase;
   sessionStatus: SessionStatus;
@@ -33,7 +26,6 @@ export interface FixSessionResult {
   artifact?: FindingsArtifact;
   selection: RemediationSelection;
   fixResults: FindingFixResult[];
-  audit?: AuditSummary;
   unresolvedSelectedFindings: StoredFinding[];
   unselectedFindings: StoredFinding[];
   handoffStatus?: HandoffStatus;

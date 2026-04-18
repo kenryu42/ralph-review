@@ -69,7 +69,11 @@ function createDependencies(
     artifact?: FindingsArtifact;
     promptSelectionIds?: string[] | null;
     validateError?: Error;
-    auditError?: Error;
+    batchFixResults?: Array<{
+      findingId: FindingId;
+      status: "resolved" | "unresolved";
+      summary: string;
+    }>;
     finalizeSessionWorktreeResult?: RetainedSessionWorktree | null;
     discardedWorktrees?: string[];
     finalizedWorktrees?: string[];
@@ -119,45 +123,35 @@ function createDependencies(
     runBatchFixPhase: async ({ selection }) => ({
       phase: "batch-fix",
       sessionStatus: "completed",
-      fixResults: selection.selectedFindingIds.map((findingId) => ({
-        findingId,
-        status: "fixed" as const,
-        summary: `Applied ${findingId}`,
-      })),
+      fixResults:
+        state.batchFixResults ??
+        selection.selectedFindingIds.map((findingId) => ({
+          findingId,
+          status: "resolved" as const,
+          summary: `Resolved ${findingId}`,
+        })),
     }),
     appendFixResults: async (_storageRoot, _projectPath, _sessionId, fixResults) => ({
       ...artifact,
       fixResults,
     }),
-    runFinalAuditPhase: async ({ selection }) => {
-      if (state.auditError) {
-        throw state.auditError;
-      }
-
-      return {
-        phase: "final-audit",
-        sessionStatus: "completed",
-        summary: {
-          resolvedFindingIds: [...selection.selectedFindingIds],
-          unresolvedFindingIds: [],
-          regressionFindings: [],
-        },
-      };
-    },
-    updateAuditSummary: async (_storageRoot, _projectPath, _sessionId, latestAudit) => ({
-      ...artifact,
-      latestAudit,
-    }),
-    finalizeResult: async ({ artifact: finalizedArtifact, selection, fixResults, audit }) => ({
+    finalizeResult: async ({ artifact: finalizedArtifact, selection, fixResults }) => ({
       phase: "complete" as const,
       sessionStatus: "completed" as const,
-      reviewOutcome: "fixed-selected" as const,
-      reason: "Applied selected findings.",
+      reviewOutcome: fixResults.some((result) => result.status === "unresolved")
+        ? ("incomplete" as const)
+        : ("fixed-selected" as const),
+      reason: fixResults.some((result) => result.status === "unresolved")
+        ? "Some selected findings remain unresolved after remediation."
+        : "Selected findings were resolved by remediation.",
       artifact: finalizedArtifact,
       selection,
       fixResults,
-      audit,
-      unresolvedSelectedFindings: [],
+      unresolvedSelectedFindings: artifact.findings.filter((finding) =>
+        fixResults.some(
+          (result) => result.findingId === finding.id && result.status === "unresolved"
+        )
+      ),
       unselectedFindings: artifact.findings.filter(
         (finding) => !selection.selectedFindingIds.includes(finding.id)
       ),
@@ -339,24 +333,12 @@ describe("review-workflow/remediation/runFixSession", () => {
       currentAgent: "fixer",
       selectedFindingIds: ["F001"],
     });
-    expect(updates).toContainEqual({
-      currentPhase: "final-audit",
-      phase: "final-audit",
-      sessionStatus: "running",
-      currentAgent: "reviewer",
-      selectedFindingIds: ["F001"],
-    });
     expect(updates.at(-1)).toEqual({
       currentPhase: "complete",
       phase: "complete",
       sessionStatus: "completed",
       currentAgent: null,
       selectedFindingIds: ["F001"],
-      latestAudit: {
-        resolvedFindingIds: ["F001"],
-        unresolvedFindingIds: [],
-        regressionFindings: [],
-      },
       reviewOutcome: "fixed-selected",
       handoffStatus: undefined,
       handoffUpdatedAt: undefined,
@@ -364,7 +346,7 @@ describe("review-workflow/remediation/runFixSession", () => {
     });
   });
 
-  test("retains the worktree when final audit output stays invalid after fixes", async () => {
+  test("retains the worktree when remediation leaves selected findings unresolved", async () => {
     const finalizedWorktrees: string[] = [];
     const discardedWorktrees: string[] = [];
 
@@ -378,22 +360,28 @@ describe("review-workflow/remediation/runFixSession", () => {
         isTTY: false,
       },
       createDependencies({
-        auditError: new Error("Structured JSON output was missing or invalid."),
+        batchFixResults: [
+          {
+            findingId: "F001",
+            status: "unresolved",
+            summary: "Could not prove a safe remediation.",
+          },
+        ],
         finalizedWorktrees,
         discardedWorktrees,
       })
     );
 
-    expect(result.sessionStatus).toBe("failed");
-    expect(result.phase).toBe("final-audit");
+    expect(result.sessionStatus).toBe("completed");
+    expect(result.phase).toBe("complete");
     expect(result.reviewOutcome).toBe("incomplete");
-    expect(result.reason).toBe("Structured JSON output was missing or invalid.");
+    expect(result.reason).toBe("Some selected findings remain unresolved after remediation.");
     expect(result.selection.selectedFindingIds).toEqual(["F001"]);
     expect(result.fixResults).toEqual([
       {
         findingId: "F001",
-        status: "fixed",
-        summary: "Applied F001",
+        status: "unresolved",
+        summary: "Could not prove a safe remediation.",
       },
     ]);
     expect(result.retainedWorktree).toEqual({

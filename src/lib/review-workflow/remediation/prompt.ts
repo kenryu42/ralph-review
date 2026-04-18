@@ -211,7 +211,7 @@ ${formatSelectedFindings(options.selectedFindings)}
 
 ## Required workflow
 1. Verify each selected finding independently against the real code.
-2. Decide fixed vs skipped for each finding before making edits.
+2. Decide resolved vs unresolved for each finding before making edits.
 3. Apply fixes only for findings you can prove.
 4. Keep edits as local and minimal as possible.
 5. Return one result entry for every selected finding ID.
@@ -229,8 +229,8 @@ ${FIX_SUMMARY_START_TOKEN}
   "decision": "<NO_CHANGES_NEEDED | APPLY_SELECTIVELY | APPLY_MOST>",
   "results": {
     "F001": {
-      "status": "<fixed | skipped>",
-      "summary": "<what changed or why it was skipped>"
+      "status": "<resolved | unresolved>",
+      "summary": "<what changed or why the finding remains unresolved>"
     }
   }
 }
@@ -238,6 +238,8 @@ ${FIX_SUMMARY_END_TOKEN}
 
 JSON rules:
 - Use the selected finding IDs as the object keys under \`results\`.
+- Return \`resolved\` only when the selected finding is fully addressed or already satisfied by the current code.
+- Return \`unresolved\` when the finding still needs follow-up, including when you skip it for lack of proof or cannot safely remediate it.
 - You must return one result entry for every selected finding ID.
 - Do not include any finding that was not selected.
 - Use \`fixed\` only when you verified the issue and applied a real code change.

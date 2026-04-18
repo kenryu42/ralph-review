@@ -66,10 +66,8 @@ export interface SessionStats {
   fixerModelDisplayName: string;
   totalFindings?: number;
   totalSelectedFindings?: number;
-  totalAppliedFindings?: number;
-  totalSkippedFindings?: number;
+  totalResolvedSelectedFindings?: number;
   totalUnresolvedSelectedFindings?: number;
-  totalAuditRegressions?: number;
 }
 
 export interface ProjectStats {

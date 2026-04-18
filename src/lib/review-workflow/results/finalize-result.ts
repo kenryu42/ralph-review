@@ -1,11 +1,7 @@
 import type { GitSessionWorktree } from "@/lib/git";
 import { createOrAutoApplyHandoff } from "@/lib/handoff";
 import { appendLog } from "@/lib/logging";
-import type {
-  AuditSummary,
-  FindingFixResult,
-  FindingsArtifact,
-} from "@/lib/review-workflow/findings/types";
+import type { FindingFixResult, FindingsArtifact } from "@/lib/review-workflow/findings/types";
 import type {
   FixSessionResult,
   RemediationSelection,
@@ -15,7 +11,6 @@ export interface FinalizeResultInput {
   artifact: FindingsArtifact;
   selection: RemediationSelection;
   fixResults: FindingFixResult[];
-  audit: AuditSummary;
   worktree: GitSessionWorktree;
 }
 
@@ -33,8 +28,13 @@ export async function finalizeResult(
   input: FinalizeResultInput,
   deps: FinalizeResultDependencies = DEFAULT_FINALIZE_RESULT_DEPENDENCIES
 ): Promise<FixSessionResult> {
+  const unresolvedSelectedFindingIds = new Set(
+    input.fixResults
+      .filter((result) => result.status === "unresolved")
+      .map((result) => result.findingId)
+  );
   const unresolvedSelectedFindings = input.selection.selectedFindings.filter((finding) =>
-    input.audit.unresolvedFindingIds.includes(finding.id)
+    unresolvedSelectedFindingIds.has(finding.id)
   );
   const unselectedFindings = input.artifact.findings.filter(
     (finding) => !input.selection.selectedFindingIds.includes(finding.id)
@@ -43,15 +43,12 @@ export async function finalizeResult(
   let reviewOutcome: FixSessionResult["reviewOutcome"];
   let reason: string;
 
-  if (input.audit.regressionFindings.length > 0) {
-    reviewOutcome = "audit-regressions";
-    reason = "Final audit found regressions introduced by remediation.";
-  } else if (unresolvedSelectedFindings.length > 0) {
+  if (unresolvedSelectedFindings.length > 0) {
     reviewOutcome = "incomplete";
-    reason = "Some selected findings remain unresolved after the final audit.";
+    reason = "Some selected findings remain unresolved after remediation.";
   } else {
     reviewOutcome = "fixed-selected";
-    reason = "Selected findings were fixed and passed the final audit.";
+    reason = "Selected findings were resolved by remediation.";
   }
 
   let handoffStatus: FixSessionResult["handoffStatus"];
@@ -88,7 +85,6 @@ export async function finalizeResult(
     artifact: input.artifact,
     selection: input.selection,
     fixResults: input.fixResults,
-    audit: input.audit,
     unresolvedSelectedFindings,
     unselectedFindings,
     handoffStatus,

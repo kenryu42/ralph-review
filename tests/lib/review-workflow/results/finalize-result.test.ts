@@ -1,10 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { GitSessionWorktree } from "@/lib/git";
-import type {
-  AuditSummary,
-  FindingsArtifact,
-  StoredFinding,
-} from "@/lib/review-workflow/findings/types";
+import type { FindingsArtifact, StoredFinding } from "@/lib/review-workflow/findings/types";
 import { finalizeResult } from "@/lib/review-workflow/results/finalize-result";
 
 function createFinding(
@@ -64,14 +60,9 @@ function getFirstFinding(artifact: FindingsArtifact): StoredFinding {
 }
 
 describe("review-workflow/results/finalizeResult", () => {
-  test("returns fixed-selected and creates a handoff when the audit is clean", async () => {
+  test("returns fixed-selected and creates a handoff when all selected findings are resolved", async () => {
     const calls: string[] = [];
     const artifact = createArtifact([createFinding("F001"), createFinding("F002")]);
-    const audit: AuditSummary = {
-      resolvedFindingIds: ["F001"],
-      unresolvedFindingIds: [],
-      regressionFindings: [],
-    };
 
     const result = await finalizeResult(
       {
@@ -83,11 +74,10 @@ describe("review-workflow/results/finalizeResult", () => {
         fixResults: [
           {
             findingId: "F001",
-            status: "fixed",
-            summary: "Applied fix",
+            status: "resolved",
+            summary: "Resolved with a focused code change.",
           },
         ],
-        audit,
         worktree: createWorktree(),
       },
       {
@@ -112,45 +102,7 @@ describe("review-workflow/results/finalizeResult", () => {
     expect(calls).toEqual(["handoff", "log"]);
   });
 
-  test("returns audit-regressions and skips handoff creation when the audit finds regressions", async () => {
-    const artifact = createArtifact([createFinding("F001")]);
-
-    const result = await finalizeResult(
-      {
-        artifact,
-        selection: {
-          selectedFindingIds: ["F001"],
-          selectedFindings: [getFirstFinding(artifact)],
-        },
-        fixResults: [
-          {
-            findingId: "F001",
-            status: "fixed",
-            summary: "Applied fix",
-          },
-        ],
-        audit: {
-          resolvedFindingIds: ["F001"],
-          unresolvedFindingIds: [],
-          regressionFindings: [createFinding("F900", "P0")],
-        },
-        worktree: createWorktree(),
-      },
-      {
-        createOrAutoApplyHandoff: async () => {
-          throw new Error("handoff should not be created");
-        },
-        appendLog: async () => {
-          throw new Error("handoff log should not be written");
-        },
-      }
-    );
-
-    expect(result.reviewOutcome).toBe("audit-regressions");
-    expect(result.handoffStatus).toBeUndefined();
-  });
-
-  test("returns incomplete when selected findings remain unresolved", async () => {
+  test("returns incomplete and skips handoff creation when any selected finding is unresolved", async () => {
     const artifact = createArtifact([createFinding("F001"), createFinding("F002")]);
 
     const result = await finalizeResult(
@@ -163,20 +115,15 @@ describe("review-workflow/results/finalizeResult", () => {
         fixResults: [
           {
             findingId: "F001",
-            status: "fixed",
-            summary: "Applied fix",
+            status: "resolved",
+            summary: "Resolved with a focused code change.",
           },
           {
             findingId: "F002",
-            status: "skipped",
-            summary: "SKIP: insufficient evidence",
+            status: "unresolved",
+            summary: "Could not prove a safe remediation.",
           },
         ],
-        audit: {
-          resolvedFindingIds: ["F001"],
-          unresolvedFindingIds: ["F002"],
-          regressionFindings: [],
-        },
         worktree: createWorktree(),
       },
       {
@@ -191,6 +138,7 @@ describe("review-workflow/results/finalizeResult", () => {
 
     expect(result.reviewOutcome).toBe("incomplete");
     expect(result.unresolvedSelectedFindings.map((finding) => finding.id)).toEqual(["F002"]);
+    expect(result.handoffStatus).toBeUndefined();
   });
 
   test("keeps a clean no-op remediation fixed-selected when no handoff is created", async () => {
@@ -206,15 +154,10 @@ describe("review-workflow/results/finalizeResult", () => {
         fixResults: [
           {
             findingId: "F001",
-            status: "skipped",
-            summary: "No code changes were required.",
+            status: "resolved",
+            summary: "Confirmed the finding was already resolved in the selected baseline.",
           },
         ],
-        audit: {
-          resolvedFindingIds: ["F001"],
-          unresolvedFindingIds: [],
-          regressionFindings: [],
-        },
         worktree: createWorktree(),
       },
       {

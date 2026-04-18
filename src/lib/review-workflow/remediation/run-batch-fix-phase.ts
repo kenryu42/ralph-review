@@ -19,7 +19,7 @@ import type { Config } from "@/lib/types";
 import type { FixDecision } from "@/lib/types/domain";
 
 interface BatchFixerResultEntry {
-  status: "fixed" | "skipped";
+  status: "resolved" | "unresolved";
   summary: string;
 }
 
@@ -66,7 +66,7 @@ function isBatchFixerResultEntry(value: unknown): value is BatchFixerResultEntry
 
   const candidate = value as Record<string, unknown>;
   return (
-    (candidate.status === "fixed" || candidate.status === "skipped") &&
+    (candidate.status === "resolved" || candidate.status === "unresolved") &&
     typeof candidate.summary === "string"
   );
 }
@@ -111,7 +111,7 @@ function toFixResults(
     if (!entry) {
       return {
         findingId,
-        status: "failed",
+        status: "unresolved",
         summary: `Fixer did not return a result for ${findingId}.`,
       };
     }

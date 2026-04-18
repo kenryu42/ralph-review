@@ -18,15 +18,8 @@ export interface StoredFinding {
 
 export interface FindingFixResult {
   findingId: FindingId;
-  status: "fixed" | "skipped" | "failed";
+  status: "resolved" | "unresolved";
   summary: string;
-}
-
-export interface AuditSummary {
-  resolvedFindingIds: FindingId[];
-  unresolvedFindingIds: FindingId[];
-  regressionFindings: StoredFinding[];
-  summary?: string;
 }
 
 export interface FindingsArtifact {
@@ -44,7 +37,6 @@ export interface FindingsArtifact {
   findings: StoredFinding[];
   selectedFindingIds: FindingId[];
   fixResults?: FindingFixResult[];
-  latestAudit?: AuditSummary;
   createdAt: string;
   updatedAt: string;
 }

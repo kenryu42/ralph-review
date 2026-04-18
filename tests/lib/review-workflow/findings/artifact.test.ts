@@ -9,12 +9,10 @@ import {
   loadFindingsArtifact,
   loadFindingsArtifactBySessionId,
   saveFindingsArtifact,
-  updateAuditSummary,
   updateSelection,
   validateArtifactBaseline,
 } from "@/lib/review-workflow/findings/artifact";
 import type {
-  AuditSummary,
   FindingFixResult,
   FindingId,
   FindingsArtifact,
@@ -110,7 +108,7 @@ describe("review-workflow/findings/artifact", () => {
     expect(loaded?.findings.map((finding) => finding.id)).toEqual(["F001"]);
   });
 
-  test("updates selection fix results and audit summary on stored artifacts", async () => {
+  test("updates selection and fix results on stored artifacts", async () => {
     const repoPath = join(tempDir, "repo");
     await mkdir(repoPath, { recursive: true });
     initTestRepo(repoPath);
@@ -129,20 +127,12 @@ describe("review-workflow/findings/artifact", () => {
     const fixResults: FindingFixResult[] = [
       {
         findingId: "F001",
-        status: "fixed",
-        summary: "Applied fix",
+        status: "resolved",
+        summary: "Resolved fix",
       },
     ];
     const withFixes = await appendFixResults(tempDir, repoPath, "session-123", fixResults);
     expect(withFixes.fixResults).toEqual(fixResults);
-
-    const audit: AuditSummary = {
-      resolvedFindingIds: ["F001"],
-      unresolvedFindingIds: [],
-      regressionFindings: [],
-    };
-    const withAudit = await updateAuditSummary(tempDir, repoPath, "session-123", audit);
-    expect(withAudit.latestAudit).toEqual(audit);
   });
 
   test("loads a single artifact by session id across project storage", async () => {

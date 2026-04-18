@@ -1,7 +1,6 @@
 import { join } from "node:path";
 import { getProjectStorageDir } from "@/lib/logging";
 import type {
-  AuditSummary,
   FindingFixResult,
   FindingId,
   FindingsArtifact,
@@ -79,42 +78,10 @@ function isFixResultArray(value: unknown): value is FindingFixResult[] {
 
     return (
       isFindingId(entry.findingId) &&
-      (entry.status === "fixed" || entry.status === "skipped" || entry.status === "failed") &&
+      (entry.status === "resolved" || entry.status === "unresolved") &&
       typeof entry.summary === "string"
     );
   });
-}
-
-function isAuditSummary(value: unknown): value is AuditSummary {
-  if (value === undefined) {
-    return true;
-  }
-
-  if (!isRecord(value)) {
-    return false;
-  }
-
-  const resolved = value.resolvedFindingIds;
-  const unresolved = value.unresolvedFindingIds;
-  const regressions = value.regressionFindings;
-
-  if (!Array.isArray(resolved) || !resolved.every(isFindingId)) {
-    return false;
-  }
-
-  if (!Array.isArray(unresolved) || !unresolved.every(isFindingId)) {
-    return false;
-  }
-
-  if (!isStoredFindingArray(regressions)) {
-    return false;
-  }
-
-  if (value.summary !== undefined && typeof value.summary !== "string") {
-    return false;
-  }
-
-  return true;
 }
 
 function isFindingsArtifact(value: unknown): value is FindingsArtifact {
@@ -181,10 +148,6 @@ function isFindingsArtifact(value: unknown): value is FindingsArtifact {
   }
 
   if (!isFixResultArray(value.fixResults)) {
-    return false;
-  }
-
-  if (!isAuditSummary(value.latestAudit)) {
     return false;
   }
 
@@ -328,20 +291,6 @@ export async function appendFixResults(
   return await saveFindingsArtifact(storageRoot, {
     ...artifact,
     fixResults: combined,
-  });
-}
-
-export async function updateAuditSummary(
-  storageRoot: string,
-  projectPath: string,
-  sessionId: string,
-  latestAudit: AuditSummary
-): Promise<FindingsArtifact> {
-  const artifact = await loadRequiredArtifact(storageRoot, projectPath, sessionId);
-
-  return await saveFindingsArtifact(storageRoot, {
-    ...artifact,
-    latestAudit,
   });
 }
 
