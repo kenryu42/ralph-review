@@ -440,7 +440,6 @@ describe("useWorkspaceState hook", () => {
     const skippedA = createSkipped(3, "Skipped edge case", "P2");
     const reviewOptions: ReviewOptions = {
       baseBranch: "main",
-      simplifier: true,
     };
     const logSession: LogSession = {
       path: "/tmp/logs/repo-project/session.jsonl",

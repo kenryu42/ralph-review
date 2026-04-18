@@ -36,8 +36,6 @@ Why not fix it in the same session? Because I wanted an independent second opini
 Doing that manually is tedious and time-consuming, so I built this tool to automate the loop. Inspired by the [Ralph Wiggum technique](https://ghuntley.com/ralph/) by Geoffrey Huntley. I also
 wanted an easy way to try different coding agents and models.
 
-I also occasionally run a code simplifier pass before review, so I included that workflow here too.
-
 If this helps other people, great. If not, it still helps me.
 
 ---
@@ -49,11 +47,6 @@ Ralph Review automates code review by pairing two AI agents -- a **reviewer** an
 ```text
 ┌──────────────────────────────┐
 │         Your changes         │
-└──────────────┬───────────────┘
-               │
-               ▼
-┌──────────────────────────────┐
-│ Code Simplifier (optional)   │
 └──────────────┬───────────────┘
                │
                ▼
@@ -82,13 +75,12 @@ Ralph Review automates code review by pairing two AI agents -- a **reviewer** an
 
 **How the cycle works:**
 
-1. An optional **code simplifier** pass can run first (enabled with `--simplifier`) to reduce code complexity before review.
-2. The **reviewer** analyzes your changes and returns structured review output.
-3. The **fixer** independently reads the code, confirms each issue is real, and applies fixes only where warranted. It does not blindly trust the reviewer.
-4. The fixer outputs a structured summary. If it reports no actionable issues left -- either no real issues were found or all remaining items were safely skipped -- the cycle ends.
-5. Otherwise, the cycle repeats from step 2 until no issues remain or the configured iteration limit is hit.
+1. The **reviewer** analyzes your changes and returns structured review output.
+2. The **fixer** independently reads the code, confirms each issue is real, and applies fixes only where warranted. It does not blindly trust the reviewer.
+3. The fixer outputs a structured summary. If it reports no actionable issues left, the cycle ends.
+4. Otherwise, the cycle repeats from step 1 until no issues remain or the configured iteration limit is hit.
 
-Mutating agent steps run inside a disposable session worktree. If a fixer or simplifier run fails mid-step, Ralph Review discards that session worktree instead of trying to roll partial edits forward.
+Mutating agent steps run inside a disposable session worktree. If a fixer run fails mid-step, Ralph Review discards that session worktree instead of trying to roll partial edits forward.
 
 You can assign different AI agents to each role (e.g. Claude reviews, Gemini fixes).
 
@@ -96,13 +88,7 @@ You can assign different AI agents to each role (e.g. Claude reviews, Gemini fix
 
 ## Agent Roles
 
-Ralph Review orchestrates three distinct roles. You can assign any [supported coding agent](#supported-coding-agents) to each role.
-
-### Code Simplifier (optional)
-
-Enabled with `--simplifier`. Runs once before the review loop begins, reducing code complexity while preserving exact behavior. Operates on the same diff scope as the reviewer (uncommitted changes, base branch diff, or a specific commit).
-
-Prompt adapted from the [Claude Code code-simplifier plugin](https://github.com/anthropics/claude-plugins-official/blob/main/plugins/code-simplifier/agents/code-simplifier.md).
+Ralph Review orchestrates two distinct roles. You can assign any [supported coding agent](#supported-coding-agents) to each role.
 
 ### Reviewer
 
@@ -162,13 +148,12 @@ rr
 | Command | Description |
 |---------|-------------|
 | `rr` | Interactive Mode |
-| `rr init` | Configure reviewer, fixer, and simplifier agents (auto-detects installed CLIs) |
+| `rr init` | Configure reviewer and fixer agents (auto-detects installed CLIs) |
 | `rr run` | Start a non-interactive review cycle in a tmux session |
 | `rr run --base main` | Review changes against a base branch |
 | `rr run --uncommitted` | Review staged, unstaged, and untracked changes |
 | `rr run --commit SHA` | Review changes introduced by a specific commit |
 | `rr run --max N` | Set max iterations |
-| `rr run --simplifier` | Run a code-simplifier pass before review iterations |
 | `rr config show` | Print full configuration |
 | `rr config set KEY VAL` | Update a config value (e.g. `rr config set maxIterations 8`) |
 | `rr list` | List active review sessions |

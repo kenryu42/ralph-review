@@ -13,16 +13,12 @@ interface JsonSchema {
 }
 
 describe("build-schema script", () => {
-  test("emits run.simplifier and not run.interactive or run.watch", () => {
+  test("omits removed run and simplifier config keys", () => {
     const schema = buildConfigJsonSchema() as JsonSchema;
-    const runProperty = schema.properties?.run as
-      | { properties?: Record<string, unknown> }
-      | undefined;
-    const runProperties = runProperty?.properties ?? {};
+    const properties = schema.properties ?? {};
 
-    expect(runProperties.simplifier).toBeDefined();
-    expect(runProperties.interactive).toBeUndefined();
-    expect(runProperties.watch).toBeUndefined();
+    expect(properties.run).toBeUndefined();
+    expect(properties["code-simplifier"]).toBeUndefined();
   });
 
   test("writes schema and formats it with the local biome executable when available", async () => {
@@ -51,9 +47,8 @@ describe("build-schema script", () => {
 
     expect(writes).toHaveLength(1);
     expect(writes[0]?.path).toBe("/tmp/ralph-review.schema.json");
-    expect(writes[0]?.text).toContain('"simplifier"');
-    expect(writes[0]?.text).not.toContain('"interactive"');
-    expect(writes[0]?.text).not.toContain('"watch"');
+    expect(writes[0]?.text).not.toContain('"simplifier"');
+    expect(writes[0]?.text).not.toContain('"code-simplifier"');
     expect(spawnCalls).toEqual([
       ["/repo/node_modules/.bin/biome", "format", "--write", "/tmp/ralph-review.schema.json"],
     ]);
@@ -124,9 +119,8 @@ describe("build-schema script", () => {
       await runBuildSchema(outputPath);
 
       const schemaText = await Bun.file(outputPath).text();
-      expect(schemaText).toContain('"simplifier"');
-      expect(schemaText).not.toContain('"interactive"');
-      expect(schemaText).not.toContain('"watch"');
+      expect(schemaText).not.toContain('"simplifier"');
+      expect(schemaText).not.toContain('"code-simplifier"');
       expect(logs).toContain(`Generated schema: ${outputPath}`);
     } finally {
       console.log = originalLog;

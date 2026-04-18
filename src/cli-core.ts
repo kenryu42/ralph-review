@@ -1,20 +1,9 @@
-import {
-  type CommandDef,
-  formatCommandHelp,
-  formatMainHelp,
-  type OptionDef,
-} from "./lib/cli-parser";
-
-const SIMPLIFIER_OPTION: OptionDef = {
-  name: "simplifier",
-  type: "boolean",
-  description: "Run one code simplifier phase before review iterations",
-};
+import { type CommandDef, formatCommandHelp, formatMainHelp } from "./lib/cli-parser";
 
 export const COMMANDS: CommandDef[] = [
   {
     name: "init",
-    description: "Configure reviewer, fixer, and simplifier agents (auto or custom)",
+    description: "Configure reviewer and fixer agents (auto or custom)",
     options: [
       {
         name: "local",
@@ -69,7 +58,6 @@ export const COMMANDS: CommandDef[] = [
       "rr config show --json",
       "rr config show --verbose",
       "rr config get reviewer.agent",
-      "rr config get --local run.simplifier",
       "rr config set maxIterations 8",
       "rr config set --local defaultReview.branch main",
       "rr config edit",
@@ -119,14 +107,8 @@ export const COMMANDS: CommandDef[] = [
         type: "boolean",
         description: "Disable finish sound for this run (override config)",
       },
-      SIMPLIFIER_OPTION,
     ],
-    examples: [
-      "rr run",
-      "rr run --base main",
-      "rr run --simplifier",
-      "rr fix --session session-123 --all",
-    ],
+    examples: ["rr run", "rr run --base main", "rr fix --session session-123 --all"],
   },
   {
     name: "fix",
@@ -351,7 +333,6 @@ export const COMMANDS: CommandDef[] = [
         type: "boolean",
         description: "Run full max iterations even if no issues are found",
       },
-      SIMPLIFIER_OPTION,
     ],
   },
   {

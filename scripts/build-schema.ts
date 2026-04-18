@@ -46,12 +46,6 @@ const retrySchema = z
   })
   .strict();
 
-const runSchema = z
-  .object({
-    simplifier: z.boolean(),
-  })
-  .strict();
-
 const notificationsSchema = z
   .object({
     sound: z
@@ -68,8 +62,6 @@ const configSchema = z
     version: z.literal(CONFIG_VERSION),
     reviewer: agentSettingsSchema,
     fixer: agentSettingsSchema,
-    "code-simplifier": agentSettingsSchema.optional(),
-    run: runSchema.optional(),
     maxIterations: z.int().positive(),
     iterationTimeout: z.int().positive(),
     retry: retrySchema.optional(),

@@ -19,7 +19,7 @@ import {
   saveConfig,
   saveConfigOverride,
 } from "@/lib/config";
-import { type AgentSettings, CONFIG_SCHEMA_URI, CONFIG_VERSION, type Config } from "@/lib/types";
+import { CONFIG_SCHEMA_URI, CONFIG_VERSION, type Config } from "@/lib/types";
 
 describe("config", () => {
   let tempDir: string;
@@ -128,82 +128,30 @@ describe("config", () => {
       expect(loaded).toBeNull();
     });
 
-    test("loadConfig accepts optional code-simplifier agent settings", async () => {
+    test("loadConfig rejects removed code-simplifier settings", async () => {
       const configPath = join(tempDir, "config.json");
-      const codeSimplifier: AgentSettings = {
-        agent: "codex",
-        model: "gpt-5.2-codex",
-        reasoning: "high",
-      };
-      const configWithSimplifier = {
+      const configWithRemovedRole = {
         ...testConfig,
-        "code-simplifier": codeSimplifier,
+        "code-simplifier": {
+          agent: "codex",
+          model: "gpt-5.2-codex",
+          reasoning: "high",
+        },
       };
 
-      await Bun.write(configPath, JSON.stringify(configWithSimplifier, null, 2));
+      await Bun.write(configPath, JSON.stringify(configWithRemovedRole, null, 2));
       const loaded = await loadConfig(configPath);
-      expect(loaded?.["code-simplifier"]).toEqual(codeSimplifier);
+      expect(loaded).toBeNull();
     });
 
-    test("loadConfig accepts optional run settings", async () => {
+    test("loadConfig rejects removed run settings", async () => {
       const configPath = join(tempDir, "config.json");
-      const configWithRun = {
+      const configWithRemovedRun = {
         ...testConfig,
         run: { simplifier: true },
       };
 
-      await Bun.write(configPath, JSON.stringify(configWithRun, null, 2));
-      const loaded = await loadConfig(configPath);
-      expect(loaded?.run).toEqual({ simplifier: true });
-    });
-
-    test("loadConfig rejects legacy run.interactive settings", async () => {
-      const configPath = join(tempDir, "config.json");
-      const configWithLegacyRun = {
-        ...testConfig,
-        run: { simplifier: true, interactive: false },
-      };
-
-      await Bun.write(configPath, JSON.stringify(configWithLegacyRun, null, 2));
-      const loaded = await loadConfig(configPath);
-      expect(loaded).toBeNull();
-    });
-
-    test("loadConfig rejects legacy run.watch settings", async () => {
-      const configPath = join(tempDir, "config.json");
-      const configWithLegacyRun = {
-        ...testConfig,
-        run: { simplifier: true, watch: false },
-      };
-
-      await Bun.write(configPath, JSON.stringify(configWithLegacyRun, null, 2));
-      const loaded = await loadConfig(configPath);
-      expect(loaded).toBeNull();
-    });
-
-    test("loadConfig rejects invalid code-simplifier settings", async () => {
-      const configPath = join(tempDir, "config.json");
-      const configWithInvalidSimplifier = {
-        ...testConfig,
-        "code-simplifier": {
-          agent: "pi",
-          model: "gemini-2.5-pro",
-        },
-      };
-
-      await Bun.write(configPath, JSON.stringify(configWithInvalidSimplifier, null, 2));
-      const loaded = await loadConfig(configPath);
-      expect(loaded).toBeNull();
-    });
-
-    test("loadConfig rejects invalid run settings", async () => {
-      const configPath = join(tempDir, "config.json");
-      const configWithInvalidRun = {
-        ...testConfig,
-        run: { simplifier: "yes" },
-      };
-
-      await Bun.write(configPath, JSON.stringify(configWithInvalidRun, null, 2));
+      await Bun.write(configPath, JSON.stringify(configWithRemovedRun, null, 2));
       const loaded = await loadConfig(configPath);
       expect(loaded).toBeNull();
     });
@@ -363,43 +311,25 @@ describe("config", () => {
       expect(result.errors).toContain("notifications.sound must be an object.");
     });
 
-    test("parseConfig rejects run when not an object", () => {
+    test("parseConfig rejects removed run settings", () => {
       const withInvalidRun = {
         ...createValidConfigInput(),
-        run: 1,
+        run: { simplifier: true },
       };
 
       expect(parseConfig(withInvalidRun)).toBeNull();
     });
 
-    test("parseConfig rejects run when legacy interactive key is present", () => {
-      const withInvalidRun = {
+    test("parseConfigWithDiagnostics reports removed run settings as unsupported", () => {
+      const withRemovedRun = {
         ...createValidConfigInput(),
-        run: { simplifier: true, interactive: false },
+        run: { simplifier: true },
       };
 
-      expect(parseConfig(withInvalidRun)).toBeNull();
-    });
-
-    test("parseConfig rejects run when legacy watch key is present", () => {
-      const withLegacyRun = {
-        ...createValidConfigInput(),
-        run: { simplifier: true, watch: false },
-      };
-
-      expect(parseConfig(withLegacyRun)).toBeNull();
-    });
-
-    test("parseConfigWithDiagnostics reports unsupported run.watch and available run settings", () => {
-      const withLegacyRun = {
-        ...createValidConfigInput(),
-        run: { simplifier: true, watch: false },
-      };
-
-      const result = parseConfigWithDiagnostics(withLegacyRun);
+      const result = parseConfigWithDiagnostics(withRemovedRun);
       expect(result.config).toBeNull();
       expect(result.errors).toContain(
-        "run.watch is not supported. Available settings: run.simplifier."
+        "run is not supported. Available settings: reviewer, fixer, defaultReview, retry, notifications, maxIterations, iterationTimeout."
       );
     });
 
@@ -419,9 +349,8 @@ describe("config", () => {
       expect(result.errors).toContain(
         "fixer.reasoning must be one of: low, medium, high, xhigh, max."
       );
-      expect(result.errors).toContain("run.simplifier must be a boolean.");
       expect(result.errors).toContain(
-        "run.watch is not supported. Available settings: run.simplifier."
+        "run is not supported. Available settings: reviewer, fixer, defaultReview, retry, notifications, maxIterations, iterationTimeout."
       );
     });
 
@@ -625,12 +554,10 @@ describe("config", () => {
     test("buildConfigOverride keeps only changed fields against a global base", () => {
       const base = {
         ...testConfig,
-        run: { simplifier: false },
       };
       const effective: Config = {
         ...base,
         reviewer: { agent: "gemini", model: "gemini-3-pro-preview", reasoning: "max" },
-        run: { simplifier: true },
         maxIterations: 12,
       };
 
@@ -638,7 +565,6 @@ describe("config", () => {
 
       expect(override).toEqual({
         reviewer: { agent: "gemini", model: "gemini-3-pro-preview", reasoning: "max" },
-        run: { simplifier: true },
         maxIterations: 12,
       });
     });
@@ -661,8 +587,6 @@ describe("config", () => {
     test("buildConfigOverride captures whole-section and nested override differences", () => {
       const base: Config = {
         ...testConfig,
-        "code-simplifier": { agent: "droid", model: "gpt-5.2-codex", reasoning: "low" },
-        run: { simplifier: false },
         retry: { maxRetries: 1, baseDelayMs: 500, maxDelayMs: 1000 },
         defaultReview: { type: "uncommitted" },
         notifications: { sound: { enabled: false } },
@@ -670,8 +594,6 @@ describe("config", () => {
       const effective: Config = {
         ...base,
         fixer: { agent: "gemini", model: "gemini-3-pro-preview", reasoning: "max" },
-        "code-simplifier": { agent: "codex", model: "gpt-5.4", reasoning: "high" },
-        run: { simplifier: true },
         retry: { maxRetries: 3, baseDelayMs: 750, maxDelayMs: 4000 },
         iterationTimeout: 900000,
         defaultReview: { type: "base", branch: "main" },
@@ -680,8 +602,6 @@ describe("config", () => {
 
       expect(buildConfigOverride(base, effective)).toEqual({
         fixer: { agent: "gemini", model: "gemini-3-pro-preview", reasoning: "max" },
-        "code-simplifier": { agent: "codex", model: "gpt-5.4", reasoning: "high" },
-        run: { simplifier: true },
         retry: { maxRetries: 3, baseDelayMs: 750, maxDelayMs: 4000 },
         iterationTimeout: 900000,
         defaultReview: { type: "base", branch: "main" },
@@ -692,8 +612,6 @@ describe("config", () => {
     test("buildConfigOverride preserves explicit removal of inherited optional sections", () => {
       const base: Config = {
         ...testConfig,
-        "code-simplifier": { agent: "droid", model: "gpt-5.2-codex", reasoning: "low" },
-        run: { simplifier: false },
         retry: { maxRetries: 1, baseDelayMs: 500, maxDelayMs: 1000 },
       };
       const effective: Config = {
@@ -703,8 +621,6 @@ describe("config", () => {
       };
 
       expect(buildConfigOverride(base, effective)).toEqual({
-        "code-simplifier": null,
-        run: null,
         retry: null,
       });
     });
@@ -717,7 +633,6 @@ describe("config", () => {
         JSON.stringify({
           $schema: "https://example.com/custom.schema.json",
           version: 99,
-          run: { simplifier: true },
           retry: { maxRetries: 2, baseDelayMs: 750, maxDelayMs: 5000 },
           notifications: { sound: { enabled: true } },
           maxIterations: 8,
@@ -733,7 +648,6 @@ describe("config", () => {
         config: {
           $schema: CONFIG_SCHEMA_URI,
           version: CONFIG_VERSION,
-          run: { simplifier: true },
           retry: { maxRetries: 2, baseDelayMs: 750, maxDelayMs: 5000 },
           notifications: { sound: { enabled: true } },
           maxIterations: 8,
@@ -752,7 +666,7 @@ describe("config", () => {
           defaultReview: "base",
           retry: { maxRetries: "3", jitter: true },
           notifications: { sound: { enabled: "yes", extra: true }, desktop: true },
-          run: { simplifier: "yes", watch: false },
+          run: { simplifier: true },
           maxIterations: "8",
           iterationTimeout: "300000",
         })
@@ -773,9 +687,8 @@ describe("config", () => {
       expect(result.errors).toContain("notifications.sound.extra is not supported.");
       expect(result.errors).toContain("notifications.sound.enabled must be a boolean.");
       expect(result.errors).toContain(
-        "run.watch is not supported. Available settings: run.simplifier."
+        "run is not supported. Available settings: reviewer, fixer, defaultReview, retry, notifications, maxIterations, iterationTimeout."
       );
-      expect(result.errors).toContain("run.simplifier must be a boolean.");
       expect(result.errors).toContain("maxIterations must be a number.");
       expect(result.errors).toContain("iterationTimeout must be a number.");
     });
@@ -794,7 +707,7 @@ describe("config", () => {
       expect(result.exists).toBe(true);
       expect(result.config).toBeNull();
       expect(result.errors).toContain(
-        "maxIteratons is not supported. Available settings: reviewer, fixer, code-simplifier, defaultReview, retry, notifications, run, maxIterations, iterationTimeout."
+        "maxIteratons is not supported. Available settings: reviewer, fixer, defaultReview, retry, notifications, maxIterations, iterationTimeout."
       );
     });
 
@@ -805,7 +718,7 @@ describe("config", () => {
       });
     });
 
-    test("parseConfigOverrideWithDiagnostics rejects non-object retry notifications and run overrides", () => {
+    test("parseConfigOverrideWithDiagnostics rejects non-object retry and notifications overrides", () => {
       const result = parseConfigOverrideWithDiagnostics({
         retry: true,
         notifications: true,
@@ -815,7 +728,9 @@ describe("config", () => {
       expect(result.config).toBeNull();
       expect(result.errors).toContain("retry must be an object.");
       expect(result.errors).toContain("notifications must be an object.");
-      expect(result.errors).toContain("run must be an object.");
+      expect(result.errors).toContain(
+        "run is not supported. Available settings: reviewer, fixer, defaultReview, retry, notifications, maxIterations, iterationTimeout."
+      );
     });
 
     test("parseConfigOverrideWithDiagnostics reports nested override field validation errors", () => {
@@ -829,7 +744,7 @@ describe("config", () => {
         },
         retry: { baseDelayMs: "500", maxDelayMs: "5000" },
         notifications: { sound: true },
-        run: { simplifier: "yes" },
+        run: { simplifier: true },
       });
 
       expect(result.config).toBeNull();
@@ -845,38 +760,25 @@ describe("config", () => {
       expect(result.errors).toContain("retry.baseDelayMs must be a number.");
       expect(result.errors).toContain("retry.maxDelayMs must be a number.");
       expect(result.errors).toContain("notifications.sound must be an object.");
-      expect(result.errors).toContain("run.simplifier must be a boolean.");
+      expect(result.errors).toContain(
+        "run is not supported. Available settings: reviewer, fixer, defaultReview, retry, notifications, maxIterations, iterationTimeout."
+      );
     });
 
     test("parseConfigOverrideWithDiagnostics preserves null removals without adding metadata", () => {
       const result = parseConfigOverrideWithDiagnostics({
         reviewer: { model: null, reasoning: null, provider: null },
-        "code-simplifier": null,
         retry: null,
-        run: null,
         notifications: {},
       });
 
       expect(result).toEqual({
         config: {
           reviewer: { model: null, reasoning: null, provider: null },
-          "code-simplifier": null,
           retry: null,
-          run: null,
           notifications: {},
         },
         errors: [],
-      });
-    });
-
-    test("buildConfigOverride adds a code-simplifier section when the base lacks one", () => {
-      const effective: Config = {
-        ...testConfig,
-        "code-simplifier": { agent: "codex", model: "gpt-5.4", reasoning: "high" },
-      };
-
-      expect(buildConfigOverride(testConfig, effective)).toEqual({
-        "code-simplifier": { agent: "codex", model: "gpt-5.4", reasoning: "high" },
       });
     });
 
@@ -954,7 +856,6 @@ describe("config", () => {
       const localPath = getRepoConfigPath(repoPath);
       const globalConfig: Config = {
         ...testConfig,
-        run: { simplifier: false },
         notifications: { sound: { enabled: true } },
       };
       await ensureConfigDir(nestedPath);
@@ -963,7 +864,6 @@ describe("config", () => {
       await saveConfigOverride(
         {
           reviewer: { agent: "gemini", model: "gemini-3-pro-preview", reasoning: "max" },
-          run: { simplifier: true },
           notifications: { sound: { enabled: false } },
           maxIterations: 3,
         },
@@ -977,7 +877,6 @@ describe("config", () => {
       expect(result.config).toEqual({
         ...globalConfig,
         reviewer: { agent: "gemini", model: "gemini-3-pro-preview", reasoning: "max" },
-        run: { simplifier: true },
         notifications: { sound: { enabled: false } },
         maxIterations: 3,
       });
@@ -1088,8 +987,6 @@ describe("config", () => {
       await saveConfig(
         {
           ...testConfig,
-          "code-simplifier": { agent: "droid", model: "gpt-5.2-codex", reasoning: "low" },
-          run: { simplifier: false },
           retry: { maxRetries: 1, baseDelayMs: 500, maxDelayMs: 1000 },
         },
         globalPath
@@ -1098,8 +995,6 @@ describe("config", () => {
         localPath,
         JSON.stringify(
           {
-            "code-simplifier": null,
-            run: null,
             retry: null,
           },
           null,
@@ -1111,12 +1006,10 @@ describe("config", () => {
 
       expect(result.exists).toBe(true);
       expect(result.config).toEqual(testConfig);
-      expect(result.config?.["code-simplifier"]).toBeUndefined();
-      expect(result.config?.run).toBeUndefined();
       expect(result.config?.retry).toBeUndefined();
     });
 
-    test("loadEffectiveConfigWithDiagnostics merges retry and run overrides", async () => {
+    test("loadEffectiveConfigWithDiagnostics merges retry overrides", async () => {
       const globalPath = join(tempDir, "global-config.json");
       const repoPath = join(tempDir, "repo");
       const nestedPath = join(repoPath, "packages", "app");
@@ -1126,14 +1019,12 @@ describe("config", () => {
       await saveConfig(
         {
           ...testConfig,
-          run: { simplifier: false },
           retry: { maxRetries: 1, baseDelayMs: 500, maxDelayMs: 1000 },
         },
         globalPath
       );
       await saveConfigOverride(
         {
-          run: { simplifier: true },
           retry: { baseDelayMs: 750, maxDelayMs: 4000 },
         },
         localPath
@@ -1141,7 +1032,6 @@ describe("config", () => {
 
       const result = await loadEffectiveConfigWithDiagnostics(nestedPath, { globalPath });
 
-      expect(result.config?.run).toEqual({ simplifier: true });
       expect(result.config?.retry).toEqual({ maxRetries: 1, baseDelayMs: 750, maxDelayMs: 4000 });
     });
 
@@ -1169,30 +1059,6 @@ describe("config", () => {
       const result = await loadEffectiveConfigWithDiagnostics(nestedPath, { globalPath });
 
       expect(result.config?.retry).toEqual({ maxRetries: 4, baseDelayMs: 500, maxDelayMs: 1000 });
-    });
-
-    test("loadEffectiveConfigWithDiagnostics adds a repo-local code-simplifier when none exists globally", async () => {
-      const globalPath = join(tempDir, "global-config.json");
-      const repoPath = join(tempDir, "repo");
-      const nestedPath = join(repoPath, "packages", "app");
-      const localPath = getRepoConfigPath(repoPath);
-      await ensureConfigDir(nestedPath);
-      runGitIn(repoPath, ["init", "--initial-branch=main"]);
-      await saveConfig(testConfig, globalPath);
-      await saveConfigOverride(
-        {
-          "code-simplifier": { agent: "codex", model: "gpt-5.4", reasoning: "high" },
-        },
-        localPath
-      );
-
-      const result = await loadEffectiveConfigWithDiagnostics(nestedPath, { globalPath });
-
-      expect(result.config?.["code-simplifier"]).toEqual({
-        agent: "codex",
-        model: "gpt-5.4",
-        reasoning: "high",
-      });
     });
 
     test("loadEffectiveConfigWithDiagnostics resolves the repo-local path from the git top-level", async () => {
@@ -1311,33 +1177,6 @@ describe("config", () => {
         true
       );
       expect(result.errors.some((error) => error.includes("fixer must be an object."))).toBe(true);
-    });
-
-    test("loadEffectiveConfigWithDiagnostics rejects an empty code-simplifier override without a base config", async () => {
-      const repoPath = join(tempDir, "repo");
-      const nestedPath = join(repoPath, "packages", "app");
-      const localPath = getRepoConfigPath(repoPath);
-      await ensureConfigDir(nestedPath);
-      runGitIn(repoPath, ["init", "--initial-branch=main"]);
-      await saveConfigOverride(
-        {
-          reviewer: { agent: "codex", model: "gpt-4", reasoning: "high" },
-          fixer: { agent: "claude", reasoning: "medium" },
-          "code-simplifier": {},
-          defaultReview: { type: "uncommitted" },
-          maxIterations: 4,
-          iterationTimeout: 600000,
-        },
-        localPath
-      );
-
-      const result = await loadEffectiveConfigWithDiagnostics(nestedPath, {
-        globalPath: join(tempDir, "missing-global.json"),
-      });
-
-      expect(result.config?.["code-simplifier"]).toBeUndefined();
-      expect(result.errors).toEqual([]);
-      expect(result.source).toBe("local");
     });
 
     test("loadEffectiveConfigWithDiagnostics defaults notifications when a full repo-local override leaves them empty", async () => {

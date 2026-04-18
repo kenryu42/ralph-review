@@ -43,7 +43,7 @@ import {
 
 export type AgentAvailability = Record<AgentType, boolean>;
 
-type ConfiguredRole = "reviewer" | "fixer" | "code-simplifier";
+type ConfiguredRole = "reviewer" | "fixer";
 type InitScope = "global" | "local";
 
 interface InitInput {
@@ -55,15 +55,10 @@ interface InitInput {
   fixerModel: string;
   fixerProvider?: string;
   fixerReasoning?: ReasoningLevel;
-  simplifierAgent: AgentType;
-  simplifierModel: string;
-  simplifierProvider?: string;
-  simplifierReasoning?: ReasoningLevel;
   maxIterations: number;
   iterationTimeoutMinutes: number;
   defaultReviewType: "uncommitted" | "base";
   defaultReviewBranch?: string;
-  runSimplifierByDefault: boolean;
   soundNotificationsEnabled: boolean;
 }
 
@@ -290,7 +285,6 @@ const DEFAULT_ITERATION_TIMEOUT_MINUTES = 30;
 
 const REVIEWER_AGENT_PRIORITY: readonly AgentType[] = ["codex", "droid", "claude", "gemini"];
 const FIXER_AGENT_PRIORITY: readonly AgentType[] = ["codex", "claude", "droid", "gemini"];
-const SIMPLIFIER_AGENT_PRIORITY: readonly AgentType[] = ["codex", "claude", "droid", "gemini"];
 
 const MODEL_PRIORITY_MATCHERS: Record<ConfiguredRole, readonly ((model: string) => boolean)[]> = {
   reviewer: [
@@ -306,13 +300,6 @@ const MODEL_PRIORITY_MATCHERS: Record<ConfiguredRole, readonly ((model: string) 
     (model) => matchesModelId(model, "gpt-5.3-codex"),
     (model) => matchesModelId(model, "claude-opus-4-6"),
     (model) => matchesModelId(model, "gemini-3-pro-preview"),
-  ],
-  "code-simplifier": [
-    (model) => matchesModelId(model, "gpt-5.4"),
-    (model) => matchesModelId(model, "claude-opus-4-6"),
-    (model) => matchesModelId(model, "gpt-5.3-codex"),
-    (model) => isClaudeOpus45Model(model),
-    (model) => matchesModelId(model, "gpt-5.2-codex"),
   ],
 };
 
@@ -389,15 +376,6 @@ export function buildConfig(input: InitInput): Config {
       input.fixerProvider,
       input.fixerReasoning
     ),
-    "code-simplifier": createAgentSettings(
-      input.simplifierAgent,
-      input.simplifierModel,
-      input.simplifierProvider,
-      input.simplifierReasoning
-    ),
-    run: {
-      simplifier: input.runSimplifierByDefault,
-    },
     maxIterations: input.maxIterations,
     iterationTimeout: input.iterationTimeoutMinutes * 60 * 1000,
     defaultReview,
@@ -593,19 +571,12 @@ function matchesModelId(model: string, target: string): boolean {
   return normalized === target || normalized.endsWith(`/${target}`);
 }
 
-function isClaudeOpus45Model(model: string): boolean {
-  const normalized = normalizeModelId(model);
-  return normalized.includes("claude-opus-4-5");
-}
-
 function getRoleAgentPriority(role: ConfiguredRole): readonly AgentType[] {
   switch (role) {
     case "reviewer":
       return REVIEWER_AGENT_PRIORITY;
     case "fixer":
       return FIXER_AGENT_PRIORITY;
-    case "code-simplifier":
-      return SIMPLIFIER_AGENT_PRIORITY;
   }
 }
 
@@ -768,12 +739,9 @@ export async function buildAutoInitInput(
 
   const reviewer = toRoleSelection(pickAutoRoleCandidate("reviewer", candidates));
   const fixer = toRoleSelection(pickAutoRoleCandidate("fixer", candidates));
-  const simplifier = toRoleSelection(pickAutoRoleCandidate("code-simplifier", candidates));
 
-  if (!reviewer || !fixer || !simplifier) {
-    throw new Error(
-      "Automatic setup could not determine reviewer/fixer/simplifier. Use Customize Setup."
-    );
+  if (!reviewer || !fixer) {
+    throw new Error("Automatic setup could not determine reviewer/fixer. Use Customize Setup.");
   }
 
   const maxIterations = DEFAULT_CONFIG.maxIterations ?? DEFAULT_MAX_ITERATIONS;
@@ -791,14 +759,9 @@ export async function buildAutoInitInput(
       fixerModel: fixer.model,
       fixerProvider: fixer.provider,
       fixerReasoning: fixer.reasoning,
-      simplifierAgent: simplifier.agent,
-      simplifierModel: simplifier.model,
-      simplifierProvider: simplifier.provider,
-      simplifierReasoning: simplifier.reasoning,
       maxIterations,
       iterationTimeoutMinutes,
       defaultReviewType: "uncommitted",
-      runSimplifierByDefault: false,
       soundNotificationsEnabled: true,
     },
     skippedAgents,
@@ -877,27 +840,6 @@ async function promptForCustomInitInput(
     "fixer"
   );
 
-  const simplifierAgent = await runtime.prompt.select({
-    message: "Select code simplifier agent",
-    options: selectOptions,
-  });
-  handleCancel(runtime, simplifierAgent);
-  const simplifierAgentValue = simplifierAgent as AgentType;
-
-  const simplifierSelection = await promptForModel(
-    runtime,
-    simplifierAgentValue,
-    "code-simplifier",
-    capabilitiesByAgent,
-    availability
-  );
-  const simplifierReasoning = await promptForReasoning(
-    runtime,
-    simplifierAgentValue,
-    simplifierSelection.model,
-    "code-simplifier"
-  );
-
   const maxIterations = await promptForNumericSetting(
     runtime,
     `Maximum iterations (default: ${DEFAULT_CONFIG.maxIterations ?? DEFAULT_MAX_ITERATIONS})`,
@@ -936,12 +878,6 @@ async function promptForCustomInitInput(
     handleCancel(runtime, defaultReviewBranch);
   }
 
-  const runSimplifierByDefault = await runtime.prompt.confirm({
-    message: "Enable code simplifier by default for 'rr run'?",
-    initialValue: false,
-  });
-  handleCancel(runtime, runSimplifierByDefault);
-
   return {
     reviewerAgent: reviewerAgentValue,
     reviewerModel: reviewerSelection.model,
@@ -951,15 +887,10 @@ async function promptForCustomInitInput(
     fixerModel: fixerSelection.model,
     fixerProvider: fixerSelection.provider,
     fixerReasoning,
-    simplifierAgent: simplifierAgentValue,
-    simplifierModel: simplifierSelection.model,
-    simplifierProvider: simplifierSelection.provider,
-    simplifierReasoning,
     maxIterations,
     iterationTimeoutMinutes,
     defaultReviewType: defaultReviewType as "uncommitted" | "base",
     defaultReviewBranch: defaultReviewBranch as string | undefined,
-    runSimplifierByDefault: runSimplifierByDefault as boolean,
     soundNotificationsEnabled: DEFAULT_CONFIG.notifications?.sound.enabled ?? true,
   } satisfies InitInput;
 }

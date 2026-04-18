@@ -100,61 +100,6 @@
         }
       ]
     },
-    "code-simplifier": {
-      "oneOf": [
-        {
-          "type": "object",
-          "properties": {
-            "agent": {
-              "type": "string",
-              "const": "pi"
-            },
-            "provider": {
-              "type": "string",
-              "minLength": 1
-            },
-            "model": {
-              "type": "string",
-              "minLength": 1
-            },
-            "reasoning": {
-              "type": "string",
-              "enum": ["low", "medium", "high", "xhigh", "max"]
-            }
-          },
-          "required": ["agent", "provider", "model"],
-          "additionalProperties": false
-        },
-        {
-          "type": "object",
-          "properties": {
-            "agent": {
-              "type": "string",
-              "enum": ["codex", "claude", "opencode", "droid", "gemini"]
-            },
-            "model": {
-              "type": "string"
-            },
-            "reasoning": {
-              "type": "string",
-              "enum": ["low", "medium", "high", "xhigh", "max"]
-            }
-          },
-          "required": ["agent"],
-          "additionalProperties": false
-        }
-      ]
-    },
-    "run": {
-      "type": "object",
-      "properties": {
-        "simplifier": {
-          "type": "boolean"
-        }
-      },
-      "required": ["simplifier"],
-      "additionalProperties": false
-    },
     "maxIterations": {
       "type": "integer",
       "exclusiveMinimum": 0,

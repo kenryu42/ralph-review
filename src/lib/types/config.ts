@@ -48,10 +48,6 @@ export interface NotificationsConfig {
   sound: SoundNotificationConfig;
 }
 
-export interface RunConfig {
-  simplifier: boolean;
-}
-
 export interface RetryOverrideConfig {
   maxRetries?: number;
   baseDelayMs?: number;
@@ -64,10 +60,6 @@ export interface SoundNotificationOverrideConfig {
 
 export interface NotificationsOverrideConfig {
   sound?: SoundNotificationOverrideConfig;
-}
-
-export interface RunOverrideConfig {
-  simplifier?: boolean;
 }
 
 export const CONFIG_SCHEMA_URI =
@@ -94,8 +86,6 @@ export interface Config {
   version: typeof CONFIG_VERSION;
   reviewer: AgentSettings;
   fixer: AgentSettings;
-  "code-simplifier"?: AgentSettings;
-  run?: RunConfig;
   maxIterations: number;
   iterationTimeout: number; // in milliseconds
   retry?: RetryConfig; // Optional retry config, uses DEFAULT_RETRY_CONFIG if not set
@@ -111,8 +101,6 @@ export interface ConfigOverride {
   version?: typeof CONFIG_VERSION;
   reviewer?: AgentOverrideSettings;
   fixer?: AgentOverrideSettings;
-  "code-simplifier"?: AgentOverrideSettings | null;
-  run?: RunOverrideConfig | null;
   maxIterations?: number;
   iterationTimeout?: number;
   retry?: RetryOverrideConfig | null;

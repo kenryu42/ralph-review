@@ -10,7 +10,7 @@ import {
   type ReasoningLevel,
 } from "@/lib/types";
 
-type ConfigRole = "reviewer" | "fixer" | "code-simplifier";
+type ConfigRole = "reviewer" | "fixer";
 type ConfigRoleField = "agent" | "model" | "provider" | "reasoning";
 type RoleConfigKey = `${ConfigRole}.${ConfigRoleField}`;
 
@@ -23,15 +23,10 @@ const CONFIG_KEYS = [
   "fixer.model",
   "fixer.provider",
   "fixer.reasoning",
-  "code-simplifier.agent",
-  "code-simplifier.model",
-  "code-simplifier.provider",
-  "code-simplifier.reasoning",
   "maxIterations",
   "iterationTimeout",
   "defaultReview.type",
   "defaultReview.branch",
-  "run.simplifier",
   "retry.maxRetries",
   "retry.baseDelayMs",
   "retry.maxDelayMs",
@@ -72,7 +67,6 @@ type ParsedScalarConfigUpdate =
   | { key: "iterationTimeout"; value: number }
   | { key: "defaultReview.type"; value: "uncommitted" | "base" }
   | { key: "defaultReview.branch"; value: string | null }
-  | { key: "run.simplifier"; value: boolean }
   | { key: "retry.maxRetries"; value: number }
   | { key: "retry.baseDelayMs"; value: number }
   | { key: "retry.maxDelayMs"; value: number }
@@ -81,24 +75,19 @@ type ParsedScalarConfigUpdate =
 type ParsedConfigUpdate = ParsedRoleConfigUpdate | ParsedScalarConfigUpdate;
 
 function isRoleWithSettings(role: ConfigRole, config: Config): boolean {
-  return role === "code-simplifier" ? config[role] !== undefined : true;
+  return role in config;
 }
 
 function readRoleSettings(role: ConfigRole, config: Config): AgentSettings | undefined {
-  return role === "code-simplifier" ? config[role] : config[role];
+  return config[role];
 }
 
 function writeRoleSettings(role: ConfigRole, config: Config, settings: AgentSettings): void {
-  if (role === "code-simplifier") {
-    config[role] = settings;
-    return;
-  }
-
   config[role] = settings;
 }
 
 function resolveRoleAndField(key: ConfigKey): { role: ConfigRole; field: ConfigRoleField } | null {
-  const match = key.match(/^(reviewer|fixer|code-simplifier)\.(agent|model|provider|reasoning)$/);
+  const match = key.match(/^(reviewer|fixer)\.(agent|model|provider|reasoning)$/);
   if (!match) {
     return null;
   }
@@ -109,7 +98,7 @@ function resolveRoleAndField(key: ConfigKey): { role: ConfigRole; field: ConfigR
     return null;
   }
 
-  if (role !== "reviewer" && role !== "fixer" && role !== "code-simplifier") {
+  if (role !== "reviewer" && role !== "fixer") {
     return null;
   }
   if (field !== "agent" && field !== "model" && field !== "provider" && field !== "reasoning") {
@@ -180,7 +169,6 @@ export function parseConfigUpdate(key: ConfigKey, rawValue: string): ParsedConfi
   switch (key) {
     case "reviewer.agent":
     case "fixer.agent":
-    case "code-simplifier.agent":
       rawValue = requireNonNullRawValue(key, rawValue);
       if (!isAgentType(rawValue)) {
         throw new Error(`Value for "${key}" must be a valid agent.`);
@@ -190,7 +178,6 @@ export function parseConfigUpdate(key: ConfigKey, rawValue: string): ParsedConfi
 
     case "reviewer.model":
     case "fixer.model":
-    case "code-simplifier.model":
       if (rawValue === "null") {
         return createRoleStringUpdate(key, "model", null);
       }
@@ -199,7 +186,6 @@ export function parseConfigUpdate(key: ConfigKey, rawValue: string): ParsedConfi
 
     case "reviewer.provider":
     case "fixer.provider":
-    case "code-simplifier.provider":
       if (rawValue === "null") {
         return createRoleStringUpdate(key, "provider", null);
       }
@@ -208,7 +194,6 @@ export function parseConfigUpdate(key: ConfigKey, rawValue: string): ParsedConfi
 
     case "reviewer.reasoning":
     case "fixer.reasoning":
-    case "code-simplifier.reasoning":
       if (rawValue === "null") {
         return createRoleReasoningUpdate(key, null);
       }
@@ -269,12 +254,6 @@ export function parseConfigUpdate(key: ConfigKey, rawValue: string): ParsedConfi
       }
       return { key, value: rawValue };
 
-    case "run.simplifier":
-      if (requireNonNullRawValue(key, rawValue) !== "true" && rawValue !== "false") {
-        throw new Error(`Value for "${key}" must be "true" or "false".`);
-      }
-      return { key, value: rawValue === "true" };
-
     case "notifications.sound.enabled":
       if (requireNonNullRawValue(key, rawValue) !== "true" && rawValue !== "false") {
         throw new Error(`Value for "${key}" must be "true" or "false".`);
@@ -313,18 +292,6 @@ export function getConfigValue(config: Config | ConfigOverride, key: ConfigKey):
           : undefined;
     case "fixer.reasoning":
       return config.fixer?.reasoning;
-    case "code-simplifier.agent":
-      return config["code-simplifier"]?.agent;
-    case "code-simplifier.model":
-      return config["code-simplifier"]?.model;
-    case "code-simplifier.provider":
-      return config["code-simplifier"] && "provider" in config["code-simplifier"]
-        ? config["code-simplifier"].provider
-        : config["code-simplifier"]?.agent === "pi"
-          ? config["code-simplifier"].provider
-          : undefined;
-    case "code-simplifier.reasoning":
-      return config["code-simplifier"]?.reasoning;
     case "maxIterations":
       return config.maxIterations;
     case "iterationTimeout":
@@ -333,8 +300,6 @@ export function getConfigValue(config: Config | ConfigOverride, key: ConfigKey):
       return config.defaultReview?.type;
     case "defaultReview.branch":
       return config.defaultReview?.type === "base" ? config.defaultReview.branch : undefined;
-    case "run.simplifier":
-      return config.run?.simplifier;
     case "retry.maxRetries":
       return config.retry?.maxRetries;
     case "retry.baseDelayMs":
@@ -513,12 +478,6 @@ export function setConfigValue(config: Config, key: ConfigKey, value: ConfigValu
       }
       next.defaultReview = { type: "base", branch: value };
       return next;
-    case "run.simplifier":
-      if (typeof value !== "boolean") {
-        throw new Error(`Value for "${key}" must be "true" or "false".`);
-      }
-      next.run = { simplifier: value };
-      return next;
     case "retry.maxRetries":
       next.retry = next.retry ? { ...next.retry } : { ...DEFAULT_RETRY_CONFIG };
       if (typeof value !== "number") {
@@ -561,7 +520,7 @@ function readOverrideRoleSettings(
   role: ConfigRole,
   config: ConfigOverride
 ): AgentOverrideSettings | undefined {
-  return role === "code-simplifier" ? (config[role] ?? undefined) : config[role];
+  return config[role];
 }
 
 function writeOverrideRoleSettings(
@@ -697,12 +656,6 @@ export function setConfigOverrideValue(
       }
       next.defaultReview = { type: "base", branch: update.value };
       return next;
-    case "run.simplifier":
-      next.run = {
-        ...(next.run && next.run !== null ? next.run : {}),
-        simplifier: update.value,
-      };
-      return next;
     case "retry.maxRetries":
       next.retry = {
         ...(next.retry && next.retry !== null ? next.retry : {}),
@@ -748,7 +701,7 @@ export function validateConfigInvariants(config: Config): string[] {
     errors.push('defaultReview.branch is required when defaultReview.type is "base".');
   }
 
-  const roles: readonly ConfigRole[] = ["reviewer", "fixer", "code-simplifier"];
+  const roles: readonly ConfigRole[] = ["reviewer", "fixer"];
   for (const role of roles) {
     const settings = readRoleSettings(role, config);
     if (!settings) {
@@ -784,9 +737,6 @@ export function validateConfigInvariants(config: Config): string[] {
 
   if (typeof config.notifications.sound.enabled !== "boolean") {
     errors.push("notifications.sound.enabled must be a boolean.");
-  }
-  if (config.run && typeof config.run.simplifier !== "boolean") {
-    errors.push("run.simplifier must be a boolean.");
   }
 
   return errors;

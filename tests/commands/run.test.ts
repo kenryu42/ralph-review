@@ -8,7 +8,6 @@ import {
   parseSoundOverride,
   type RunOptions,
   type RunRuntimeOverrides,
-  resolveRunSimplifierEnabled,
   resolveRunSoundOverride,
   runForeground,
   startReview,
@@ -71,7 +70,6 @@ interface RunHarnessOptions {
   foregroundValues?: {
     max?: number;
     force?: boolean;
-    simplifier?: boolean;
   };
   parseErrorFor?: Array<"run" | "_run-foreground">;
   commandDefs?: {
@@ -542,11 +540,6 @@ describe("run command", () => {
       expect(values.custom).toBe("Focus on security");
     });
 
-    test("parses --simplifier option", () => {
-      const { values } = parseCommand<RunOptions>(runDef, ["--simplifier"]);
-      expect(values.simplifier).toBe(true);
-    });
-
     test("parses --sound option", () => {
       const { values } = parseCommand<RunOptions>(runDef, ["--sound"]);
       expect(values.sound).toBe(true);
@@ -685,34 +678,6 @@ describe("run command", () => {
     });
   });
 
-  describe("resolveRunSimplifierEnabled", () => {
-    test("returns true when --simplifier is passed even if config is false", () => {
-      const config = {
-        ...createConfig(),
-        run: { simplifier: false },
-      } satisfies Config;
-      expect(resolveRunSimplifierEnabled({ simplifier: true }, config)).toBe(true);
-    });
-
-    test("uses config default when --simplifier is not passed", () => {
-      const config = {
-        ...createConfig(),
-        run: { simplifier: true },
-      } satisfies Config;
-      expect(resolveRunSimplifierEnabled({}, config)).toBe(true);
-    });
-
-    test("defaults to false when config run settings are missing", () => {
-      const config = {
-        ...createConfig(),
-      };
-      delete config.run;
-
-      expect(resolveRunSimplifierEnabled({}, config)).toBe(false);
-      expect(resolveRunSimplifierEnabled({}, null)).toBe(false);
-    });
-  });
-
   describe("getDynamicProbeAgents", () => {
     test("returns empty when config is null", () => {
       expect(getDynamicProbeAgents(null)).toEqual([]);
@@ -728,13 +693,8 @@ describe("run command", () => {
         agent: "opencode",
         model: "gpt-5.3-codex",
       };
-      config["code-simplifier"] = {
-        agent: "pi",
-        provider: "anthropic",
-        model: "claude-opus-4-6",
-      };
 
-      expect(new Set(getDynamicProbeAgents(config))).toEqual(new Set(["opencode", "pi"]));
+      expect(new Set(getDynamicProbeAgents(config))).toEqual(new Set(["opencode"]));
     });
 
     test("returns empty when only static agents are configured", () => {
@@ -743,38 +703,14 @@ describe("run command", () => {
   });
 
   describe("formatRunAgentsNote", () => {
-    test("includes Simplifier line when simplifier is enabled with configured code-simplifier", () => {
+    test("lists reviewer and fixer details", () => {
       const config = createConfig();
 
-      const note = formatRunAgentsNote(config, {
-        simplifier: true,
-      });
+      const note = formatRunAgentsNote(config, {});
 
       expect(note).toContain("Reviewer:");
       expect(note).toContain("Fixer:");
-      expect(note).toContain("Simplifier: Droid");
       expect(note).toContain("Review:");
-    });
-
-    test("falls back to reviewer details when code-simplifier is not configured", () => {
-      const config = createConfig();
-      delete config["code-simplifier"];
-
-      const note = formatRunAgentsNote(config, {
-        simplifier: true,
-      });
-
-      expect(note).toContain("Simplifier: Codex");
-    });
-
-    test("omits Simplifier line when simplifier is disabled", () => {
-      const config = createConfig();
-
-      const note = formatRunAgentsNote(config, {
-        simplifier: false,
-      });
-
-      expect(note).not.toContain("Simplifier:");
     });
   });
 
@@ -1252,7 +1188,6 @@ describe("run command", () => {
           max: 3,
           force: true,
           custom: "check O'Hara path",
-          simplifier: true,
           sound: true,
         },
         loadConfigResults: [config],
@@ -1271,7 +1206,7 @@ describe("run command", () => {
       expect(command).toContain("RR_SESSION_PATH='/tmp/generated-session-path.jsonl'");
       expect(command).toContain("RR_SOUND_OVERRIDE='on'");
       expect(command).toContain("RR_CUSTOM_PROMPT='check O'\\''Hara path'");
-      expect(command).toContain("_run-foreground --max 3 --force --simplifier");
+      expect(command).toContain("_run-foreground --max 3 --force");
       expect(harness.successes).toContain("Review started in background session: rr-main-xyz");
       expect(harness.notes.map((entry) => entry.title)).toEqual(["Agents", "Commands"]);
     });
@@ -1404,20 +1339,18 @@ describe("run command", () => {
       expect(harness.createLogSessionCalls).toEqual([]);
     });
 
-    test("parses internal foreground args and sets simplifier/force/max", async () => {
+    test("parses internal foreground args and sets force/max", async () => {
       const harness = createRunHarness({
         foregroundValues: {
           max: 9,
           force: true,
-          simplifier: true,
         },
       });
 
-      await runForeground(["--max", "9", "--force", "--simplifier"], harness.overrides);
+      await runForeground(["--max", "9", "--force"], harness.overrides);
 
       expect(harness.runReviewCycleCalls[0]?.maxIterations).toBe(9);
       expect(harness.runReviewCycleCalls[0]?.options.forceMaxIterations).toBe(true);
-      expect(harness.runReviewCycleCalls[0]?.options.simplifier).toBe(true);
       expect(harness.updateSessionStateCalls[0]?.updates.currentAgent).toBeNull();
     });
 
@@ -1430,7 +1363,6 @@ describe("run command", () => {
 
       expect(harness.runReviewCycleCalls[0]?.maxIterations).toBe(5);
       expect(harness.runReviewCycleCalls[0]?.options.forceMaxIterations).toBe(false);
-      expect(harness.runReviewCycleCalls[0]?.options.simplifier).toBe(false);
       expect(harness.updateSessionStateCalls[0]?.updates.currentAgent).toBeNull();
     });
 

@@ -11,43 +11,6 @@ describe("getHeaderAgentDisplays", () => {
 
     expect(displays.reviewerDisplay).toBe("Unknown (Default, Default)");
     expect(displays.fixerDisplay).toBe("Unknown (Default, Default)");
-    expect(displays.simplifierDisplay).toBeUndefined();
-  });
-
-  test("includes simplifier when run.simplifier is enabled", () => {
-    const config = {
-      ...createConfig(),
-      run: { simplifier: true },
-    };
-
-    const displays = getHeaderAgentDisplays(config);
-
-    expect(displays.simplifierDisplay).toContain("Droid");
-    expect(displays.simplifierDisplay).toContain("GPT-5.2-Codex");
-  });
-
-  test("falls back to reviewer when simplifier is enabled but code-simplifier is missing", () => {
-    const config = {
-      ...createConfig(),
-      run: { simplifier: true },
-    };
-    delete config["code-simplifier"];
-
-    const displays = getHeaderAgentDisplays(config);
-
-    expect(displays.simplifierDisplay).toContain("Codex");
-    expect(displays.simplifierDisplay).toContain("GPT-5.3 Codex");
-  });
-
-  test("omits simplifier when run.simplifier is disabled", () => {
-    const config = {
-      ...createConfig(),
-      run: { simplifier: false },
-    };
-
-    const displays = getHeaderAgentDisplays(config);
-
-    expect(displays.simplifierDisplay).toBeUndefined();
   });
 });
 
@@ -179,26 +142,11 @@ describe("Header", () => {
     }
   });
 
-  test("renders simplifier display when simplifier is enabled", async () => {
+  test("renders reviewer and fixer displays", async () => {
     const frame = await renderFrame({
-      config: {
-        ...createConfig(),
-        run: { simplifier: true },
-      },
-    });
-    expect(frame).toContain("Simplifier:");
-    expect(frame).toContain("Droid");
-  });
-
-  test("does not render simplifier display when simplifier is disabled", async () => {
-    const frame = await renderFrame({
-      config: {
-        ...createConfig(),
-        run: { simplifier: false },
-      },
+      config: createConfig(),
     });
     expect(frame).toContain("Reviewer:");
     expect(frame).toContain("Fixer:");
-    expect(frame).not.toContain("Simplifier:");
   });
 });

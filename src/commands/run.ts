@@ -33,7 +33,6 @@ export interface RunOptions {
   uncommitted?: boolean;
   commit?: string;
   custom?: string;
-  simplifier?: boolean;
   sound?: boolean;
   "no-sound"?: boolean;
 }
@@ -77,10 +76,6 @@ export function resolveRunSoundOverride(options: RunOptions): SoundOverride | un
   return undefined;
 }
 
-export function resolveRunSimplifierEnabled(options: RunOptions, config: Config | null): boolean {
-  return options.simplifier === true || config?.run?.simplifier === true;
-}
-
 export function formatRunAgentsNote(config: Config, reviewOptions: ReviewOptions): string {
   const reviewer = getAgentDisplayInfo(config.reviewer);
   const fixer = getAgentDisplayInfo(config.fixer);
@@ -88,14 +83,6 @@ export function formatRunAgentsNote(config: Config, reviewOptions: ReviewOptions
     `Reviewer:   ${reviewer.agentName} (${reviewer.modelName}, reasoning: ${reviewer.reasoning})`,
     `Fixer:      ${fixer.agentName} (${fixer.modelName}, reasoning: ${fixer.reasoning}) (used by rr fix)`,
   ];
-
-  if (reviewOptions.simplifier) {
-    const simplifierSettings = config["code-simplifier"] ?? config.reviewer;
-    const simplifier = getAgentDisplayInfo(simplifierSettings);
-    lines.push(
-      `Simplifier: ${simplifier.agentName} (${simplifier.modelName}, reasoning: ${simplifier.reasoning})`
-    );
-  }
 
   lines.push(`Review:     ${formatReviewType(reviewOptions)}`);
   return lines.join("\n");
@@ -107,8 +94,10 @@ export function getDynamicProbeAgents(config: Config | null): AgentType[] {
   }
 
   const probeAgents = new Set<AgentType>();
-  const settings: (Config["reviewer"] | Config["fixer"] | Config["code-simplifier"] | undefined)[] =
-    [config.reviewer, config.fixer, config["code-simplifier"]];
+  const settings: (Config["reviewer"] | Config["fixer"] | undefined)[] = [
+    config.reviewer,
+    config.fixer,
+  ];
 
   for (const entry of settings) {
     const agent = entry?.agent;
@@ -300,7 +289,6 @@ async function runInBackground(
   commitSha?: string,
   customInstructions?: string,
   force?: boolean,
-  simplifier?: boolean,
   soundOverride?: SoundOverride
 ): Promise<void> {
   // Check tmux is installed
@@ -352,9 +340,6 @@ async function runInBackground(
   if (force) {
     commandArgs.push("--force");
   }
-  if (simplifier) {
-    commandArgs.push("--simplifier");
-  }
 
   const envVars = envParts.join(" ");
   const command = `${envVars} ${runtime.process.execPath} ${CLI_PATH} ${commandArgs.join(" ")}`;
@@ -362,7 +347,7 @@ async function runInBackground(
   try {
     await runtime.tmux.createSession(sessionName, command);
     runtime.prompt.log.success(`Review started in background session: ${sessionName}`);
-    const reviewOptions: ReviewOptions = { baseBranch, commitSha, customInstructions, simplifier };
+    const reviewOptions: ReviewOptions = { baseBranch, commitSha, customInstructions };
     runtime.prompt.note(formatRunAgentsNote(config, reviewOptions), "Agents");
     runtime.prompt.note(
       "rr         - Open Interactive Mode\n" +
@@ -398,7 +383,6 @@ export async function runForeground(
   const expectedSessionId = runtime.process.env.RR_SESSION_ID || undefined;
   const soundOverride = parseSoundOverride(runtime.process.env.RR_SOUND_OVERRIDE);
   let forceMaxIterations = false;
-  let runSimplifier = false;
   let completionState: "success" | "warning" | "error" = "error";
   const soundEnabled = runtime.sound.resolveSoundEnabled(config, soundOverride);
   let cycleResult: CycleResult | undefined;
@@ -411,13 +395,11 @@ export async function runForeground(
       const { values } = runtime.parseCommand<{
         max?: number;
         force?: boolean;
-        simplifier?: boolean;
       }>(foregroundDef, args);
       if (values.max !== undefined) {
         config.maxIterations = values.max;
       }
       forceMaxIterations = values.force === true;
-      runSimplifier = values.simplifier === true;
     } catch {
       // Ignore parse errors for internal command
     }
@@ -482,7 +464,6 @@ export async function runForeground(
         baseBranch,
         commitSha,
         customInstructions,
-        simplifier: runSimplifier,
         forceMaxIterations,
       },
       {
@@ -765,8 +746,6 @@ export async function startReview(
     return;
   }
 
-  const runSimplifier = resolveRunSimplifierEnabled(options, config);
-
   // Check if inside tmux - warn about nesting
   if (runtime.tmux.isInsideTmux()) {
     runtime.prompt.log.warn("Running inside tmux session. Review will start in a nested session.");
@@ -781,7 +760,6 @@ export async function startReview(
     options.commit,
     options.custom,
     options.force,
-    runSimplifier,
     soundOverride
   );
 }

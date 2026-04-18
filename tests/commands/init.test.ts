@@ -101,12 +101,6 @@ function createExistingConfigWithPi(): Config {
       model: "claude-opus-4-6",
       reasoning: "medium",
     },
-    "code-simplifier": {
-      agent: "droid",
-      model: "gpt-5.2-codex",
-      reasoning: "low",
-    },
-    run: { simplifier: false },
     maxIterations: 4,
     iterationTimeout: 1200000,
     defaultReview: { type: "base", branch: "main" },
@@ -417,18 +411,15 @@ describe("init command", () => {
   });
 
   describe("buildConfig", () => {
-    test("creates valid config from user input with explicit simplifier", () => {
+    test("creates valid config from reviewer and fixer input", () => {
       const config = buildConfig({
         reviewerAgent: "codex",
         reviewerModel: "gpt-4",
         fixerAgent: "claude",
         fixerModel: "",
-        simplifierAgent: "droid",
-        simplifierModel: "gpt-5.2-codex",
         maxIterations: 5,
         iterationTimeoutMinutes: 30,
         defaultReviewType: "uncommitted",
-        runSimplifierByDefault: false,
         soundNotificationsEnabled: false,
       });
 
@@ -438,15 +429,9 @@ describe("init command", () => {
       expect(config.reviewer.model).toBe("gpt-4");
       expect(config.fixer.agent).toBe("claude");
       expect(config.fixer.model).toBeUndefined();
-      expect(config["code-simplifier"]).toEqual({
-        agent: "droid",
-        model: "gpt-5.2-codex",
-        reasoning: undefined,
-      });
       expect(config.maxIterations).toBe(5);
       expect(config.iterationTimeout).toBe(1800000);
       expect(config.defaultReview).toEqual({ type: "uncommitted" });
-      expect(config.run).toEqual({ simplifier: false });
       expect(config.notifications.sound.enabled).toBe(false);
     });
 
@@ -460,14 +445,9 @@ describe("init command", () => {
         fixerModel: "claude-sonnet-4-5",
         fixerProvider: "anthropic",
         fixerReasoning: "medium",
-        simplifierAgent: "pi",
-        simplifierModel: "claude-sonnet-4-5",
-        simplifierProvider: "anthropic",
-        simplifierReasoning: "medium",
         maxIterations: 3,
         iterationTimeoutMinutes: 10,
         defaultReviewType: "uncommitted",
-        runSimplifierByDefault: true,
         soundNotificationsEnabled: true,
       });
 
@@ -476,13 +456,6 @@ describe("init command", () => {
         expect(config.reviewer.provider).toBe("llm-proxy");
         expect(config.reviewer.model).toBe("gemini_cli/gemini-3-flash-preview");
       }
-
-      expect(config["code-simplifier"]).toEqual({
-        agent: "pi",
-        provider: "anthropic",
-        model: "claude-sonnet-4-5",
-        reasoning: "medium",
-      });
       expect(config.notifications.sound.enabled).toBe(true);
     });
 
@@ -493,12 +466,9 @@ describe("init command", () => {
           reviewerModel: "claude-opus-4-6",
           fixerAgent: "codex",
           fixerModel: "gpt-5.3-codex",
-          simplifierAgent: "codex",
-          simplifierModel: "gpt-5.3-codex",
           maxIterations: 3,
           iterationTimeoutMinutes: 10,
           defaultReviewType: "uncommitted",
-          runSimplifierByDefault: false,
           soundNotificationsEnabled: true,
         })
       ).toThrow("Pi agent requires provider and model");
@@ -510,13 +480,10 @@ describe("init command", () => {
         reviewerModel: "",
         fixerAgent: "claude",
         fixerModel: "",
-        simplifierAgent: "claude",
-        simplifierModel: "claude-opus-4-6",
         maxIterations: 5,
         iterationTimeoutMinutes: 30,
         defaultReviewType: "base",
         defaultReviewBranch: "main",
-        runSimplifierByDefault: false,
         soundNotificationsEnabled: false,
       });
 
@@ -529,12 +496,9 @@ describe("init command", () => {
         reviewerModel: "",
         fixerAgent: "claude",
         fixerModel: "",
-        simplifierAgent: "claude",
-        simplifierModel: "claude-opus-4-6",
         maxIterations: 5,
         iterationTimeoutMinutes: 30,
         defaultReviewType: "base",
-        runSimplifierByDefault: false,
         soundNotificationsEnabled: false,
       });
 
@@ -566,15 +530,6 @@ describe("init command", () => {
       expect(getRoleModelPriorityRank("fixer", "claude-opus-4-6")).toBe(2);
       expect(getRoleModelPriorityRank("fixer", "gemini-3-pro-preview")).toBe(3);
       expect(getRoleModelPriorityRank("fixer", "unknown-model")).toBe(4);
-    });
-
-    test("simplifier model priority matches GPT-5.4, opus 4.6, codex, opus 4.5 family, then gpt-5.2 codex", () => {
-      expect(getRoleModelPriorityRank("code-simplifier", "gpt-5.4")).toBe(0);
-      expect(getRoleModelPriorityRank("code-simplifier", "claude-opus-4-6")).toBe(1);
-      expect(getRoleModelPriorityRank("code-simplifier", "gpt-5.3-codex")).toBe(2);
-      expect(getRoleModelPriorityRank("code-simplifier", "claude-opus-4-5-20251101")).toBe(3);
-      expect(getRoleModelPriorityRank("code-simplifier", "gpt-5.2-codex")).toBe(4);
-      expect(getRoleModelPriorityRank("code-simplifier", "unknown-model")).toBe(5);
     });
 
     test("uses model-first when model and agent priorities conflict", () => {
@@ -742,7 +697,7 @@ describe("init command", () => {
       expect(result.candidates.some((entry) => entry.agent === "pi")).toBe(true);
     });
 
-    test("builds auto init input with defaults and explicit simplifier", async () => {
+    test("builds auto init input with defaults for reviewer and fixer", async () => {
       const availability = {
         codex: true,
         claude: false,
@@ -758,10 +713,7 @@ describe("init command", () => {
       expect(result.input.reviewerModel).toBe("gpt-5.4");
       expect(result.input.fixerAgent).toBe("codex");
       expect(result.input.fixerModel).toBe("gpt-5.4");
-      expect(result.input.simplifierAgent).toBe("codex");
-      expect(result.input.simplifierModel).toBe("gpt-5.4");
       expect(result.input.defaultReviewType).toBe("uncommitted");
-      expect(result.input.runSimplifierByDefault).toBe(false);
       expect(result.input.soundNotificationsEnabled).toBe(true);
       expect(result.input.maxIterations).toBeGreaterThan(0);
       expect(result.input.iterationTimeoutMinutes).toBeGreaterThan(0);
@@ -783,7 +735,7 @@ describe("init command", () => {
             codex: { models: [] },
           }),
         })
-      ).rejects.toThrow("Automatic setup could not determine reviewer/fixer/simplifier");
+      ).rejects.toThrow("Automatic setup could not determine reviewer/fixer");
     });
   });
 
@@ -812,7 +764,6 @@ describe("init command", () => {
         existingConfig: createExistingConfigWithPi(),
         effectiveConfig: createExistingConfigWithPi(),
         localConfigOverride: {
-          run: { simplifier: true },
           defaultReview: { type: "base", branch: "develop" },
         },
         confirmResponses: [false],
@@ -902,7 +853,6 @@ describe("init command", () => {
         configExists: true,
         existingConfig: createExistingConfigWithPi(),
         localConfigOverride: {
-          run: { simplifier: true },
           defaultReview: { type: "base", branch: "develop" },
         },
         selectResponses: ["local"],
@@ -915,7 +865,6 @@ describe("init command", () => {
       expect(harness.notes[0]?.message).toContain("Effective config");
       expect(harness.notes[0]?.message).toContain("Source: global + repo-local");
       expect(harness.notes[0]?.message).toContain("Repo-local overrides");
-      expect(harness.notes[0]?.message).toContain("Run");
       expect(harness.notes[0]?.message).toContain("Default review");
       expect(harness.notes[0]?.message).not.toContain("Global config");
       expect(harness.notes[0]?.message).not.toContain("Repo-local config");
@@ -955,14 +904,14 @@ describe("init command", () => {
         exists: true,
         path,
         config: null,
-        errors: ["missing run.simplifier"],
+        errors: ["missing fixer.model"],
       });
       harness.overrides.loadEffectiveConfigWithDiagnostics = async () => ({
         exists: true,
         config: null,
         errors: [
           "Invalid repo-local config at /repo/.ralph-review/config.json",
-          "missing run.simplifier",
+          "missing fixer.model",
         ],
         source: "local",
         globalPath: CONFIG_PATH,
@@ -971,7 +920,7 @@ describe("init command", () => {
         globalExists: false,
         localExists: true,
         globalErrors: [],
-        localErrors: ["missing run.simplifier"],
+        localErrors: ["missing fixer.model"],
       });
 
       await runInitWithRuntime(harness.overrides);
@@ -981,7 +930,7 @@ describe("init command", () => {
         "Effective config\nPath: /repo/.ralph-review/config.json"
       );
       expect(harness.notes[0]?.message).toContain("Invalid configuration:");
-      expect(harness.notes[0]?.message).toContain("- missing run.simplifier");
+      expect(harness.notes[0]?.message).toContain("- missing fixer.model");
       expect(harness.notes[0]?.message).not.toContain("Agents");
       expect(harness.cancels).toEqual(["Setup cancelled."]);
     });
@@ -1089,7 +1038,6 @@ describe("init command", () => {
       expect(harness.spinnerStops).toContain("Automatic configuration ready");
       expect(harness.savedConfigs).toHaveLength(1);
       expect(harness.savedConfigPaths).toEqual([CONFIG_PATH]);
-      expect(harness.savedConfigs[0]?.run?.simplifier).toBe(false);
       expect(harness.savedConfigs[0]?.notifications.sound.enabled).toBe(true);
       const proposedNote = harness.notes.find((entry) => entry.title === "Proposed Configuration");
       expect(proposedNote).toBeDefined();
@@ -1112,7 +1060,6 @@ describe("init command", () => {
         effectiveConfig: createExistingConfigWithPi(),
         configOverrideResult: {
           defaultReview: { type: "base", branch: "main" },
-          run: { simplifier: true },
         },
         selectResponses: ["local", "auto"],
         confirmResponses: [true],
@@ -1125,7 +1072,6 @@ describe("init command", () => {
       expect(harness.savedOverrides).toEqual([
         {
           defaultReview: { type: "base", branch: "main" },
-          run: { simplifier: true },
         },
       ]);
       expect(harness.savedOverridePaths).toEqual(["/repo/.ralph-review/config.json"]);
@@ -1140,7 +1086,6 @@ describe("init command", () => {
         effectiveConfig: createExistingConfigWithPi(),
         configOverrideResult: {
           defaultReview: { type: "base", branch: "main" },
-          run: { simplifier: true },
         },
         selectResponses: ["local", "auto"],
         confirmResponses: [true],
@@ -1317,7 +1262,7 @@ describe("init command", () => {
       await expect(runInitWithRuntime(harness.overrides)).rejects.toThrow("forced-exit:1");
       expect(
         harness.errors.some((entry) =>
-          entry.includes("Automatic setup could not determine reviewer/fixer/simplifier")
+          entry.includes("Automatic setup could not determine reviewer/fixer")
         )
       ).toBe(true);
       expect(harness.exits).toEqual([1]);
@@ -1335,13 +1280,10 @@ describe("init command", () => {
           "claude",
           "claude-opus-4-6",
           "medium",
-          "droid",
-          "gpt-5.2-codex",
-          "low",
           "base",
         ],
         textResponses: ["7", "15", "develop"],
-        confirmResponses: [true, false, true],
+        confirmResponses: [false, true],
       });
 
       await runInitWithRuntime(harness.overrides);
@@ -1349,7 +1291,6 @@ describe("init command", () => {
       expect(harness.savedConfigs).toHaveLength(1);
       expect(harness.ensureConfigDirCalls).toBe(1);
       expect(harness.savedConfigs[0]?.defaultReview).toEqual({ type: "base", branch: "develop" });
-      expect(harness.savedConfigs[0]?.run?.simplifier).toBe(true);
       expect(harness.savedConfigs[0]?.notifications.sound.enabled).toBe(false);
       expect(harness.savedConfigs[0]?.maxIterations).toBe(7);
       expect(harness.savedConfigs[0]?.iterationTimeout).toBe(15 * 60 * 1000);
@@ -1375,12 +1316,10 @@ describe("init command", () => {
           "gemini-3-pro-preview",
           "gemini",
           "gemini-3-flash-preview",
-          "gemini",
-          "gemini-3-pro-preview",
           "uncommitted",
         ],
         textResponses: ["4", "12"],
-        confirmResponses: [false, true, true, true],
+        confirmResponses: [true, true],
       });
 
       await runInitWithRuntime(harness.overrides);
@@ -1388,7 +1327,6 @@ describe("init command", () => {
       expect(harness.savedConfigs).toHaveLength(1);
       expect(harness.savedConfigs[0]?.reviewer.reasoning).toBeUndefined();
       expect(harness.savedConfigs[0]?.fixer.reasoning).toBeUndefined();
-      expect(harness.savedConfigs[0]?.["code-simplifier"]?.reasoning).toBeUndefined();
     });
 
     test("probes opencode models in custom mode and handles cancel", async () => {
@@ -1570,13 +1508,10 @@ describe("init command", () => {
           "pi",
           JSON.stringify({ provider: "anthropic", model: "claude-opus-4-6" }),
           "medium",
-          "pi",
-          JSON.stringify({ provider: "anthropic", model: "claude-opus-4-6" }),
-          "low",
           "uncommitted",
         ],
         textResponses: ["3", "10"],
-        confirmResponses: [false, true, true, true],
+        confirmResponses: [true, true],
       });
 
       await runInitWithRuntime(harness.overrides);
@@ -1594,12 +1529,6 @@ describe("init command", () => {
         provider: "anthropic",
         model: "claude-opus-4-6",
         reasoning: "medium",
-      });
-      expect(saved?.["code-simplifier"]).toEqual({
-        agent: "pi",
-        provider: "anthropic",
-        model: "claude-opus-4-6",
-        reasoning: "low",
       });
       expect(saved?.notifications.sound.enabled).toBe(true);
     });

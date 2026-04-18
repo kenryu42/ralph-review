@@ -12,8 +12,6 @@ const baseConfig: Config = {
   version: CONFIG_VERSION,
   reviewer: { agent: "codex", model: "gpt-5.3-codex", reasoning: "high" },
   fixer: { agent: "claude", model: "claude-opus-4-6", reasoning: "medium" },
-  "code-simplifier": { agent: "droid", model: "gpt-5.2-codex", reasoning: "low" },
-  run: { simplifier: false },
   maxIterations: 5,
   iterationTimeout: 1800000,
   defaultReview: { type: "uncommitted" },
@@ -56,14 +54,14 @@ describe("config display", () => {
         title: "Effective config",
         path: "/tmp/global.json",
         note: "Source: global",
-        config: { run: { simplifier: true } },
+        config: { maxIterations: 9 },
       })
     ).toBe(
       [
         "Effective config",
         "Path: /tmp/global.json",
         "Source: global",
-        JSON.stringify({ run: { simplifier: true } }, null, 2),
+        JSON.stringify({ maxIterations: 9 }, null, 2),
       ].join("\n")
     );
   });
@@ -80,7 +78,6 @@ describe("config display", () => {
     expect(output).toContain("Path: /tmp/global.json");
     expect(output).toContain("Agents");
     expect(output).toContain("Reviewer:");
-    expect(output).toContain("Run");
     expect(output).toContain("Limits");
     expect(output).toContain("Iteration timeout:");
     expect(output).toContain("30m");
@@ -108,7 +105,7 @@ describe("config display", () => {
       title: "Repo-local overrides",
       path: "/repo/.ralph-review/config.json",
       config: {
-        run: { simplifier: true },
+        maxIterations: 9,
         defaultReview: { type: "base", branch: "develop" },
       },
       mode: "override",
@@ -116,12 +113,11 @@ describe("config display", () => {
 
     expect(output).toContain("Repo-local overrides");
     expect(output).toContain("Path: /repo/.ralph-review/config.json");
-    expect(output).toContain("Run");
-    expect(output).toContain("Simplifier:");
+    expect(output).toContain("Limits");
     expect(output).toContain("Default review");
     expect(output).toContain("base branch (develop)");
     expect(output).not.toContain("Reviewer:");
-    expect(output).not.toContain('"run"');
+    expect(output).not.toContain('"maxIterations"');
   });
 
   test("formats empty readable repo-local overrides explicitly", () => {
@@ -141,16 +137,12 @@ describe("config display", () => {
       title: "Repo-local overrides",
       path: "/repo/.ralph-review/config.json",
       config: {
-        "code-simplifier": null,
-        run: null,
         retry: null,
       },
       mode: "override",
     });
 
     expect(output).toContain("Removed sections");
-    expect(output).toContain("Simplifier: removed");
-    expect(output).toContain("Run: removed");
     expect(output).toContain("Retry: removed");
     expect(output).not.toContain("No repo-local overrides.");
   });
@@ -164,8 +156,6 @@ describe("config display", () => {
         version: CONFIG_VERSION,
         reviewer: { agent: "codex", reasoning: "medium" },
         fixer: { agent: "claude", model: "claude-opus-4-6" },
-        "code-simplifier": { agent: "droid", model: "gpt-5.2-codex" },
-        run: { simplifier: false },
         iterationTimeout: 5000,
         retry: { maxRetries: 4, baseDelayMs: 250, maxDelayMs: 5000 },
         notifications: { sound: { enabled: false } },
@@ -176,8 +166,6 @@ describe("config display", () => {
 
     expect(output).toContain("Reviewer: Codex (Default, medium)");
     expect(output).toContain("Fixer: Claude (Claude Opus 4.6, default)");
-    expect(output).toContain("Simplifier: Droid (GPT-5.2-Codex, default)");
-    expect(output).toContain("Simplifier: disabled");
     expect(output).toContain("Iteration timeout: 5,000 ms (5s)");
     expect(output).toContain("Retry");
     expect(output).toContain("Max retries: 4");
@@ -272,18 +260,16 @@ describe("config display", () => {
     expect(output).not.toContain("Retry");
   });
 
-  test("formats readable full config with hour timeout and no simplifier", () => {
+  test("formats readable full config with hour timeout", () => {
     const output = formatReadableConfigSection({
       title: "Current configuration",
       config: {
         ...baseConfig,
-        "code-simplifier": undefined,
         iterationTimeout: 7200000,
       },
       mode: "full",
     });
 
-    expect(output).toContain("Simplifier: Not configured");
     expect(output).toContain("Iteration timeout: 7,200,000 ms (2h)");
   });
 
@@ -323,7 +309,7 @@ describe("config display", () => {
       {
         exists: true,
         path: "/repo/.ralph-review/config.json",
-        config: { run: { simplifier: true } },
+        config: { maxIterations: 9 },
         errors: [],
       }
     );
@@ -332,7 +318,7 @@ describe("config display", () => {
     expect(output).toContain("Source: global + repo-local");
     expect(output).toContain("Repo-local overrides");
     expect(output).toContain("Path: /repo/.ralph-review/config.json");
-    expect(output).toContain("Simplifier:");
+    expect(output).toContain("Limits");
     expect(output).not.toContain("Global config");
     expect(output).not.toContain('"reviewer"');
   });
@@ -447,7 +433,7 @@ describe("config display", () => {
         {
           exists: true,
           path: "/repo/.ralph-review/config.json",
-          config: { run: { simplifier: true } },
+          config: { maxIterations: 9 },
           errors: [],
         }
       )
@@ -456,7 +442,7 @@ describe("config display", () => {
     expect(output).toEqual({
       effective: baseConfig,
       global: null,
-      local: { run: { simplifier: true } },
+      local: { maxIterations: 9 },
     });
   });
 

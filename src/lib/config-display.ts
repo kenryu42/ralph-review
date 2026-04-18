@@ -168,16 +168,6 @@ function formatReadableConfigBody(configSection: ReadableConfigSection): string[
     pushSection(lines, "Agents", [
       { label: "Reviewer", value: formatRoleSummary(config.reviewer) },
       { label: "Fixer", value: formatRoleSummary(config.fixer) },
-      {
-        label: "Simplifier",
-        value: config["code-simplifier"]
-          ? formatRoleSummary(config["code-simplifier"])
-          : "Not configured",
-      },
-    ]);
-
-    pushSection(lines, "Run", [
-      { label: "Simplifier", value: formatFeatureState(config.run?.simplifier ?? false) },
     ]);
 
     pushSection(lines, "Limits", [
@@ -218,34 +208,13 @@ function formatReadableConfigBody(configSection: ReadableConfigSection): string[
   if (config.fixer) {
     agentEntries.push({ label: "Fixer", value: formatOverrideRoleSummary(config.fixer) });
   }
-  if (config["code-simplifier"]) {
-    agentEntries.push({
-      label: "Simplifier",
-      value: formatOverrideRoleSummary(config["code-simplifier"]),
-    });
-  }
   pushSection(lines, "Agents", agentEntries);
 
   const removedEntries: DisplayEntry[] = [];
-  if (config["code-simplifier"] === null) {
-    removedEntries.push({ label: "Simplifier", value: "removed" });
-  }
-  if (config.run === null) {
-    removedEntries.push({ label: "Run", value: "removed" });
-  }
   if (config.retry === null) {
     removedEntries.push({ label: "Retry", value: "removed" });
   }
   pushSection(lines, "Removed sections", removedEntries);
-
-  const runEntries: DisplayEntry[] = [];
-  if (config.run?.simplifier !== undefined) {
-    runEntries.push({
-      label: "Simplifier",
-      value: formatFeatureState(config.run.simplifier),
-    });
-  }
-  pushSection(lines, "Run", runEntries);
 
   const limitEntries: DisplayEntry[] = [];
   if (config.maxIterations !== undefined) {
