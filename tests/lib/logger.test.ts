@@ -366,20 +366,20 @@ describe("logger", () => {
 
       await appendLog(logPath, systemEntry);
       await appendLog(logPath, {
-        type: "discovery_iteration",
+        type: "review_iteration",
         timestamp: 1_700_000_001_000,
         iteration: 1,
-        phase: "discovery",
+        phase: "review",
         sessionStatus: "running",
         duration: 1_000,
         findings: [createStoredFinding("F001", "P0"), createStoredFinding("F002", "P2")],
         netNewFindingIds: ["F001", "F002"],
       });
       await appendLog(logPath, {
-        type: "discovery_iteration",
+        type: "review_iteration",
         timestamp: 1_700_000_002_000,
         iteration: 2,
-        phase: "discovery",
+        phase: "review",
         sessionStatus: "running",
         duration: 2_000,
         findings: [

@@ -116,10 +116,10 @@ describe("deriveWorkspaceLogData", () => {
         maxIterations: 5,
       },
       {
-        type: "discovery_iteration",
+        type: "review_iteration",
         timestamp: 200,
         iteration: 1,
-        phase: "discovery",
+        phase: "review",
         sessionStatus: "running",
         findings: [
           {

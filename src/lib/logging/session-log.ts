@@ -384,7 +384,7 @@ function deriveRunStatusFromEntries(
   }
 
   if (
-    latestLifecycleEntry.type === "discovery_iteration" ||
+    latestLifecycleEntry.type === "review_iteration" ||
     latestLifecycleEntry.type === "batch_fix"
   ) {
     if (latestLifecycleEntry.error) {
@@ -493,7 +493,7 @@ function applyEntryToSummary(
     return next;
   }
 
-  if (entry.type === "discovery_iteration") {
+  if (entry.type === "review_iteration") {
     next.iterations = summary.iterations + 1;
     next.hasIteration = true;
     next.status =
@@ -502,7 +502,7 @@ function applyEntryToSummary(
       next.status = "failed";
     }
     next.sessionStatus = entry.sessionStatus;
-    next.phase = "discovery";
+    next.phase = "review";
     next.endedAt = undefined;
     next.reason = undefined;
     next.totalFindings = entry.findings.length;

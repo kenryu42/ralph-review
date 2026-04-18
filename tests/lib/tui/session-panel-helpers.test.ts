@@ -206,14 +206,14 @@ describe("SessionPanel helpers", () => {
       ]);
     });
 
-    test("prefers the latest discovery inventory for batch-first sessions", () => {
+    test("prefers the latest review inventory for batch-first sessions", () => {
       const stats = createSessionStats([
         createSystemEntry(),
         {
-          type: "discovery_iteration",
+          type: "review_iteration",
           timestamp: Date.now(),
           iteration: 1,
-          phase: "discovery",
+          phase: "review",
           sessionStatus: "running",
           findings: [
             {
@@ -231,10 +231,10 @@ describe("SessionPanel helpers", () => {
           netNewFindingIds: ["F001"],
         },
         {
-          type: "discovery_iteration",
+          type: "review_iteration",
           timestamp: Date.now(),
           iteration: 2,
-          phase: "discovery",
+          phase: "review",
           sessionStatus: "running",
           findings: [
             {

@@ -82,7 +82,7 @@ function getStatusDisplay(
       return { text: "running", color: TUI_COLORS.status.success };
     case "pending":
       return {
-        text: currentPhase && currentPhase !== "discovery" ? "starting fix" : "starting review",
+        text: currentPhase && currentPhase !== "review" ? "starting fix" : "starting review",
         color: TUI_COLORS.status.pending,
       };
     default:

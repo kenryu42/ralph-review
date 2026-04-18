@@ -270,10 +270,10 @@ describe("html", () => {
           maxIterations: 5,
         },
         {
-          type: "discovery_iteration",
+          type: "review_iteration",
           timestamp: Date.now(),
           iteration: 1,
-          phase: "discovery",
+          phase: "review",
           sessionStatus: "completed",
           findings: [
             {
@@ -311,7 +311,7 @@ describe("html", () => {
       ];
 
       const html = generateLogHtml(entries);
-      expect(html).toContain("Discovery Iteration 1");
+      expect(html).toContain("Review Iteration 1");
       expect(html).toContain("Guard missing config");
       expect(html).toContain("Finding Selection");
       expect(html).toContain("1 selected");

@@ -142,12 +142,12 @@ function getFindingKey(finding: Finding): string {
 }
 
 export function extractFindingsFromStats(stats: SessionStats): Finding[] {
-  const latestDiscoveryEntry = [...stats.entries]
+  const latestReviewEntry = [...stats.entries]
     .reverse()
-    .find((entry) => entry.type === "discovery_iteration");
+    .find((entry) => entry.type === "review_iteration");
 
-  if (latestDiscoveryEntry) {
-    return latestDiscoveryEntry.findings.map(storedFindingToFinding);
+  if (latestReviewEntry) {
+    return latestReviewEntry.findings.map(storedFindingToFinding);
   }
 
   const findings: Finding[] = [];

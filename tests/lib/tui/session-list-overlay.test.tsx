@@ -606,10 +606,10 @@ describe("SessionOverlay", () => {
           entries: [
             buildSystemEntry({ projectPath: "/repo/project" }),
             {
-              type: "discovery_iteration",
+              type: "review_iteration",
               timestamp: Date.now(),
               iteration: 1,
-              phase: "discovery",
+              phase: "review",
               sessionStatus: "completed",
               findings: [
                 {
@@ -823,10 +823,10 @@ describe("SessionDetailPane", () => {
       entries: [
         buildSystemEntry({ projectPath: "/test/project" }),
         {
-          type: "discovery_iteration",
+          type: "review_iteration",
           timestamp: Date.now(),
           iteration: 1,
-          phase: "discovery",
+          phase: "review",
           sessionStatus: "running",
           findings: [
             {

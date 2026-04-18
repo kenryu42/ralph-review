@@ -260,11 +260,11 @@ export function generateLogHtml(entries: LogEntry[]): string {
   const batchFirstBlocks = !workflow.hasBatchFirstLifecycle
     ? ""
     : [
-        ...workflow.discoveryEntries.map(
+        ...workflow.reviewEntries.map(
           (entry) => `
             <section class="card iteration">
               <div class="iteration-header">
-                <div class="iteration-title">Discovery Iteration ${entry.iteration}</div>
+                <div class="iteration-title">Review Iteration ${entry.iteration}</div>
                 <div class="iteration-meta">
                   <span>${formatDate(entry.timestamp)}</span>
                   <span class="dot">•</span>

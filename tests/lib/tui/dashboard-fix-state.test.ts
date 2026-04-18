@@ -21,7 +21,7 @@ function createSessionStats(overrides: Partial<SessionStats> = {}): SessionStats
     timestamp: Date.now(),
     status: "completed",
     sessionStatus: "completed",
-    phase: "discovery",
+    phase: "review",
     reviewOutcome: "findings-pending",
     totalFixes: 0,
     totalSkipped: 0,

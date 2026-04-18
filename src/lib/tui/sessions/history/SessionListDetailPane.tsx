@@ -445,10 +445,10 @@ export function SessionDetailPane({
 
           {workflow.hasBatchFirstLifecycle ? (
             <>
-              {workflow.discoveryEntries.map((entry) => (
+              {workflow.reviewEntries.map((entry) => (
                 <WorkflowSection
-                  key={`discovery-${entry.iteration}`}
-                  title={`Discovery Iteration ${entry.iteration}`}
+                  key={`review-${entry.iteration}`}
+                  title={`Review Iteration ${entry.iteration}`}
                 >
                   <text fg={TUI_COLORS.text.secondary} paddingLeft={2}>
                     {entry.findings.length} issues found
