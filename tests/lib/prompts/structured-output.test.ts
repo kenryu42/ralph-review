@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   createFixerPrompt,
-  createReviewerPrompt,
+  createTargetedReviewPrompt,
   FIX_SUMMARY_END_TOKEN,
   FIX_SUMMARY_START_TOKEN,
   REVIEW_SUMMARY_END_TOKEN,
@@ -18,7 +18,7 @@ describe("structured output prompts", () => {
   });
 
   test("reviewer prompt includes strict framed output tokens", () => {
-    const prompt = createReviewerPrompt({ repoPath: process.cwd() });
+    const prompt = createTargetedReviewPrompt({ repoPath: process.cwd() });
 
     expect(prompt).toContain(REVIEW_SUMMARY_START_TOKEN);
     expect(prompt).toContain(REVIEW_SUMMARY_END_TOKEN);

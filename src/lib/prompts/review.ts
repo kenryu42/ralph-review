@@ -1,6 +1,6 @@
 // Temporary migration shim.
-// Source module: src/lib/review-workflow/discovery/prompt.ts
+// Source module: src/lib/review-workflow/review/prompt.ts
 export {
-  createDiscoveryReviewerPrompt,
   createReviewerPrompt,
-} from "@/lib/review-workflow/discovery/prompt";
+  createTargetedReviewPrompt,
+} from "@/lib/review-workflow/review/prompt";

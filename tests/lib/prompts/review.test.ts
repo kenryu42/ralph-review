@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
-  createDiscoveryReviewerPrompt,
   createReviewerPrompt,
+  createTargetedReviewPrompt,
   REVIEW_SUMMARY_END_TOKEN,
   REVIEW_SUMMARY_START_TOKEN,
 } from "@/lib/prompts";
@@ -26,9 +26,9 @@ function expectStructuredOutputProtocol(prompt: string): void {
   expect(prompt).toContain(REVIEW_SUMMARY_END_TOKEN);
 }
 
-describe("createReviewerPrompt", () => {
+describe("createTargetedReviewPrompt", () => {
   test("combines commit instructions with custom focus when both are provided", () => {
-    const prompt = createReviewerPrompt({
+    const prompt = createTargetedReviewPrompt({
       repoPath: REPO_PATH,
       commitSha: "abc1234",
       baseBranch: resolveCurrentRef(REPO_PATH),
@@ -42,7 +42,7 @@ describe("createReviewerPrompt", () => {
   });
 
   test("combines merge-base base branch instructions with custom focus", () => {
-    const prompt = createReviewerPrompt({
+    const prompt = createTargetedReviewPrompt({
       repoPath: REPO_PATH,
       baseBranch: resolveCurrentRef(REPO_PATH),
       customInstructions: "custom reviewer instructions",
@@ -56,8 +56,8 @@ describe("createReviewerPrompt", () => {
     expectStructuredOutputProtocol(prompt);
   });
 
-  test("falls back to merge-base discovery instructions when base branch cannot be resolved", () => {
-    const prompt = createReviewerPrompt({
+  test("falls back to merge-base review instructions when base branch cannot be resolved", () => {
+    const prompt = createTargetedReviewPrompt({
       repoPath: REPO_PATH,
       baseBranch: "__rr_missing_branch_for_review_prompt_tests__",
     });
@@ -68,7 +68,7 @@ describe("createReviewerPrompt", () => {
   });
 
   test("uses custom instructions when no commit or base branch is provided", () => {
-    const prompt = createReviewerPrompt({
+    const prompt = createTargetedReviewPrompt({
       repoPath: REPO_PATH,
       customInstructions: "Only review src/lib/logger.ts for regressions",
     });
@@ -78,7 +78,7 @@ describe("createReviewerPrompt", () => {
   });
 
   test("defaults to uncommitted review instructions", () => {
-    const prompt = createReviewerPrompt({ repoPath: REPO_PATH });
+    const prompt = createTargetedReviewPrompt({ repoPath: REPO_PATH });
 
     expect(prompt).toContain("staged, unstaged, and untracked files");
     expect(prompt).not.toContain("Ignore untracked files.");
@@ -86,9 +86,9 @@ describe("createReviewerPrompt", () => {
   });
 });
 
-describe("createDiscoveryReviewerPrompt", () => {
+describe("createReviewerPrompt", () => {
   test("omits default review guidelines when requested", () => {
-    const prompt = createDiscoveryReviewerPrompt({
+    const prompt = createReviewerPrompt({
       repoPath: REPO_PATH,
       baselineCommitSha: "baseline-sha-123",
       includeDefaultReviewPrompt: false,
@@ -101,7 +101,7 @@ describe("createDiscoveryReviewerPrompt", () => {
   });
 
   test("includes uncommitted review guidance when no explicit git target is provided", () => {
-    const prompt = createDiscoveryReviewerPrompt({
+    const prompt = createReviewerPrompt({
       repoPath: REPO_PATH,
       baselineCommitSha: "baseline-sha-123",
     });
@@ -113,7 +113,7 @@ describe("createDiscoveryReviewerPrompt", () => {
   });
 
   test("includes base-branch review guidance when a base branch is provided", () => {
-    const prompt = createDiscoveryReviewerPrompt({
+    const prompt = createReviewerPrompt({
       repoPath: REPO_PATH,
       baselineCommitSha: "baseline-sha-123",
       baseBranch: resolveCurrentRef(REPO_PATH),
@@ -140,7 +140,7 @@ describe("createDiscoveryReviewerPrompt", () => {
       },
     ];
 
-    const prompt = createDiscoveryReviewerPrompt({
+    const prompt = createReviewerPrompt({
       repoPath: REPO_PATH,
       baselineCommitSha: "baseline-sha-123",
       customInstructions: "Focus on runtime failures.",
