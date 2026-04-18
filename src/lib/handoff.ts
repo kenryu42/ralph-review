@@ -7,15 +7,12 @@ import {
   buildHandoffRef,
   computeWorkingTreeFingerprint,
   computeWorkingTreeFingerprintAsync,
-  createBinaryPatch,
+  createBaselineToFinalPatch,
   createHandoffRef,
+  deleteSessionRefs,
   finalizeSessionWorktree,
-  materializeGitScopedCopy,
-  materializeWorkingTreeSnapshot,
-  removeHandoffRef,
 } from "@/lib/git";
 import { getProjectStorageDir } from "@/lib/logger";
-import { hasRootGitignore } from "@/lib/review-workflow/shared/snapshot";
 import type {
   ArchivedAppliedHandoffArtifact,
   ArchivedHandoffMatchResult,
@@ -38,7 +35,7 @@ export interface SessionHandoffResult {
 }
 
 const SNAPSHOT_MISMATCH_ERROR_MESSAGE =
-  "Current repository state no longer matches the saved review snapshot.";
+  "Current repository state no longer matches the saved review baseline.";
 const MAX_ARCHIVED_HANDOFFS = 5;
 
 function isMissingPathError(error: unknown): error is NodeJS.ErrnoException {
@@ -105,7 +102,7 @@ function normalizePendingHandoff(raw: unknown): PendingHandoffArtifact | null {
     logPath,
     hiddenRef,
     patchPath,
-    sourceFingerprint,
+    trackedRepoFingerprint,
     commitSha,
     state,
     createdAt,
@@ -118,7 +115,7 @@ function normalizePendingHandoff(raw: unknown): PendingHandoffArtifact | null {
     typeof logPath !== "string" ||
     typeof hiddenRef !== "string" ||
     typeof patchPath !== "string" ||
-    typeof sourceFingerprint !== "string" ||
+    typeof trackedRepoFingerprint !== "string" ||
     typeof commitSha !== "string" ||
     state !== "pending-apply" ||
     typeof createdAt !== "number" ||
@@ -134,7 +131,7 @@ function normalizePendingHandoff(raw: unknown): PendingHandoffArtifact | null {
     logPath,
     hiddenRef,
     patchPath,
-    sourceFingerprint,
+    trackedRepoFingerprint,
     commitSha,
     state,
     createdAt,
@@ -154,7 +151,7 @@ function normalizeArchivedHandoff(raw: unknown): ArchivedAppliedHandoffArtifact 
     sourceRepoPath,
     logPath,
     patchPath,
-    sourceFingerprint,
+    trackedRepoFingerprint,
     appliedFingerprint,
     commitSha,
     appliedVia,
@@ -168,7 +165,7 @@ function normalizeArchivedHandoff(raw: unknown): ArchivedAppliedHandoffArtifact 
     typeof sourceRepoPath !== "string" ||
     typeof logPath !== "string" ||
     typeof patchPath !== "string" ||
-    typeof sourceFingerprint !== "string" ||
+    typeof trackedRepoFingerprint !== "string" ||
     typeof appliedFingerprint !== "string" ||
     typeof commitSha !== "string" ||
     (appliedVia !== "auto" && appliedVia !== "manual") ||
@@ -185,7 +182,7 @@ function normalizeArchivedHandoff(raw: unknown): ArchivedAppliedHandoffArtifact 
     sourceRepoPath,
     logPath,
     patchPath,
-    sourceFingerprint,
+    trackedRepoFingerprint,
     appliedFingerprint,
     commitSha,
     appliedVia,
@@ -270,8 +267,8 @@ function buildArchivedMismatchError(
 ): Error {
   return new Error(
     action === "revert"
-      ? `Archived review handoff "${artifact.sessionId}" cannot be reverted because the current repository state does not match its applied snapshot.`
-      : `Archived review handoff "${artifact.sessionId}" cannot be reapplied because the current repository state does not match its source snapshot.`
+      ? `Archived review handoff "${artifact.sessionId}" cannot be reverted because the current repository state does not match its applied baseline.`
+      : `Archived review handoff "${artifact.sessionId}" cannot be reapplied because the current repository state does not match its source baseline.`
   );
 }
 
@@ -309,7 +306,7 @@ async function archiveAppliedHandoff(
     sourceRepoPath: artifact.sourceRepoPath,
     logPath: artifact.logPath,
     patchPath: archivedPatchPath,
-    sourceFingerprint: artifact.sourceFingerprint,
+    trackedRepoFingerprint: artifact.trackedRepoFingerprint,
     appliedFingerprint: computeWorkingTreeFingerprint(artifact.sourceRepoPath),
     commitSha: artifact.commitSha,
     appliedVia,
@@ -335,13 +332,13 @@ async function applyPendingHandoffArtifact(
   appliedVia: ArchivedAppliedHandoffArtifact["appliedVia"]
 ): Promise<PendingHandoffArtifact> {
   const currentFingerprint = computeWorkingTreeFingerprint(artifact.sourceRepoPath);
-  if (currentFingerprint !== artifact.sourceFingerprint) {
+  if (currentFingerprint !== artifact.trackedRepoFingerprint) {
     throw new Error(SNAPSHOT_MISMATCH_ERROR_MESSAGE);
   }
 
   applyBinaryPatch(artifact.sourceRepoPath, artifact.patchPath);
   await archiveAppliedHandoff(storageRoot, artifact, appliedVia);
-  removeHandoffRef(artifact.sourceRepoPath, artifact.hiddenRef);
+  deleteSessionRefs(artifact.sourceRepoPath, artifact.sessionId);
   await deletePendingHandoffFiles(storageRoot, artifact);
   return artifact;
 }
@@ -355,7 +352,7 @@ async function applyArchivedHandoffArtifact(
     expectedCurrentFingerprint ??
     (await computeWorkingTreeFingerprintAsync(artifact.sourceRepoPath));
   const expectedFingerprint =
-    action === "revert" ? artifact.appliedFingerprint : artifact.sourceFingerprint;
+    action === "revert" ? artifact.appliedFingerprint : artifact.trackedRepoFingerprint;
   if (currentFingerprint !== expectedFingerprint) {
     throw buildArchivedMismatchError(artifact, action);
   }
@@ -366,12 +363,12 @@ async function applyArchivedHandoffArtifact(
 
   const resultingFingerprint = await computeWorkingTreeFingerprintAsync(artifact.sourceRepoPath);
   const targetFingerprint =
-    action === "revert" ? artifact.sourceFingerprint : artifact.appliedFingerprint;
+    action === "revert" ? artifact.trackedRepoFingerprint : artifact.appliedFingerprint;
   if (resultingFingerprint !== targetFingerprint) {
     throw new Error(
       action === "revert"
-        ? `Archived review handoff "${artifact.sessionId}" did not revert to the expected source snapshot.`
-        : `Archived review handoff "${artifact.sessionId}" did not reapply to the expected applied snapshot.`
+        ? `Archived review handoff "${artifact.sessionId}" did not revert to the expected source baseline.`
+        : `Archived review handoff "${artifact.sessionId}" did not reapply to the expected applied baseline.`
     );
   }
 
@@ -442,7 +439,7 @@ export async function listProjectReapplicableHandoffs(
   const handoffs = await listProjectArchivedHandoffs(storageRoot, projectPath);
   return {
     currentFingerprint,
-    handoffs: handoffs.filter((artifact) => artifact.sourceFingerprint === currentFingerprint),
+    handoffs: handoffs.filter((artifact) => artifact.trackedRepoFingerprint === currentFingerprint),
   };
 }
 
@@ -497,7 +494,7 @@ export async function discardPendingHandoff(
     throw new Error(`Pending review handoff "${sessionId}" was not found.`);
   }
 
-  removeHandoffRef(artifact.sourceRepoPath, artifact.hiddenRef);
+  deleteSessionRefs(artifact.sourceRepoPath, artifact.sessionId);
   await deletePendingHandoffFiles(storageRoot, artifact);
   return artifact;
 }
@@ -512,89 +509,72 @@ export async function createOrAutoApplyHandoff(
   }
 
   const patchPath = getPendingHandoffPatchPath(storageRoot, options.projectPath, options.sessionId);
-  const sourceSnapshotPath = options.worktree.sourceSnapshotPath ?? `${patchPath}.source`;
-  const finalSnapshotPath = `${patchPath}.final`;
-
-  try {
-    if (!options.worktree.sourceSnapshotPath) {
-      if (!options.worktree.sourceSnapshotDir) {
-        throw new Error("Session worktree is missing its source snapshot metadata.");
-      }
-      materializeWorkingTreeSnapshot(options.worktree.sourceSnapshotDir, sourceSnapshotPath);
-      options.worktree.sourceSnapshotPath = sourceSnapshotPath;
-    }
-
-    const sourceFingerprint = options.worktree.sourceFingerprint;
-    if (!sourceFingerprint) {
-      throw new Error("Session worktree is missing its source fingerprint.");
-    }
-
-    const sourceSnapshotHasGitignore = await hasRootGitignore(sourceSnapshotPath);
-    if (sourceSnapshotHasGitignore) {
-      const worktreeHasGitignore = await hasRootGitignore(options.worktree.worktreeProjectPath);
-      if (!worktreeHasGitignore) {
-        throw new Error(
-          "Session worktree is missing .gitignore while source snapshot includes .gitignore. Hidden files may have been dropped during remediation snapshot restore."
-        );
-      }
-    }
-
-    materializeGitScopedCopy(options.worktree.worktreeProjectPath, finalSnapshotPath);
-    await createBinaryPatch(sourceSnapshotPath, finalSnapshotPath, patchPath);
-
-    const hiddenRef = buildHandoffRef(options.sessionId);
-    createHandoffRef(options.worktree.sourceRepoPath, hiddenRef, retained.commitSha);
-    options.worktree.preserveBranchOnDiscard = false;
-
-    const handoffUpdatedAt = Date.now();
-    const artifact: PendingHandoffArtifact = {
-      sessionId: options.sessionId,
-      projectPath: options.projectPath,
-      sourceRepoPath: options.worktree.sourceRepoPath,
-      logPath: options.logPath,
-      hiddenRef,
-      patchPath,
-      sourceFingerprint,
-      commitSha: retained.commitSha,
-      state: "pending-apply",
-      createdAt: handoffUpdatedAt,
-      updatedAt: handoffUpdatedAt,
-    };
-
-    if (options.autoApply !== false) {
-      try {
-        await applyPendingHandoffArtifact(storageRoot, artifact, "auto");
-        return {
-          handoffStatus: "applied-auto",
-          commitSha: artifact.commitSha,
-          handoffUpdatedAt,
-        };
-      } catch (error) {
-        if (!isSnapshotMismatchError(error)) {
-          throw error;
-        }
-      }
-    }
-
-    await Bun.write(
-      getPendingHandoffMetadataPath(storageRoot, options.projectPath, options.sessionId),
-      JSON.stringify(artifact, null, 2),
-      {
-        createPath: true,
-      }
-    );
-
-    return {
-      handoffStatus: "pending-apply",
-      commitSha: artifact.commitSha,
-      handoffUpdatedAt,
-    };
-  } finally {
-    Bun.spawnSync(["rm", "-rf", finalSnapshotPath], {
-      stdout: "ignore",
-      stderr: "ignore",
-    });
+  const sourceBaselineCommitSha = options.worktree.sourceBaselineCommitSha;
+  const trackedRepoFingerprint = options.worktree.trackedRepoFingerprint;
+  if (!sourceBaselineCommitSha) {
+    throw new Error("Session worktree is missing its source baseline commit.");
   }
+
+  if (!trackedRepoFingerprint) {
+    throw new Error("Session worktree is missing its tracked repository fingerprint.");
+  }
+
+  const hiddenRef = buildHandoffRef(options.sessionId);
+  createHandoffRef(options.worktree.sourceRepoPath, hiddenRef, retained.commitSha);
+  options.worktree.finalCommitSha = retained.commitSha;
+  options.worktree.finalRef = hiddenRef;
+  options.worktree.preserveBranchOnDiscard = false;
+
+  await createBaselineToFinalPatch(
+    options.worktree.worktreeProjectPath,
+    sourceBaselineCommitSha,
+    retained.commitSha,
+    patchPath
+  );
+
+  const handoffUpdatedAt = Date.now();
+  const artifact: PendingHandoffArtifact = {
+    sessionId: options.sessionId,
+    projectPath: options.projectPath,
+    sourceRepoPath: options.worktree.sourceRepoPath,
+    logPath: options.logPath,
+    hiddenRef,
+    patchPath,
+    trackedRepoFingerprint,
+    commitSha: retained.commitSha,
+    state: "pending-apply",
+    createdAt: handoffUpdatedAt,
+    updatedAt: handoffUpdatedAt,
+  };
+
+  if (options.autoApply !== false) {
+    try {
+      await applyPendingHandoffArtifact(storageRoot, artifact, "auto");
+      return {
+        handoffStatus: "applied-auto",
+        commitSha: artifact.commitSha,
+        handoffUpdatedAt,
+      };
+    } catch (error) {
+      if (!isSnapshotMismatchError(error)) {
+        throw error;
+      }
+    }
+  }
+
+  await Bun.write(
+    getPendingHandoffMetadataPath(storageRoot, options.projectPath, options.sessionId),
+    JSON.stringify(artifact, null, 2),
+    {
+      createPath: true,
+    }
+  );
+
+  return {
+    handoffStatus: "pending-apply",
+    commitSha: artifact.commitSha,
+    handoffUpdatedAt,
+  };
 }
 
 export type { ArchivedAppliedHandoffArtifact, PendingHandoffArtifact };

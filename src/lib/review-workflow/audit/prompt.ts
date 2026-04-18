@@ -18,7 +18,7 @@ function formatSelectedFindings(findings: StoredFinding[]): string {
 }
 
 export interface TargetedAuditPromptOptions {
-  reviewedSnapshotPath: string;
+  baselineCommitSha: string;
   mutableWorkspacePath: string;
   selectedFindings: StoredFinding[];
   changedFileHints: string[];
@@ -39,7 +39,7 @@ export function createTargetedAuditPrompt(options: TargetedAuditPromptOptions): 
 - Do not search for unrelated issues outside the selected findings and changed scope.
 
 ## Snapshot boundary
-- Original reviewed snapshot: \`${options.reviewedSnapshotPath}\`
+- Original baseline commit: \`${options.baselineCommitSha}\`
 - Mutable fixed workspace: \`${options.mutableWorkspacePath}\`
 
 ## Selected findings to verify

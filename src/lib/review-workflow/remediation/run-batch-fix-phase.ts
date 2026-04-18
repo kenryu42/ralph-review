@@ -136,7 +136,7 @@ export async function runBatchFixPhase(
 
   try {
     const prompt = deps.createBatchFixerPrompt({
-      reviewedSnapshotPath: options.artifact.reviewedSnapshotPath,
+      baselineCommitSha: options.artifact.baselineCommitSha,
       mutableWorkspacePath: options.worktree.agentProjectPath,
       selectedFindings: options.selection.selectedFindings,
     });

@@ -35,12 +35,11 @@ function createArtifact(): FindingsArtifact {
     sessionId: "session-123",
     projectPath: "/repo/project",
     logPath: "/tmp/session-123.jsonl",
-    reviewedSnapshotRef: "snapshot-ref",
-    reviewedSnapshotPath: "/tmp/reviewed",
-    reviewedSnapshotFingerprint: "reviewed-fingerprint-1",
-    handoffSnapshotPath: "/tmp/handoff",
-    handoffSnapshotFingerprint: "handoff-fingerprint-1",
-    sourceRepoFingerprint: "repo-fingerprint-1",
+    baselineRef: "refs/ralph-review/sessions/session-123/baseline",
+    baselineCommitSha: "baseline-sha-123",
+    sourceBaselineRef: "refs/ralph-review/sessions/session-123/source",
+    sourceBaselineCommitSha: "source-baseline-sha-123",
+    trackedRepoFingerprint: "tracked-fingerprint-1",
     findings: [
       createFinding("F001", "P0"),
       createFinding("F002", "P1"),
@@ -84,28 +83,27 @@ function createDependencies(
     agentProjectPath: "/tmp/worktree",
     retainedBranch: "rr-worktree-session-123",
     headKind: "detached" as const,
+    baselineCommitSha: artifact.baselineCommitSha,
+    baselineRef: artifact.baselineRef,
+    trackedRepoFingerprint: artifact.trackedRepoFingerprint,
   };
 
   return {
     loadFindingsArtifactBySessionId: async () => artifact,
-    validateArtifactSnapshots: async () => {
+    validateArtifactBaseline: async () => {
       if (state.validateError) {
         throw state.validateError;
       }
 
       return {
-        reviewedSnapshotFingerprint: artifact.reviewedSnapshotFingerprint,
-        handoffSnapshotFingerprint: artifact.handoffSnapshotFingerprint,
+        baselineCommitSha: artifact.baselineCommitSha,
       };
     },
-    createSessionWorktree: () => worktree,
-    materializeSnapshotIntoWorkspace: async (sourceSnapshotPath, destinationPath) => {
-      expect(sourceSnapshotPath).toBe(artifact.reviewedSnapshotPath);
-      expect(destinationPath).toBe(worktree.agentProjectPath);
-    },
-    createSourceSnapshotCopy: async (sourceSnapshotPath) => {
-      expect(sourceSnapshotPath).toBe(artifact.handoffSnapshotPath);
-      return "/tmp/source-snapshot-copy";
+    createSessionWorktreeAt: (projectPath, worktreeId, baselineCommitSha) => {
+      expect(projectPath).toBe(artifact.projectPath);
+      expect(worktreeId).toBe(`${artifact.sessionId}-fix`);
+      expect(baselineCommitSha).toBe(artifact.baselineCommitSha);
+      return worktree;
     },
     updateSelection: async (_storageRoot, projectPath, sessionId, selectedFindingIds) => {
       expect(projectPath).toBe(artifact.projectPath);
@@ -289,12 +287,12 @@ describe("review-workflow/remediation/runFixSession", () => {
         isTTY: false,
       },
       createDependencies({
-        validateError: new Error("Reviewed snapshot fingerprint mismatch"),
+        validateError: new Error("Baseline commit baseline-sha-123 not found"),
       })
     );
 
     expect(result.sessionStatus).toBe("failed");
-    expect(result.reason).toContain("Reviewed snapshot fingerprint mismatch");
+    expect(result.reason).toContain("Baseline commit baseline-sha-123 not found");
   });
 
   test("publishes remediation progress updates for session-state consumers", async () => {
@@ -331,8 +329,8 @@ describe("review-workflow/remediation/runFixSession", () => {
       worktreeProjectPath: "/tmp/worktree",
       worktreeBranch: "rr-worktree-session-123",
       selectedFindingIds: ["F001"],
-      sourceRepoFingerprint: "repo-fingerprint-1",
-      reviewedSnapshotPath: "/tmp/reviewed",
+      baselineCommitSha: "baseline-sha-123",
+      trackedRepoFingerprint: "tracked-fingerprint-1",
     });
     expect(updates).toContainEqual({
       currentPhase: "batch-fix",

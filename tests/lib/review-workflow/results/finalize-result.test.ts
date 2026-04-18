@@ -31,12 +31,11 @@ function createArtifact(findings: StoredFinding[]): FindingsArtifact {
     sessionId: "session-123",
     projectPath: "/repo/project",
     logPath: "/tmp/session-123.jsonl",
-    reviewedSnapshotRef: "snapshot-ref",
-    reviewedSnapshotPath: "/tmp/reviewed",
-    reviewedSnapshotFingerprint: "reviewed-fingerprint-1",
-    handoffSnapshotPath: "/tmp/handoff",
-    handoffSnapshotFingerprint: "handoff-fingerprint-1",
-    sourceRepoFingerprint: "repo-fingerprint-1",
+    baselineRef: "refs/ralph-review/sessions/session-123/baseline",
+    baselineCommitSha: "baseline-sha-123",
+    sourceBaselineRef: "refs/ralph-review/sessions/session-123/source",
+    sourceBaselineCommitSha: "source-baseline-sha-123",
+    trackedRepoFingerprint: "tracked-fingerprint-1",
     findings,
     selectedFindingIds: [],
     createdAt: "2026-01-01T00:00:00.000Z",
@@ -192,5 +191,42 @@ describe("review-workflow/results/finalizeResult", () => {
 
     expect(result.reviewOutcome).toBe("incomplete");
     expect(result.unresolvedSelectedFindings.map((finding) => finding.id)).toEqual(["F002"]);
+  });
+
+  test("keeps a clean no-op remediation fixed-selected when no handoff is created", async () => {
+    const artifact = createArtifact([createFinding("F001")]);
+
+    const result = await finalizeResult(
+      {
+        artifact,
+        selection: {
+          selectedFindingIds: ["F001"],
+          selectedFindings: [getFirstFinding(artifact)],
+        },
+        fixResults: [
+          {
+            findingId: "F001",
+            status: "skipped",
+            summary: "No code changes were required.",
+          },
+        ],
+        audit: {
+          resolvedFindingIds: ["F001"],
+          unresolvedFindingIds: [],
+          regressionFindings: [],
+        },
+        worktree: createWorktree(),
+      },
+      {
+        createOrAutoApplyHandoff: async () => null,
+        appendLog: async () => {
+          throw new Error("handoff log should not be written");
+        },
+      }
+    );
+
+    expect(result.reviewOutcome).toBe("fixed-selected");
+    expect(result.handoffStatus).toBeUndefined();
+    expect(result.commitSha).toBeUndefined();
   });
 });

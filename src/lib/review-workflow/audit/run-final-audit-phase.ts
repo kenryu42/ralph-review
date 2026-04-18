@@ -33,7 +33,7 @@ export interface RunFinalAuditPhaseDependencies {
   AGENTS: typeof AGENTS;
   runAgent: typeof runAgent;
   appendLog: typeof appendLog;
-  collectChangedFileHints: (reviewedSnapshotPath: string, mutableWorkspacePath: string) => string[];
+  collectChangedFileHints: (baselineCommitSha: string, mutableWorkspacePath: string) => string[];
 }
 
 const DEFAULT_RUN_FINAL_AUDIT_PHASE_DEPENDENCIES: RunFinalAuditPhaseDependencies = {
@@ -114,20 +114,13 @@ function uniqueFindingIds(ids: FindingId[]): FindingId[] {
 }
 
 function collectChangedFileHints(
-  reviewedSnapshotPath: string,
+  baselineCommitSha: string,
   mutableWorkspacePath: string
 ): string[] {
   const result = Bun.spawnSync(
-    [
-      "git",
-      "diff",
-      "--no-index",
-      "--no-renames",
-      "--unified=0",
-      reviewedSnapshotPath,
-      mutableWorkspacePath,
-    ],
+    ["git", "diff", "--no-renames", "--unified=0", baselineCommitSha, "--"],
     {
+      cwd: mutableWorkspacePath,
       stdout: "pipe",
       stderr: "pipe",
     }
@@ -137,14 +130,29 @@ function collectChangedFileHints(
     return [];
   }
 
-  return result.stdout
+  const diffHints = result.stdout
     .toString()
     .split("\n")
-    .map((line) =>
-      line.replace(`${reviewedSnapshotPath}/`, "").replace(`${mutableWorkspacePath}/`, "").trim()
-    )
+    .map((line) => line.trim())
     .filter((line) => line.startsWith("diff --git") || line.startsWith("@@"))
     .slice(0, 200);
+
+  const untrackedResult = Bun.spawnSync(["git", "ls-files", "--others", "--exclude-standard"], {
+    cwd: mutableWorkspacePath,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const untrackedHints =
+    untrackedResult.exitCode === 0
+      ? untrackedResult.stdout
+          .toString()
+          .split("\n")
+          .map((line) => line.trim())
+          .filter((line) => line.length > 0)
+          .map((line) => `diff --git a/${line} b/${line}`)
+      : [];
+
+  return [...diffHints, ...untrackedHints].slice(0, 200);
 }
 
 function isStructuredJsonError(error: unknown): boolean {
@@ -173,13 +181,13 @@ export async function runFinalAuditPhase(
 ): Promise<FinalAuditPhaseResult> {
   const startedAt = Date.now();
   const changedFileHints = deps.collectChangedFileHints(
-    options.artifact.reviewedSnapshotPath,
+    options.artifact.baselineCommitSha,
     options.worktree.agentProjectPath
   );
 
   try {
     const prompt = deps.createTargetedAuditPrompt({
-      reviewedSnapshotPath: options.artifact.reviewedSnapshotPath,
+      baselineCommitSha: options.artifact.baselineCommitSha,
       mutableWorkspacePath: options.worktree.agentProjectPath,
       selectedFindings: options.selection.selectedFindings,
       changedFileHints,
@@ -242,11 +250,7 @@ export async function runFinalAuditPhase(
       options.artifact.findings,
       parsed.regressionFindings,
       {
-        pathRoots: [
-          options.artifact.projectPath,
-          options.artifact.reviewedSnapshotPath,
-          options.worktree.agentProjectPath,
-        ],
+        pathRoots: [options.artifact.projectPath, options.worktree.agentProjectPath],
       }
     ).newFindings;
 

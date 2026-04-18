@@ -1,8 +1,11 @@
 import { AGENTS, runAgent } from "@/lib/agents";
 import { CONFIG_DIR } from "@/lib/config";
 import {
+  computeWorktreeStateFingerprintAsync,
+  createBaselineCommit,
   createCheckpoint,
   createSessionWorktree,
+  deleteSessionRefs,
   discardCheckpoint,
   discardSessionWorktree,
   rollbackToCheckpoint,
@@ -17,13 +20,10 @@ import {
 import { runDiscoveryPhase } from "@/lib/review-workflow/discovery/run-discovery-phase";
 import type { DiscoverySessionResult } from "@/lib/review-workflow/discovery/types";
 import {
-  computeSnapshotFingerprint,
   getFindingsArtifactPath,
-  persistDiscoverySnapshots,
   saveFindingsArtifact,
 } from "@/lib/review-workflow/findings/artifact";
 import type { FindingsArtifact, StoredFinding } from "@/lib/review-workflow/findings/types";
-import { freezeDiscoverySnapshots } from "@/lib/review-workflow/shared/snapshot";
 import { type SessionState, updateSessionState } from "@/lib/session";
 import { parseReviewSummaryOutput } from "@/lib/structured-output";
 import type {
@@ -47,8 +47,11 @@ export interface RunDiscoverySessionDependencies {
   createReviewerSummaryRetryReminder: typeof createReviewerSummaryRetryReminder;
   AGENTS: typeof AGENTS;
   runAgent: typeof runAgent;
+  createBaselineCommit: typeof createBaselineCommit;
   createCheckpoint: typeof createCheckpoint;
+  computeWorktreeStateFingerprintAsync: typeof computeWorktreeStateFingerprintAsync;
   createSessionWorktree: typeof createSessionWorktree;
+  deleteSessionRefs: typeof deleteSessionRefs;
   discardCheckpoint: typeof discardCheckpoint;
   discardSessionWorktree: typeof discardSessionWorktree;
   rollbackToCheckpoint: typeof rollbackToCheckpoint;
@@ -57,9 +60,7 @@ export interface RunDiscoverySessionDependencies {
   createLogSession: typeof createLogSession;
   getGitBranch: typeof getGitBranch;
   parseReviewSummaryOutput: typeof parseReviewSummaryOutput;
-  persistDiscoverySnapshots: typeof persistDiscoverySnapshots;
   saveFindingsArtifact: typeof saveFindingsArtifact;
-  computeSnapshotFingerprint: typeof computeSnapshotFingerprint;
 }
 
 export const DEFAULT_RUN_DISCOVERY_SESSION_DEPENDENCIES: RunDiscoverySessionDependencies = {
@@ -68,8 +69,11 @@ export const DEFAULT_RUN_DISCOVERY_SESSION_DEPENDENCIES: RunDiscoverySessionDepe
   createReviewerSummaryRetryReminder,
   AGENTS,
   runAgent,
+  createBaselineCommit,
   createCheckpoint,
+  computeWorktreeStateFingerprintAsync,
   createSessionWorktree,
+  deleteSessionRefs,
   discardCheckpoint,
   discardSessionWorktree,
   rollbackToCheckpoint,
@@ -78,9 +82,7 @@ export const DEFAULT_RUN_DISCOVERY_SESSION_DEPENDENCIES: RunDiscoverySessionDepe
   createLogSession,
   getGitBranch,
   parseReviewSummaryOutput,
-  persistDiscoverySnapshots,
   saveFindingsArtifact,
-  computeSnapshotFingerprint,
 };
 
 function sleep(ms: number): Promise<void> {
@@ -182,7 +184,7 @@ async function runReviewerIteration(
   config: Config,
   deps: RunDiscoverySessionDependencies,
   reviewOptions: ReviewOptions | undefined,
-  reviewedSnapshotPath: string,
+  baselineCommitSha: string,
   reviewerCwd: string,
   iteration: number,
   knownFindings: StoredFinding[],
@@ -190,7 +192,7 @@ async function runReviewerIteration(
 ): Promise<{ summary: ReviewSummary; duration: number }> {
   const promptOptions: DiscoveryReviewerPromptOptions = {
     repoPath: reviewerCwd,
-    reviewedSnapshotPath,
+    baselineCommitSha,
     includeDefaultReviewPrompt: config.reviewer.agent !== "codex",
     baseBranch: reviewOptions?.baseBranch,
     commitSha: reviewOptions?.commitSha,
@@ -300,22 +302,34 @@ function createFindingsArtifact(
   sessionId: string,
   projectPath: string,
   sessionPath: string,
-  reviewedSnapshot: Awaited<ReturnType<typeof freezeDiscoverySnapshots>>,
+  worktree: NonNullable<ReturnType<RunDiscoverySessionDependencies["createSessionWorktree"]>>,
   findings: StoredFinding[]
 ): FindingsArtifact {
   const timestamp = new Date().toISOString();
+  const baselineCommitSha = worktree.baselineCommitSha;
+  const baselineRef = worktree.baselineRef;
+  const sourceBaselineCommitSha = worktree.sourceBaselineCommitSha;
+  const sourceBaselineRef = worktree.sourceBaselineRef;
+  const trackedRepoFingerprint = worktree.trackedRepoFingerprint;
+
+  if (!baselineCommitSha || !baselineRef || !sourceBaselineCommitSha || !sourceBaselineRef) {
+    throw new Error("Discovery worktree is missing baseline metadata.");
+  }
+
+  if (!trackedRepoFingerprint) {
+    throw new Error("Discovery worktree is missing tracked repository fingerprint.");
+  }
 
   return {
     artifactVersion: 1,
     sessionId,
     projectPath,
     logPath: sessionPath,
-    reviewedSnapshotRef: reviewedSnapshot.reviewedSnapshotRef,
-    reviewedSnapshotPath: reviewedSnapshot.reviewedSnapshotPath,
-    reviewedSnapshotFingerprint: reviewedSnapshot.reviewedSnapshotFingerprint,
-    handoffSnapshotPath: reviewedSnapshot.handoffSnapshotPath,
-    handoffSnapshotFingerprint: reviewedSnapshot.handoffSnapshotFingerprint,
-    sourceRepoFingerprint: reviewedSnapshot.sourceRepoFingerprint,
+    baselineRef,
+    baselineCommitSha,
+    sourceBaselineRef,
+    sourceBaselineCommitSha,
+    trackedRepoFingerprint,
     findings,
     selectedFindingIds: [],
     createdAt: timestamp,
@@ -340,6 +354,7 @@ export async function runDiscoverySession(
     runtimeContext?.sessionPath ?? (await deps.createLogSession(undefined, projectPath, gitBranch));
 
   let worktree: ReturnType<RunDiscoverySessionDependencies["createSessionWorktree"]> | null = null;
+  let shouldDeleteSessionRefs = true;
 
   try {
     await updateDiscoverySessionState(deps, projectPath, runtimeContext?.sessionId, {
@@ -392,15 +407,22 @@ export async function runDiscoverySession(
       sessionId,
       wasInterrupted
     );
+    let reviewerBaselineCommitSha = worktree.baselineCommitSha;
+    let reviewerBaselineFingerprint = worktree.trackedRepoFingerprint;
+    if (reviewOptions?.simplifier) {
+      const reviewedBaseline = deps.createBaselineCommit(reviewerCwd, sessionId, {
+        includeUntracked: true,
+      });
+      worktree.baselineCommitSha = reviewedBaseline.commitSha;
+      worktree.baselineRef = reviewedBaseline.ref;
+      reviewerBaselineCommitSha = reviewedBaseline.commitSha;
+      reviewerBaselineFingerprint = reviewedBaseline.trackedRepoFingerprint;
+    }
 
-    const reviewedSnapshot = await freezeDiscoverySnapshots(
-      CONFIG_DIR,
-      projectPath,
-      sessionId,
-      worktree,
-      deps.persistDiscoverySnapshots
-    );
-    const snapshotFingerprint = reviewedSnapshot.reviewedSnapshotFingerprint;
+    if (!reviewerBaselineCommitSha || !reviewerBaselineFingerprint) {
+      throw new Error("Discovery baseline metadata is incomplete.");
+    }
+
     const artifactPath = getFindingsArtifactPath(CONFIG_DIR, projectPath, sessionId);
 
     await updateDiscoverySessionState(deps, projectPath, runtimeContext?.sessionId, {
@@ -409,8 +431,8 @@ export async function runDiscoverySession(
       sessionStatus: "running",
       currentAgent: null,
       artifactPath,
-      reviewedSnapshotPath: reviewedSnapshot.reviewedSnapshotPath,
-      sourceRepoFingerprint: reviewedSnapshot.sourceRepoFingerprint,
+      baselineCommitSha: reviewerBaselineCommitSha,
+      trackedRepoFingerprint: worktree.trackedRepoFingerprint,
       accumulatedFindings: [],
       selectedFindingIds: [],
     });
@@ -420,20 +442,20 @@ export async function runDiscoverySession(
       reviewOptions,
       sessionId: runtimeContext?.sessionId,
       projectPath,
-      findingPathRoots: [projectPath, reviewedSnapshot.reviewedSnapshotPath, reviewerCwd],
+      findingPathRoots: [projectPath, reviewerCwd],
       sessionPath,
-      reviewedSnapshotPath: reviewedSnapshot.reviewedSnapshotPath,
-      initialSnapshotFingerprint: snapshotFingerprint,
+      reviewerWorktreePath: reviewerCwd,
+      baselineFingerprint: reviewerBaselineFingerprint,
       appendLog: deps.appendLog,
       updateSessionState: deps.updateSessionState,
-      computeSnapshotFingerprint: deps.computeSnapshotFingerprint,
+      computeTrackedWorkingTreeFingerprint: deps.computeWorktreeStateFingerprintAsync,
       wasInterrupted,
       runReviewerIteration: async (iteration, knownFindings) => {
         const reviewerResult = await runReviewerIteration(
           config,
           deps,
           reviewOptions,
-          reviewedSnapshot.reviewedSnapshotPath,
+          reviewerBaselineCommitSha,
           reviewerCwd,
           iteration,
           knownFindings,
@@ -458,6 +480,10 @@ export async function runDiscoverySession(
         reviewOutcome: phaseResult.sessionStatus === "interrupted" ? "incomplete" : "clean",
       });
 
+      if (phaseResult.sessionStatus !== "interrupted") {
+        deps.deleteSessionRefs(projectPath, sessionId);
+      }
+
       return {
         sessionPath,
         result: {
@@ -476,22 +502,17 @@ export async function runDiscoverySession(
 
     const savedArtifact = await deps.saveFindingsArtifact(
       CONFIG_DIR,
-      createFindingsArtifact(
-        sessionId,
-        projectPath,
-        sessionPath,
-        reviewedSnapshot,
-        phaseResult.findings
-      )
+      createFindingsArtifact(sessionId, projectPath, sessionPath, worktree, phaseResult.findings)
     );
+    shouldDeleteSessionRefs = false;
     await updateDiscoverySessionState(deps, projectPath, runtimeContext?.sessionId, {
       currentPhase: "discovery",
       phase: "discovery",
       sessionStatus: phaseResult.sessionStatus,
       currentAgent: null,
       artifactPath,
-      reviewedSnapshotPath: reviewedSnapshot.reviewedSnapshotPath,
-      sourceRepoFingerprint: reviewedSnapshot.sourceRepoFingerprint,
+      baselineCommitSha: worktree.baselineCommitSha,
+      trackedRepoFingerprint: worktree.trackedRepoFingerprint,
       accumulatedFindings: phaseResult.findings,
       selectedFindingIds: [],
       reviewOutcome: "findings-pending",
@@ -537,6 +558,13 @@ export async function runDiscoverySession(
       },
     };
   } finally {
+    if (shouldDeleteSessionRefs && worktree) {
+      try {
+        deps.deleteSessionRefs(projectPath, sessionId);
+      } catch {
+        // Best effort cleanup; final session result is still reported to the caller.
+      }
+    }
     if (worktree) {
       try {
         deps.discardSessionWorktree(worktree);

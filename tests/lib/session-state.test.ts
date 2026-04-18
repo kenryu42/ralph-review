@@ -250,8 +250,8 @@ describe("session-state", () => {
       currentPhase: "discovery",
       sessionStatus: "running",
       artifactPath: "/tmp/findings/session-workflow.json",
-      reviewedSnapshotPath: "/tmp/reviewed/session-workflow",
-      sourceRepoFingerprint: "fingerprint-1",
+      baselineCommitSha: "baseline-sha-123",
+      trackedRepoFingerprint: "fingerprint-1",
       accumulatedFindings: [createStoredFinding("F001", "P0")],
       selectedFindingIds: ["F001"],
       latestAudit: {
@@ -277,8 +277,8 @@ describe("session-state", () => {
     expect(session?.currentPhase).toBe("final-audit");
     expect(session?.sessionStatus).toBe("completed");
     expect(session?.artifactPath).toBe("/tmp/findings/session-workflow.json");
-    expect(session?.reviewedSnapshotPath).toBe("/tmp/reviewed/session-workflow");
-    expect(session?.sourceRepoFingerprint).toBe("fingerprint-1");
+    expect(session?.baselineCommitSha).toBe("baseline-sha-123");
+    expect(session?.trackedRepoFingerprint).toBe("fingerprint-1");
     expect(session?.accumulatedFindings?.map((finding) => finding.id)).toEqual(["F001"]);
     expect(session?.selectedFindingIds).toEqual(["F001", "F002"]);
     expect(session?.latestAudit?.resolvedFindingIds).toEqual(["F001"]);

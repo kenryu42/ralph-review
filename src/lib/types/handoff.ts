@@ -7,7 +7,7 @@ export interface PendingHandoffArtifact {
   logPath: string;
   hiddenRef: string;
   patchPath: string;
-  sourceFingerprint: string;
+  trackedRepoFingerprint: string;
   commitSha: string;
   state: "pending-apply";
   createdAt: number;
@@ -20,7 +20,7 @@ export interface ArchivedAppliedHandoffArtifact {
   sourceRepoPath: string;
   logPath: string;
   patchPath: string;
-  sourceFingerprint: string;
+  trackedRepoFingerprint: string;
   appliedFingerprint: string;
   commitSha: string;
   appliedVia: "auto" | "manual";

@@ -37,10 +37,10 @@ interface HarnessState {
   appendedEntries: LogEntry[];
   updateSessionStateCalls: SessionStateUpdateCall[];
   savedArtifacts: FindingsArtifact[];
-  persistedSnapshots: Array<{
-    projectPath: string;
+  baselineCommitCalls: Array<{
+    repoPath: string;
     sessionId: string;
-    sourceSnapshotPath: string;
+    includeUntracked?: boolean;
   }>;
   createSessionWorktreeCalls: Array<{ projectPath: string; worktreeId: string }>;
   discardSessionWorktreeCalls: GitSessionWorktree[];
@@ -54,8 +54,9 @@ const TEST_PROJECT_PATH = "/repo/project";
 const TEST_SESSION_ID = "session-123";
 const TEST_SESSION_PATH = "/tmp/session-123.jsonl";
 const TEST_WORKTREE_PATH = "/tmp/rr-worktree";
-const TEST_REVIEWED_SNAPSHOT_PATH = "/tmp/rr-storage/snapshots/session-123/reviewed";
-const TEST_HANDOFF_SNAPSHOT_PATH = "/tmp/rr-storage/snapshots/session-123/handoff";
+const TEST_BASELINE_COMMIT_SHA = "baseline-sha-123";
+const TEST_SOURCE_BASELINE_COMMIT_SHA = "source-baseline-sha-123";
+const TEST_TRACKED_FINGERPRINT = "tracked-fingerprint-1";
 
 function createHarnessState(): HarnessState {
   return {
@@ -65,7 +66,7 @@ function createHarnessState(): HarnessState {
     appendedEntries: [],
     updateSessionStateCalls: [],
     savedArtifacts: [],
-    persistedSnapshots: [],
+    baselineCommitCalls: [],
     createSessionWorktreeCalls: [],
     discardSessionWorktreeCalls: [],
     createCheckpointCalls: [],
@@ -112,7 +113,7 @@ function createFinding(): ReviewSummary["findings"][number] {
     confidence_score: 0.92,
     priority: 1,
     code_location: {
-      absolute_file_path: `${TEST_REVIEWED_SNAPSHOT_PATH}/src/lib/config.ts`,
+      absolute_file_path: `${TEST_WORKTREE_PATH}/src/lib/config.ts`,
       line_range: {
         start: 10,
         end: 12,
@@ -159,8 +160,11 @@ function createDependencies(state: HarnessState): RunReviewCycleDeps {
     agentProjectPath: TEST_WORKTREE_PATH,
     retainedBranch: "rr-worktree-session-123",
     headKind: "detached",
-    sourceSnapshotDir: "/tmp/source-snapshot-dir",
-    sourceFingerprint: "source-repo-fingerprint",
+    baselineCommitSha: TEST_BASELINE_COMMIT_SHA,
+    baselineRef: "refs/ralph-review/sessions/session-123/baseline",
+    sourceBaselineCommitSha: TEST_SOURCE_BASELINE_COMMIT_SHA,
+    sourceBaselineRef: "refs/ralph-review/sessions/session-123/source",
+    trackedRepoFingerprint: TEST_TRACKED_FINGERPRINT,
   };
 
   return {
@@ -175,13 +179,13 @@ function createDependencies(state: HarnessState): RunReviewCycleDeps {
       ].join("|");
     },
     createDiscoveryReviewerPrompt: ({
-      reviewedSnapshotPath,
+      baselineCommitSha,
       iteration,
       knownFindings,
       customInstructions,
     }) => {
       return [
-        `SNAPSHOT=${reviewedSnapshotPath}`,
+        `BASELINE=${baselineCommitSha}`,
         `ITERATION=${iteration}`,
         `KNOWN=${(knownFindings ?? []).map((finding) => finding.id).join(",")}`,
         customInstructions ? `CUSTOM=${customInstructions}` : "",
@@ -234,9 +238,29 @@ function createDependencies(state: HarnessState): RunReviewCycleDeps {
         snapshotDir: `${projectPath}/checkpoint-${label}`,
       };
     },
+    createBaselineCommit: (repoPath, sessionId, options) => {
+      state.operationLog.push("create-baseline-commit");
+      state.baselineCommitCalls.push({
+        repoPath,
+        sessionId,
+        includeUntracked: options?.includeUntracked,
+      });
+      return {
+        commitSha: options?.includeUntracked
+          ? "reviewed-baseline-sha-456"
+          : TEST_BASELINE_COMMIT_SHA,
+        ref: "refs/ralph-review/sessions/session-123/baseline",
+        trackedRepoFingerprint: options?.includeUntracked
+          ? "reviewed-baseline-fingerprint"
+          : TEST_TRACKED_FINGERPRINT,
+      };
+    },
     createSessionWorktree: (projectPath, worktreeId) => {
       state.createSessionWorktreeCalls.push({ projectPath, worktreeId });
       return worktree;
+    },
+    deleteSessionRefs: () => {
+      state.operationLog.push("delete-session-refs");
     },
     discardCheckpoint: (projectPath, checkpoint) => {
       state.discardCheckpointCalls.push({ projectPath, checkpoint });
@@ -267,31 +291,19 @@ function createDependencies(state: HarnessState): RunReviewCycleDeps {
       }
       return next;
     },
-    persistDiscoverySnapshots: async (_storageRoot, projectPath, sessionId, options) => {
-      state.operationLog.push("persist-discovery-snapshots");
-      state.persistedSnapshots.push({
-        projectPath,
-        sessionId,
-        sourceSnapshotPath: options.reviewedSnapshotSourcePath,
-      });
-      return {
-        reviewedSnapshotPath: TEST_REVIEWED_SNAPSHOT_PATH,
-        reviewedSnapshotFingerprint: "reviewed-snapshot-fingerprint",
-        handoffSnapshotPath: TEST_HANDOFF_SNAPSHOT_PATH,
-        handoffSnapshotFingerprint: "handoff-snapshot-fingerprint",
-        sourceRepoFingerprint: "source-repo-fingerprint",
-      };
-    },
     saveFindingsArtifact: async (_storageRoot, artifact) => {
       state.savedArtifacts.push(artifact);
       return artifact;
     },
-    computeSnapshotFingerprint: async () => "reviewed-snapshot-fingerprint",
+    computeWorktreeStateFingerprintAsync: async () =>
+      state.baselineCommitCalls.length > 0
+        ? "reviewed-baseline-fingerprint"
+        : TEST_TRACKED_FINGERPRINT,
   };
 }
 
 describe("runReviewCycle", () => {
-  test("runs reviewer against the same frozen snapshot path, passes known findings forward, and persists findings", async () => {
+  test("runs reviewer against the same baseline worktree, passes known findings forward, and persists findings", async () => {
     const state = createHarnessState();
     queueRunAgentResults(
       state,
@@ -331,24 +343,10 @@ describe("runReviewCycle", () => {
     expect(reviewerCalls[1]?.prompt).toContain("KNOWN=F001");
     expect(reviewerCalls[1]?.prompt).toContain("Focus on runtime failures.");
 
-    expect(state.persistedSnapshots).toEqual([
-      {
-        projectPath: TEST_PROJECT_PATH,
-        sessionId: TEST_SESSION_ID,
-        sourceSnapshotPath: TEST_WORKTREE_PATH,
-      },
-    ]);
-
     expect(state.savedArtifacts).toHaveLength(1);
-    expect(state.savedArtifacts[0]?.reviewedSnapshotPath).toBe(TEST_REVIEWED_SNAPSHOT_PATH);
-    expect(state.savedArtifacts[0]?.reviewedSnapshotFingerprint).toBe(
-      "reviewed-snapshot-fingerprint"
-    );
-    expect(state.savedArtifacts[0]?.handoffSnapshotPath).toBe(TEST_HANDOFF_SNAPSHOT_PATH);
-    expect(state.savedArtifacts[0]?.handoffSnapshotFingerprint).toBe(
-      "handoff-snapshot-fingerprint"
-    );
-    expect(state.savedArtifacts[0]?.sourceRepoFingerprint).toBe("source-repo-fingerprint");
+    expect(state.savedArtifacts[0]?.baselineCommitSha).toBe(TEST_BASELINE_COMMIT_SHA);
+    expect(state.savedArtifacts[0]?.sourceBaselineCommitSha).toBe(TEST_SOURCE_BASELINE_COMMIT_SHA);
+    expect(state.savedArtifacts[0]?.trackedRepoFingerprint).toBe(TEST_TRACKED_FINGERPRINT);
     expect(state.savedArtifacts[0]?.findings.map((finding) => finding.id)).toEqual(["F001"]);
     expect(state.savedArtifacts[0]?.selectedFindingIds).toEqual([]);
 
@@ -408,7 +406,7 @@ describe("runReviewCycle", () => {
     expect(sessionEnd?.reviewOutcome).toBe("clean");
   });
 
-  test("runs the simplifier before freezing the reviewed snapshot when enabled", async () => {
+  test("runs the simplifier before updating the reviewed baseline when enabled", async () => {
     const state = createHarnessState();
     queueRunAgentResults(
       state,
@@ -433,17 +431,17 @@ describe("runReviewCycle", () => {
 
     expect(result.reviewOutcome).toBe("clean");
     expect(state.runAgentCalls.map((call) => call.role)).toEqual(["code-simplifier", "reviewer"]);
-    expect(state.persistedSnapshots).toEqual([
+    expect(state.baselineCommitCalls).toEqual([
       {
-        projectPath: TEST_PROJECT_PATH,
+        repoPath: TEST_WORKTREE_PATH,
         sessionId: TEST_SESSION_ID,
-        sourceSnapshotPath: TEST_WORKTREE_PATH,
+        includeUntracked: true,
       },
     ]);
     expect(state.operationLog.indexOf("run-agent:code-simplifier")).toBeLessThan(
-      state.operationLog.indexOf("persist-discovery-snapshots")
+      state.operationLog.indexOf("create-baseline-commit")
     );
-    expect(state.operationLog.indexOf("persist-discovery-snapshots")).toBeLessThan(
+    expect(state.operationLog.indexOf("create-baseline-commit")).toBeLessThan(
       state.operationLog.indexOf("run-agent:reviewer")
     );
   });

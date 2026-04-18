@@ -33,9 +33,9 @@ function createPendingHandoff(
     projectPath,
     sourceRepoPath: projectPath,
     logPath: `${projectPath}/.ralph-review/logs/session.jsonl`,
-    hiddenRef: "refs/ralph-review/handoffs/session-id",
+    hiddenRef: "refs/ralph-review/sessions/session-id/final",
     patchPath: `${projectPath}/.ralph-review/handoffs/session-id.patch`,
-    sourceFingerprint: "fingerprint-1",
+    trackedRepoFingerprint: "fingerprint-1",
     commitSha: "commit-sha-1",
     state: "pending-apply",
     createdAt: 1,
@@ -63,10 +63,20 @@ async function runApplyWithHarness(
 
   mock.module("@/lib/handoff", () => ({
     createOrAutoApplyHandoff: async () => null,
+    readPendingHandoff: async () => null,
     listProjectPendingHandoffs: async (_storageRoot: string | undefined, projectPath: string) => {
       listPendingCalls.push(projectPath);
       return handoffs.filter((handoff) => handoff.projectPath === projectPath);
     },
+    listProjectArchivedHandoffs: async () => [],
+    listProjectRevertableHandoffs: async () => ({
+      currentFingerprint: "current-fingerprint-1",
+      handoffs: [],
+    }),
+    listProjectReapplicableHandoffs: async () => ({
+      currentFingerprint: "current-fingerprint-1",
+      handoffs: [],
+    }),
     applyPendingHandoff: async (
       _storageRoot: string | undefined,
       projectPath: string,
@@ -86,6 +96,12 @@ async function runApplyWithHarness(
     },
     discardPendingHandoff: async () => {
       throw new Error("discardPendingHandoff should not be called in apply tests");
+    },
+    revertArchivedHandoff: async () => {
+      throw new Error("revertArchivedHandoff should not be called in apply tests");
+    },
+    reapplyArchivedHandoff: async () => {
+      throw new Error("reapplyArchivedHandoff should not be called in apply tests");
     },
   }));
 

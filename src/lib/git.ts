@@ -1,4 +1,4 @@
-import { readdirSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative } from "node:path";
 import { CONFIG_DIR } from "./config";
 import { getProjectWorktreesDir } from "./logger";
@@ -200,8 +200,6 @@ export function mergeBaseWithHead(repoPath: string, branch: string): string | un
   return runGitForStdout(repoRoot, ["merge-base", head, preferredRef]);
 }
 
-const WORKING_TREE_SNAPSHOT_DIR = "ralph-review/snapshots";
-const WORKING_TREE_SNAPSHOT_ARCHIVE = "worktree.tar";
 const CHECKPOINT_REF_PREFIX = "refs/ralph-review/checkpoints";
 const CHECKPOINT_SNAPSHOT_DIR = "ralph-review/checkpoints";
 const CHECKPOINT_SNAPSHOT_ARCHIVE = "worktree.tar";
@@ -230,10 +228,14 @@ export interface GitSessionWorktree {
   worktreeProjectPath: string;
   agentProjectPath: string;
   retainedBranch: string;
-  headKind: "detached" | "orphan";
-  sourceSnapshotDir?: string;
-  sourceSnapshotPath?: string;
-  sourceFingerprint?: string;
+  headKind: "detached";
+  baselineCommitSha?: string;
+  baselineRef?: string;
+  sourceBaselineCommitSha?: string;
+  sourceBaselineRef?: string;
+  trackedRepoFingerprint?: string;
+  finalCommitSha?: string;
+  finalRef?: string;
   preserveBranchOnDiscard?: boolean;
 }
 
@@ -275,6 +277,60 @@ async function assertCommandOkAsync(
   return result.stdout;
 }
 
+function assertGitOkWithEnv(
+  cwd: string,
+  args: string[],
+  env: Record<string, string>,
+  context: string
+): string {
+  const result = Bun.spawnSync(["git", ...args], {
+    cwd,
+    env: {
+      ...process.env,
+      ...env,
+    },
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+
+  if (result.exitCode !== 0) {
+    const details = result.stderr.toString().trim() || result.stdout.toString().trim();
+    throw new Error(`${context}: git ${args.join(" ")} failed: ${details || "unknown git error"}`);
+  }
+
+  return result.stdout.toString().trim();
+}
+
+async function assertGitOkWithEnvAsync(
+  cwd: string,
+  args: string[],
+  env: Record<string, string>,
+  context: string
+): Promise<string> {
+  const proc = Bun.spawn(["git", ...args], {
+    cwd,
+    env: {
+      ...process.env,
+      ...env,
+    },
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const [exitCode, stdout, stderr] = await Promise.all([
+    proc.exited,
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+  ]);
+
+  if (exitCode !== 0) {
+    throw new Error(
+      `${context}: git ${args.join(" ")} failed: ${stderr.trim() || stdout.trim() || "unknown git error"}`
+    );
+  }
+
+  return stdout.trim();
+}
+
 function normalizeGitArtifactId(value: string): string {
   return value.replace(/[^a-zA-Z0-9_.-]/g, "-");
 }
@@ -296,6 +352,13 @@ function resolveGitDir(repoRoot: string, context: string): string {
   return toAbsolutePath(repoRoot, gitDir);
 }
 
+function createTemporaryIndexPath(namespace: string): string {
+  return join(
+    tmpdir(),
+    `ralph-review-index-${namespace}-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`
+  );
+}
+
 function createSnapshotDir(
   absoluteGitDir: string,
   snapshotNamespace: string,
@@ -305,58 +368,36 @@ function createSnapshotDir(
   return join(absoluteGitDir, category, `${snapshotNamespace}-${uniqueSuffix}`);
 }
 
-function discardWorkingTreeSnapshot(repoPath: string, snapshotDir: string, context: string): void {
-  assertCommandOk(repoPath, ["rm", "-rf", snapshotDir], context);
+function buildSessionRef(sessionId: string, kind: "baseline" | "source" | "final"): string {
+  return `refs/ralph-review/sessions/${normalizeGitArtifactId(sessionId)}/${kind}`;
 }
 
-/**
- * Hydrates `dstRoot` with the full contents of `srcRoot` using a CoW file copy.
- *
- * On macOS (APFS), passes `-c` to cp which invokes clonefile(2) — a copy-on-write
- * clone that shares data blocks until written, making copies nearly instantaneous
- * regardless of working tree size. Falls back to a standard recursive copy elsewhere.
- *
- * The destination is cleared of all non-.git entries before copying.
- */
-function cloneWorkingTree(srcRoot: string, dstRoot: string, context: string): void {
-  assertCommandOk(
-    dstRoot,
-    [
-      "find",
-      dstRoot,
-      "-mindepth",
-      "1",
-      "-maxdepth",
-      "1",
-      "!",
-      "-name",
-      ".git",
-      "-exec",
-      "rm",
-      "-rf",
-      "{}",
-      "+",
-    ],
-    context
-  );
+function buildSessionBaselineRef(sessionId: string): string {
+  return buildSessionRef(sessionId, "baseline");
+}
 
-  const entries = readdirSync(srcRoot);
-  const cpArgs = process.platform === "darwin" ? ["-c", "-R"] : ["-R"];
-  for (const entry of entries) {
-    if (entry === ".git") continue;
-    assertCommandOk(srcRoot, ["cp", ...cpArgs, join(srcRoot, entry), dstRoot], context);
-  }
+function buildSessionSourceBaselineRef(sessionId: string): string {
+  return buildSessionRef(sessionId, "source");
+}
 
-  // Copy the source git index into the worktree's git index to preserve staged state.
-  const srcGitDir = resolveGitDir(srcRoot, context);
-  const srcIndexPath = join(srcGitDir, "index");
-  const dstGitDir = resolveGitDir(dstRoot, context);
-  const dstIndexPath = join(dstGitDir, "index");
+function buildSessionFinalRef(sessionId: string): string {
+  return buildSessionRef(sessionId, "final");
+}
 
-  if (runCommand(srcRoot, ["test", "-f", srcIndexPath]).exitCode === 0) {
-    assertCommandOk(srcRoot, ["cp", srcIndexPath, dstIndexPath], context);
-  } else {
-    assertCommandOk(dstRoot, ["rm", "-f", dstIndexPath], context);
+function listSessionRefs(sessionId: string): string[] {
+  return [
+    buildSessionSourceBaselineRef(sessionId),
+    buildSessionBaselineRef(sessionId),
+    buildSessionFinalRef(sessionId),
+  ];
+}
+
+export function deleteSessionRefs(repoPath: string, sessionId: string): void {
+  for (const ref of listSessionRefs(sessionId)) {
+    const result = runGit(repoPath, ["update-ref", "-d", ref]);
+    if (result.exitCode !== 0 && !result.stderr.includes("does not exist")) {
+      throw new Error(`Failed to delete session ref ${ref}: ${result.stderr || result.stdout}`);
+    }
   }
 }
 
@@ -415,204 +456,232 @@ function collectComparableDirectoryPaths(path: string): Set<string> {
   return comparablePaths;
 }
 
-function extractWorkingTreeSnapshot(
-  snapshotDir: string,
-  destinationPath: string,
-  context: string
-): void {
-  const archivePath = join(snapshotDir, WORKING_TREE_SNAPSHOT_ARCHIVE);
-  assertCommandOk(dirname(snapshotDir), ["mkdir", "-p", destinationPath], context);
-  assertCommandOk(destinationPath, ["tar", "-C", destinationPath, "-xf", archivePath], context);
-}
+function seedTemporaryIndex(repoRoot: string, tempIndexPath: string, context: string): void {
+  const gitDir = resolveGitDir(repoRoot, context);
+  const sourceIndexPath = join(gitDir, "index");
 
-export function materializeWorkingTreeSnapshot(snapshotDir: string, destinationPath: string): void {
-  extractWorkingTreeSnapshot(
-    snapshotDir,
-    destinationPath,
-    "Failed to materialize working tree snapshot"
+  if (runCommand(repoRoot, ["test", "-f", sourceIndexPath]).exitCode === 0) {
+    assertCommandOk(
+      repoRoot,
+      ["cp", sourceIndexPath, tempIndexPath],
+      `Failed to seed temporary index ${tempIndexPath}`
+    );
+    return;
+  }
+
+  assertCommandOk(
+    repoRoot,
+    ["sh", "-lc", `: > '${tempIndexPath.replace(/'/g, "'\\''")}'`],
+    `Failed to initialize temporary index ${tempIndexPath}`
   );
 }
 
-/**
- * Creates a snapshot of the working tree at `repoPath` containing only
- * git-tracked and untracked (non-gitignored) files.
- *
- * This matches the scope of computeWorkingTreeFingerprint so handoff patches
- * stay consistent: gitignored files (node_modules, .env, etc.) are excluded
- * and not overwritten when the patch is later applied.
- */
-function createGitScopedWorkingTreeSnapshot(
+function createCommitFromTree(
+  repoRoot: string,
+  treeSha: string,
+  message: string,
+  context: string
+): string {
+  const head = resolveHead(repoRoot);
+  const args = [
+    "-c",
+    "user.name=Ralph Review",
+    "-c",
+    "user.email=ralph-review@local",
+    "commit-tree",
+    treeSha,
+  ];
+
+  if (head) {
+    args.push("-p", head);
+  }
+
+  args.push("-m", message);
+  return assertGitOk(repoRoot, args, context);
+}
+
+function createCommitFromWorktreeState(
   repoPath: string,
-  snapshotNamespace: string,
+  sessionId: string,
+  options: {
+    includeUntracked?: boolean;
+    message: string;
+    refKind?: "baseline" | "source" | "final";
+    updateRef?: boolean;
+  }
+): { commitSha: string; ref?: string; treeSha: string; trackedRepoFingerprint: string } {
+  const context = `Failed to create ${options.refKind ?? "temporary"} commit`;
+  const repoRoot = assertGitOk(repoPath, ["rev-parse", "--show-toplevel"], context);
+  const tempIndexPath = createTemporaryIndexPath(options.refKind ?? "temp");
+
+  try {
+    seedTemporaryIndex(repoRoot, tempIndexPath, context);
+
+    const env = {
+      GIT_INDEX_FILE: tempIndexPath,
+    };
+    const addArgs = options.includeUntracked ? ["add", "-A", "--", "."] : ["add", "-u", "--", "."];
+    assertGitOkWithEnv(repoRoot, addArgs, env, context);
+    const treeSha = assertGitOkWithEnv(repoRoot, ["write-tree"], env, context);
+    const commitSha = createCommitFromTree(repoRoot, treeSha, options.message, context);
+
+    if (options.updateRef === false || !options.refKind) {
+      return {
+        commitSha,
+        treeSha,
+        trackedRepoFingerprint: treeSha,
+      };
+    }
+
+    const ref = buildSessionRef(sessionId, options.refKind);
+    assertGitOk(repoRoot, ["update-ref", ref, commitSha], `Failed to write session ref ${ref}`);
+
+    return {
+      commitSha,
+      ref,
+      treeSha,
+      trackedRepoFingerprint: treeSha,
+    };
+  } finally {
+    runCommand(repoRoot, ["rm", "-f", tempIndexPath]);
+  }
+}
+
+function createTrackedStateTree(
+  repoPath: string,
+  includeUntracked: boolean,
   context: string
 ): string {
   const repoRoot = assertGitOk(repoPath, ["rev-parse", "--show-toplevel"], context);
-  const absoluteGitDir = resolveGitDir(repoRoot, context);
-  const snapshotDir = createSnapshotDir(
-    absoluteGitDir,
-    snapshotNamespace,
-    WORKING_TREE_SNAPSHOT_DIR
-  );
-  const archivePath = join(snapshotDir, WORKING_TREE_SNAPSHOT_ARCHIVE);
-  const escapedArchivePath = archivePath.replace(/'/g, "'\\''");
-
-  assertCommandOk(repoRoot, ["mkdir", "-p", snapshotDir], context);
-  assertCommandOk(
-    repoRoot,
-    [
-      "sh",
-      "-c",
-      `git ls-files -z --cached --others --exclude-standard | perl -0ne 'print if -e' | tar --null -T - -cf '${escapedArchivePath}'`,
-    ],
-    context
-  );
-
-  return snapshotDir;
-}
-
-export function materializeGitScopedCopy(repoPath: string, destinationPath: string): void {
-  const context = "Failed to materialize git-scoped working tree copy";
-  const snapshotDir = createGitScopedWorkingTreeSnapshot(
-    repoPath,
-    `git-scoped-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`,
-    context
-  );
+  const tempIndexPath = createTemporaryIndexPath(includeUntracked ? "worktree" : "tracked");
 
   try {
-    extractWorkingTreeSnapshot(snapshotDir, destinationPath, context);
+    seedTemporaryIndex(repoRoot, tempIndexPath, context);
+    const env = {
+      GIT_INDEX_FILE: tempIndexPath,
+    };
+    const addArgs = includeUntracked ? ["add", "-A", "--", "."] : ["add", "-u", "--", "."];
+    assertGitOkWithEnv(repoRoot, addArgs, env, context);
+    return assertGitOkWithEnv(repoRoot, ["write-tree"], env, context);
   } finally {
-    discardWorkingTreeSnapshot(repoPath, snapshotDir, context);
+    runCommand(repoRoot, ["rm", "-f", tempIndexPath]);
+  }
+}
+
+export function createBaselineCommit(
+  repoPath: string,
+  sessionId: string,
+  options: {
+    includeUntracked?: boolean;
+    refKind?: "baseline" | "source";
+  } = {}
+): { commitSha: string; ref: string; trackedRepoFingerprint: string } {
+  const created = createCommitFromWorktreeState(repoPath, sessionId, {
+    includeUntracked: options.includeUntracked ?? false,
+    message: `rr: ${options.refKind ?? "baseline"} for ${normalizeGitArtifactId(sessionId)}`,
+    refKind: options.refKind ?? "baseline",
+  });
+
+  if (!created.ref) {
+    throw new Error("Baseline creation did not produce a ref.");
+  }
+
+  return {
+    commitSha: created.commitSha,
+    ref: created.ref,
+    trackedRepoFingerprint: created.trackedRepoFingerprint,
+  };
+}
+
+export function computeTrackedWorkingTreeFingerprint(repoPath: string): string {
+  return createTrackedStateTree(
+    repoPath,
+    false,
+    "Failed to fingerprint tracked working tree state"
+  );
+}
+
+async function computeTrackedWorkingTreeFingerprintAsync(repoPath: string): Promise<string> {
+  const repoRoot = assertGitOk(
+    repoPath,
+    ["rev-parse", "--show-toplevel"],
+    "Failed to resolve repository root for tracked fingerprint"
+  );
+  const tempIndexPath = createTemporaryIndexPath("tracked-async");
+
+  try {
+    seedTemporaryIndex(repoRoot, tempIndexPath, "Failed to fingerprint tracked working tree state");
+    return await assertGitOkWithEnvAsync(
+      repoRoot,
+      ["add", "-u", "--", "."],
+      {
+        GIT_INDEX_FILE: tempIndexPath,
+      },
+      "Failed to fingerprint tracked working tree state"
+    ).then(async () => {
+      return await assertGitOkWithEnvAsync(
+        repoRoot,
+        ["write-tree"],
+        {
+          GIT_INDEX_FILE: tempIndexPath,
+        },
+        "Failed to fingerprint tracked working tree state"
+      );
+    });
+  } finally {
+    runCommand(repoRoot, ["rm", "-f", tempIndexPath]);
+  }
+}
+
+export async function computeWorktreeStateFingerprintAsync(repoPath: string): Promise<string> {
+  const repoRoot = assertGitOk(
+    repoPath,
+    ["rev-parse", "--show-toplevel"],
+    "Failed to resolve repository root for worktree fingerprint"
+  );
+  const tempIndexPath = createTemporaryIndexPath("worktree-async");
+
+  try {
+    seedTemporaryIndex(repoRoot, tempIndexPath, "Failed to fingerprint worktree state");
+    await assertGitOkWithEnvAsync(
+      repoRoot,
+      ["add", "-A", "--", "."],
+      {
+        GIT_INDEX_FILE: tempIndexPath,
+      },
+      "Failed to fingerprint worktree state"
+    );
+    return await assertGitOkWithEnvAsync(
+      repoRoot,
+      ["write-tree"],
+      {
+        GIT_INDEX_FILE: tempIndexPath,
+      },
+      "Failed to fingerprint worktree state"
+    );
+  } finally {
+    runCommand(repoRoot, ["rm", "-f", tempIndexPath]);
   }
 }
 
 export function computeWorkingTreeFingerprint(repoPath: string): string {
-  const repoRoot = assertGitOk(
-    repoPath,
-    ["rev-parse", "--show-toplevel"],
-    "Failed to resolve repository root for fingerprint"
-  );
-  const script = `
-git ls-files -z --cached --others --exclude-standard |
-perl -0ne '
-  use strict;
-  use warnings;
-
-  my @paths = sort grep { length $_ } split(/\\0/, $_);
-  my @parts = ();
-
-  for my $path (@paths) {
-    if (-l $path) {
-      my $target = readlink($path);
-      push @parts, "l", $path, defined($target) ? $target : "";
-      next;
-    }
-
-    if (-f $path) {
-      open my $fh, "-|", "git", "hash-object", "--no-filters", "--", $path
-        or die "Failed to hash file $path: $!";
-      my $hash = <$fh>;
-      close $fh or die "Failed to hash file $path";
-      chomp $hash;
-      push @parts, "f", $path, $hash;
-      next;
-    }
-
-    push @parts, "d", $path, "";
-  }
-
-  binmode STDOUT;
-  print join("\\0", @parts);
-' |
-git hash-object --stdin
-  `;
-  return assertCommandOk(repoRoot, ["sh", "-lc", script], "Failed to fingerprint working tree");
+  return computeTrackedWorkingTreeFingerprint(repoPath);
 }
 
 export async function computeWorkingTreeFingerprintAsync(repoPath: string): Promise<string> {
-  const repoRoot = assertGitOk(
-    repoPath,
-    ["rev-parse", "--show-toplevel"],
-    "Failed to resolve repository root for fingerprint"
-  );
-  const script = `
-git ls-files -z --cached --others --exclude-standard |
-perl -0ne '
-  use strict;
-  use warnings;
-
-  my @paths = sort grep { length $_ } split(/\\0/, $_);
-  my @parts = ();
-
-  for my $path (@paths) {
-    if (-l $path) {
-      my $target = readlink($path);
-      push @parts, "l", $path, defined($target) ? $target : "";
-      next;
-    }
-
-    if (-f $path) {
-      open my $fh, "-|", "git", "hash-object", "--no-filters", "--", $path
-        or die "Failed to hash file $path: $!";
-      my $hash = <$fh>;
-      close $fh or die "Failed to hash file $path";
-      chomp $hash;
-      push @parts, "f", $path, $hash;
-      next;
-    }
-
-    push @parts, "d", $path, "";
-  }
-
-  binmode STDOUT;
-  print join("\\0", @parts);
-' |
-git hash-object --stdin
-`;
-  return await assertCommandOkAsync(
-    repoRoot,
-    ["sh", "-lc", script],
-    "Failed to fingerprint working tree"
-  );
+  return await computeTrackedWorkingTreeFingerprintAsync(repoPath);
 }
 
-function normalizePatchPathPrefix(path: string): string {
-  return path.replace(/^\/+/u, "");
-}
-
-function rewriteNoIndexPatchPaths(patch: string, fromPath: string, toPath: string): string {
-  const normalizedFromPath = normalizePatchPathPrefix(fromPath);
-  const normalizedToPath = normalizePatchPathPrefix(toPath);
-  const replacements: Array<[from: string, to: string]> = [
-    [`a/${fromPath}/`, "a/"],
-    [`a/${normalizedFromPath}/`, "a/"],
-    [`a/${toPath}/`, "a/"],
-    [`a/${normalizedToPath}/`, "a/"],
-    [`b/${fromPath}/`, "b/"],
-    [`b/${normalizedFromPath}/`, "b/"],
-    [`b/${toPath}/`, "b/"],
-    [`b/${normalizedToPath}/`, "b/"],
-  ];
-
-  return patch
-    .split("\n")
-    .map((line) =>
-      replacements.reduce(
-        (rewritten, [match, replacement]) => rewritten.replace(match, replacement),
-        line
-      )
-    )
-    .join("\n");
-}
-
-export async function createBinaryPatch(
-  fromPath: string,
-  toPath: string,
+export async function createBaselineToFinalPatch(
+  repoPath: string,
+  baselineSha: string,
+  finalSha: string,
   patchPath: string
 ): Promise<string> {
   const result = Bun.spawnSync(
-    ["git", "diff", "--no-index", "--binary", "--no-renames", fromPath, toPath],
+    ["git", "diff", "--binary", "--no-renames", `${baselineSha}..${finalSha}`],
     {
-      cwd: dirname(fromPath),
+      cwd: repoPath,
       stdout: "pipe",
       stderr: "pipe",
     }
@@ -626,15 +695,92 @@ export async function createBinaryPatch(
     );
   }
 
-  const patch = rewriteNoIndexPatchPaths(stdout, fromPath, toPath);
   const patchDir = dirname(patchPath);
-  assertCommandOk(
-    dirname(fromPath),
-    ["mkdir", "-p", patchDir],
-    "Failed to create handoff patch directory"
+  assertCommandOk(repoPath, ["mkdir", "-p", patchDir], "Failed to create handoff patch directory");
+  await Bun.write(patchPath, stdout, { createPath: true });
+  return stdout;
+}
+
+export function createSessionWorktreeAt(
+  sourceProjectPath: string,
+  worktreeId: string,
+  startPoint: string,
+  storageRoot: string = CONFIG_DIR
+): GitSessionWorktree {
+  const normalizedId = normalizeGitArtifactId(worktreeId);
+  const sourceRepoPath = assertGitOk(
+    sourceProjectPath,
+    ["rev-parse", "--show-toplevel"],
+    "Failed to resolve source repository root"
   );
-  await Bun.write(patchPath, patch, { createPath: true });
-  return patch;
+  const worktreeProjectPath = createWorktreePath(storageRoot, sourceProjectPath, normalizedId);
+  const retainedBranch = resolveAvailableBranchName(
+    sourceProjectPath,
+    `rr-worktree-${normalizedId}`
+  );
+  const worktree: GitSessionWorktree = {
+    sourceProjectPath,
+    sourceRepoPath,
+    worktreeProjectPath,
+    agentProjectPath: resolveAgentProjectPath(
+      sourceRepoPath,
+      sourceProjectPath,
+      worktreeProjectPath
+    ),
+    retainedBranch,
+    headKind: "detached",
+    preserveBranchOnDiscard: false,
+  };
+
+  try {
+    assertCommandOk(
+      sourceRepoPath,
+      ["mkdir", "-p", getProjectWorktreesDir(storageRoot, sourceProjectPath)],
+      "Failed to prepare session worktree directory"
+    );
+    assertGitOk(
+      sourceProjectPath,
+      ["worktree", "add", "--detach", worktreeProjectPath, startPoint],
+      "Failed to create detached session worktree"
+    );
+    return worktree;
+  } catch (error) {
+    try {
+      discardSessionWorktree(worktree);
+    } catch (cleanupError) {
+      throw new Error(`${error} Cleanup also failed: ${cleanupError}`);
+    }
+    throw error;
+  }
+}
+
+export function createSessionWorktree(
+  sourceProjectPath: string,
+  worktreeId: string,
+  storageRoot: string = CONFIG_DIR
+): GitSessionWorktree {
+  const sourceBaseline = createBaselineCommit(sourceProjectPath, worktreeId, {
+    refKind: "source",
+  });
+  const baselineRef = buildSessionBaselineRef(worktreeId);
+  assertGitOk(
+    sourceProjectPath,
+    ["update-ref", baselineRef, sourceBaseline.commitSha],
+    `Failed to write session ref ${baselineRef}`
+  );
+
+  const worktree = createSessionWorktreeAt(
+    sourceProjectPath,
+    worktreeId,
+    sourceBaseline.commitSha,
+    storageRoot
+  );
+  worktree.baselineCommitSha = sourceBaseline.commitSha;
+  worktree.baselineRef = baselineRef;
+  worktree.sourceBaselineCommitSha = sourceBaseline.commitSha;
+  worktree.sourceBaselineRef = sourceBaseline.ref;
+  worktree.trackedRepoFingerprint = sourceBaseline.trackedRepoFingerprint;
+  return worktree;
 }
 
 interface ApplyBinaryPatchOptions {
@@ -875,95 +1021,11 @@ export function rollbackToCheckpoint(repoPath: string, checkpoint: GitCheckpoint
 }
 
 export function buildHandoffRef(sessionId: string): string {
-  return `refs/ralph-review/handoffs/${normalizeGitArtifactId(sessionId)}`;
+  return buildSessionFinalRef(sessionId);
 }
 
 export function createHandoffRef(repoPath: string, ref: string, commitSha: string): void {
   assertGitOk(repoPath, ["update-ref", ref, commitSha], `Failed to write handoff ref ${ref}`);
-}
-
-export function removeHandoffRef(repoPath: string, ref: string): void {
-  const result = runGit(repoPath, ["update-ref", "-d", ref]);
-  if (result.exitCode !== 0 && !result.stderr.includes("does not exist")) {
-    throw new Error(`Failed to delete handoff ref ${ref}: ${result.stderr || result.stdout}`);
-  }
-}
-
-export function createSessionWorktree(
-  sourceProjectPath: string,
-  worktreeId: string,
-  storageRoot: string = CONFIG_DIR
-): GitSessionWorktree {
-  const normalizedId = normalizeGitArtifactId(worktreeId);
-  const sourceRepoPath = assertGitOk(
-    sourceProjectPath,
-    ["rev-parse", "--show-toplevel"],
-    "Failed to resolve source repository root"
-  );
-  const worktreeProjectPath = createWorktreePath(storageRoot, sourceProjectPath, normalizedId);
-  const retainedBranch = resolveAvailableBranchName(
-    sourceProjectPath,
-    `rr-worktree-${normalizedId}`
-  );
-  const headKind: GitSessionWorktree["headKind"] = hasInitialCommit(sourceProjectPath)
-    ? "detached"
-    : "orphan";
-  const worktree: GitSessionWorktree = {
-    sourceProjectPath,
-    sourceRepoPath,
-    worktreeProjectPath,
-    agentProjectPath: resolveAgentProjectPath(
-      sourceRepoPath,
-      sourceProjectPath,
-      worktreeProjectPath
-    ),
-    retainedBranch,
-    headKind,
-    sourceFingerprint: computeWorkingTreeFingerprint(sourceRepoPath),
-    preserveBranchOnDiscard: false,
-  };
-
-  try {
-    assertCommandOk(
-      sourceRepoPath,
-      ["mkdir", "-p", getProjectWorktreesDir(storageRoot, sourceProjectPath)],
-      "Failed to prepare session worktree directory"
-    );
-
-    if (headKind === "detached") {
-      assertGitOk(
-        sourceProjectPath,
-        ["worktree", "add", "--detach", worktreeProjectPath, "HEAD"],
-        "Failed to create detached session worktree"
-      );
-    } else {
-      assertGitOk(
-        sourceProjectPath,
-        ["worktree", "add", "--orphan", "-b", retainedBranch, worktreeProjectPath],
-        "Failed to create orphan session worktree"
-      );
-    }
-
-    cloneWorkingTree(
-      sourceRepoPath,
-      worktreeProjectPath,
-      "Failed to clone working tree into session worktree"
-    );
-
-    worktree.sourceSnapshotDir = createGitScopedWorkingTreeSnapshot(
-      sourceRepoPath,
-      `worktree-${normalizedId}`,
-      "Failed to capture session worktree snapshot"
-    );
-    return worktree;
-  } catch (error) {
-    try {
-      discardSessionWorktree(worktree);
-    } catch (cleanupError) {
-      throw new Error(`${error} Cleanup also failed: ${cleanupError}`);
-    }
-    throw error;
-  }
 }
 
 function resolveRetainedCommitMessage(worktree: GitSessionWorktree): string {
@@ -989,27 +1051,22 @@ function hasStagedRetainedChanges(repoPath: string): boolean {
 function ensureRetainedWorktreeBranch(worktree: GitSessionWorktree): string {
   let worktreeBranch = worktree.retainedBranch;
 
-  if (worktree.headKind === "detached") {
-    if (
-      runGit(worktree.worktreeProjectPath, [
-        "show-ref",
-        "--verify",
-        "--quiet",
-        `refs/heads/${worktreeBranch}`,
-      ]).exitCode === 0
-    ) {
-      worktreeBranch = resolveAvailableBranchName(worktree.worktreeProjectPath, worktreeBranch);
-    }
-
-    assertGitOk(
-      worktree.worktreeProjectPath,
-      ["switch", "-c", worktreeBranch],
-      "Failed to retain session worktree on a branch"
-    );
-  } else {
-    worktreeBranch =
-      runGitForStdout(worktree.worktreeProjectPath, ["branch", "--show-current"]) || worktreeBranch;
+  if (
+    runGit(worktree.worktreeProjectPath, [
+      "show-ref",
+      "--verify",
+      "--quiet",
+      `refs/heads/${worktreeBranch}`,
+    ]).exitCode === 0
+  ) {
+    worktreeBranch = resolveAvailableBranchName(worktree.worktreeProjectPath, worktreeBranch);
   }
+
+  assertGitOk(
+    worktree.worktreeProjectPath,
+    ["switch", "-c", worktreeBranch],
+    "Failed to retain session worktree on a branch"
+  );
 
   worktree.retainedBranch = worktreeBranch;
   return worktreeBranch;
@@ -1093,22 +1150,6 @@ export function discardSessionWorktree(worktree: GitSessionWorktree): void {
     ["rm", "-rf", worktree.worktreeProjectPath],
     `Failed to remove worktree directory ${worktree.worktreeProjectPath}`
   );
-
-  if (worktree.sourceSnapshotDir) {
-    discardWorkingTreeSnapshot(
-      worktree.sourceRepoPath,
-      worktree.sourceSnapshotDir,
-      `Failed to remove source snapshot archive ${worktree.sourceSnapshotDir}`
-    );
-  }
-
-  if (worktree.sourceSnapshotPath) {
-    assertCommandOk(
-      worktree.sourceRepoPath,
-      ["rm", "-rf", worktree.sourceSnapshotPath],
-      `Failed to remove source snapshot directory ${worktree.sourceSnapshotPath}`
-    );
-  }
 
   if (worktree.preserveBranchOnDiscard !== true) {
     const deleteBranch = runGit(worktree.sourceRepoPath, ["branch", "-D", worktree.retainedBranch]);

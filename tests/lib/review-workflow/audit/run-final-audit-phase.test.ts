@@ -41,12 +41,11 @@ function createArtifact(findings: StoredFinding[]): FindingsArtifact {
     sessionId: "session-123",
     projectPath: "/repo/project",
     logPath: "/tmp/session-123.jsonl",
-    reviewedSnapshotRef: "snapshot-ref",
-    reviewedSnapshotPath: "/tmp/reviewed",
-    reviewedSnapshotFingerprint: "reviewed-fingerprint-1",
-    handoffSnapshotPath: "/tmp/handoff",
-    handoffSnapshotFingerprint: "handoff-fingerprint-1",
-    sourceRepoFingerprint: "repo-fingerprint-1",
+    baselineRef: "refs/ralph-review/sessions/session-123/baseline",
+    baselineCommitSha: "baseline-sha-123",
+    sourceBaselineRef: "refs/ralph-review/sessions/session-123/source",
+    sourceBaselineCommitSha: "source-baseline-sha-123",
+    trackedRepoFingerprint: "tracked-fingerprint-1",
     findings,
     selectedFindingIds: [],
     createdAt: "2026-01-01T00:00:00.000Z",
@@ -92,7 +91,8 @@ describe("review-workflow/audit/runFinalAuditPhase", () => {
         worktree: createWorktree(),
       },
       {
-        createTargetedAuditPrompt: ({ changedFileHints, selectedFindings }) => {
+        createTargetedAuditPrompt: ({ baselineCommitSha, changedFileHints, selectedFindings }) => {
+          expect(baselineCommitSha).toBe("baseline-sha-123");
           expect(changedFileHints).toEqual(["src/file-F001.ts @@ -10,0 +10,2 @@"]);
           expect(selectedFindings.map((finding) => finding.id)).toEqual(["F001"]);
           return "TARGETED_AUDIT_PROMPT";

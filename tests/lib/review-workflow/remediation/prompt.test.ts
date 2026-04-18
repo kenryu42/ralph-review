@@ -20,7 +20,7 @@ function createFinding(id: StoredFinding["id"]): StoredFinding {
 describe("review-workflow/remediation/createBatchFixerPrompt", () => {
   test("keys required output by finding id and removes stop iteration semantics", () => {
     const prompt = createBatchFixerPrompt({
-      reviewedSnapshotPath: "/tmp/reviewed",
+      baselineCommitSha: "baseline-sha-123",
       mutableWorkspacePath: "/tmp/workspace",
       selectedFindings: [createFinding("F001"), createFinding("F002")],
     });
@@ -34,7 +34,7 @@ describe("review-workflow/remediation/createBatchFixerPrompt", () => {
 
   test("preserves verify-first default-to-skip and smallest-safe-fix rules", () => {
     const prompt = createBatchFixerPrompt({
-      reviewedSnapshotPath: "/tmp/reviewed",
+      baselineCommitSha: "baseline-sha-123",
       mutableWorkspacePath: "/tmp/workspace",
       selectedFindings: [createFinding("F001")],
     });
@@ -42,6 +42,7 @@ describe("review-workflow/remediation/createBatchFixerPrompt", () => {
     expect(prompt).toContain("Verify every finding against the real code first");
     expect(prompt).toContain("Default to SKIP");
     expect(prompt).toContain("smallest safe fix");
+    expect(prompt).toContain("baseline at commit `baseline-sha-123`");
     expect(prompt).toContain("You must return one result entry for every selected finding ID");
   });
 });

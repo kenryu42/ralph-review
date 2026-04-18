@@ -68,8 +68,8 @@ interface CreateSessionStateOptions {
   handoffUpdatedAt?: number;
   commitSha?: string;
   artifactPath?: string;
-  reviewedSnapshotPath?: string;
-  sourceRepoFingerprint?: string;
+  baselineCommitSha?: string;
+  trackedRepoFingerprint?: string;
   accumulatedFindings?: StoredFinding[];
   selectedFindingIds?: FindingId[];
   latestAudit?: AuditSummary;
@@ -101,8 +101,8 @@ export interface SessionState {
   handoffUpdatedAt?: number;
   commitSha?: string;
   artifactPath?: string;
-  reviewedSnapshotPath?: string;
-  sourceRepoFingerprint?: string;
+  baselineCommitSha?: string;
+  trackedRepoFingerprint?: string;
   accumulatedFindings?: StoredFinding[];
   selectedFindingIds?: FindingId[];
   latestAudit?: AuditSummary;
@@ -319,8 +319,8 @@ export async function createSessionState(
     handoffUpdatedAt: options.handoffUpdatedAt,
     commitSha: options.commitSha,
     artifactPath: options.artifactPath,
-    reviewedSnapshotPath: options.reviewedSnapshotPath,
-    sourceRepoFingerprint: options.sourceRepoFingerprint,
+    baselineCommitSha: options.baselineCommitSha,
+    trackedRepoFingerprint: options.trackedRepoFingerprint,
     accumulatedFindings: options.accumulatedFindings,
     selectedFindingIds: options.selectedFindingIds,
     latestAudit: options.latestAudit,

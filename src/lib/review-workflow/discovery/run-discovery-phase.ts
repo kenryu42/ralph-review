@@ -13,8 +13,8 @@ interface RunDiscoveryPhaseOptions {
   projectPath: string;
   findingPathRoots: string[];
   sessionPath: string;
-  reviewedSnapshotPath: string;
-  initialSnapshotFingerprint: string;
+  reviewerWorktreePath: string;
+  baselineFingerprint: string;
   runReviewerIteration: (
     iteration: number,
     knownFindings: StoredFinding[]
@@ -30,7 +30,7 @@ interface RunDiscoveryPhaseOptions {
     updates: Record<string, unknown>,
     options?: { expectedSessionId?: string }
   ) => Promise<boolean>;
-  computeSnapshotFingerprint: (snapshotPath: string) => Promise<string>;
+  computeTrackedWorkingTreeFingerprint: (repoPath: string) => Promise<string>;
   wasInterrupted: () => boolean;
 }
 
@@ -69,15 +69,15 @@ async function updateDiscoverySessionState(
     .catch(() => {});
 }
 
-async function assertSnapshotFingerprint(
-  reviewedSnapshotPath: string,
+async function assertWorktreeFingerprint(
+  reviewerWorktreePath: string,
   expectedFingerprint: string,
-  computeSnapshotFingerprint: RunDiscoveryPhaseOptions["computeSnapshotFingerprint"]
+  computeTrackedWorkingTreeFingerprint: RunDiscoveryPhaseOptions["computeTrackedWorkingTreeFingerprint"]
 ): Promise<void> {
-  const currentFingerprint = await computeSnapshotFingerprint(reviewedSnapshotPath);
+  const currentFingerprint = await computeTrackedWorkingTreeFingerprint(reviewerWorktreePath);
   if (currentFingerprint !== expectedFingerprint) {
     throw new Error(
-      `Discovery mutated the reviewed snapshot at ${reviewedSnapshotPath}. Expected ${expectedFingerprint}, got ${currentFingerprint}.`
+      `Discovery mutated the reviewer worktree at ${reviewerWorktreePath}. Expected ${expectedFingerprint}, got ${currentFingerprint}.`
     );
   }
 }
@@ -138,10 +138,10 @@ export async function runDiscoveryPhase(
       iteration,
       accumulatedFindings: findings,
     });
-    await assertSnapshotFingerprint(
-      options.reviewedSnapshotPath,
-      options.initialSnapshotFingerprint,
-      options.computeSnapshotFingerprint
+    await assertWorktreeFingerprint(
+      options.reviewerWorktreePath,
+      options.baselineFingerprint,
+      options.computeTrackedWorkingTreeFingerprint
     );
 
     if (options.wasInterrupted()) {

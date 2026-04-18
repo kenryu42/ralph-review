@@ -1,21 +1,20 @@
-import { join } from "node:path";
 import * as p from "@clack/prompts";
 import { CONFIG_DIR } from "@/lib/config";
 import {
-  createSessionWorktree,
+  createSessionWorktreeAt,
   discardSessionWorktree,
   finalizeSessionWorktree,
   type GitSessionWorktree,
   type RetainedSessionWorktree,
 } from "@/lib/git";
-import { appendLog, getProjectWorktreesDir } from "@/lib/logging";
+import { appendLog } from "@/lib/logging";
 import { runFinalAuditPhase } from "@/lib/review-workflow/audit/run-final-audit-phase";
 import {
   appendFixResults,
   loadFindingsArtifactBySessionId,
   updateAuditSummary,
   updateSelection,
-  validateArtifactSnapshots,
+  validateArtifactBaseline,
 } from "@/lib/review-workflow/findings/artifact";
 import { selectFindings } from "@/lib/review-workflow/findings/selection";
 import type { FindingId, FindingsArtifact } from "@/lib/review-workflow/findings/types";
@@ -25,7 +24,6 @@ import type {
   RemediationSelection,
 } from "@/lib/review-workflow/remediation/types";
 import { finalizeResult } from "@/lib/review-workflow/results/finalize-result";
-import { copySnapshotDirectoryPreservingMetadata } from "@/lib/review-workflow/shared/snapshot";
 import type { SessionState } from "@/lib/session-state";
 import type { Config, Priority, ReviewPhase } from "@/lib/types";
 
@@ -44,17 +42,8 @@ export interface RunFixSessionOptions {
 
 export interface RunFixSessionDependencies {
   loadFindingsArtifactBySessionId: typeof loadFindingsArtifactBySessionId;
-  validateArtifactSnapshots: typeof validateArtifactSnapshots;
-  createSessionWorktree: typeof createSessionWorktree;
-  materializeSnapshotIntoWorkspace: (
-    sourceSnapshotPath: string,
-    destinationPath: string
-  ) => Promise<void>;
-  createSourceSnapshotCopy: (
-    sourceSnapshotPath: string,
-    sessionId: string,
-    projectPath: string
-  ) => Promise<string>;
+  validateArtifactBaseline: typeof validateArtifactBaseline;
+  createSessionWorktreeAt: typeof createSessionWorktreeAt;
   updateSelection: typeof updateSelection;
   appendLog: typeof appendLog;
   promptForSelection: (artifact: FindingsArtifact) => Promise<FindingId[] | null>;
@@ -69,63 +58,6 @@ export interface RunFixSessionDependencies {
   finalizeResult: typeof finalizeResult;
   finalizeSessionWorktree: typeof finalizeSessionWorktree;
   discardSessionWorktree: typeof discardSessionWorktree;
-}
-
-function assertCommandSucceeded(result: ReturnType<typeof Bun.spawnSync>, context: string): void {
-  if (result.exitCode === 0) {
-    return;
-  }
-
-  const stderr = result.stderr ? result.stderr.toString().trim() : "";
-  const stdout = result.stdout ? result.stdout.toString().trim() : "";
-  throw new Error(`${context}: ${stderr || stdout || "command failed"}`);
-}
-
-async function defaultMaterializeSnapshotIntoWorkspace(
-  sourceSnapshotPath: string,
-  destinationPath: string
-): Promise<void> {
-  const clearResult = Bun.spawnSync(
-    [
-      "find",
-      destinationPath,
-      "-mindepth",
-      "1",
-      "-maxdepth",
-      "1",
-      "!",
-      "-name",
-      ".git",
-      "-exec",
-      "rm",
-      "-rf",
-      "{}",
-      "+",
-    ],
-    {
-      stdout: "pipe",
-      stderr: "pipe",
-    }
-  );
-  assertCommandSucceeded(clearResult, `Failed to clear mutable workspace at ${destinationPath}`);
-  copySnapshotDirectoryPreservingMetadata(sourceSnapshotPath, destinationPath, {
-    excludeRootEntries: [".git"],
-  });
-}
-
-async function defaultCreateSourceSnapshotCopy(
-  sourceSnapshotPath: string,
-  sessionId: string,
-  projectPath: string
-): Promise<string> {
-  const destinationPath = join(
-    getProjectWorktreesDir(CONFIG_DIR, projectPath),
-    `${sessionId}-source-snapshot-${Date.now()}-${crypto.randomUUID()}`
-  );
-  copySnapshotDirectoryPreservingMetadata(sourceSnapshotPath, destinationPath, {
-    excludeRootEntries: [".git"],
-  });
-  return destinationPath;
 }
 
 async function defaultPromptForSelection(artifact: FindingsArtifact): Promise<FindingId[] | null> {
@@ -148,10 +80,8 @@ async function defaultPromptForSelection(artifact: FindingsArtifact): Promise<Fi
 
 const DEFAULT_RUN_FIX_SESSION_DEPENDENCIES: RunFixSessionDependencies = {
   loadFindingsArtifactBySessionId,
-  validateArtifactSnapshots,
-  createSessionWorktree,
-  materializeSnapshotIntoWorkspace: defaultMaterializeSnapshotIntoWorkspace,
-  createSourceSnapshotCopy: defaultCreateSourceSnapshotCopy,
+  validateArtifactBaseline,
+  createSessionWorktreeAt,
   updateSelection,
   appendLog,
   promptForSelection: defaultPromptForSelection,
@@ -418,19 +348,18 @@ export async function runFixSession(
       return result;
     }
 
-    await deps.validateArtifactSnapshots(artifactWithSelection);
+    await deps.validateArtifactBaseline(artifactWithSelection);
 
-    worktree = deps.createSessionWorktree(artifact.projectPath, `${artifact.sessionId}-fix`);
-    await deps.materializeSnapshotIntoWorkspace(
-      artifact.reviewedSnapshotPath,
-      worktree.agentProjectPath
+    worktree = deps.createSessionWorktreeAt(
+      artifact.projectPath,
+      `${artifact.sessionId}-fix`,
+      artifact.baselineCommitSha
     );
-    worktree.sourceFingerprint = artifact.sourceRepoFingerprint;
-    worktree.sourceSnapshotPath = await deps.createSourceSnapshotCopy(
-      artifact.handoffSnapshotPath,
-      artifact.sessionId,
-      artifact.projectPath
-    );
+    worktree.baselineCommitSha = artifact.baselineCommitSha;
+    worktree.baselineRef = artifact.baselineRef;
+    worktree.sourceBaselineCommitSha = artifact.sourceBaselineCommitSha;
+    worktree.sourceBaselineRef = artifact.sourceBaselineRef;
+    worktree.trackedRepoFingerprint = artifact.trackedRepoFingerprint;
     await emitProgress(options.onProgress, {
       currentPhase: "selection",
       phase: "selection",
@@ -438,8 +367,8 @@ export async function runFixSession(
       currentAgent: null,
       worktreeProjectPath: worktree.worktreeProjectPath,
       worktreeBranch: worktree.retainedBranch,
-      sourceRepoFingerprint: artifact.sourceRepoFingerprint,
-      reviewedSnapshotPath: artifact.reviewedSnapshotPath,
+      baselineCommitSha: artifact.baselineCommitSha,
+      trackedRepoFingerprint: artifact.trackedRepoFingerprint,
       selectedFindingIds: resolvedSelection.selection.selectedFindingIds,
     });
 

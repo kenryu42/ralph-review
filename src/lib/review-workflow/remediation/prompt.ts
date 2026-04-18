@@ -186,7 +186,7 @@ function formatSelectedFindings(findings: StoredFinding[]): string {
 }
 
 export interface BatchFixerPromptOptions {
-  reviewedSnapshotPath: string;
+  baselineCommitSha: string;
   mutableWorkspacePath: string;
   selectedFindings: StoredFinding[];
 }
@@ -203,7 +203,8 @@ Verify the selected findings against the real code in \`${options.mutableWorkspa
 - Apply the smallest safe fix needed for each proven issue.
 - Do not broaden a finding into cleanup, refactoring, or unrelated work.
 - Do not hunt for new issues outside the selected findings.
-- The reviewed snapshot at \`${options.reviewedSnapshotPath}\` is the source of truth for what was selected.
+- The baseline at commit \`${options.baselineCommitSha}\` is the source of truth for what was selected.
+- Your working tree was checked out from that baseline before remediation started.
 
 ## Selected findings
 ${formatSelectedFindings(options.selectedFindings)}

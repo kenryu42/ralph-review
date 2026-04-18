@@ -1,5 +1,4 @@
 import { join } from "node:path";
-import { materializeWorkingTreeSnapshot } from "@/lib/git";
 import { getProjectStorageDir } from "@/lib/logging";
 import type {
   AuditSummary,
@@ -7,20 +6,9 @@ import type {
   FindingId,
   FindingsArtifact,
 } from "@/lib/review-workflow/findings/types";
-import {
-  assertSnapshotDirectoryExists as assertSnapshotDirectoryExistsSync,
-  computeSnapshotDirectoryFingerprint,
-  copySnapshotDirectoryPreservingMetadata,
-  rootEntryExists,
-  type SnapshotCopyOptions,
-  type SnapshotFingerprintOptions,
-  snapshotDirectoryExists,
-} from "@/lib/review-workflow/shared/snapshot";
 
 const FINDINGS_ARTIFACT_VERSION = 1;
-const REVIEWED_SNAPSHOT_EXCLUDE_OPTIONS: SnapshotCopyOptions & SnapshotFingerprintOptions = {
-  excludeRootEntries: [".git"],
-};
+const INVALID_SCHEMA_RETRY_MESSAGE = "Findings artifact has invalid schema — re-run rr run";
 
 function normalizeIsoTimestamp(value: string): string {
   const date = new Date(value);
@@ -150,42 +138,37 @@ function isFindingsArtifact(value: unknown): value is FindingsArtifact {
     return false;
   }
 
-  if (typeof value.reviewedSnapshotRef !== "string") {
+  if (typeof value.baselineRef !== "string" || value.baselineRef.trim().length === 0) {
+    return false;
+  }
+
+  if (typeof value.baselineCommitSha !== "string" || value.baselineCommitSha.trim().length === 0) {
+    return false;
+  }
+
+  if (typeof value.sourceBaselineRef !== "string" || value.sourceBaselineRef.trim().length === 0) {
     return false;
   }
 
   if (
-    typeof value.reviewedSnapshotPath !== "string" ||
-    value.reviewedSnapshotPath.trim().length === 0
+    typeof value.sourceBaselineCommitSha !== "string" ||
+    value.sourceBaselineCommitSha.trim().length === 0
   ) {
     return false;
   }
 
   if (
-    typeof value.reviewedSnapshotFingerprint !== "string" ||
-    value.reviewedSnapshotFingerprint.trim().length === 0
+    typeof value.trackedRepoFingerprint !== "string" ||
+    value.trackedRepoFingerprint.trim().length === 0
   ) {
     return false;
   }
 
-  if (
-    typeof value.handoffSnapshotPath !== "string" ||
-    value.handoffSnapshotPath.trim().length === 0
-  ) {
+  if (value.finalRef !== undefined && typeof value.finalRef !== "string") {
     return false;
   }
 
-  if (
-    typeof value.handoffSnapshotFingerprint !== "string" ||
-    value.handoffSnapshotFingerprint.trim().length === 0
-  ) {
-    return false;
-  }
-
-  if (
-    typeof value.sourceRepoFingerprint !== "string" ||
-    value.sourceRepoFingerprint.trim().length === 0
-  ) {
+  if (value.finalCommitSha !== undefined && typeof value.finalCommitSha !== "string") {
     return false;
   }
 
@@ -212,21 +195,6 @@ function isFindingsArtifact(value: unknown): value is FindingsArtifact {
   return true;
 }
 
-async function assertNamedSnapshotDirectoryExists(
-  description: string,
-  snapshotPath: string
-): Promise<void> {
-  assertSnapshotDirectoryExistsSync(description, snapshotPath);
-}
-
-async function assertSnapshotDirectoryExists(snapshotPath: string): Promise<void> {
-  await assertNamedSnapshotDirectoryExists("Reviewed snapshot path", snapshotPath);
-}
-
-async function directoryExists(path: string): Promise<boolean> {
-  return snapshotDirectoryExists(path);
-}
-
 async function readFindingsArtifactFile(artifactPath: string): Promise<FindingsArtifact | null> {
   const file = Bun.file(artifactPath);
 
@@ -242,18 +210,10 @@ async function readFindingsArtifactFile(artifactPath: string): Promise<FindingsA
   }
 
   if (!isFindingsArtifact(parsed)) {
-    throw new Error(`Findings artifact has invalid schema: ${artifactPath}`);
+    throw new Error(INVALID_SCHEMA_RETRY_MESSAGE);
   }
 
   return parsed;
-}
-
-export async function computeSnapshotFingerprint(
-  snapshotPath: string,
-  options?: SnapshotFingerprintOptions
-): Promise<string> {
-  await assertSnapshotDirectoryExists(snapshotPath);
-  return await computeSnapshotDirectoryFingerprint(snapshotPath, options);
 }
 
 export function getFindingsArtifactPath(
@@ -262,90 +222,6 @@ export function getFindingsArtifactPath(
   sessionId: string
 ): string {
   return join(getProjectStorageDir(storageRoot, projectPath), "findings", `${sessionId}.json`);
-}
-
-export function getReviewedSnapshotPath(
-  storageRoot: string,
-  projectPath: string,
-  sessionId: string
-): string {
-  return join(getProjectStorageDir(storageRoot, projectPath), "snapshots", sessionId, "reviewed");
-}
-
-export function getHandoffSnapshotPath(
-  storageRoot: string,
-  projectPath: string,
-  sessionId: string
-): string {
-  return join(getProjectStorageDir(storageRoot, projectPath), "snapshots", sessionId, "handoff");
-}
-
-async function persistSnapshotCopy(
-  sourceSnapshotPath: string,
-  destinationSnapshotPath: string,
-  sessionId: string,
-  label: string,
-  options?: SnapshotCopyOptions & SnapshotFingerprintOptions
-): Promise<string> {
-  await assertNamedSnapshotDirectoryExists(`${label} path`, sourceSnapshotPath);
-
-  const sourceFingerprint = await computeSnapshotFingerprint(sourceSnapshotPath, options);
-
-  if (sourceSnapshotPath !== destinationSnapshotPath) {
-    const storedSnapshotExists = await directoryExists(destinationSnapshotPath);
-    if (storedSnapshotExists) {
-      const storedFingerprint = await computeSnapshotFingerprint(destinationSnapshotPath, options);
-      if (storedFingerprint !== sourceFingerprint) {
-        throw new Error(
-          `${label} already exists for session ${sessionId} at ${destinationSnapshotPath}`
-        );
-      }
-    } else {
-      copySnapshotDirectoryPreservingMetadata(sourceSnapshotPath, destinationSnapshotPath, options);
-    }
-  }
-
-  return await computeSnapshotFingerprint(destinationSnapshotPath, options);
-}
-
-export async function persistDiscoverySnapshots(
-  storageRoot: string,
-  projectPath: string,
-  sessionId: string,
-  options: {
-    reviewedSnapshotSourcePath: string;
-    handoffSnapshotSourceDir: string;
-    sourceRepoFingerprint: string;
-  }
-): Promise<{
-  reviewedSnapshotPath: string;
-  reviewedSnapshotFingerprint: string;
-  handoffSnapshotPath: string;
-  handoffSnapshotFingerprint: string;
-  sourceRepoFingerprint: string;
-}> {
-  const reviewedSnapshotPath = getReviewedSnapshotPath(storageRoot, projectPath, sessionId);
-  const reviewedSnapshotFingerprint = await persistSnapshotCopy(
-    options.reviewedSnapshotSourcePath,
-    reviewedSnapshotPath,
-    sessionId,
-    "Reviewed snapshot",
-    REVIEWED_SNAPSHOT_EXCLUDE_OPTIONS
-  );
-
-  const handoffSnapshotPath = getHandoffSnapshotPath(storageRoot, projectPath, sessionId);
-  if (!(await directoryExists(handoffSnapshotPath))) {
-    materializeWorkingTreeSnapshot(options.handoffSnapshotSourceDir, handoffSnapshotPath);
-  }
-  const handoffSnapshotFingerprint = await computeSnapshotFingerprint(handoffSnapshotPath);
-
-  return {
-    reviewedSnapshotPath,
-    reviewedSnapshotFingerprint,
-    handoffSnapshotPath,
-    handoffSnapshotFingerprint,
-    sourceRepoFingerprint: options.sourceRepoFingerprint,
-  };
 }
 
 export async function saveFindingsArtifact(
@@ -469,36 +345,23 @@ export async function updateAuditSummary(
   });
 }
 
-export async function validateArtifactSnapshots(artifact: FindingsArtifact): Promise<{
-  reviewedSnapshotFingerprint: string;
-  handoffSnapshotFingerprint: string;
-}> {
-  await assertNamedSnapshotDirectoryExists("Reviewed snapshot path", artifact.reviewedSnapshotPath);
-  if (rootEntryExists(artifact.reviewedSnapshotPath, ".git")) {
-    throw new Error(
-      `Reviewed snapshot for session ${artifact.sessionId} contains root .git metadata and is unsupported. Re-run discovery to regenerate findings artifacts.`
-    );
-  }
-  const computedReviewedFingerprint = await computeSnapshotFingerprint(
-    artifact.reviewedSnapshotPath
+export async function validateArtifactBaseline(
+  artifact: FindingsArtifact
+): Promise<{ baselineCommitSha: string }> {
+  const result = Bun.spawnSync(
+    ["git", "cat-file", "-e", `${artifact.baselineCommitSha}^{commit}`],
+    {
+      cwd: artifact.projectPath,
+      stdout: "pipe",
+      stderr: "pipe",
+    }
   );
 
-  if (computedReviewedFingerprint !== artifact.reviewedSnapshotFingerprint) {
-    throw new Error(
-      `Reviewed snapshot fingerprint mismatch for session ${artifact.sessionId}. Expected ${artifact.reviewedSnapshotFingerprint}, got ${computedReviewedFingerprint}`
-    );
-  }
-
-  await assertNamedSnapshotDirectoryExists("Handoff snapshot path", artifact.handoffSnapshotPath);
-  const computedHandoffFingerprint = await computeSnapshotFingerprint(artifact.handoffSnapshotPath);
-  if (computedHandoffFingerprint !== artifact.handoffSnapshotFingerprint) {
-    throw new Error(
-      `Handoff snapshot fingerprint mismatch for session ${artifact.sessionId}. Expected ${artifact.handoffSnapshotFingerprint}, got ${computedHandoffFingerprint}`
-    );
+  if (result.exitCode !== 0) {
+    throw new Error(`Baseline commit ${artifact.baselineCommitSha} not found`);
   }
 
   return {
-    reviewedSnapshotFingerprint: computedReviewedFingerprint,
-    handoffSnapshotFingerprint: computedHandoffFingerprint,
+    baselineCommitSha: artifact.baselineCommitSha,
   };
 }

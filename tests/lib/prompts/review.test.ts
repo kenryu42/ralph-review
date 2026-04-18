@@ -80,7 +80,7 @@ describe("createReviewerPrompt", () => {
   test("defaults to uncommitted review instructions", () => {
     const prompt = createReviewerPrompt({ repoPath: REPO_PATH });
 
-    expect(prompt).toContain("staged, unstaged, and untracked files");
+    expect(prompt).toContain("committed, staged, and unstaged tracked files only");
     expectStructuredOutputProtocol(prompt);
   });
 });
@@ -89,30 +89,30 @@ describe("createDiscoveryReviewerPrompt", () => {
   test("omits default review guidelines when requested", () => {
     const prompt = createDiscoveryReviewerPrompt({
       repoPath: REPO_PATH,
-      reviewedSnapshotPath: "/tmp/ralph-review/snapshots/session-123/reviewed",
+      baselineCommitSha: "baseline-sha-123",
       includeDefaultReviewPrompt: false,
     });
 
     expect(prompt).not.toContain("# Review guidelines:");
-    expect(prompt).toContain("staged, unstaged, and untracked files");
+    expect(prompt).toContain("committed, staged, and unstaged tracked files only");
     expectStructuredOutputProtocol(prompt);
   });
 
   test("includes uncommitted review guidance when no explicit git target is provided", () => {
     const prompt = createDiscoveryReviewerPrompt({
       repoPath: REPO_PATH,
-      reviewedSnapshotPath: "/tmp/ralph-review/snapshots/session-123/reviewed",
+      baselineCommitSha: "baseline-sha-123",
     });
 
-    expect(prompt).toContain("staged, unstaged, and untracked files");
-    expect(prompt).toContain("/tmp/ralph-review/snapshots/session-123/reviewed");
+    expect(prompt).toContain("committed, staged, and unstaged tracked files only");
+    expect(prompt).toContain("baseline-sha-123");
     expectStructuredOutputProtocol(prompt);
   });
 
   test("includes base-branch review guidance when a base branch is provided", () => {
     const prompt = createDiscoveryReviewerPrompt({
       repoPath: REPO_PATH,
-      reviewedSnapshotPath: "/tmp/ralph-review/snapshots/session-123/reviewed",
+      baselineCommitSha: "baseline-sha-123",
       baseBranch: resolveCurrentRef(REPO_PATH),
     });
 
@@ -139,13 +139,13 @@ describe("createDiscoveryReviewerPrompt", () => {
 
     const prompt = createDiscoveryReviewerPrompt({
       repoPath: REPO_PATH,
-      reviewedSnapshotPath: "/tmp/ralph-review/snapshots/session-123/reviewed",
+      baselineCommitSha: "baseline-sha-123",
       customInstructions: "Focus on runtime failures.",
       knownFindings,
       iteration: 2,
     });
 
-    expect(prompt).toContain("/tmp/ralph-review/snapshots/session-123/reviewed");
+    expect(prompt).toContain("baseline-sha-123");
     expect(prompt).toContain("Focus on runtime failures.");
     expect(prompt).toContain("Known findings already captured");
     expect(prompt).toContain("F001");

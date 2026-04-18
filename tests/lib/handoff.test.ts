@@ -6,7 +6,6 @@ import {
   computeWorkingTreeFingerprint,
   createSessionWorktree,
   discardSessionWorktree,
-  materializeWorkingTreeSnapshot,
 } from "@/lib/git";
 import {
   applyPendingHandoff,
@@ -189,79 +188,7 @@ describe("handoff", () => {
     }
   });
 
-  test("does not delete ignored files when remediation provides a git-scoped source snapshot copy", async () => {
-    await writeFile(join(repoPath, ".gitignore"), "*.local\n");
-    runGitIn(repoPath, ["add", ".gitignore"]);
-    runGitIn(repoPath, ["commit", "-m", "add ignore rule"]);
-
-    await writeFile(join(repoPath, "app.txt"), "draft\n");
-    await writeFile(join(repoPath, "cache.local"), "before\n");
-
-    const worktree = createSessionWorktree(repoPath, "session-git-scoped-copy", storageRoot);
-
-    try {
-      const gitScopedCopy = join(storageRoot, "git-scoped-copy");
-      materializeWorkingTreeSnapshot(worktree.sourceSnapshotDir ?? "", gitScopedCopy);
-      worktree.sourceSnapshotPath = gitScopedCopy;
-
-      await writeFile(join(worktree.worktreeProjectPath, "app.txt"), "fixed draft\n");
-      await writeFile(join(repoPath, "cache.local"), "after\n");
-
-      const handoff = await createOrAutoApplyHandoff(storageRoot, {
-        sessionId: "session-git-scoped-copy",
-        projectPath: repoPath,
-        logPath: join(repoPath, ".ralph-review", "logs", "session-git-scoped-copy.jsonl"),
-        worktree,
-      });
-
-      expect(handoff?.handoffStatus).toBe("applied-auto");
-      expect(await Bun.file(join(repoPath, "app.txt")).text()).toBe("fixed draft\n");
-      expect(await Bun.file(join(repoPath, "cache.local")).text()).toBe("after\n");
-    } finally {
-      discardSessionWorktree(worktree);
-    }
-  });
-
-  test("fails early when source snapshot has .gitignore but remediation workspace lost it", async () => {
-    await writeFile(join(repoPath, ".gitignore"), "node_modules\ncoverage\ndocs\noutput\n");
-    runGitIn(repoPath, ["add", ".gitignore"]);
-    runGitIn(repoPath, ["commit", "-m", "add ignore rules"]);
-
-    await writeFile(join(repoPath, "app.txt"), "draft\n");
-    await writeFile(join(repoPath, "node_modules/cache.js"), "before\n");
-    await writeFile(join(repoPath, "coverage/lcov.info"), "before\n");
-    await writeFile(join(repoPath, "docs/plans/plan.md"), "before\n");
-    await writeFile(join(repoPath, "output/image.txt"), "before\n");
-
-    const worktree = createSessionWorktree(repoPath, "session-missing-gitignore", storageRoot);
-
-    try {
-      const gitScopedCopy = join(storageRoot, "session-missing-gitignore-source-copy");
-      materializeWorkingTreeSnapshot(worktree.sourceSnapshotDir ?? "", gitScopedCopy);
-      worktree.sourceSnapshotPath = gitScopedCopy;
-
-      await Bun.file(join(worktree.worktreeProjectPath, ".gitignore")).delete();
-      await writeFile(join(worktree.worktreeProjectPath, "app.txt"), "fixed draft\n");
-      await writeFile(join(worktree.worktreeProjectPath, "node_modules/cache.js"), "after\n");
-      await writeFile(join(worktree.worktreeProjectPath, "coverage/lcov.info"), "after\n");
-
-      await expect(
-        createOrAutoApplyHandoff(storageRoot, {
-          sessionId: "session-missing-gitignore",
-          projectPath: repoPath,
-          logPath: join(repoPath, ".ralph-review", "logs", "session-missing-gitignore.jsonl"),
-          worktree,
-        })
-      ).rejects.toThrow("source snapshot includes .gitignore");
-      expect(await readPendingHandoff(storageRoot, repoPath, "session-missing-gitignore")).toBe(
-        null
-      );
-    } finally {
-      discardSessionWorktree(worktree);
-    }
-  });
-
-  test("auto-applies in sha256 repositories when the source repo still matches the session snapshot", async () => {
+  test("auto-applies in sha256 repositories when the source repo still matches the session baseline", async () => {
     await rm(repoPath, { recursive: true, force: true });
     repoPath = await mkdtemp(join(tmpdir(), "ralph-handoff-sha256-repo-"));
     initTestRepoWithObjectFormat(repoPath, "sha256");
@@ -311,7 +238,7 @@ describe("handoff", () => {
     }
 
     await expect(applyPendingHandoff(storageRoot, repoPath, "session-manual")).rejects.toThrow(
-      "Current repository state no longer matches the saved review snapshot."
+      "Current repository state no longer matches the saved review baseline."
     );
 
     await writeFile(join(repoPath, "app.txt"), "draft\n");
@@ -370,7 +297,7 @@ describe("handoff", () => {
     }
 
     await expect(reapplyArchivedHandoff(storageRoot, repoPath, "session-replay")).rejects.toThrow(
-      'Archived review handoff "session-replay" cannot be reapplied because the current repository state does not match its source snapshot.'
+      'Archived review handoff "session-replay" cannot be reapplied because the current repository state does not match its source baseline.'
     );
 
     const reverted = await revertArchivedHandoff(storageRoot, repoPath, "session-replay");
@@ -378,7 +305,7 @@ describe("handoff", () => {
     expect(await Bun.file(join(repoPath, "app.txt")).text()).toBe("draft\n");
 
     await expect(revertArchivedHandoff(storageRoot, repoPath, "session-replay")).rejects.toThrow(
-      'Archived review handoff "session-replay" cannot be reverted because the current repository state does not match its applied snapshot.'
+      'Archived review handoff "session-replay" cannot be reverted because the current repository state does not match its applied baseline.'
     );
 
     const reapplied = await reapplyArchivedHandoff(storageRoot, repoPath, "session-replay");
