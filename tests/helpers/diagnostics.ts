@@ -67,10 +67,6 @@ export function createConfig(): Config {
       agent: "claude",
       model: "claude-opus-4-6",
     },
-    "code-simplifier": {
-      agent: "droid",
-      model: "gpt-5.2-codex",
-    },
     maxIterations: 5,
     iterationTimeout: 1800000,
     defaultReview: {

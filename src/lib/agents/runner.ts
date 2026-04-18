@@ -7,10 +7,6 @@ export function resolveAgentSettings(role: AgentRole, config: Config): AgentSett
     return config.fixer;
   }
 
-  if (role === "code-simplifier") {
-    return config["code-simplifier"] ?? config.reviewer;
-  }
-
   return config.reviewer;
 }
 

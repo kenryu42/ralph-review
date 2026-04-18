@@ -1,13 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { AGENTS } from "@/lib/agents/registry";
 import { resolveAgentSettings, runAgent } from "@/lib/agents/runner";
-import {
-  type AgentSettings,
-  CONFIG_SCHEMA_URI,
-  CONFIG_VERSION,
-  type Config,
-  type ReviewOptions,
-} from "@/lib/types";
+import { CONFIG_SCHEMA_URI, CONFIG_VERSION, type Config, type ReviewOptions } from "@/lib/types";
 
 const baseConfig: Config = {
   $schema: CONFIG_SCHEMA_URI,
@@ -93,24 +87,6 @@ describe("resolveAgentSettings", () => {
 
   test("returns fixer settings for fixer role", () => {
     expect(resolveAgentSettings("fixer", baseConfig)).toEqual(baseConfig.fixer);
-  });
-
-  test("falls back to reviewer settings for simplifier when custom config is missing", () => {
-    expect(resolveAgentSettings("code-simplifier", baseConfig)).toEqual(baseConfig.reviewer);
-  });
-
-  test("uses custom simplifier settings when configured", () => {
-    const customSimplifier: AgentSettings = {
-      agent: "droid",
-      model: "gpt-5.2-codex",
-      reasoning: "xhigh",
-    };
-    const configWithSimplifier: Config = {
-      ...baseConfig,
-      "code-simplifier": customSimplifier,
-    };
-
-    expect(resolveAgentSettings("code-simplifier", configWithSimplifier)).toEqual(customSimplifier);
   });
 });
 

@@ -39,7 +39,7 @@ export interface RunDiagnosticsOptions {
   dependencies?: RunDiagnosticsDependencies;
 }
 
-const ROLE_ORDER = ["reviewer", "fixer", "code-simplifier"] as const;
+const ROLE_ORDER = ["reviewer", "fixer"] as const;
 
 type ConfiguredRole = (typeof ROLE_ORDER)[number];
 
@@ -67,12 +67,8 @@ function getConfigInvalidRemediation(configScope?: "global" | "local" | "mixed")
   return [runStep("rr init"), thenStep("rr doctor --fix")];
 }
 
-function getRoleSeverity(context: DiagnosticContext, role: ConfiguredRole): "warning" | "error" {
+function getRoleSeverity(context: DiagnosticContext, _role: ConfiguredRole): "warning" | "error" {
   if (context === "init") {
-    return "warning";
-  }
-
-  if (role === "code-simplifier") {
     return "warning";
   }
 
@@ -80,10 +76,6 @@ function getRoleSeverity(context: DiagnosticContext, role: ConfiguredRole): "war
 }
 
 function getRoleLabel(role: ConfiguredRole): string {
-  if (role === "code-simplifier") {
-    return "Code simplifier";
-  }
-
   return role === "reviewer" ? "Reviewer" : "Fixer";
 }
 

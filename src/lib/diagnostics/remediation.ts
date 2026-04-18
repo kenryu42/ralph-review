@@ -13,7 +13,7 @@ export interface FixResult {
 const FIXABLE_IDS = new Set<string>(["tmux-installed", "config-missing", "config-invalid"]);
 
 const CONFIG_FIXABLE_PATTERN =
-  /^config-(reviewer|fixer|code-simplifier)-(agent-invalid|agent-missing|pi-invalid|model-missing|model-unverified)$/;
+  /^config-(reviewer|fixer)-(agent-invalid|agent-missing|pi-invalid|model-missing|model-unverified)$/;
 
 export function isFixable(id: string): boolean {
   return FIXABLE_IDS.has(id) || CONFIG_FIXABLE_PATTERN.test(id);

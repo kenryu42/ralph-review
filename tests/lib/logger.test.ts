@@ -403,37 +403,25 @@ describe("logger", () => {
         fixResults: [
           {
             findingId: "F001",
-            status: "fixed",
-            summary: "Applied F001",
+            status: "resolved",
+            summary: "Resolved F001",
           },
           {
             findingId: "F003",
-            status: "skipped",
-            summary: "Skipped F003",
+            status: "unresolved",
+            summary: "Could not safely remediate F003",
           },
         ],
       });
       await appendLog(logPath, {
-        type: "final_audit",
-        timestamp: 1_700_000_005_000,
-        duration: 500,
-        selectedFindingIds: ["F001", "F003"],
-        summary: {
-          resolvedFindingIds: ["F001"],
-          unresolvedFindingIds: ["F003"],
-          regressionFindings: [createStoredFinding("F010", "P1")],
-          summary: "Audit summary",
-        },
-      });
-      await appendLog(logPath, {
         type: "session_end",
-        timestamp: 1_700_000_006_000,
+        timestamp: 1_700_000_005_000,
         status: "completed",
-        reason: "Final audit found regressions introduced by remediation.",
+        reason: "Some selected findings remain unresolved after remediation.",
         iterations: 2,
         phase: "complete",
         sessionStatus: "completed",
-        reviewOutcome: "audit-regressions",
+        reviewOutcome: "incomplete",
       });
 
       const summary = await readSessionSummary(logPath);
@@ -441,9 +429,9 @@ describe("logger", () => {
       expect(summary).not.toBeNull();
       expect(summary?.phase).toBe("complete");
       expect(summary?.sessionStatus).toBe("completed");
-      expect(summary?.reviewOutcome).toBe("audit-regressions");
+      expect(summary?.reviewOutcome).toBe("incomplete");
       expect(summary?.iterations).toBe(2);
-      expect(summary?.totalDuration).toBe(5_000);
+      expect(summary?.totalDuration).toBe(4_500);
       expect(summary?.priorityCounts).toEqual({
         P0: 1,
         P1: 1,
@@ -452,10 +440,8 @@ describe("logger", () => {
       });
       expect(summary?.totalFindings).toBe(3);
       expect(summary?.totalSelectedFindings).toBe(2);
-      expect(summary?.totalAppliedFindings).toBe(1);
-      expect(summary?.totalSkippedFindings).toBe(1);
+      expect(summary?.totalResolvedSelectedFindings).toBe(1);
       expect(summary?.totalUnresolvedSelectedFindings).toBe(1);
-      expect(summary?.totalAuditRegressions).toBe(1);
     });
 
     test("applies incremental summary updates for each appended event", async () => {

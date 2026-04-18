@@ -2,11 +2,10 @@ import type { Finding } from "@/lib/types";
 import type {
   BatchFixEntry,
   DiscoveryIterationEntry,
-  FinalAuditEntry,
   FindingSelectionEntry,
   LogEntry,
 } from "@/lib/types/log";
-import type { AuditSummary, FindingFixResult, FindingId, StoredFinding } from "./findings/types";
+import type { FindingFixResult, FindingId, StoredFinding } from "./findings/types";
 
 interface WorkflowFixResultDisplay extends FindingFixResult {
   finding?: StoredFinding;
@@ -17,7 +16,6 @@ export interface WorkflowPresentationData {
   discoveryEntries: DiscoveryIterationEntry[];
   selectionEntry?: FindingSelectionEntry;
   batchFixEntry?: BatchFixEntry;
-  finalAuditEntry?: FinalAuditEntry;
   storedFindings: StoredFinding[];
   findingsById: Map<FindingId, StoredFinding>;
   selectedFindingIds: FindingId[];
@@ -27,7 +25,6 @@ export interface WorkflowPresentationData {
   unresolvedSelectedFindingIds: FindingId[];
   unresolvedSelectedFindings: StoredFinding[];
   regressionFindings: StoredFinding[];
-  latestAudit?: AuditSummary;
 }
 
 function priorityToNumber(priority: StoredFinding["priority"]): number {
@@ -58,7 +55,6 @@ export function deriveWorkflowPresentationData(entries: LogEntry[]): WorkflowPre
   const discoveryEntries: DiscoveryIterationEntry[] = [];
   let selectionEntry: FindingSelectionEntry | undefined;
   let batchFixEntry: BatchFixEntry | undefined;
-  let finalAuditEntry: FinalAuditEntry | undefined;
 
   for (const entry of entries) {
     if (entry.type === "discovery_iteration") {
@@ -73,22 +69,14 @@ export function deriveWorkflowPresentationData(entries: LogEntry[]): WorkflowPre
 
     if (entry.type === "batch_fix") {
       batchFixEntry = entry;
-      continue;
-    }
-
-    if (entry.type === "final_audit") {
-      finalAuditEntry = entry;
     }
   }
 
   const storedFindings = discoveryEntries.at(-1)?.findings ?? [];
-  const regressionFindings = finalAuditEntry?.summary.regressionFindings ?? [];
-  const findingsById = createFindingMap([...storedFindings, ...regressionFindings]);
+  const regressionFindings: StoredFinding[] = [];
+  const findingsById = createFindingMap(storedFindings);
   const selectedFindingIds =
-    selectionEntry?.selectedFindingIds ??
-    batchFixEntry?.selectedFindingIds ??
-    finalAuditEntry?.selectedFindingIds ??
-    [];
+    selectionEntry?.selectedFindingIds ?? batchFixEntry?.selectedFindingIds ?? [];
   const selectedFindings = selectedFindingIds
     .map((findingId) => findingsById.get(findingId))
     .filter((finding): finding is StoredFinding => finding !== undefined);
@@ -96,7 +84,9 @@ export function deriveWorkflowPresentationData(entries: LogEntry[]): WorkflowPre
     ...result,
     finding: findingsById.get(result.findingId),
   }));
-  const unresolvedSelectedFindingIds = finalAuditEntry?.summary.unresolvedFindingIds ?? [];
+  const unresolvedSelectedFindingIds = fixResults
+    .filter((result) => result.status === "unresolved")
+    .map((result) => result.findingId);
   const unresolvedSelectedFindings = unresolvedSelectedFindingIds
     .map((findingId) => findingsById.get(findingId))
     .filter((finding): finding is StoredFinding => finding !== undefined);
@@ -105,14 +95,10 @@ export function deriveWorkflowPresentationData(entries: LogEntry[]): WorkflowPre
 
   return {
     hasBatchFirstLifecycle:
-      discoveryEntries.length > 0 ||
-      selectionEntry !== undefined ||
-      batchFixEntry !== undefined ||
-      finalAuditEntry !== undefined,
+      discoveryEntries.length > 0 || selectionEntry !== undefined || batchFixEntry !== undefined,
     discoveryEntries,
     selectionEntry,
     batchFixEntry,
-    finalAuditEntry,
     storedFindings,
     findingsById,
     selectedFindingIds,
@@ -122,6 +108,5 @@ export function deriveWorkflowPresentationData(entries: LogEntry[]): WorkflowPre
     unresolvedSelectedFindingIds,
     unresolvedSelectedFindings,
     regressionFindings,
-    latestAudit: finalAuditEntry?.summary,
   };
 }

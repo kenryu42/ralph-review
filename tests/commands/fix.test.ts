@@ -97,7 +97,7 @@ function createFixHarness(
       state: "pending" | "running";
       mode: "background" | "foreground";
       sessionPath?: string;
-      currentAgent?: "reviewer" | "fixer" | "code-simplifier" | null;
+      currentAgent?: "reviewer" | "fixer" | null;
     } | null;
   } = {}
 ): FixHarness {
@@ -442,31 +442,19 @@ describe("fix command", () => {
             worktreeBranch: "rr-worktree-session-123-fix",
             selectedFindingIds: ["F001"],
           });
-          await onProgress({
-            currentPhase: "final-audit",
-            phase: "final-audit",
-            sessionStatus: "running",
-            currentAgent: "reviewer",
-            selectedFindingIds: ["F001"],
-          });
         }
 
         return {
           phase: "complete",
           sessionStatus: "completed",
           reviewOutcome: "fixed-selected",
-          reason: "Applied selected findings.",
+          reason: "Selected findings were resolved by remediation.",
           artifact,
           selection: {
             selectedFindingIds: ["F001"],
             selectedFindings: [selectedFinding],
           },
           fixResults: [],
-          audit: {
-            resolvedFindingIds: ["F001"],
-            unresolvedFindingIds: [],
-            regressionFindings: [],
-          },
           unresolvedSelectedFindings: [],
           unselectedFindings: [unselectedFinding],
           handoffStatus: "pending-apply",
@@ -510,8 +498,7 @@ describe("fix command", () => {
     ).toBe(true);
     expect(
       harness.updateSessionStateCalls.some(
-        (call) =>
-          call.updates.currentPhase === "final-audit" && call.updates.currentAgent === "reviewer"
+        (call) => call.updates.currentPhase === "batch-fix" && call.updates.currentAgent === "fixer"
       )
     ).toBe(true);
     expect(harness.updateSessionStateCalls.at(-1)?.updates).toMatchObject({
@@ -521,11 +508,6 @@ describe("fix command", () => {
       handoffStatus: "pending-apply",
       commitSha: "commit-sha-1",
       selectedFindingIds: ["F001"],
-      latestAudit: {
-        resolvedFindingIds: ["F001"],
-        unresolvedFindingIds: [],
-        regressionFindings: [],
-      },
     });
     expect(harness.removeSessionStateCalls).toEqual([
       {
@@ -537,7 +519,7 @@ describe("fix command", () => {
     expect(harness.clearIntervalCalls).toHaveLength(1);
   });
 
-  test("reports a retained worktree when final audit fails after fixes", async () => {
+  test("reports a retained worktree when remediation remains incomplete after fixes", async () => {
     const artifact = createArtifact();
     const selectedFinding = artifact.findings[0];
     const unselectedFinding = artifact.findings[1];
@@ -547,10 +529,10 @@ describe("fix command", () => {
 
     const harness = createFixHarness({
       runFixSessionResult: {
-        phase: "final-audit",
-        sessionStatus: "failed",
+        phase: "complete",
+        sessionStatus: "completed",
         reviewOutcome: "incomplete",
-        reason: "Structured JSON output was missing or invalid.",
+        reason: "Some selected findings remain unresolved after remediation.",
         artifact,
         selection: {
           selectedFindingIds: ["F001"],
@@ -559,11 +541,11 @@ describe("fix command", () => {
         fixResults: [
           {
             findingId: "F001",
-            status: "fixed",
-            summary: "Applied selected finding.",
+            status: "unresolved",
+            summary: "Could not safely remediate the selected finding.",
           },
         ],
-        unresolvedSelectedFindings: [],
+        unresolvedSelectedFindings: [selectedFinding],
         unselectedFindings: [unselectedFinding],
         retainedWorktree: {
           worktreeProjectPath: "/tmp/worktree",
@@ -583,15 +565,17 @@ describe("fix command", () => {
       },
     });
 
-    expect(harness.errors).toEqual(["Structured JSON output was missing or invalid."]);
+    expect(harness.warnings).toEqual([
+      "Some selected findings remain unresolved after remediation.",
+    ]);
     expect(harness.notes).toContainEqual({
       title: "Worktree",
       message:
         "Retained worktree for review:\nPath: /tmp/worktree\nBranch: rr-worktree-session-123-fix",
     });
     expect(harness.updateSessionStateCalls.at(-1)?.updates).toMatchObject({
-      state: "failed",
-      phase: "final-audit",
+      state: "completed",
+      phase: "complete",
       reviewOutcome: "incomplete",
       worktreeProjectPath: "/tmp/worktree",
       worktreeBranch: "rr-worktree-session-123-fix",

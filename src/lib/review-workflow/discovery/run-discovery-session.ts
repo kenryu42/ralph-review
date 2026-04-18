@@ -2,7 +2,6 @@ import { AGENTS, runAgent } from "@/lib/agents";
 import { CONFIG_DIR } from "@/lib/config";
 import {
   computeWorkingTreeFingerprintAsync,
-  createBaselineCommit,
   createCheckpoint,
   createSessionWorktree,
   deleteSessionRefs,
@@ -12,7 +11,6 @@ import {
 } from "@/lib/git";
 import { appendLog, createLogSession, getGitBranch } from "@/lib/logging";
 import { createReviewerSummaryRetryReminder } from "@/lib/prompts/protocol";
-import { createCodeSimplifierPrompt } from "@/lib/prompts/simplifier";
 import {
   createDiscoveryReviewerPrompt,
   type DiscoveryReviewerPromptOptions,
@@ -42,12 +40,10 @@ export interface RunDiscoveryRuntimeContext {
 }
 
 export interface RunDiscoverySessionDependencies {
-  createCodeSimplifierPrompt: typeof createCodeSimplifierPrompt;
   createDiscoveryReviewerPrompt: typeof createDiscoveryReviewerPrompt;
   createReviewerSummaryRetryReminder: typeof createReviewerSummaryRetryReminder;
   AGENTS: typeof AGENTS;
   runAgent: typeof runAgent;
-  createBaselineCommit: typeof createBaselineCommit;
   createCheckpoint: typeof createCheckpoint;
   computeWorkingTreeFingerprintAsync: typeof computeWorkingTreeFingerprintAsync;
   createSessionWorktree: typeof createSessionWorktree;
@@ -64,12 +60,10 @@ export interface RunDiscoverySessionDependencies {
 }
 
 export const DEFAULT_RUN_DISCOVERY_SESSION_DEPENDENCIES: RunDiscoverySessionDependencies = {
-  createCodeSimplifierPrompt,
   createDiscoveryReviewerPrompt,
   createReviewerSummaryRetryReminder,
   AGENTS,
   runAgent,
-  createBaselineCommit,
   createCheckpoint,
   computeWorkingTreeFingerprintAsync,
   createSessionWorktree,
@@ -118,7 +112,7 @@ async function updateDiscoverySessionState(
 }
 
 async function runAgentWithRetry(
-  role: "reviewer" | "code-simplifier",
+  role: "reviewer",
   config: Config,
   deps: RunDiscoverySessionDependencies,
   prompt: string,
@@ -258,46 +252,6 @@ async function runReviewerIteration(
   };
 }
 
-async function runSimplifierIfEnabled(
-  config: Config,
-  deps: RunDiscoverySessionDependencies,
-  reviewOptions: ReviewOptions | undefined,
-  worktreePath: string,
-  sessionId: string,
-  wasInterrupted: () => boolean
-): Promise<void> {
-  if (!reviewOptions?.simplifier) {
-    return;
-  }
-
-  const simplifierPrompt = deps.createCodeSimplifierPrompt({
-    repoPath: worktreePath,
-    baseBranch: reviewOptions.baseBranch,
-    commitSha: reviewOptions.commitSha,
-    customInstructions: reviewOptions.customInstructions,
-  });
-
-  const simplifierResult = await runAgentWithRetry(
-    "code-simplifier",
-    config,
-    deps,
-    simplifierPrompt,
-    reviewOptions,
-    worktreePath,
-    wasInterrupted,
-    {
-      checkpointLabelPrefix: `${sessionId}-simplifier`,
-    }
-  );
-
-  if (!simplifierResult.success) {
-    if (isInterruptLikeFailure(simplifierResult, wasInterrupted)) {
-      throw new Error("Discovery simplifier interrupted");
-    }
-    throw new Error(`Code simplifier failed with exit code ${simplifierResult.exitCode}`);
-  }
-}
-
 function createFindingsArtifact(
   sessionId: string,
   projectPath: string,
@@ -387,35 +341,13 @@ export async function runDiscoverySession(
       worktreeBranch: worktree.retainedBranch,
       reviewer: config.reviewer,
       fixer: config.fixer,
-      codeSimplifier: config["code-simplifier"],
       maxIterations: config.maxIterations,
       reviewOptions,
     };
     await deps.appendLog(sessionPath, systemEntry);
 
-    await updateDiscoverySessionState(deps, projectPath, runtimeContext?.sessionId, {
-      currentPhase: "discovery",
-      phase: "discovery",
-      sessionStatus: "running",
-      currentAgent: reviewOptions?.simplifier ? "code-simplifier" : null,
-    });
-    await runSimplifierIfEnabled(
-      config,
-      deps,
-      reviewOptions,
-      reviewerCwd,
-      sessionId,
-      wasInterrupted
-    );
-    let reviewerBaselineCommitSha = worktree.baselineCommitSha;
-    let reviewerBaselineFingerprint = worktree.sourceBaselineFingerprint;
-    if (reviewOptions?.simplifier) {
-      const reviewedBaseline = deps.createBaselineCommit(reviewerCwd, sessionId);
-      worktree.baselineCommitSha = reviewedBaseline.commitSha;
-      worktree.baselineRef = reviewedBaseline.ref;
-      reviewerBaselineCommitSha = reviewedBaseline.commitSha;
-      reviewerBaselineFingerprint = reviewedBaseline.fingerprint;
-    }
+    const reviewerBaselineCommitSha = worktree.baselineCommitSha;
+    const reviewerBaselineFingerprint = worktree.sourceBaselineFingerprint;
 
     if (!reviewerBaselineCommitSha || !reviewerBaselineFingerprint) {
       throw new Error("Discovery baseline metadata is incomplete.");

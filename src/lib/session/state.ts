@@ -2,7 +2,7 @@ import { mkdir, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { CONFIG_DIR } from "@/lib/config";
 import { getProjectStorageDir } from "@/lib/logging";
-import type { AuditSummary, FindingId, StoredFinding } from "@/lib/review-workflow/findings/types";
+import type { FindingId, StoredFinding } from "@/lib/review-workflow/findings/types";
 import { sessionExists } from "@/lib/tmux";
 import type {
   HandoffStatus,
@@ -72,7 +72,6 @@ interface CreateSessionStateOptions {
   sourceBaselineFingerprint?: string;
   accumulatedFindings?: StoredFinding[];
   selectedFindingIds?: FindingId[];
-  latestAudit?: AuditSummary;
 }
 
 export interface SessionState {
@@ -105,9 +104,8 @@ export interface SessionState {
   sourceBaselineFingerprint?: string;
   accumulatedFindings?: StoredFinding[];
   selectedFindingIds?: FindingId[];
-  latestAudit?: AuditSummary;
   iteration?: number;
-  currentAgent?: "reviewer" | "fixer" | "code-simplifier" | null;
+  currentAgent?: "reviewer" | "fixer" | null;
   reviewSummary?: ReviewSummary;
   codexReviewText?: string;
 }
@@ -323,7 +321,6 @@ export async function createSessionState(
     sourceBaselineFingerprint: options.sourceBaselineFingerprint,
     accumulatedFindings: options.accumulatedFindings,
     selectedFindingIds: options.selectedFindingIds,
-    latestAudit: options.latestAudit,
     currentAgent: null,
   };
 

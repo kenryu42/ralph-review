@@ -127,10 +127,8 @@ export interface SessionJson {
     priorityCounts: Record<Priority, number>;
     totalFindings?: number;
     totalSelectedFindings?: number;
-    totalAppliedFindings?: number;
-    totalSkippedFindings?: number;
+    totalResolvedSelectedFindings?: number;
     totalUnresolvedSelectedFindings?: number;
-    totalAuditRegressions?: number;
   };
   fixes: FixEntry[];
   skipped: SkippedEntry[];
@@ -175,10 +173,8 @@ export function buildSessionJson(
       priorityCounts: session.priorityCounts,
       totalFindings: session.totalFindings,
       totalSelectedFindings: session.totalSelectedFindings,
-      totalAppliedFindings: session.totalAppliedFindings,
-      totalSkippedFindings: session.totalSkippedFindings,
+      totalResolvedSelectedFindings: session.totalResolvedSelectedFindings,
       totalUnresolvedSelectedFindings: session.totalUnresolvedSelectedFindings,
-      totalAuditRegressions: session.totalAuditRegressions,
     },
     fixes,
     skipped,
@@ -243,10 +239,8 @@ function hasBatchFirstSummary(session: SessionStats): boolean {
   return (
     session.totalFindings !== undefined ||
     session.totalSelectedFindings !== undefined ||
-    session.totalAppliedFindings !== undefined ||
-    session.totalSkippedFindings !== undefined ||
+    session.totalResolvedSelectedFindings !== undefined ||
     session.totalUnresolvedSelectedFindings !== undefined ||
-    session.totalAuditRegressions !== undefined ||
     session.reviewOutcome === "findings-pending"
   );
 }
@@ -315,18 +309,12 @@ function renderTerminalSession(
       p.log.message(`Selection: ${session.totalSelectedFindings} selected`);
     }
 
-    if (session.totalAppliedFindings !== undefined || session.totalSkippedFindings !== undefined) {
-      p.log.message(
-        `Remediation: ${session.totalAppliedFindings ?? 0} applied · ${session.totalSkippedFindings ?? 0} skipped`
-      );
-    }
-
     if (
-      session.totalUnresolvedSelectedFindings !== undefined ||
-      session.totalAuditRegressions !== undefined
+      session.totalResolvedSelectedFindings !== undefined ||
+      session.totalUnresolvedSelectedFindings !== undefined
     ) {
       p.log.message(
-        `Audit: ${session.totalUnresolvedSelectedFindings ?? 0} unresolved · ${session.totalAuditRegressions ?? 0} regressions`
+        `Remediation: ${session.totalResolvedSelectedFindings ?? 0} resolved · ${session.totalUnresolvedSelectedFindings ?? 0} unresolved`
       );
     }
   } else {

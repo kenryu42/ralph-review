@@ -81,7 +81,6 @@ function createConfig(overrides: Partial<Config> = {}): Config {
     version: CONFIG_VERSION,
     reviewer: { agent: "claude" },
     fixer: { agent: "claude" },
-    "code-simplifier": { agent: "claude" },
     maxIterations: 3,
     iterationTimeout: 10,
     retry: {
@@ -167,16 +166,6 @@ function createDependencies(state: HarnessState): RunReviewCycleDeps {
   };
 
   return {
-    createCodeSimplifierPrompt: ({ repoPath, baseBranch, commitSha, customInstructions }) => {
-      state.operationLog.push("create-simplifier-prompt");
-      return [
-        "SIMPLIFIER",
-        repoPath,
-        baseBranch ?? "",
-        commitSha ?? "",
-        customInstructions ?? "",
-      ].join("|");
-    },
     createDiscoveryReviewerPrompt: ({
       baselineCommitSha,
       iteration,
@@ -235,18 +224,6 @@ function createDependencies(state: HarnessState): RunReviewCycleDeps {
         kind: "snapshot",
         id: label,
         snapshotDir: `${projectPath}/checkpoint-${label}`,
-      };
-    },
-    createBaselineCommit: (repoPath, sessionId) => {
-      state.operationLog.push("create-baseline-commit");
-      state.baselineCommitCalls.push({
-        repoPath,
-        sessionId,
-      });
-      return {
-        commitSha: "reviewed-baseline-sha-456",
-        ref: "refs/ralph-review/sessions/session-123/baseline",
-        fingerprint: "reviewed-baseline-fingerprint",
       };
     },
     createSessionWorktree: (projectPath, worktreeId) => {
@@ -402,21 +379,15 @@ describe("runReviewCycle", () => {
     expect(sessionEnd?.reviewOutcome).toBe("clean");
   });
 
-  test("runs the simplifier before updating the reviewed baseline when enabled", async () => {
+  test("runs discovery directly with the reviewer and keeps the original baseline", async () => {
     const state = createHarnessState();
-    queueRunAgentResults(
-      state,
-      createSuccessResult("simplifier-pass"),
-      createSuccessResult("review-pass-1")
-    );
+    queueRunAgentResults(state, createSuccessResult("review-pass-1"));
     queueReviewParses(state, createReviewParse(createReviewSummary([])));
 
     const result = await runReviewCycle(
       createConfig(),
       undefined,
-      {
-        simplifier: true,
-      },
+      undefined,
       {
         projectPath: TEST_PROJECT_PATH,
         sessionId: TEST_SESSION_ID,
@@ -426,18 +397,7 @@ describe("runReviewCycle", () => {
     );
 
     expect(result.reviewOutcome).toBe("clean");
-    expect(state.runAgentCalls.map((call) => call.role)).toEqual(["code-simplifier", "reviewer"]);
-    expect(state.baselineCommitCalls).toEqual([
-      {
-        repoPath: TEST_WORKTREE_PATH,
-        sessionId: TEST_SESSION_ID,
-      },
-    ]);
-    expect(state.operationLog.indexOf("run-agent:code-simplifier")).toBeLessThan(
-      state.operationLog.indexOf("create-baseline-commit")
-    );
-    expect(state.operationLog.indexOf("create-baseline-commit")).toBeLessThan(
-      state.operationLog.indexOf("run-agent:reviewer")
-    );
+    expect(state.runAgentCalls.map((call) => call.role)).toEqual(["reviewer"]);
+    expect(state.baselineCommitCalls).toEqual([]);
   });
 });

@@ -130,7 +130,6 @@ describe("cli", () => {
       expect(optionNames).toContain("uncommitted");
       expect(optionNames).toContain("commit");
       expect(optionNames).toContain("custom");
-      expect(optionNames).toContain("simplifier");
       expect(optionNames).toContain("sound");
       expect(optionNames).toContain("no-sound");
       expect(optionNames).not.toContain("interactive");

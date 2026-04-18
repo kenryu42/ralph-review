@@ -1,5 +1,4 @@
 import type {
-  AuditSummary,
   FindingFixResult,
   FindingId,
   StoredFinding,
@@ -27,7 +26,6 @@ export interface SystemEntry {
   worktreeBranch?: string;
   reviewer: AgentSettings;
   fixer: AgentSettings;
-  codeSimplifier?: AgentSettings;
   maxIterations: number;
   reviewOptions?: ReviewOptions;
 }
@@ -96,15 +94,6 @@ export interface BatchFixEntry {
   error?: IterationError;
 }
 
-export interface FinalAuditEntry {
-  type: "final_audit";
-  timestamp: number;
-  duration?: number;
-  selectedFindingIds: FindingId[];
-  summary: AuditSummary;
-  error?: IterationError;
-}
-
 export interface SessionSummary {
   schemaVersion: 2;
   logPath: string;
@@ -134,10 +123,8 @@ export interface SessionSummary {
   worktreeBranch?: string;
   totalFindings?: number;
   totalSelectedFindings?: number;
-  totalAppliedFindings?: number;
-  totalSkippedFindings?: number;
+  totalResolvedSelectedFindings?: number;
   totalUnresolvedSelectedFindings?: number;
-  totalAuditRegressions?: number;
 }
 
 export type LogEntry =
@@ -146,6 +133,5 @@ export type LogEntry =
   | DiscoveryIterationEntry
   | FindingSelectionEntry
   | BatchFixEntry
-  | FinalAuditEntry
   | SessionEndEntry
   | HandoffEntry;

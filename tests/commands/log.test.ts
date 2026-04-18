@@ -333,26 +333,22 @@ describe("buildSessionJson", () => {
     const session = createSessionStats({
       phase: "complete",
       sessionStatus: "completed",
-      reviewOutcome: "audit-regressions",
+      reviewOutcome: "incomplete",
       totalFindings: 3,
       totalSelectedFindings: 2,
-      totalAppliedFindings: 1,
-      totalSkippedFindings: 1,
+      totalResolvedSelectedFindings: 1,
       totalUnresolvedSelectedFindings: 1,
-      totalAuditRegressions: 1,
     });
 
     const result = buildSessionJson("test-project", session, [], []);
 
     expect(result.phase).toBe("complete");
     expect(result.sessionStatus).toBe("completed");
-    expect(result.reviewOutcome).toBe("audit-regressions");
+    expect(result.reviewOutcome).toBe("incomplete");
     expect(result.summary.totalFindings).toBe(3);
     expect(result.summary.totalSelectedFindings).toBe(2);
-    expect(result.summary.totalAppliedFindings).toBe(1);
-    expect(result.summary.totalSkippedFindings).toBe(1);
+    expect(result.summary.totalResolvedSelectedFindings).toBe(1);
     expect(result.summary.totalUnresolvedSelectedFindings).toBe(1);
-    expect(result.summary.totalAuditRegressions).toBe(1);
   });
 
   test("preserves pending-findings sessions in JSON output", () => {

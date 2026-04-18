@@ -25,8 +25,6 @@ const baseConfig: Config = {
   version: CONFIG_VERSION,
   reviewer: { agent: "codex", model: "gpt-5.3-codex", reasoning: "high" },
   fixer: { agent: "claude", model: "claude-opus-4-6", reasoning: "medium" },
-  "code-simplifier": { agent: "droid", model: "gpt-5.2-codex", reasoning: "low" },
-  run: { simplifier: false },
   maxIterations: 5,
   iterationTimeout: 1800000,
   defaultReview: { type: "uncommitted" },
@@ -88,7 +86,7 @@ function createCommandHarness(overrides?: Partial<ConfigCommandDeps>): CommandHa
     loadConfigOverrideWithDiagnostics: async () => ({
       exists: true,
       path: "/repo/.ralph-review/config.json",
-      config: { run: { simplifier: true } },
+      config: { maxIterations: 9 },
       errors: [],
     }),
     loadEffectiveConfigWithDiagnostics: async (projectPath = "/repo/project") => {
@@ -248,7 +246,6 @@ describe("config command helpers", () => {
   describe("parseConfigKey", () => {
     test("accepts supported keys", () => {
       expect(parseConfigKey("reviewer.agent")).toBe("reviewer.agent");
-      expect(parseConfigKey("run.simplifier")).toBe("run.simplifier");
       expect(parseConfigKey("notifications.sound.enabled")).toBe("notifications.sound.enabled");
     });
 
@@ -333,18 +330,15 @@ describe("config command helpers", () => {
       expect(() => parseConfigValue("defaultReview.branch", "   ")).toThrow("non-empty branch");
     });
 
-    test("parses boolean notification and simplifier values", () => {
+    test("parses boolean notification values", () => {
       expect(parseConfigValue("notifications.sound.enabled", "true")).toBe(true);
       expect(parseConfigValue("notifications.sound.enabled", "false")).toBe(false);
-      expect(parseConfigValue("run.simplifier", "true")).toBe(true);
-      expect(parseConfigValue("run.simplifier", "false")).toBe(false);
     });
 
     test("rejects invalid boolean strings", () => {
       expect(() => parseConfigValue("notifications.sound.enabled", "yes")).toThrow(
         'must be "true" or "false"'
       );
-      expect(() => parseConfigValue("run.simplifier", "yes")).toThrow('must be "true" or "false"');
     });
   });
 
@@ -355,13 +349,9 @@ describe("config command helpers", () => {
       expect(getConfigValue(createBaseConfig(), "fixer.model")).toBe("claude-opus-4-6");
       expect(getConfigValue(createBaseConfig(), "reviewer.reasoning")).toBe("high");
       expect(getConfigValue(createBaseConfig(), "fixer.reasoning")).toBe("medium");
-      expect(getConfigValue(createBaseConfig(), "code-simplifier.agent")).toBe("droid");
-      expect(getConfigValue(createBaseConfig(), "code-simplifier.model")).toBe("gpt-5.2-codex");
-      expect(getConfigValue(createBaseConfig(), "code-simplifier.reasoning")).toBe("low");
       expect(getConfigValue(createBaseConfig(), "maxIterations")).toBe(5);
       expect(getConfigValue(createBaseConfig(), "iterationTimeout")).toBe(1800000);
       expect(getConfigValue(createBaseConfig(), "defaultReview.type")).toBe("uncommitted");
-      expect(getConfigValue(createBaseConfig(), "run.simplifier")).toBe(false);
       expect(getConfigValue(createBaseConfig(), "notifications.sound.enabled")).toBe(false);
     });
 
@@ -370,17 +360,6 @@ describe("config command helpers", () => {
       expect(getConfigValue(createBaseConfig(), "defaultReview.branch")).toBeUndefined();
       expect(getConfigValue(createBaseConfig(), "reviewer.provider")).toBeUndefined();
       expect(getConfigValue(createBaseConfig(), "fixer.provider")).toBeUndefined();
-      expect(getConfigValue(createBaseConfig(), "code-simplifier.provider")).toBeUndefined();
-    });
-
-    test("returns undefined for optional simplifier when unset", () => {
-      const config = createBaseConfig();
-      delete config["code-simplifier"];
-
-      expect(getConfigValue(config, "code-simplifier.agent")).toBeUndefined();
-      expect(getConfigValue(config, "code-simplifier.model")).toBeUndefined();
-      expect(getConfigValue(config, "code-simplifier.reasoning")).toBeUndefined();
-      expect(getConfigValue(config, "code-simplifier.provider")).toBeUndefined();
     });
 
     test("returns pi-only provider values for pi roles", () => {
@@ -395,17 +374,11 @@ describe("config command helpers", () => {
         provider: "llm-proxy",
         model: "gemini_cli/gemini-3-flash-preview",
       };
-      config["code-simplifier"] = {
-        agent: "pi",
-        provider: "anthropic",
-        model: "claude-opus-4-6",
-      };
       config.defaultReview = { type: "base", branch: "main" };
       config.retry = { ...DEFAULT_RETRY_CONFIG, maxRetries: 9 };
 
       expect(getConfigValue(config, "reviewer.provider")).toBe("anthropic");
       expect(getConfigValue(config, "fixer.provider")).toBe("llm-proxy");
-      expect(getConfigValue(config, "code-simplifier.provider")).toBe("anthropic");
       expect(getConfigValue(config, "defaultReview.branch")).toBe("main");
       expect(getConfigValue(config, "retry.maxRetries")).toBe(9);
       expect(getConfigValue(config, "retry.baseDelayMs")).toBe(DEFAULT_RETRY_CONFIG.baseDelayMs);
@@ -472,32 +445,6 @@ describe("config command helpers", () => {
         model: "gpt-5.3-codex",
         reasoning: "high",
       });
-    });
-
-    test("creates code-simplifier when setting simplifier agent", () => {
-      const config = createBaseConfig();
-      delete config["code-simplifier"];
-
-      const updated = setConfigValue(config, "code-simplifier.agent", "claude");
-      expect(updated["code-simplifier"]).toEqual({ agent: "claude" });
-    });
-
-    test("rejects setting non-agent field when code-simplifier is not configured", () => {
-      const config = createBaseConfig();
-      delete config["code-simplifier"];
-
-      expect(() => setConfigValue(config, "code-simplifier.model", "gpt-5.2-codex")).toThrow(
-        'Role "code-simplifier" is not configured'
-      );
-    });
-
-    test("rejects setting simplifier agent to pi when simplifier is absent", () => {
-      const config = createBaseConfig();
-      delete config["code-simplifier"];
-
-      expect(() => setConfigValue(config, "code-simplifier.agent", "pi")).toThrow(
-        "single-key update"
-      );
     });
 
     test("defensively handles malformed key matcher results", () => {
@@ -695,9 +642,6 @@ describe("config command helpers", () => {
       expect(() => setConfigValue(createBaseConfig(), "iterationTimeout", "1000")).toThrow(
         "integer greater than 0"
       );
-      expect(() => setConfigValue(createBaseConfig(), "run.simplifier", "true")).toThrow(
-        'must be "true" or "false"'
-      );
       expect(() =>
         setConfigValue(createBaseConfig(), "notifications.sound.enabled", "true")
       ).toThrow('must be "true" or "false"');
@@ -723,9 +667,6 @@ describe("config command helpers", () => {
     test("updates scalar and retry boolean fields", () => {
       const withTimeout = setConfigValue(createBaseConfig(), "iterationTimeout", 1200000);
       expect(withTimeout.iterationTimeout).toBe(1200000);
-
-      const withRun = setConfigValue(createBaseConfig(), "run.simplifier", true);
-      expect(withRun.run).toEqual({ simplifier: true });
 
       const withRetries = setConfigValue(createBaseConfig(), "retry.maxRetries", 7);
       expect(withRetries.retry?.maxRetries).toBe(7);
@@ -757,7 +698,6 @@ describe("config command helpers", () => {
           baseDelayMs: 0,
           maxDelayMs: 0,
         },
-        run: { simplifier: "yes" },
         notifications: { sound: { enabled: "yes" } },
       } as unknown as Config;
 
@@ -767,7 +707,6 @@ describe("config command helpers", () => {
       expect(errors.some((error) => error.includes("retry.maxRetries"))).toBe(true);
       expect(errors.some((error) => error.includes("retry.baseDelayMs"))).toBe(true);
       expect(errors.some((error) => error.includes("retry.maxDelayMs"))).toBe(true);
-      expect(errors.some((error) => error.includes("run.simplifier"))).toBe(true);
       expect(errors.some((error) => error.includes("notifications.sound.enabled"))).toBe(true);
     });
 
@@ -775,15 +714,12 @@ describe("config command helpers", () => {
       const candidate = createBaseConfig();
       candidate.reviewer = { agent: "pi", provider: "", model: "" };
       candidate.fixer = { agent: "pi", provider: "", model: "" };
-      candidate["code-simplifier"] = { agent: "pi", provider: "", model: "" };
 
       const errors = validateConfigInvariants(candidate);
       expect(errors.some((error) => error.includes("reviewer.provider"))).toBe(true);
       expect(errors.some((error) => error.includes("reviewer.model"))).toBe(true);
       expect(errors.some((error) => error.includes("fixer.provider"))).toBe(true);
       expect(errors.some((error) => error.includes("fixer.model"))).toBe(true);
-      expect(errors.some((error) => error.includes("code-simplifier.provider"))).toBe(true);
-      expect(errors.some((error) => error.includes("code-simplifier.model"))).toBe(true);
     });
 
     test("rejects non-pi provider fields", () => {
@@ -850,14 +786,14 @@ describe("config command execution", () => {
       loadConfigOverrideWithDiagnostics: async () => ({
         exists: true,
         path: "/repo/.ralph-review/config.json",
-        config: { run: { simplifier: true } },
+        config: { maxIterations: 9 },
         errors: [],
       }),
       loadEffectiveConfigWithDiagnostics: async (projectPath = "/repo/project") => {
         harness.effectiveLoadCalls.push(projectPath);
         return {
           exists: true,
-          config: { ...createBaseConfig(), run: { simplifier: true } },
+          config: { ...createBaseConfig(), maxIterations: 9 },
           errors: [],
           source: "merged",
           globalPath: "/tmp/ralph-test-config.json",
@@ -896,14 +832,14 @@ describe("config command execution", () => {
       loadConfigOverrideWithDiagnostics: async () => ({
         exists: true,
         path: "/repo/.ralph-review/config.json",
-        config: { run: { simplifier: true } },
+        config: { maxIterations: 9 },
         errors: [],
       }),
       loadEffectiveConfigWithDiagnostics: async (projectPath = "/repo/project") => {
         harness.effectiveLoadCalls.push(projectPath);
         return {
           exists: true,
-          config: { ...createBaseConfig(), run: { simplifier: true } },
+          config: { ...createBaseConfig(), maxIterations: 9 },
           errors: [],
           source: "merged",
           globalPath: "/tmp/ralph-test-config.json",
@@ -922,9 +858,9 @@ describe("config command execution", () => {
 
     const output = JSON.parse(harness.printed[0] ?? "");
     expect(output).toEqual({
-      effective: { ...createBaseConfig(), run: { simplifier: true } },
+      effective: { ...createBaseConfig(), maxIterations: 9 },
       global: createBaseConfig(),
-      local: { run: { simplifier: true } },
+      local: { maxIterations: 9 },
     });
   });
 
@@ -933,7 +869,7 @@ describe("config command execution", () => {
       loadConfigOverrideWithDiagnostics: async () => ({
         exists: true,
         path: "/repo/.ralph-review/config.json",
-        config: { maxIterations: 9, run: { simplifier: true } },
+        config: { maxIterations: 9 },
         errors: [],
       }),
     });
@@ -947,7 +883,6 @@ describe("config command execution", () => {
     expect(harness.notes[0]?.message).toContain("Repo-local overrides");
     expect(harness.notes[0]?.message).toContain("Path: /repo/.ralph-review/config.json");
     expect(harness.notes[0]?.message).toContain("Limits");
-    expect(harness.notes[0]?.message).toContain("Run");
     expect(harness.notes[0]?.message).not.toContain('"maxIterations": 9');
     expect(harness.effectiveLoadCalls).toEqual([]);
     expect(harness.exits).toEqual([]);
@@ -958,7 +893,7 @@ describe("config command execution", () => {
       loadConfigOverrideWithDiagnostics: async () => ({
         exists: true,
         path: "/repo/.ralph-review/config.json",
-        config: { maxIterations: 9, run: { simplifier: true } },
+        config: { maxIterations: 9 },
         errors: [],
       }),
     });
@@ -969,7 +904,6 @@ describe("config command execution", () => {
     expect(harness.printed).toHaveLength(1);
     expect(JSON.parse(harness.printed[0] ?? "")).toEqual({
       maxIterations: 9,
-      run: { simplifier: true },
     });
   });
 
@@ -1044,7 +978,7 @@ describe("config command execution", () => {
         exists: true,
         config: null,
         errors: [
-          "run.watch is not supported. Available settings: run.simplifier.",
+          "run is not supported. Available settings: reviewer, fixer, defaultReview, retry, notifications, maxIterations, iterationTimeout.",
           "fixer.reasoning must be one of: low, medium, high, xhigh, max.",
         ],
         source: "global",
@@ -1054,7 +988,7 @@ describe("config command execution", () => {
         globalExists: true,
         localExists: false,
         globalErrors: [
-          "run.watch is not supported. Available settings: run.simplifier.",
+          "run is not supported. Available settings: reviewer, fixer, defaultReview, retry, notifications, maxIterations, iterationTimeout.",
           "fixer.reasoning must be one of: low, medium, high, xhigh, max.",
         ],
         localErrors: [],
@@ -1066,7 +1000,7 @@ describe("config command execution", () => {
 
     expect(harness.errors[0]).toContain("Invalid configuration: /tmp/ralph-test-config.json");
     expect(harness.errors[0]).toContain(
-      "- run.watch is not supported. Available settings: run.simplifier."
+      "- run is not supported. Available settings: reviewer, fixer, defaultReview, retry, notifications, maxIterations, iterationTimeout."
     );
     expect(harness.errors[0]).toContain(
       "- fixer.reasoning must be one of: low, medium, high, xhigh, max."
@@ -1263,15 +1197,15 @@ describe("config command execution", () => {
       loadConfigOverrideWithDiagnostics: async () => ({
         exists: true,
         path: "/repo/.ralph-review/config.json",
-        config: { run: { simplifier: true } },
+        config: { maxIterations: 9 },
         errors: [],
       }),
     });
     const runConfig = createRunConfig(harness.deps);
 
-    await runConfig(["get", "--local", "run.simplifier"]);
+    await runConfig(["get", "--local", "maxIterations"]);
 
-    expect(harness.printed).toEqual(["true"]);
+    expect(harness.printed).toEqual(["9"]);
     expect(harness.effectiveLoadCalls).toEqual([]);
     expect(harness.exits).toEqual([]);
   });
@@ -1339,7 +1273,9 @@ describe("config command execution", () => {
     const harness = createCommandHarness({
       parseConfigWithDiagnostics: () => ({
         config: null,
-        errors: ["run.watch is not supported. Available settings: run.simplifier."],
+        errors: [
+          "run is not supported. Available settings: reviewer, fixer, defaultReview, retry, notifications, maxIterations, iterationTimeout.",
+        ],
       }),
     });
     const runConfig = createRunConfig(harness.deps);
@@ -1348,7 +1284,7 @@ describe("config command execution", () => {
 
     expect(harness.errors[0]).toContain("Updated configuration is invalid.");
     expect(harness.errors[0]).toContain(
-      "- run.watch is not supported. Available settings: run.simplifier."
+      "- run is not supported. Available settings: reviewer, fixer, defaultReview, retry, notifications, maxIterations, iterationTimeout."
     );
     expect(harness.saved).toHaveLength(0);
     expect(harness.exits).toEqual([1]);
@@ -1408,10 +1344,7 @@ describe("config command execution", () => {
     const harness = createCommandHarness({
       loadEffectiveConfigWithDiagnostics: async () => ({
         exists: true,
-        config: {
-          ...createBaseConfig(),
-          run: { simplifier: true },
-        },
+        config: createBaseConfig(),
         errors: [],
         source: "merged",
         globalPath: "/tmp/ralph-test-config.json",
@@ -1423,7 +1356,6 @@ describe("config command execution", () => {
         localErrors: [],
       }),
       buildConfigOverride: () => ({
-        run: { simplifier: true },
         maxIterations: 8,
       }),
     });
@@ -1434,7 +1366,6 @@ describe("config command execution", () => {
     expect(harness.saved).toHaveLength(0);
     expect(harness.savedOverrides).toEqual([
       {
-        run: { simplifier: true },
         maxIterations: 8,
       },
     ]);
@@ -1446,7 +1377,6 @@ describe("config command execution", () => {
   test("set --local updates a complete raw override when the global layer is broken", async () => {
     const localConfig = {
       ...createBaseConfig(),
-      run: { simplifier: true },
     };
     const harness = createCommandHarness({
       loadEffectiveConfigWithDiagnostics: async () => ({
@@ -1490,7 +1420,7 @@ describe("config command execution", () => {
 
   test("set --local updates a diff-style raw override when the global layer is broken", async () => {
     const localOverride: ConfigOverride = {
-      run: { simplifier: true },
+      maxIterations: 6,
     };
     const harness = createCommandHarness({
       loadEffectiveConfigWithDiagnostics: async () => ({
@@ -1523,7 +1453,6 @@ describe("config command execution", () => {
     expect(harness.saved).toHaveLength(0);
     expect(harness.savedOverrides).toEqual([
       {
-        run: { simplifier: true },
         maxIterations: 8,
       },
     ]);
@@ -2380,7 +2309,6 @@ describe("config command execution", () => {
     await runConfig(["set", "--local", "reviewer.reasoning", "max"]);
     await runConfig(["set", "--local", "defaultReview.type", "uncommitted"]);
     await runConfig(["set", "--local", "defaultReview.branch", "main"]);
-    await runConfig(["set", "--local", "run.simplifier", "true"]);
     await runConfig(["set", "--local", "retry.maxRetries", "4"]);
     await runConfig(["set", "--local", "retry.baseDelayMs", "500"]);
     await runConfig(["set", "--local", "retry.maxDelayMs", "2000"]);
@@ -2731,7 +2659,9 @@ describe("config command execution", () => {
       loadConfigWithDiagnostics: async () => ({
         exists: true,
         config: null,
-        errors: ["run.watch is not supported. Available settings: run.simplifier."],
+        errors: [
+          "run is not supported. Available settings: reviewer, fixer, defaultReview, retry, notifications, maxIterations, iterationTimeout.",
+        ],
       }),
     });
     const runConfig = createRunConfig(harness.deps);
@@ -2740,7 +2670,7 @@ describe("config command execution", () => {
 
     expect(harness.warnings[0]).toContain("Invalid configuration: /tmp/ralph-test-config.json");
     expect(harness.warnings[0]).toContain(
-      "- run.watch is not supported. Available settings: run.simplifier."
+      "- run is not supported. Available settings: reviewer, fixer, defaultReview, retry, notifications, maxIterations, iterationTimeout."
     );
     expect(harness.saved).toHaveLength(0);
     expect(harness.exits).toEqual([]);
@@ -2795,7 +2725,10 @@ describe("config command execution", () => {
       loadEffectiveConfigWithDiagnostics: async () => ({
         exists: true,
         config: null,
-        errors: ["Effective configuration is invalid.", "run.simplifier must be a boolean."],
+        errors: [
+          "Effective configuration is invalid.",
+          "run is not supported. Available settings: reviewer, fixer, defaultReview, retry, notifications, maxIterations, iterationTimeout.",
+        ],
         source: "merged",
         globalPath: "/tmp/ralph-test-config.json",
         localPath: "/repo/.ralph-review/config.json",
@@ -2811,7 +2744,9 @@ describe("config command execution", () => {
     await runConfig(["edit", "--global"]);
 
     expect(harness.warnings[0]).toContain("Invalid effective configuration.");
-    expect(harness.warnings[0]).toContain("- run.simplifier must be a boolean.");
+    expect(harness.warnings[0]).toContain(
+      "- run is not supported. Available settings: reviewer, fixer, defaultReview, retry, notifications, maxIterations, iterationTimeout."
+    );
     expect(harness.saved).toHaveLength(0);
     expect(harness.exits).toEqual([]);
   });

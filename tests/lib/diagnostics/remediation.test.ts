@@ -38,7 +38,7 @@ describe("isFixable", () => {
     expect(isFixable("config-invalid")).toBe(true);
     expect(isFixable("config-reviewer-agent-invalid")).toBe(true);
     expect(isFixable("config-fixer-agent-missing")).toBe(true);
-    expect(isFixable("config-code-simplifier-pi-invalid")).toBe(true);
+    expect(isFixable("config-fixer-pi-invalid")).toBe(true);
     expect(isFixable("config-reviewer-model-missing")).toBe(true);
     expect(isFixable("config-fixer-model-unverified")).toBe(true);
   });

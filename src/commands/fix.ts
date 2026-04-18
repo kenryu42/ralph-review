@@ -561,7 +561,6 @@ export async function runFixForeground(
         handoffUpdatedAt: result.handoffUpdatedAt,
         commitSha: result.commitSha,
         selectedFindingIds: result.selection.selectedFindingIds,
-        latestAudit: result.audit,
       });
     } else {
       await pushFixSessionStateUpdate(commandDeps, projectPath, sessionId, {
@@ -582,7 +581,6 @@ export async function runFixForeground(
         handoffUpdatedAt: undefined,
         commitSha: undefined,
         selectedFindingIds: undefined,
-        latestAudit: undefined,
       });
     }
 

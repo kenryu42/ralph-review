@@ -7,8 +7,6 @@ const baseConfig: Config = {
   version: CONFIG_VERSION,
   reviewer: { agent: "codex", model: "gpt-5.3-codex", reasoning: "high" },
   fixer: { agent: "claude", model: "claude-opus-4-6", reasoning: "medium" },
-  "code-simplifier": { agent: "droid", model: "gpt-5.2-codex", reasoning: "low" },
-  run: { simplifier: false },
   maxIterations: 5,
   iterationTimeout: 1800000,
   defaultReview: { type: "uncommitted" },
@@ -19,7 +17,7 @@ describe("config layers", () => {
   test("loads effective, global, and local diagnostics using effective paths", async () => {
     const calls: string[] = [];
     const localOverride: ConfigOverride = {
-      run: { simplifier: true },
+      maxIterations: 9,
     };
 
     const layers = await loadConfigDisplayLayers("/repo/project", {
