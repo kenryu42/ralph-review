@@ -41,7 +41,7 @@ function createArchivedHandoff(
     sourceRepoPath: projectPath,
     logPath: `${projectPath}/.ralph-review/logs/session.jsonl`,
     patchPath: `${projectPath}/.ralph-review/handoff-history/session-id.patch`,
-    trackedRepoFingerprint: "fingerprint-source-1",
+    sourceBaselineFingerprint: "fingerprint-source-1",
     appliedFingerprint: "fingerprint-applied-1",
     commitSha: "commit-sha-1",
     appliedVia: "auto",

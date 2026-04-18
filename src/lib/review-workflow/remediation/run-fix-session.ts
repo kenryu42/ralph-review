@@ -359,7 +359,7 @@ export async function runFixSession(
     worktree.baselineRef = artifact.baselineRef;
     worktree.sourceBaselineCommitSha = artifact.sourceBaselineCommitSha;
     worktree.sourceBaselineRef = artifact.sourceBaselineRef;
-    worktree.trackedRepoFingerprint = artifact.trackedRepoFingerprint;
+    worktree.sourceBaselineFingerprint = artifact.sourceBaselineFingerprint;
     await emitProgress(options.onProgress, {
       currentPhase: "selection",
       phase: "selection",
@@ -368,7 +368,7 @@ export async function runFixSession(
       worktreeProjectPath: worktree.worktreeProjectPath,
       worktreeBranch: worktree.retainedBranch,
       baselineCommitSha: artifact.baselineCommitSha,
-      trackedRepoFingerprint: artifact.trackedRepoFingerprint,
+      sourceBaselineFingerprint: artifact.sourceBaselineFingerprint,
       selectedFindingIds: resolvedSelection.selection.selectedFindingIds,
     });
 

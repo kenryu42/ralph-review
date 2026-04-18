@@ -30,7 +30,7 @@ interface RunDiscoveryPhaseOptions {
     updates: Record<string, unknown>,
     options?: { expectedSessionId?: string }
   ) => Promise<boolean>;
-  computeTrackedWorkingTreeFingerprint: (repoPath: string) => Promise<string>;
+  computeWorkingTreeFingerprint: (repoPath: string) => Promise<string>;
   wasInterrupted: () => boolean;
 }
 
@@ -72,9 +72,9 @@ async function updateDiscoverySessionState(
 async function assertWorktreeFingerprint(
   reviewerWorktreePath: string,
   expectedFingerprint: string,
-  computeTrackedWorkingTreeFingerprint: RunDiscoveryPhaseOptions["computeTrackedWorkingTreeFingerprint"]
+  computeWorkingTreeFingerprint: RunDiscoveryPhaseOptions["computeWorkingTreeFingerprint"]
 ): Promise<void> {
-  const currentFingerprint = await computeTrackedWorkingTreeFingerprint(reviewerWorktreePath);
+  const currentFingerprint = await computeWorkingTreeFingerprint(reviewerWorktreePath);
   if (currentFingerprint !== expectedFingerprint) {
     throw new Error(
       `Discovery mutated the reviewer worktree at ${reviewerWorktreePath}. Expected ${expectedFingerprint}, got ${currentFingerprint}.`
@@ -141,7 +141,7 @@ export async function runDiscoveryPhase(
     await assertWorktreeFingerprint(
       options.reviewerWorktreePath,
       options.baselineFingerprint,
-      options.computeTrackedWorkingTreeFingerprint
+      options.computeWorkingTreeFingerprint
     );
 
     if (options.wasInterrupted()) {

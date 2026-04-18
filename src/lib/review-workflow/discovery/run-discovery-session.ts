@@ -1,7 +1,7 @@
 import { AGENTS, runAgent } from "@/lib/agents";
 import { CONFIG_DIR } from "@/lib/config";
 import {
-  computeWorktreeStateFingerprintAsync,
+  computeWorkingTreeFingerprintAsync,
   createBaselineCommit,
   createCheckpoint,
   createSessionWorktree,
@@ -49,7 +49,7 @@ export interface RunDiscoverySessionDependencies {
   runAgent: typeof runAgent;
   createBaselineCommit: typeof createBaselineCommit;
   createCheckpoint: typeof createCheckpoint;
-  computeWorktreeStateFingerprintAsync: typeof computeWorktreeStateFingerprintAsync;
+  computeWorkingTreeFingerprintAsync: typeof computeWorkingTreeFingerprintAsync;
   createSessionWorktree: typeof createSessionWorktree;
   deleteSessionRefs: typeof deleteSessionRefs;
   discardCheckpoint: typeof discardCheckpoint;
@@ -71,7 +71,7 @@ export const DEFAULT_RUN_DISCOVERY_SESSION_DEPENDENCIES: RunDiscoverySessionDepe
   runAgent,
   createBaselineCommit,
   createCheckpoint,
-  computeWorktreeStateFingerprintAsync,
+  computeWorkingTreeFingerprintAsync,
   createSessionWorktree,
   deleteSessionRefs,
   discardCheckpoint,
@@ -310,14 +310,14 @@ function createFindingsArtifact(
   const baselineRef = worktree.baselineRef;
   const sourceBaselineCommitSha = worktree.sourceBaselineCommitSha;
   const sourceBaselineRef = worktree.sourceBaselineRef;
-  const trackedRepoFingerprint = worktree.trackedRepoFingerprint;
+  const sourceBaselineFingerprint = worktree.sourceBaselineFingerprint;
 
   if (!baselineCommitSha || !baselineRef || !sourceBaselineCommitSha || !sourceBaselineRef) {
     throw new Error("Discovery worktree is missing baseline metadata.");
   }
 
-  if (!trackedRepoFingerprint) {
-    throw new Error("Discovery worktree is missing tracked repository fingerprint.");
+  if (!sourceBaselineFingerprint) {
+    throw new Error("Discovery worktree is missing source baseline fingerprint.");
   }
 
   return {
@@ -329,7 +329,7 @@ function createFindingsArtifact(
     baselineCommitSha,
     sourceBaselineRef,
     sourceBaselineCommitSha,
-    trackedRepoFingerprint,
+    sourceBaselineFingerprint,
     findings,
     selectedFindingIds: [],
     createdAt: timestamp,
@@ -408,15 +408,13 @@ export async function runDiscoverySession(
       wasInterrupted
     );
     let reviewerBaselineCommitSha = worktree.baselineCommitSha;
-    let reviewerBaselineFingerprint = worktree.trackedRepoFingerprint;
+    let reviewerBaselineFingerprint = worktree.sourceBaselineFingerprint;
     if (reviewOptions?.simplifier) {
-      const reviewedBaseline = deps.createBaselineCommit(reviewerCwd, sessionId, {
-        includeUntracked: true,
-      });
+      const reviewedBaseline = deps.createBaselineCommit(reviewerCwd, sessionId);
       worktree.baselineCommitSha = reviewedBaseline.commitSha;
       worktree.baselineRef = reviewedBaseline.ref;
       reviewerBaselineCommitSha = reviewedBaseline.commitSha;
-      reviewerBaselineFingerprint = reviewedBaseline.trackedRepoFingerprint;
+      reviewerBaselineFingerprint = reviewedBaseline.fingerprint;
     }
 
     if (!reviewerBaselineCommitSha || !reviewerBaselineFingerprint) {
@@ -432,7 +430,7 @@ export async function runDiscoverySession(
       currentAgent: null,
       artifactPath,
       baselineCommitSha: reviewerBaselineCommitSha,
-      trackedRepoFingerprint: worktree.trackedRepoFingerprint,
+      sourceBaselineFingerprint: worktree.sourceBaselineFingerprint,
       accumulatedFindings: [],
       selectedFindingIds: [],
     });
@@ -448,7 +446,7 @@ export async function runDiscoverySession(
       baselineFingerprint: reviewerBaselineFingerprint,
       appendLog: deps.appendLog,
       updateSessionState: deps.updateSessionState,
-      computeTrackedWorkingTreeFingerprint: deps.computeWorktreeStateFingerprintAsync,
+      computeWorkingTreeFingerprint: deps.computeWorkingTreeFingerprintAsync,
       wasInterrupted,
       runReviewerIteration: async (iteration, knownFindings) => {
         const reviewerResult = await runReviewerIteration(
@@ -512,7 +510,7 @@ export async function runDiscoverySession(
       currentAgent: null,
       artifactPath,
       baselineCommitSha: worktree.baselineCommitSha,
-      trackedRepoFingerprint: worktree.trackedRepoFingerprint,
+      sourceBaselineFingerprint: worktree.sourceBaselineFingerprint,
       accumulatedFindings: phaseResult.findings,
       selectedFindingIds: [],
       reviewOutcome: "findings-pending",

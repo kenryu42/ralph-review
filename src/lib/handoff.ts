@@ -102,7 +102,7 @@ function normalizePendingHandoff(raw: unknown): PendingHandoffArtifact | null {
     logPath,
     hiddenRef,
     patchPath,
-    trackedRepoFingerprint,
+    sourceBaselineFingerprint,
     commitSha,
     state,
     createdAt,
@@ -115,7 +115,7 @@ function normalizePendingHandoff(raw: unknown): PendingHandoffArtifact | null {
     typeof logPath !== "string" ||
     typeof hiddenRef !== "string" ||
     typeof patchPath !== "string" ||
-    typeof trackedRepoFingerprint !== "string" ||
+    typeof sourceBaselineFingerprint !== "string" ||
     typeof commitSha !== "string" ||
     state !== "pending-apply" ||
     typeof createdAt !== "number" ||
@@ -131,7 +131,7 @@ function normalizePendingHandoff(raw: unknown): PendingHandoffArtifact | null {
     logPath,
     hiddenRef,
     patchPath,
-    trackedRepoFingerprint,
+    sourceBaselineFingerprint,
     commitSha,
     state,
     createdAt,
@@ -151,7 +151,7 @@ function normalizeArchivedHandoff(raw: unknown): ArchivedAppliedHandoffArtifact 
     sourceRepoPath,
     logPath,
     patchPath,
-    trackedRepoFingerprint,
+    sourceBaselineFingerprint,
     appliedFingerprint,
     commitSha,
     appliedVia,
@@ -165,7 +165,7 @@ function normalizeArchivedHandoff(raw: unknown): ArchivedAppliedHandoffArtifact 
     typeof sourceRepoPath !== "string" ||
     typeof logPath !== "string" ||
     typeof patchPath !== "string" ||
-    typeof trackedRepoFingerprint !== "string" ||
+    typeof sourceBaselineFingerprint !== "string" ||
     typeof appliedFingerprint !== "string" ||
     typeof commitSha !== "string" ||
     (appliedVia !== "auto" && appliedVia !== "manual") ||
@@ -182,7 +182,7 @@ function normalizeArchivedHandoff(raw: unknown): ArchivedAppliedHandoffArtifact 
     sourceRepoPath,
     logPath,
     patchPath,
-    trackedRepoFingerprint,
+    sourceBaselineFingerprint,
     appliedFingerprint,
     commitSha,
     appliedVia,
@@ -306,7 +306,7 @@ async function archiveAppliedHandoff(
     sourceRepoPath: artifact.sourceRepoPath,
     logPath: artifact.logPath,
     patchPath: archivedPatchPath,
-    trackedRepoFingerprint: artifact.trackedRepoFingerprint,
+    sourceBaselineFingerprint: artifact.sourceBaselineFingerprint,
     appliedFingerprint: computeWorkingTreeFingerprint(artifact.sourceRepoPath),
     commitSha: artifact.commitSha,
     appliedVia,
@@ -332,7 +332,7 @@ async function applyPendingHandoffArtifact(
   appliedVia: ArchivedAppliedHandoffArtifact["appliedVia"]
 ): Promise<PendingHandoffArtifact> {
   const currentFingerprint = computeWorkingTreeFingerprint(artifact.sourceRepoPath);
-  if (currentFingerprint !== artifact.trackedRepoFingerprint) {
+  if (currentFingerprint !== artifact.sourceBaselineFingerprint) {
     throw new Error(SNAPSHOT_MISMATCH_ERROR_MESSAGE);
   }
 
@@ -352,7 +352,7 @@ async function applyArchivedHandoffArtifact(
     expectedCurrentFingerprint ??
     (await computeWorkingTreeFingerprintAsync(artifact.sourceRepoPath));
   const expectedFingerprint =
-    action === "revert" ? artifact.appliedFingerprint : artifact.trackedRepoFingerprint;
+    action === "revert" ? artifact.appliedFingerprint : artifact.sourceBaselineFingerprint;
   if (currentFingerprint !== expectedFingerprint) {
     throw buildArchivedMismatchError(artifact, action);
   }
@@ -363,7 +363,7 @@ async function applyArchivedHandoffArtifact(
 
   const resultingFingerprint = await computeWorkingTreeFingerprintAsync(artifact.sourceRepoPath);
   const targetFingerprint =
-    action === "revert" ? artifact.trackedRepoFingerprint : artifact.appliedFingerprint;
+    action === "revert" ? artifact.sourceBaselineFingerprint : artifact.appliedFingerprint;
   if (resultingFingerprint !== targetFingerprint) {
     throw new Error(
       action === "revert"
@@ -439,7 +439,9 @@ export async function listProjectReapplicableHandoffs(
   const handoffs = await listProjectArchivedHandoffs(storageRoot, projectPath);
   return {
     currentFingerprint,
-    handoffs: handoffs.filter((artifact) => artifact.trackedRepoFingerprint === currentFingerprint),
+    handoffs: handoffs.filter(
+      (artifact) => artifact.sourceBaselineFingerprint === currentFingerprint
+    ),
   };
 }
 
@@ -510,13 +512,13 @@ export async function createOrAutoApplyHandoff(
 
   const patchPath = getPendingHandoffPatchPath(storageRoot, options.projectPath, options.sessionId);
   const sourceBaselineCommitSha = options.worktree.sourceBaselineCommitSha;
-  const trackedRepoFingerprint = options.worktree.trackedRepoFingerprint;
+  const sourceBaselineFingerprint = options.worktree.sourceBaselineFingerprint;
   if (!sourceBaselineCommitSha) {
     throw new Error("Session worktree is missing its source baseline commit.");
   }
 
-  if (!trackedRepoFingerprint) {
-    throw new Error("Session worktree is missing its tracked repository fingerprint.");
+  if (!sourceBaselineFingerprint) {
+    throw new Error("Session worktree is missing its source baseline fingerprint.");
   }
 
   const hiddenRef = buildHandoffRef(options.sessionId);
@@ -540,7 +542,7 @@ export async function createOrAutoApplyHandoff(
     logPath: options.logPath,
     hiddenRef,
     patchPath,
-    trackedRepoFingerprint,
+    sourceBaselineFingerprint,
     commitSha: retained.commitSha,
     state: "pending-apply",
     createdAt: handoffUpdatedAt,

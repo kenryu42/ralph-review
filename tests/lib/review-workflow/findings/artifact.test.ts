@@ -68,7 +68,7 @@ function createArtifact(
     baselineCommitSha: baseline.commitSha,
     sourceBaselineRef: baseline.ref.replace(/\/baseline$/u, "/source"),
     sourceBaselineCommitSha: baseline.commitSha,
-    trackedRepoFingerprint: baseline.trackedRepoFingerprint,
+    sourceBaselineFingerprint: baseline.fingerprint,
     findings: [createStoredFinding("F001")],
     selectedFindingIds: [],
     createdAt: "2026-01-01T00:00:00.000Z",
@@ -106,7 +106,7 @@ describe("review-workflow/findings/artifact", () => {
 
     expect(artifactPath).toContain("findings/session-123.json");
     expect(loaded?.baselineCommitSha).toBe(baseline.commitSha);
-    expect(loaded?.trackedRepoFingerprint).toBe(baseline.trackedRepoFingerprint);
+    expect(loaded?.sourceBaselineFingerprint).toBe(baseline.fingerprint);
     expect(loaded?.findings.map((finding) => finding.id)).toEqual(["F001"]);
   });
 

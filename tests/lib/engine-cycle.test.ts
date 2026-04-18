@@ -40,7 +40,6 @@ interface HarnessState {
   baselineCommitCalls: Array<{
     repoPath: string;
     sessionId: string;
-    includeUntracked?: boolean;
   }>;
   createSessionWorktreeCalls: Array<{ projectPath: string; worktreeId: string }>;
   discardSessionWorktreeCalls: GitSessionWorktree[];
@@ -56,7 +55,7 @@ const TEST_SESSION_PATH = "/tmp/session-123.jsonl";
 const TEST_WORKTREE_PATH = "/tmp/rr-worktree";
 const TEST_BASELINE_COMMIT_SHA = "baseline-sha-123";
 const TEST_SOURCE_BASELINE_COMMIT_SHA = "source-baseline-sha-123";
-const TEST_TRACKED_FINGERPRINT = "tracked-fingerprint-1";
+const TEST_SOURCE_BASELINE_FINGERPRINT = "source-baseline-fingerprint-1";
 
 function createHarnessState(): HarnessState {
   return {
@@ -164,7 +163,7 @@ function createDependencies(state: HarnessState): RunReviewCycleDeps {
     baselineRef: "refs/ralph-review/sessions/session-123/baseline",
     sourceBaselineCommitSha: TEST_SOURCE_BASELINE_COMMIT_SHA,
     sourceBaselineRef: "refs/ralph-review/sessions/session-123/source",
-    trackedRepoFingerprint: TEST_TRACKED_FINGERPRINT,
+    sourceBaselineFingerprint: TEST_SOURCE_BASELINE_FINGERPRINT,
   };
 
   return {
@@ -238,21 +237,16 @@ function createDependencies(state: HarnessState): RunReviewCycleDeps {
         snapshotDir: `${projectPath}/checkpoint-${label}`,
       };
     },
-    createBaselineCommit: (repoPath, sessionId, options) => {
+    createBaselineCommit: (repoPath, sessionId) => {
       state.operationLog.push("create-baseline-commit");
       state.baselineCommitCalls.push({
         repoPath,
         sessionId,
-        includeUntracked: options?.includeUntracked,
       });
       return {
-        commitSha: options?.includeUntracked
-          ? "reviewed-baseline-sha-456"
-          : TEST_BASELINE_COMMIT_SHA,
+        commitSha: "reviewed-baseline-sha-456",
         ref: "refs/ralph-review/sessions/session-123/baseline",
-        trackedRepoFingerprint: options?.includeUntracked
-          ? "reviewed-baseline-fingerprint"
-          : TEST_TRACKED_FINGERPRINT,
+        fingerprint: "reviewed-baseline-fingerprint",
       };
     },
     createSessionWorktree: (projectPath, worktreeId) => {
@@ -295,10 +289,10 @@ function createDependencies(state: HarnessState): RunReviewCycleDeps {
       state.savedArtifacts.push(artifact);
       return artifact;
     },
-    computeWorktreeStateFingerprintAsync: async () =>
+    computeWorkingTreeFingerprintAsync: async () =>
       state.baselineCommitCalls.length > 0
         ? "reviewed-baseline-fingerprint"
-        : TEST_TRACKED_FINGERPRINT,
+        : TEST_SOURCE_BASELINE_FINGERPRINT,
   };
 }
 
@@ -346,7 +340,9 @@ describe("runReviewCycle", () => {
     expect(state.savedArtifacts).toHaveLength(1);
     expect(state.savedArtifacts[0]?.baselineCommitSha).toBe(TEST_BASELINE_COMMIT_SHA);
     expect(state.savedArtifacts[0]?.sourceBaselineCommitSha).toBe(TEST_SOURCE_BASELINE_COMMIT_SHA);
-    expect(state.savedArtifacts[0]?.trackedRepoFingerprint).toBe(TEST_TRACKED_FINGERPRINT);
+    expect(state.savedArtifacts[0]?.sourceBaselineFingerprint).toBe(
+      TEST_SOURCE_BASELINE_FINGERPRINT
+    );
     expect(state.savedArtifacts[0]?.findings.map((finding) => finding.id)).toEqual(["F001"]);
     expect(state.savedArtifacts[0]?.selectedFindingIds).toEqual([]);
 
@@ -435,7 +431,6 @@ describe("runReviewCycle", () => {
       {
         repoPath: TEST_WORKTREE_PATH,
         sessionId: TEST_SESSION_ID,
-        includeUntracked: true,
       },
     ]);
     expect(state.operationLog.indexOf("run-agent:code-simplifier")).toBeLessThan(

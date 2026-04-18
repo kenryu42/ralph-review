@@ -39,7 +39,7 @@ function createArtifact(): FindingsArtifact {
     baselineCommitSha: "baseline-sha-123",
     sourceBaselineRef: "refs/ralph-review/sessions/session-123/source",
     sourceBaselineCommitSha: "source-baseline-sha-123",
-    trackedRepoFingerprint: "tracked-fingerprint-1",
+    sourceBaselineFingerprint: "tracked-fingerprint-1",
     findings: [
       createFinding("F001", "P0"),
       createFinding("F002", "P1"),
@@ -85,7 +85,7 @@ function createDependencies(
     headKind: "detached" as const,
     baselineCommitSha: artifact.baselineCommitSha,
     baselineRef: artifact.baselineRef,
-    trackedRepoFingerprint: artifact.trackedRepoFingerprint,
+    sourceBaselineFingerprint: artifact.sourceBaselineFingerprint,
   };
 
   return {
@@ -330,7 +330,7 @@ describe("review-workflow/remediation/runFixSession", () => {
       worktreeBranch: "rr-worktree-session-123",
       selectedFindingIds: ["F001"],
       baselineCommitSha: "baseline-sha-123",
-      trackedRepoFingerprint: "tracked-fingerprint-1",
+      sourceBaselineFingerprint: "tracked-fingerprint-1",
     });
     expect(updates).toContainEqual({
       currentPhase: "batch-fix",

@@ -233,7 +233,7 @@ export interface GitSessionWorktree {
   baselineRef?: string;
   sourceBaselineCommitSha?: string;
   sourceBaselineRef?: string;
-  trackedRepoFingerprint?: string;
+  sourceBaselineFingerprint?: string;
   finalCommitSha?: string;
   finalRef?: string;
   preserveBranchOnDiscard?: boolean;
@@ -504,12 +504,11 @@ function createCommitFromWorktreeState(
   repoPath: string,
   sessionId: string,
   options: {
-    includeUntracked?: boolean;
     message: string;
     refKind?: "baseline" | "source" | "final";
     updateRef?: boolean;
   }
-): { commitSha: string; ref?: string; treeSha: string; trackedRepoFingerprint: string } {
+): { commitSha: string; ref?: string; treeSha: string; fingerprint: string } {
   const context = `Failed to create ${options.refKind ?? "temporary"} commit`;
   const repoRoot = assertGitOk(repoPath, ["rev-parse", "--show-toplevel"], context);
   const tempIndexPath = createTemporaryIndexPath(options.refKind ?? "temp");
@@ -520,8 +519,7 @@ function createCommitFromWorktreeState(
     const env = {
       GIT_INDEX_FILE: tempIndexPath,
     };
-    const addArgs = options.includeUntracked ? ["add", "-A", "--", "."] : ["add", "-u", "--", "."];
-    assertGitOkWithEnv(repoRoot, addArgs, env, context);
+    assertGitOkWithEnv(repoRoot, ["add", "-A", "--", "."], env, context);
     const treeSha = assertGitOkWithEnv(repoRoot, ["write-tree"], env, context);
     const commitSha = createCommitFromTree(repoRoot, treeSha, options.message, context);
 
@@ -529,7 +527,7 @@ function createCommitFromWorktreeState(
       return {
         commitSha,
         treeSha,
-        trackedRepoFingerprint: treeSha,
+        fingerprint: treeSha,
       };
     }
 
@@ -540,28 +538,23 @@ function createCommitFromWorktreeState(
       commitSha,
       ref,
       treeSha,
-      trackedRepoFingerprint: treeSha,
+      fingerprint: treeSha,
     };
   } finally {
     runCommand(repoRoot, ["rm", "-f", tempIndexPath]);
   }
 }
 
-function createTrackedStateTree(
-  repoPath: string,
-  includeUntracked: boolean,
-  context: string
-): string {
+function createWorktreeStateTree(repoPath: string, context: string): string {
   const repoRoot = assertGitOk(repoPath, ["rev-parse", "--show-toplevel"], context);
-  const tempIndexPath = createTemporaryIndexPath(includeUntracked ? "worktree" : "tracked");
+  const tempIndexPath = createTemporaryIndexPath("worktree");
 
   try {
     seedTemporaryIndex(repoRoot, tempIndexPath, context);
     const env = {
       GIT_INDEX_FILE: tempIndexPath,
     };
-    const addArgs = includeUntracked ? ["add", "-A", "--", "."] : ["add", "-u", "--", "."];
-    assertGitOkWithEnv(repoRoot, addArgs, env, context);
+    assertGitOkWithEnv(repoRoot, ["add", "-A", "--", "."], env, context);
     return assertGitOkWithEnv(repoRoot, ["write-tree"], env, context);
   } finally {
     runCommand(repoRoot, ["rm", "-f", tempIndexPath]);
@@ -572,12 +565,10 @@ export function createBaselineCommit(
   repoPath: string,
   sessionId: string,
   options: {
-    includeUntracked?: boolean;
     refKind?: "baseline" | "source";
   } = {}
-): { commitSha: string; ref: string; trackedRepoFingerprint: string } {
+): { commitSha: string; ref: string; fingerprint: string } {
   const created = createCommitFromWorktreeState(repoPath, sessionId, {
-    includeUntracked: options.includeUntracked ?? false,
     message: `rr: ${options.refKind ?? "baseline"} for ${normalizeGitArtifactId(sessionId)}`,
     refKind: options.refKind ?? "baseline",
   });
@@ -589,51 +580,11 @@ export function createBaselineCommit(
   return {
     commitSha: created.commitSha,
     ref: created.ref,
-    trackedRepoFingerprint: created.trackedRepoFingerprint,
+    fingerprint: created.fingerprint,
   };
 }
 
-export function computeTrackedWorkingTreeFingerprint(repoPath: string): string {
-  return createTrackedStateTree(
-    repoPath,
-    false,
-    "Failed to fingerprint tracked working tree state"
-  );
-}
-
-async function computeTrackedWorkingTreeFingerprintAsync(repoPath: string): Promise<string> {
-  const repoRoot = assertGitOk(
-    repoPath,
-    ["rev-parse", "--show-toplevel"],
-    "Failed to resolve repository root for tracked fingerprint"
-  );
-  const tempIndexPath = createTemporaryIndexPath("tracked-async");
-
-  try {
-    seedTemporaryIndex(repoRoot, tempIndexPath, "Failed to fingerprint tracked working tree state");
-    return await assertGitOkWithEnvAsync(
-      repoRoot,
-      ["add", "-u", "--", "."],
-      {
-        GIT_INDEX_FILE: tempIndexPath,
-      },
-      "Failed to fingerprint tracked working tree state"
-    ).then(async () => {
-      return await assertGitOkWithEnvAsync(
-        repoRoot,
-        ["write-tree"],
-        {
-          GIT_INDEX_FILE: tempIndexPath,
-        },
-        "Failed to fingerprint tracked working tree state"
-      );
-    });
-  } finally {
-    runCommand(repoRoot, ["rm", "-f", tempIndexPath]);
-  }
-}
-
-export async function computeWorktreeStateFingerprintAsync(repoPath: string): Promise<string> {
+async function computeWorkingTreeFingerprintInternalAsync(repoPath: string): Promise<string> {
   const repoRoot = assertGitOk(
     repoPath,
     ["rev-parse", "--show-toplevel"],
@@ -665,11 +616,11 @@ export async function computeWorktreeStateFingerprintAsync(repoPath: string): Pr
 }
 
 export function computeWorkingTreeFingerprint(repoPath: string): string {
-  return computeTrackedWorkingTreeFingerprint(repoPath);
+  return createWorktreeStateTree(repoPath, "Failed to fingerprint worktree state");
 }
 
 export async function computeWorkingTreeFingerprintAsync(repoPath: string): Promise<string> {
-  return await computeTrackedWorkingTreeFingerprintAsync(repoPath);
+  return await computeWorkingTreeFingerprintInternalAsync(repoPath);
 }
 
 export async function createBaselineToFinalPatch(
@@ -779,7 +730,7 @@ export function createSessionWorktree(
   worktree.baselineRef = baselineRef;
   worktree.sourceBaselineCommitSha = sourceBaseline.commitSha;
   worktree.sourceBaselineRef = sourceBaseline.ref;
-  worktree.trackedRepoFingerprint = sourceBaseline.trackedRepoFingerprint;
+  worktree.sourceBaselineFingerprint = sourceBaseline.fingerprint;
   return worktree;
 }
 

@@ -6,7 +6,7 @@ import type { StoredFinding } from "@/lib/review-workflow/findings/types";
 const defaultReviewPrompt: string = defaultReviewPromptContent;
 
 const UNCOMMITTED_PROMPT =
-  "Review the current tracked code changes (committed, staged, and unstaged tracked files only) and provide prioritized findings. Ignore untracked files.";
+  "Review the current code changes (staged, unstaged, and untracked files) and provide prioritized findings.";
 
 const BASE_BRANCH_PROMPT = (baseBranch: string, mergeBaseSha: string) =>
   `Review the code changes against the base branch '${baseBranch}'. The merge base commit for this comparison is ${mergeBaseSha}. Run \`git diff ${mergeBaseSha}\` to inspect the changes relative to ${baseBranch}. Provide prioritized, actionable findings.`;
@@ -86,7 +86,7 @@ function buildDiscoveryContext(options: DiscoveryReviewerPromptOptions): string[
   const lines = [
     `Review the session worktree checked out at baseline commit \`${options.baselineCommitSha}\`.`,
     "Treat the baseline commit as immutable source-of-truth input for discovery.",
-    "Only tracked files and committed/staged/unstaged modifications are in scope. Untracked files in the source repo are not reviewed or shipped.",
+    "Tracked files, staged/unstaged modifications, and untracked files are in scope unless Git ignores them.",
     "Report only net-new actionable findings that are not already present in the known-finding inventory.",
     'If there are no net-new actionable findings, return `"findings": []` with a valid overall summary instead of repeating earlier findings.',
   ];

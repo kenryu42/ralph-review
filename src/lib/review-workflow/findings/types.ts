@@ -38,7 +38,7 @@ export interface FindingsArtifact {
   baselineCommitSha: string;
   sourceBaselineRef: string;
   sourceBaselineCommitSha: string;
-  trackedRepoFingerprint: string;
+  sourceBaselineFingerprint: string;
   finalRef?: string;
   finalCommitSha?: string;
   findings: StoredFinding[];

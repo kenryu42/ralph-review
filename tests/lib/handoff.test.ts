@@ -188,6 +188,31 @@ describe("handoff", () => {
     }
   });
 
+  test("persists a pending handoff when an untracked source path collides with a remediation add", async () => {
+    const worktree = createSessionWorktree(repoPath, "session-untracked-collision", storageRoot);
+
+    try {
+      await writeFile(join(worktree.worktreeProjectPath, "new.txt"), "from remediation\n");
+      await writeFile(join(repoPath, "new.txt"), "user untracked file\n");
+
+      const handoff = await createOrAutoApplyHandoff(storageRoot, {
+        sessionId: "session-untracked-collision",
+        projectPath: repoPath,
+        logPath: join(repoPath, ".ralph-review", "logs", "session-untracked-collision.jsonl"),
+        worktree,
+      });
+
+      expect(handoff?.handoffStatus).toBe("pending-apply");
+      expect(await Bun.file(join(repoPath, "new.txt")).text()).toBe("user untracked file\n");
+
+      const pending = await listProjectPendingHandoffs(storageRoot, repoPath);
+      expect(pending).toHaveLength(1);
+      expect(pending[0]?.sessionId).toBe("session-untracked-collision");
+    } finally {
+      discardSessionWorktree(worktree);
+    }
+  });
+
   test("auto-applies in sha256 repositories when the source repo still matches the session baseline", async () => {
     await rm(repoPath, { recursive: true, force: true });
     repoPath = await mkdtemp(join(tmpdir(), "ralph-handoff-sha256-repo-"));

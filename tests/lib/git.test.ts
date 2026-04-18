@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   applyBinaryPatch,
-  computeTrackedWorkingTreeFingerprint,
+  computeWorkingTreeFingerprint,
   createBaselineCommit,
   createBaselineToFinalPatch,
   createCheckpoint,
@@ -424,7 +424,7 @@ describe("session worktree management", () => {
     await rm(tempDir, { recursive: true, force: true });
   });
 
-  test("creates a tracked-only baseline worktree from dirty repository state", async () => {
+  test("creates a baseline worktree from dirty repository state including non-ignored untracked files", async () => {
     initTestRepo(tempDir);
     commit(tempDir, "base.txt", "base commit");
     await Bun.write(join(tempDir, ".gitignore"), ".env\n");
@@ -450,13 +450,11 @@ describe("session worktree management", () => {
       "base with unstaged changes"
     );
     expect(await Bun.file(join(worktree.worktreeProjectPath, "staged.txt")).exists()).toBe(true);
-    expect(await Bun.file(join(worktree.worktreeProjectPath, "untracked.txt")).exists()).toBe(
-      false
-    );
+    expect(await Bun.file(join(worktree.worktreeProjectPath, "untracked.txt")).exists()).toBe(true);
     expect(await Bun.file(join(worktree.worktreeProjectPath, ".env")).exists()).toBe(false);
     expect(worktree.baselineCommitSha).toBeString();
     expect(worktree.baselineRef).toBeString();
-    expect(worktree.trackedRepoFingerprint).toBeString();
+    expect(worktree.sourceBaselineFingerprint).toBeString();
 
     const worktreeStatus = runGitStdout(worktree.worktreeProjectPath, ["status", "--porcelain"]);
     expect(worktreeStatus).toBe("");
@@ -470,19 +468,27 @@ describe("session worktree management", () => {
     expect(await Bun.file(join(worktree.worktreeProjectPath, "late.txt")).exists()).toBe(false);
   });
 
-  test("computes tracked fingerprints without considering untracked files", async () => {
+  test("computes review-scope fingerprints including non-ignored untracked files but excluding ignored files", async () => {
     initTestRepo(tempDir);
     commit(tempDir, "base.txt", "base commit");
-    const fingerprintBefore = computeTrackedWorkingTreeFingerprint(tempDir);
+    await Bun.write(join(tempDir, ".gitignore"), ".env\n");
+    runGitIn(tempDir, ["add", ".gitignore"]);
+    runGitIn(tempDir, ["commit", "-m", "add ignore rule"]);
+
+    const fingerprintBefore = computeWorkingTreeFingerprint(tempDir);
 
     await Bun.write(join(tempDir, "note.txt"), "untracked content");
-    expect(computeTrackedWorkingTreeFingerprint(tempDir)).toBe(fingerprintBefore);
+    expect(computeWorkingTreeFingerprint(tempDir)).not.toBe(fingerprintBefore);
+
+    const fingerprintWithNote = computeWorkingTreeFingerprint(tempDir);
+    await Bun.write(join(tempDir, ".env"), "ignored content");
+    expect(computeWorkingTreeFingerprint(tempDir)).toBe(fingerprintWithNote);
 
     await Bun.write(join(tempDir, "base.txt"), "tracked change");
-    expect(computeTrackedWorkingTreeFingerprint(tempDir)).not.toBe(fingerprintBefore);
+    expect(computeWorkingTreeFingerprint(tempDir)).not.toBe(fingerprintWithNote);
   });
 
-  test("creates a baseline commit from tracked staged and unstaged content only", async () => {
+  test("creates a baseline commit from tracked, staged, unstaged, and non-ignored untracked content", async () => {
     initTestRepo(tempDir);
     commit(tempDir, "base.txt", "base commit");
     await Bun.write(join(tempDir, "base.txt"), "unstaged tracked content");
@@ -514,8 +520,8 @@ describe("session worktree management", () => {
     );
     expect(
       await Bun.file(join(baselineWorktree.worktreeProjectPath, "untracked.txt")).exists()
-    ).toBe(false);
-    expect(baseline.trackedRepoFingerprint).toBe(computeTrackedWorkingTreeFingerprint(tempDir));
+    ).toBe(true);
+    expect(baseline.fingerprint).toBe(computeWorkingTreeFingerprint(tempDir));
   });
 
   test("finalizes a detached worktree onto a retained branch and removes it cleanly", async () => {
@@ -640,7 +646,7 @@ describe("session worktree management", () => {
     }
   });
 
-  test("creates a tracked-only baseline worktree for an unborn repository", async () => {
+  test("creates a baseline worktree for an unborn repository including non-ignored untracked files", async () => {
     initTestRepo(tempDir);
 
     await Bun.write(join(tempDir, "staged.txt"), "staged content");
@@ -665,9 +671,7 @@ describe("session worktree management", () => {
     expect(await Bun.file(join(worktree.worktreeProjectPath, "mixed.txt")).text()).toBe(
       "staged snapshot plus unstaged change"
     );
-    expect(await Bun.file(join(worktree.worktreeProjectPath, "untracked.txt")).exists()).toBe(
-      false
-    );
+    expect(await Bun.file(join(worktree.worktreeProjectPath, "untracked.txt")).exists()).toBe(true);
   });
 
   test("includes cleanup failure details when worktree creation cleanup also fails", async () => {

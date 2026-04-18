@@ -35,7 +35,7 @@ function createArtifact(findings: StoredFinding[]): FindingsArtifact {
     baselineCommitSha: "baseline-sha-123",
     sourceBaselineRef: "refs/ralph-review/sessions/session-123/source",
     sourceBaselineCommitSha: "source-baseline-sha-123",
-    trackedRepoFingerprint: "tracked-fingerprint-1",
+    sourceBaselineFingerprint: "tracked-fingerprint-1",
     findings,
     selectedFindingIds: [],
     createdAt: "2026-01-01T00:00:00.000Z",

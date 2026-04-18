@@ -33,7 +33,7 @@ function createPendingHandoff(
     logPath: `${projectPath}/.ralph-review/logs/session.jsonl`,
     hiddenRef: "refs/ralph-review/sessions/session-id/final",
     patchPath: `${projectPath}/.ralph-review/handoffs/session-id.patch`,
-    trackedRepoFingerprint: "fingerprint-1",
+    sourceBaselineFingerprint: "fingerprint-1",
     commitSha: "commit-sha-1",
     state: "pending-apply",
     createdAt: 1,

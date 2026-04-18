@@ -158,8 +158,8 @@ function isFindingsArtifact(value: unknown): value is FindingsArtifact {
   }
 
   if (
-    typeof value.trackedRepoFingerprint !== "string" ||
-    value.trackedRepoFingerprint.trim().length === 0
+    typeof value.sourceBaselineFingerprint !== "string" ||
+    value.sourceBaselineFingerprint.trim().length === 0
   ) {
     return false;
   }

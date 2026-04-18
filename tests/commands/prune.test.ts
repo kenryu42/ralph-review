@@ -65,7 +65,7 @@ function createArtifact(repoPath: string, sessionId: string, updatedAt: string):
     baselineCommitSha: "baseline-sha-123",
     sourceBaselineRef: `refs/ralph-review/sessions/${normalizedSessionId}/source`,
     sourceBaselineCommitSha: "source-baseline-sha-123",
-    trackedRepoFingerprint: "tracked-fingerprint-1",
+    sourceBaselineFingerprint: "tracked-fingerprint-1",
     findings: [createFinding("F001")],
     selectedFindingIds: [],
     createdAt: "2026-01-01T00:00:00.000Z",
@@ -96,7 +96,7 @@ async function writeArchivedHandoff(
         sourceRepoPath: repoPath,
         logPath: join(repoPath, ".ralph-review", "logs", `${sessionId}.jsonl`),
         patchPath,
-        trackedRepoFingerprint: "tracked-fingerprint-1",
+        sourceBaselineFingerprint: "tracked-fingerprint-1",
         appliedFingerprint: "tracked-fingerprint-2",
         commitSha: "commit-sha-1",
         appliedVia: "manual",
@@ -127,7 +127,7 @@ async function listArchivedFromStorage(
     sourceRepoPath: string;
     logPath: string;
     patchPath: string;
-    trackedRepoFingerprint: string;
+    sourceBaselineFingerprint: string;
     appliedFingerprint: string;
     commitSha: string;
     appliedVia: "auto" | "manual";
@@ -142,7 +142,7 @@ async function listArchivedFromStorage(
     sourceRepoPath: string;
     logPath: string;
     patchPath: string;
-    trackedRepoFingerprint: string;
+    sourceBaselineFingerprint: string;
     appliedFingerprint: string;
     commitSha: string;
     appliedVia: "auto" | "manual";

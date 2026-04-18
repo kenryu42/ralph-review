@@ -80,7 +80,8 @@ describe("createReviewerPrompt", () => {
   test("defaults to uncommitted review instructions", () => {
     const prompt = createReviewerPrompt({ repoPath: REPO_PATH });
 
-    expect(prompt).toContain("committed, staged, and unstaged tracked files only");
+    expect(prompt).toContain("staged, unstaged, and untracked files");
+    expect(prompt).not.toContain("Ignore untracked files.");
     expectStructuredOutputProtocol(prompt);
   });
 });
@@ -94,7 +95,8 @@ describe("createDiscoveryReviewerPrompt", () => {
     });
 
     expect(prompt).not.toContain("# Review guidelines:");
-    expect(prompt).toContain("committed, staged, and unstaged tracked files only");
+    expect(prompt).toContain("staged, unstaged, and untracked files");
+    expect(prompt).toContain("Git ignores");
     expectStructuredOutputProtocol(prompt);
   });
 
@@ -104,8 +106,9 @@ describe("createDiscoveryReviewerPrompt", () => {
       baselineCommitSha: "baseline-sha-123",
     });
 
-    expect(prompt).toContain("committed, staged, and unstaged tracked files only");
+    expect(prompt).toContain("staged, unstaged, and untracked files");
     expect(prompt).toContain("baseline-sha-123");
+    expect(prompt).toContain("unless Git ignores them");
     expectStructuredOutputProtocol(prompt);
   });
 
