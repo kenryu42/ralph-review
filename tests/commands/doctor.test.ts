@@ -102,7 +102,7 @@ describe("doctor command", () => {
         category: "agents",
         title: "opencode capability probe",
         severity: "warning",
-        summary: "Model discovery probe returned warnings.",
+        summary: "Model review probe returned warnings.",
         remediation: [],
       },
     ]);
@@ -251,7 +251,7 @@ describe("doctor command", () => {
         category: "agents",
         title: "opencode capability probe",
         severity: "warning",
-        summary: "Model discovery probe returned warnings.",
+        summary: "Model review probe returned warnings.",
         remediation: ["Run: codex --version"],
       },
     ]);
@@ -260,7 +260,7 @@ describe("doctor command", () => {
     await runDoctor([], runtime.overrides);
 
     const agentsNote = runtime.notes.find((entry) => entry.title === "🤖 Agents");
-    expect(agentsNote?.body).toContain("✅ codex\n\n⚠️ Model discovery probe returned warnings.");
+    expect(agentsNote?.body).toContain("✅ codex\n\n⚠️ Model review probe returned warnings.");
   });
 
   test("stops spinner even when runDiagnostics throws", async () => {
@@ -506,7 +506,7 @@ describe("doctor --fix", () => {
         category: "config",
         title: "Reviewer model verification",
         severity: "error",
-        summary: "Configured model could not be verified because live model discovery failed.",
+        summary: "Configured model could not be verified because live model review failed.",
         remediation: ["Run: rr init", "Then run: rr doctor --fix"],
       },
     ]);

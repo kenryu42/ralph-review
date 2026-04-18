@@ -247,7 +247,7 @@ describe("session-state", () => {
       sessionId: "session-workflow",
       branch: "main",
       state: "running",
-      currentPhase: "discovery",
+      currentPhase: "review",
       sessionStatus: "running",
       artifactPath: "/tmp/findings/session-workflow.json",
       baselineCommitSha: "baseline-sha-123",
