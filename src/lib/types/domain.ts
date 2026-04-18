@@ -4,7 +4,7 @@ export type Priority = "P0" | "P1" | "P2" | "P3";
 export type FixDecision = "NO_CHANGES_NEEDED" | "APPLY_SELECTIVELY" | "APPLY_MOST";
 export type OverallCorrectness = "patch is correct" | "patch is incorrect";
 
-export type ReviewPhase = "discovery" | "selection" | "batch-fix" | "complete";
+export type ReviewPhase = "review" | "selection" | "batch-fix" | "complete";
 
 export type SessionStatus = "running" | "pending-user" | "completed" | "failed" | "interrupted";
 

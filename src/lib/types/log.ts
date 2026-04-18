@@ -66,11 +66,11 @@ export interface HandoffEntry {
   commitSha?: string;
 }
 
-export interface DiscoveryIterationEntry {
-  type: "discovery_iteration";
+export interface ReviewIterationEntry {
+  type: "review_iteration";
   timestamp: number;
   iteration: number;
-  phase: Extract<ReviewPhase, "discovery">;
+  phase: Extract<ReviewPhase, "review">;
   sessionStatus: SessionStatus;
   duration?: number;
   findings: StoredFinding[];
@@ -130,7 +130,7 @@ export interface SessionSummary {
 export type LogEntry =
   | SystemEntry
   | IterationEntry
-  | DiscoveryIterationEntry
+  | ReviewIterationEntry
   | FindingSelectionEntry
   | BatchFixEntry
   | SessionEndEntry

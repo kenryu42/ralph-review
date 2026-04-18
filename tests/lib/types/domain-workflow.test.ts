@@ -10,7 +10,7 @@ describe("workflow domain types", () => {
   });
 
   test("supports review phases and workflow session statuses", () => {
-    const phases: ReviewPhase[] = ["discovery", "selection", "batch-fix", "complete"];
+    const phases: ReviewPhase[] = ["review", "selection", "batch-fix", "complete"];
     const statuses: SessionStatus[] = [
       "running",
       "pending-user",
