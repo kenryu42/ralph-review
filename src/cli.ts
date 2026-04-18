@@ -11,6 +11,7 @@ import { runFix, runFixForeground } from "./commands/fix";
 import { runInit } from "./commands/init";
 import { runList } from "./commands/list";
 import { runLog } from "./commands/log";
+import { runPrune } from "./commands/prune";
 import { runReapply } from "./commands/reapply";
 import { runRevert } from "./commands/revert";
 import { runForeground, startReview } from "./commands/run";
@@ -50,6 +51,7 @@ export interface CliDeps {
   runStatus: typeof runStatus;
   runStop: typeof runStop;
   runLog: typeof runLog;
+  runPrune: typeof runPrune;
   runDashboard: typeof runDashboard;
   runDoctor: typeof runDoctor;
   runList: typeof runList;
@@ -88,6 +90,7 @@ const DEFAULT_CLI_DEPS: CliDeps = {
   runStatus,
   runStop,
   runLog,
+  runPrune,
   runDashboard,
   runDoctor,
   runList,
@@ -222,6 +225,10 @@ export async function runCli(
 
       case "log":
         await cliDeps.runLog(commandArgs);
+        break;
+
+      case "prune":
+        await cliDeps.runPrune(commandArgs);
         break;
 
       case "dashboard":

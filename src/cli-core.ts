@@ -261,6 +261,45 @@ export const COMMANDS: CommandDef[] = [
     examples: ["rr log", "rr log -n 5", "rr log --json", "rr log --json --global"],
   },
   {
+    name: "prune",
+    description: "Prune orphaned or applied review session artifacts",
+    options: [
+      {
+        name: "apply",
+        type: "boolean",
+        description: "Delete the prunable session artifacts instead of listing them",
+      },
+      {
+        name: "session",
+        alias: "s",
+        type: "string",
+        description: "Only inspect a specific session id",
+      },
+      {
+        name: "older-than",
+        type: "string",
+        placeholder: "14d",
+        description: "Only include prunable sessions older than the given age",
+      },
+      {
+        name: "all-projects",
+        type: "boolean",
+        description: "Inspect review storage across all projects under ~/.config/ralph-review",
+      },
+      {
+        name: "force",
+        type: "boolean",
+        description: "Allow destructive pruning of archived history for the targeted session",
+      },
+    ],
+    examples: [
+      "rr prune",
+      "rr prune --apply",
+      "rr prune --session session-123 --force --apply",
+      "rr prune --older-than 14d",
+    ],
+  },
+  {
     name: "dashboard",
     description: "Open review dashboard in browser",
     examples: ["rr dashboard"],
