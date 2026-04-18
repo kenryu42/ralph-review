@@ -8,11 +8,9 @@ import {
   type RetainedSessionWorktree,
 } from "@/lib/git";
 import { appendLog } from "@/lib/logging";
-import { runFinalAuditPhase } from "@/lib/review-workflow/audit/run-final-audit-phase";
 import {
   appendFixResults,
   loadFindingsArtifactBySessionId,
-  updateAuditSummary,
   updateSelection,
   validateArtifactBaseline,
 } from "@/lib/review-workflow/findings/artifact";
@@ -51,10 +49,6 @@ export interface RunFixSessionDependencies {
     options: Parameters<typeof runBatchFixPhase>[0]
   ) => Promise<Awaited<ReturnType<typeof runBatchFixPhase>>>;
   appendFixResults: typeof appendFixResults;
-  runFinalAuditPhase: (
-    options: Parameters<typeof runFinalAuditPhase>[0]
-  ) => Promise<Awaited<ReturnType<typeof runFinalAuditPhase>>>;
-  updateAuditSummary: typeof updateAuditSummary;
   finalizeResult: typeof finalizeResult;
   finalizeSessionWorktree: typeof finalizeSessionWorktree;
   discardSessionWorktree: typeof discardSessionWorktree;
@@ -87,8 +81,6 @@ const DEFAULT_RUN_FIX_SESSION_DEPENDENCIES: RunFixSessionDependencies = {
   promptForSelection: defaultPromptForSelection,
   runBatchFixPhase,
   appendFixResults,
-  runFinalAuditPhase,
-  updateAuditSummary,
   finalizeResult,
   finalizeSessionWorktree,
   discardSessionWorktree,
@@ -224,12 +216,6 @@ async function emitProgress(
   await onProgress?.(updates);
 }
 
-function isStructuredJsonError(error: unknown): boolean {
-  return (
-    error instanceof Error && error.message === "Structured JSON output was missing or invalid."
-  );
-}
-
 export async function runFixSession(
   config: Config,
   options: RunFixSessionOptions,
@@ -242,7 +228,6 @@ export async function runFixSession(
   let phase: ReviewPhase = "selection";
   let selection = emptySelection();
   let fixResults: FixSessionResult["fixResults"] = [];
-  let audit: FixSessionResult["audit"];
   let retainedWorktree: RetainedSessionWorktree | undefined;
   let result = buildResult({
     reason: `Findings artifact not found for session ${options.sessionId}.`,
@@ -269,7 +254,6 @@ export async function runFixSession(
         currentAgent: null,
         selectedFindingIds: result.selection.selectedFindingIds,
         reviewOutcome: result.reviewOutcome,
-        latestAudit: result.audit,
         handoffStatus: result.handoffStatus,
         handoffUpdatedAt: result.handoffUpdatedAt,
         commitSha: result.commitSha,
@@ -293,7 +277,6 @@ export async function runFixSession(
         currentAgent: null,
         selectedFindingIds: result.selection.selectedFindingIds,
         reviewOutcome: result.reviewOutcome,
-        latestAudit: result.audit,
         handoffStatus: result.handoffStatus,
         handoffUpdatedAt: result.handoffUpdatedAt,
         commitSha: result.commitSha,
@@ -340,7 +323,6 @@ export async function runFixSession(
         currentAgent: null,
         selectedFindingIds: result.selection.selectedFindingIds,
         reviewOutcome: result.reviewOutcome,
-        latestAudit: result.audit,
         handoffStatus: result.handoffStatus,
         handoffUpdatedAt: result.handoffUpdatedAt,
         commitSha: result.commitSha,
@@ -396,44 +378,34 @@ export async function runFixSession(
     );
     artifactForResult = artifactWithFixResults;
 
-    phase = "final-audit";
-    await emitProgress(options.onProgress, {
-      currentPhase: "final-audit",
-      phase: "final-audit",
-      sessionStatus: "running",
-      currentAgent: "reviewer",
-      selectedFindingIds: resolvedSelection.selection.selectedFindingIds,
-    });
-    const auditPhase = await deps.runFinalAuditPhase({
-      config,
+    result = await deps.finalizeResult({
       artifact: artifactWithFixResults,
       selection: resolvedSelection.selection,
-      worktree,
-    });
-    audit = auditPhase.summary;
-
-    const artifactWithAudit = await deps.updateAuditSummary(
-      CONFIG_DIR,
-      artifact.projectPath,
-      artifact.sessionId,
-      auditPhase.summary
-    );
-    artifactForResult = artifactWithAudit;
-
-    result = await deps.finalizeResult({
-      artifact: artifactWithAudit,
-      selection: resolvedSelection.selection,
       fixResults: batchFix.fixResults,
-      audit: auditPhase.summary,
       worktree,
     });
+
+    if (result.reviewOutcome === "incomplete") {
+      try {
+        retainedWorktree = deps.finalizeSessionWorktree(worktree) ?? undefined;
+        if (retainedWorktree) {
+          shouldDiscardWorktree = false;
+          result = {
+            ...result,
+            retainedWorktree,
+          };
+        }
+      } catch {
+        retainedWorktree = undefined;
+      }
+    }
+
     await emitProgress(options.onProgress, {
       currentPhase: result.phase,
       phase: result.phase,
       sessionStatus: result.sessionStatus,
       currentAgent: null,
       selectedFindingIds: result.selection.selectedFindingIds,
-      latestAudit: result.audit,
       reviewOutcome: result.reviewOutcome,
       handoffStatus: result.handoffStatus,
       handoffUpdatedAt: result.handoffUpdatedAt,
@@ -446,28 +418,21 @@ export async function runFixSession(
     return result;
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
-    if (worktree && phase === "final-audit" && isStructuredJsonError(error)) {
-      try {
-        retainedWorktree = deps.finalizeSessionWorktree(worktree) ?? undefined;
-        if (retainedWorktree) {
-          shouldDiscardWorktree = false;
-        }
-      } catch {
-        retainedWorktree = undefined;
-      }
-    }
-
     const resultArtifact = artifactForResult ?? artifact ?? undefined;
+    const unresolvedFindingIds = new Set(
+      fixResults
+        .filter((fixResult) => fixResult.status === "unresolved")
+        .map((fixResult) => fixResult.findingId)
+    );
     result = buildResult({
       artifact: resultArtifact,
       phase,
       reason,
       selection,
       fixResults,
-      audit,
       retainedWorktree,
-      unresolvedSelectedFindings: selection.selectedFindings.filter(
-        (finding) => audit?.unresolvedFindingIds.includes(finding.id) === true
+      unresolvedSelectedFindings: selection.selectedFindings.filter((finding) =>
+        unresolvedFindingIds.has(finding.id)
       ),
       unselectedFindings:
         resultArtifact?.findings.filter(
@@ -480,7 +445,6 @@ export async function runFixSession(
       sessionStatus: result.sessionStatus,
       currentAgent: null,
       selectedFindingIds: result.selection.selectedFindingIds,
-      latestAudit: result.audit,
       reviewOutcome: result.reviewOutcome,
       handoffStatus: result.handoffStatus,
       handoffUpdatedAt: result.handoffUpdatedAt,

@@ -16,7 +16,7 @@ export interface IterationResult {
 }
 
 export interface IterationError {
-  phase: "reviewer" | "fixer" | "code-simplifier";
+  phase: "reviewer" | "fixer";
   message: string;
   exitCode?: number;
 }
@@ -25,6 +25,5 @@ export interface ReviewOptions {
   baseBranch?: string;
   commitSha?: string;
   customInstructions?: string;
-  simplifier?: boolean;
   forceMaxIterations?: boolean;
 }

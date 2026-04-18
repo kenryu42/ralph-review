@@ -13,7 +13,6 @@ import {
   createFixerSummaryRetryReminder,
   createReviewerSummaryRetryReminder,
 } from "@/lib/prompts/protocol";
-import { createCodeSimplifierPrompt } from "@/lib/prompts/simplifier";
 import {
   createDiscoveryReviewerPrompt,
   createReviewerPrompt,
@@ -55,7 +54,6 @@ export interface RunReviewCycleDependencies extends RunDiscoverySessionDependenc
 
 const DEFAULT_RUN_REVIEW_CYCLE_DEPENDENCIES: RunReviewCycleDependencies = {
   ...DEFAULT_RUN_DISCOVERY_SESSION_DEPENDENCIES,
-  createCodeSimplifierPrompt,
   createDiscoveryReviewerPrompt,
   createFixerPrompt,
   createFixerSummaryRetryReminder,

@@ -4,25 +4,13 @@ import type { ReviewOutcome, ReviewPhase, SessionStatus } from "@/lib/types";
 
 describe("workflow domain types", () => {
   test("supports batch-first review outcomes", () => {
-    const outcomes: ReviewOutcome[] = [
-      "clean",
-      "findings-pending",
-      "fixed-selected",
-      "audit-regressions",
-      "incomplete",
-    ];
+    const outcomes: ReviewOutcome[] = ["clean", "findings-pending", "fixed-selected", "incomplete"];
 
-    expect(outcomes).toHaveLength(5);
+    expect(outcomes).toHaveLength(4);
   });
 
   test("supports review phases and workflow session statuses", () => {
-    const phases: ReviewPhase[] = [
-      "discovery",
-      "selection",
-      "batch-fix",
-      "final-audit",
-      "complete",
-    ];
+    const phases: ReviewPhase[] = ["discovery", "selection", "batch-fix", "complete"];
     const statuses: SessionStatus[] = [
       "running",
       "pending-user",
@@ -31,7 +19,7 @@ describe("workflow domain types", () => {
       "interrupted",
     ];
 
-    expect(phases).toHaveLength(5);
+    expect(phases).toHaveLength(4);
     expect(statuses).toHaveLength(5);
   });
 

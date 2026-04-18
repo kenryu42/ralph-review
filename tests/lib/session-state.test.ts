@@ -254,36 +254,23 @@ describe("session-state", () => {
       sourceBaselineFingerprint: "fingerprint-1",
       accumulatedFindings: [createStoredFinding("F001", "P0")],
       selectedFindingIds: ["F001"],
-      latestAudit: {
-        resolvedFindingIds: [],
-        unresolvedFindingIds: ["F001"],
-        regressionFindings: [],
-      },
     });
 
     await updateSessionState(tempLogsDir, projectPath, "session-workflow", {
-      currentPhase: "final-audit",
+      currentPhase: "complete",
       sessionStatus: "completed",
       selectedFindingIds: ["F001", "F002"],
-      latestAudit: {
-        resolvedFindingIds: ["F001"],
-        unresolvedFindingIds: ["F002"],
-        regressionFindings: [createStoredFinding("F010", "P1")],
-      },
     });
 
     const session = await readSessionState(tempLogsDir, projectPath, "session-workflow");
 
-    expect(session?.currentPhase).toBe("final-audit");
+    expect(session?.currentPhase).toBe("complete");
     expect(session?.sessionStatus).toBe("completed");
     expect(session?.artifactPath).toBe("/tmp/findings/session-workflow.json");
     expect(session?.baselineCommitSha).toBe("baseline-sha-123");
     expect(session?.sourceBaselineFingerprint).toBe("fingerprint-1");
     expect(session?.accumulatedFindings?.map((finding) => finding.id)).toEqual(["F001"]);
     expect(session?.selectedFindingIds).toEqual(["F001", "F002"]);
-    expect(session?.latestAudit?.resolvedFindingIds).toEqual(["F001"]);
-    expect(session?.latestAudit?.unresolvedFindingIds).toEqual(["F002"]);
-    expect(session?.latestAudit?.regressionFindings.map((finding) => finding.id)).toEqual(["F010"]);
   });
 
   test("removes fields when updateSessionState receives undefined values", async () => {
