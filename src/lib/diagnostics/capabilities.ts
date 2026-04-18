@@ -8,17 +8,17 @@ import { AGENTS } from "@/lib/agents/registry";
 import type { AgentType } from "@/lib/types";
 import type { AgentCapabilitiesMap, AgentCapability, AgentModelInfo } from "./types";
 
-export interface CapabilityDiscoveryDependencies {
+export interface CapabilityReviewDependencies {
   fetchOpencodeModels?: () => Promise<{ value: string; label: string }[]>;
   fetchPiModels?: () => Promise<{ provider: string; model: string }[]>;
 }
 
-export interface CapabilityDiscoveryOptions {
+export interface CapabilityReviewOptions {
   availabilityOverride?: Partial<Record<AgentType, boolean>>;
   cacheNamespace?: string;
   forceRefresh?: boolean;
   probeAgents?: AgentType[];
-  deps?: CapabilityDiscoveryDependencies;
+  deps?: CapabilityReviewDependencies;
 }
 
 const AGENT_ORDER: readonly AgentType[] = ["codex", "claude", "opencode", "droid", "gemini", "pi"];
@@ -145,9 +145,9 @@ function createUninstalledCapability(agent: AgentType): AgentCapability {
   };
 }
 
-async function discoverDynamicCapability(
+async function reviewDynamicCapability(
   agent: Extract<AgentType, "opencode" | "pi">,
-  deps: CapabilityDiscoveryDependencies
+  deps: CapabilityReviewDependencies
 ): Promise<AgentCapability> {
   const command = getAgentCommand(agent);
 
@@ -186,7 +186,7 @@ async function discoverDynamicCapability(
   }
 }
 
-function discoverStaticCapability(agent: Exclude<AgentType, "opencode" | "pi">): AgentCapability {
+function reviewStaticCapability(agent: Exclude<AgentType, "opencode" | "pi">): AgentCapability {
   return {
     agent,
     command: getAgentCommand(agent),
@@ -210,12 +210,12 @@ function createDynamicProbeSkippedCapability(
   };
 }
 
-export function clearCapabilityDiscoveryCache(): void {
+export function clearCapabilityReviewCache(): void {
   capabilityCache.clear();
 }
 
-export async function discoverAgentCapabilities(
-  options: CapabilityDiscoveryOptions = {}
+export async function reviewAgentCapabilities(
+  options: CapabilityReviewOptions = {}
 ): Promise<AgentCapabilitiesMap> {
   const result: Partial<AgentCapabilitiesMap> = {};
   const namespace = options.cacheNamespace ?? "default";
@@ -251,9 +251,9 @@ export async function discoverAgentCapabilities(
       capability =
         probeMode === "skip"
           ? createDynamicProbeSkippedCapability(agent)
-          : await discoverDynamicCapability(agent, deps);
+          : await reviewDynamicCapability(agent, deps);
     } else {
-      capability = discoverStaticCapability(agent);
+      capability = reviewStaticCapability(agent);
     }
 
     capabilityCache.set(cacheKey, capability);

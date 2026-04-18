@@ -1,7 +1,7 @@
 export {
-  clearCapabilityDiscoveryCache,
-  discoverAgentCapabilities,
+  clearCapabilityReviewCache,
   parsePiListModelsOutput,
+  reviewAgentCapabilities,
 } from "./capabilities";
 export { runDiagnostics } from "./checks";
 export { collectIssueItems } from "./format";

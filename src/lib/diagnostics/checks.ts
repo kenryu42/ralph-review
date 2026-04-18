@@ -1,7 +1,7 @@
 import { configExists, loadConfig, loadEffectiveConfigWithDiagnostics } from "@/lib/config";
 import { isTmuxInstalled } from "@/lib/tmux";
 import { type AgentSettings, type Config, isAgentType } from "@/lib/types";
-import { type CapabilityDiscoveryOptions, discoverAgentCapabilities } from "./capabilities";
+import { type CapabilityReviewOptions, reviewAgentCapabilities } from "./capabilities";
 import { isFixable } from "./remediation";
 import { resolveTmuxInstallGuidance } from "./tmux-install";
 import type {
@@ -15,9 +15,7 @@ interface RunDiagnosticsDependencies {
   configExists?: typeof configExists;
   loadConfig?: typeof loadConfig;
   loadEffectiveConfigWithDiagnostics?: typeof loadEffectiveConfigWithDiagnostics;
-  discoverAgentCapabilities?: (
-    options?: CapabilityDiscoveryOptions
-  ) => Promise<AgentCapabilitiesMap>;
+  reviewAgentCapabilities?: (options?: CapabilityReviewOptions) => Promise<AgentCapabilitiesMap>;
   isGitRepository?: (path: string) => Promise<boolean>;
   hasUncommittedChanges?: (path: string) => Promise<boolean>;
   gitRefExists?: (path: string, ref: string) => Promise<boolean>;
@@ -35,7 +33,7 @@ export interface RunDiagnosticsOptions {
   commitSha?: string;
   customInstructions?: string;
   capabilitiesByAgent?: AgentCapabilitiesMap;
-  capabilityDiscoveryOptions?: CapabilityDiscoveryOptions;
+  capabilityReviewOptions?: CapabilityReviewOptions;
   dependencies?: RunDiagnosticsDependencies;
 }
 
@@ -103,7 +101,7 @@ function summarizeAvailableModels(
 ): string {
   const capability = capabilities[settings.agent];
   if (!capability || capability.models.length === 0) {
-    return "No models discovered.";
+    return "No models found.";
   }
 
   const topModels = capability.models.slice(0, 5).map((entry) => {
@@ -181,7 +179,7 @@ export async function runDiagnostics(
   const resolveLoadConfig = deps.loadConfig ?? loadConfig;
   const resolveLoadEffectiveConfigWithDiagnostics =
     deps.loadEffectiveConfigWithDiagnostics ?? loadEffectiveConfigWithDiagnostics;
-  const resolveCapabilityDiscovery = deps.discoverAgentCapabilities ?? discoverAgentCapabilities;
+  const resolveCapabilityReview = deps.reviewAgentCapabilities ?? reviewAgentCapabilities;
   const resolveIsGitRepo = deps.isGitRepository ?? isGitRepository;
   const resolveHasChanges = deps.hasUncommittedChanges ?? hasGitUncommittedChanges;
   const resolveGitRefExists = deps.gitRefExists ?? hasGitRef;
@@ -194,8 +192,7 @@ export async function runDiagnostics(
   });
 
   const capabilitiesByAgent =
-    options.capabilitiesByAgent ??
-    (await resolveCapabilityDiscovery(options.capabilityDiscoveryOptions));
+    options.capabilitiesByAgent ?? (await resolveCapabilityReview(options.capabilityReviewOptions));
 
   const items: DiagnosticItem[] = [];
 
@@ -221,12 +218,12 @@ export async function runDiagnostics(
         category: "agents",
         title: `${capability.agent} capability probe`,
         severity: "warning",
-        summary: "Model discovery probe returned warnings.",
+        summary: "Model review probe returned warnings.",
         details: capability.probeWarnings.join("\n"),
         remediation: [
           runStep(`${capability.command} --help`),
           thenStep("rr doctor"),
-          runStep("rr init (if model discovery warnings persist)"),
+          runStep("rr init (if model review warnings persist)"),
         ],
       });
     }
@@ -412,7 +409,7 @@ export async function runDiagnostics(
             category: "config",
             title: `${roleLabel} model availability`,
             severity: roleSeverity,
-            summary: `Configured model '${configuredModel}' was not found in live discovery.`,
+            summary: `Configured model '${configuredModel}' was not found in live review.`,
             details: `Discovered models: ${summarizeAvailableModels(settings, capabilitiesByAgent)}`,
             remediation: [
               runStep("rr init"),
@@ -427,7 +424,7 @@ export async function runDiagnostics(
             category: "config",
             title: `${roleLabel} model availability`,
             severity: "ok",
-            summary: "Configured model is available in live discovery.",
+            summary: "Configured model is available in live review.",
             remediation: [],
           });
         }
@@ -447,12 +444,12 @@ export async function runDiagnostics(
           category: "config",
           title: `${roleLabel} model verification`,
           severity: roleSeverity,
-          summary: `Configured model '${configuredModel}' could not be verified because live model discovery failed.`,
+          summary: `Configured model '${configuredModel}' could not be verified because live model review failed.`,
           details: capability.probeWarnings.join("\n"),
           remediation: [
             runStep(probeCommand),
             thenStep("rr doctor"),
-            runStep("rr init (if model discovery keeps failing)"),
+            runStep("rr init (if model review keeps failing)"),
           ],
           fixable: isFixable(id),
         });

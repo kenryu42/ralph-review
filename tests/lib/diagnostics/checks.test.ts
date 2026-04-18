@@ -502,7 +502,7 @@ describe("diagnostics checks", () => {
     });
 
     const missingModel = report.items.find((item) => item.id === "config-reviewer-model-missing");
-    expect(missingModel?.details).toContain("No models discovered.");
+    expect(missingModel?.details).toContain("No models found.");
   });
 
   test("reports git execution failures explicitly", async () => {

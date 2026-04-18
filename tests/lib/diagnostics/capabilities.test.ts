@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
-  clearCapabilityDiscoveryCache,
-  discoverAgentCapabilities,
+  clearCapabilityReviewCache,
   parsePiListModelsOutput,
+  reviewAgentCapabilities,
 } from "@/lib/diagnostics";
 
 type SpawnProcess = ReturnType<typeof Bun.spawn>;
@@ -52,7 +52,7 @@ describe("diagnostics capabilities", () => {
   beforeEach(() => {
     originalSpawn = Bun.spawn;
     originalWhich = Bun.which;
-    clearCapabilityDiscoveryCache();
+    clearCapabilityReviewCache();
   });
 
   afterEach(() => {
@@ -61,7 +61,7 @@ describe("diagnostics capabilities", () => {
   });
 
   test("uses dynamic probes for opencode and pi when available", async () => {
-    const capabilities = await discoverAgentCapabilities({
+    const capabilities = await reviewAgentCapabilities({
       availabilityOverride: createDynamicAvailability(),
       deps: {
         fetchOpencodeModels: async () => [{ value: "gpt-5.2-codex", label: "gpt-5.2-codex" }],
@@ -75,8 +75,8 @@ describe("diagnostics capabilities", () => {
     expect(capabilities.pi.models).toEqual([{ provider: "anthropic", model: "claude-opus-4-6" }]);
   });
 
-  test("marks probe warning when dynamic model discovery fails", async () => {
-    const capabilities = await discoverAgentCapabilities({
+  test("marks probe warning when dynamic model review fails", async () => {
+    const capabilities = await reviewAgentCapabilities({
       availabilityOverride: {
         ...createDynamicAvailability(),
         opencode: true,
@@ -94,7 +94,7 @@ describe("diagnostics capabilities", () => {
   });
 
   test("falls back to static catalogs for codex and droid", async () => {
-    const capabilities = await discoverAgentCapabilities({
+    const capabilities = await reviewAgentCapabilities({
       availabilityOverride: {
         codex: true,
         droid: true,
@@ -128,8 +128,8 @@ describe("diagnostics capabilities", () => {
       },
     };
 
-    await discoverAgentCapabilities(options);
-    await discoverAgentCapabilities(options);
+    await reviewAgentCapabilities(options);
+    await reviewAgentCapabilities(options);
 
     expect(calls).toBe(1);
   });
@@ -149,9 +149,9 @@ describe("diagnostics capabilities", () => {
       },
     };
 
-    await discoverAgentCapabilities(options);
-    await discoverAgentCapabilities(options);
-    await discoverAgentCapabilities({
+    await reviewAgentCapabilities(options);
+    await reviewAgentCapabilities(options);
+    await reviewAgentCapabilities({
       ...options,
       forceRefresh: true,
     });
@@ -171,7 +171,7 @@ describe("diagnostics capabilities", () => {
       );
     }) as typeof Bun.spawn;
 
-    const capabilities = await discoverAgentCapabilities({
+    const capabilities = await reviewAgentCapabilities({
       availabilityOverride: {
         ...createDynamicAvailability(),
         pi: false,
@@ -209,7 +209,7 @@ describe("diagnostics capabilities", () => {
     }) as typeof setTimeout;
 
     try {
-      const capabilities = await discoverAgentCapabilities({
+      const capabilities = await reviewAgentCapabilities({
         availabilityOverride: {
           ...createDynamicAvailability(),
           pi: false,
@@ -230,7 +230,7 @@ describe("diagnostics capabilities", () => {
       return createMockProcess(createTextStream(""), createTextStream("   "), 3);
     }) as typeof Bun.spawn;
 
-    const capabilities = await discoverAgentCapabilities({
+    const capabilities = await reviewAgentCapabilities({
       availabilityOverride: {
         ...createDynamicAvailability(),
         opencode: false,
@@ -257,7 +257,7 @@ describe("diagnostics capabilities", () => {
       );
     }) as typeof Bun.spawn;
 
-    const capabilities = await discoverAgentCapabilities({
+    const capabilities = await reviewAgentCapabilities({
       availabilityOverride: {
         ...createDynamicAvailability(),
         opencode: false,
@@ -276,7 +276,7 @@ describe("diagnostics capabilities", () => {
     let opencodeProbeCalls = 0;
     let piProbeCalls = 0;
 
-    const capabilities = await discoverAgentCapabilities({
+    const capabilities = await reviewAgentCapabilities({
       availabilityOverride: createDynamicAvailability(),
       probeAgents: ["codex"],
       deps: {
@@ -308,7 +308,7 @@ describe("diagnostics capabilities", () => {
       return command === "codex" ? "/usr/local/bin/codex" : null;
     }) as typeof Bun.which;
 
-    const capabilities = await discoverAgentCapabilities();
+    const capabilities = await reviewAgentCapabilities();
 
     expect(whichCalls).toBeGreaterThan(0);
     expect(capabilities.codex.installed).toBe(true);
