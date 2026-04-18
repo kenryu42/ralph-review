@@ -12,16 +12,16 @@ import {
 import { appendLog, createLogSession, getGitBranch } from "@/lib/logging";
 import { createReviewerSummaryRetryReminder } from "@/lib/prompts/protocol";
 import {
-  createDiscoveryReviewerPrompt,
-  type DiscoveryReviewerPromptOptions,
-} from "@/lib/review-workflow/discovery/prompt";
-import { runDiscoveryPhase } from "@/lib/review-workflow/discovery/run-discovery-phase";
-import type { DiscoverySessionResult } from "@/lib/review-workflow/discovery/types";
-import {
   getFindingsArtifactPath,
   saveFindingsArtifact,
 } from "@/lib/review-workflow/findings/artifact";
 import type { FindingsArtifact, StoredFinding } from "@/lib/review-workflow/findings/types";
+import {
+  createReviewerPrompt,
+  type ReviewerPromptOptions,
+} from "@/lib/review-workflow/review/prompt";
+import { runReviewPhase } from "@/lib/review-workflow/review/run-review-phase";
+import type { ReviewSessionResult } from "@/lib/review-workflow/review/types";
 import { type SessionState, updateSessionState } from "@/lib/session";
 import { parseReviewSummaryOutput } from "@/lib/structured-output";
 import type {
@@ -33,14 +33,14 @@ import type {
 } from "@/lib/types";
 import { DEFAULT_RETRY_CONFIG } from "@/lib/types";
 
-export interface RunDiscoveryRuntimeContext {
+export interface RunReviewRuntimeContext {
   projectPath?: string;
   sessionId?: string;
   sessionPath?: string;
 }
 
-export interface RunDiscoverySessionDependencies {
-  createDiscoveryReviewerPrompt: typeof createDiscoveryReviewerPrompt;
+export interface RunReviewSessionDependencies {
+  createReviewerPrompt: typeof createReviewerPrompt;
   createReviewerSummaryRetryReminder: typeof createReviewerSummaryRetryReminder;
   AGENTS: typeof AGENTS;
   runAgent: typeof runAgent;
@@ -59,8 +59,8 @@ export interface RunDiscoverySessionDependencies {
   saveFindingsArtifact: typeof saveFindingsArtifact;
 }
 
-export const DEFAULT_RUN_DISCOVERY_SESSION_DEPENDENCIES: RunDiscoverySessionDependencies = {
-  createDiscoveryReviewerPrompt,
+export const DEFAULT_RUN_REVIEW_SESSION_DEPENDENCIES: RunReviewSessionDependencies = {
+  createReviewerPrompt,
   createReviewerSummaryRetryReminder,
   AGENTS,
   runAgent,
@@ -94,8 +94,8 @@ function isInterruptLikeFailure(result: IterationResult, wasInterrupted: () => b
   return !result.success && (wasInterrupted() || result.exitCode === 130);
 }
 
-async function updateDiscoverySessionState(
-  deps: RunDiscoverySessionDependencies,
+async function updateReviewSessionState(
+  deps: RunReviewSessionDependencies,
   projectPath: string,
   sessionId: string | undefined,
   updates: Partial<SessionState>
@@ -114,7 +114,7 @@ async function updateDiscoverySessionState(
 async function runAgentWithRetry(
   role: "reviewer",
   config: Config,
-  deps: RunDiscoverySessionDependencies,
+  deps: RunReviewSessionDependencies,
   prompt: string,
   reviewOptions: ReviewOptions | undefined,
   cwd: string,
@@ -176,7 +176,7 @@ async function runAgentWithRetry(
 
 async function runReviewerIteration(
   config: Config,
-  deps: RunDiscoverySessionDependencies,
+  deps: RunReviewSessionDependencies,
   reviewOptions: ReviewOptions | undefined,
   baselineCommitSha: string,
   reviewerCwd: string,
@@ -184,7 +184,7 @@ async function runReviewerIteration(
   knownFindings: StoredFinding[],
   wasInterrupted: () => boolean
 ): Promise<{ summary: ReviewSummary; duration: number }> {
-  const promptOptions: DiscoveryReviewerPromptOptions = {
+  const promptOptions: ReviewerPromptOptions = {
     repoPath: reviewerCwd,
     baselineCommitSha,
     includeDefaultReviewPrompt: config.reviewer.agent !== "codex",
@@ -194,7 +194,7 @@ async function runReviewerIteration(
     knownFindings,
     iteration,
   };
-  const reviewerPrompt = deps.createDiscoveryReviewerPrompt(promptOptions);
+  const reviewerPrompt = deps.createReviewerPrompt(promptOptions);
   const startTime = Date.now();
 
   let reviewResult = await runAgentWithRetry(
@@ -208,7 +208,7 @@ async function runReviewerIteration(
   );
   if (!reviewResult.success) {
     if (isInterruptLikeFailure(reviewResult, wasInterrupted)) {
-      throw new Error("Discovery reviewer interrupted");
+      throw new Error("Reviewer interrupted");
     }
     throw new Error(`Reviewer failed with exit code ${reviewResult.exitCode}`);
   }
@@ -231,7 +231,7 @@ async function runReviewerIteration(
 
     if (!reviewResult.success) {
       if (isInterruptLikeFailure(reviewResult, wasInterrupted)) {
-        throw new Error("Discovery reviewer interrupted");
+        throw new Error("Reviewer interrupted");
       }
       throw new Error(`Reviewer failed with exit code ${reviewResult.exitCode}`);
     }
@@ -256,7 +256,7 @@ function createFindingsArtifact(
   sessionId: string,
   projectPath: string,
   sessionPath: string,
-  worktree: NonNullable<ReturnType<RunDiscoverySessionDependencies["createSessionWorktree"]>>,
+  worktree: NonNullable<ReturnType<RunReviewSessionDependencies["createSessionWorktree"]>>,
   findings: StoredFinding[]
 ): FindingsArtifact {
   const timestamp = new Date().toISOString();
@@ -267,11 +267,11 @@ function createFindingsArtifact(
   const sourceBaselineFingerprint = worktree.sourceBaselineFingerprint;
 
   if (!baselineCommitSha || !baselineRef || !sourceBaselineCommitSha || !sourceBaselineRef) {
-    throw new Error("Discovery worktree is missing baseline metadata.");
+    throw new Error("Review worktree is missing baseline metadata.");
   }
 
   if (!sourceBaselineFingerprint) {
-    throw new Error("Discovery worktree is missing source baseline fingerprint.");
+    throw new Error("Review worktree is missing source baseline fingerprint.");
   }
 
   return {
@@ -291,15 +291,15 @@ function createFindingsArtifact(
   };
 }
 
-export async function runDiscoverySession(
+export async function runReviewSession(
   config: Config,
   reviewOptions: ReviewOptions | undefined,
-  runtimeContext: RunDiscoveryRuntimeContext | undefined,
+  runtimeContext: RunReviewRuntimeContext | undefined,
   wasInterrupted: () => boolean,
-  deps: RunDiscoverySessionDependencies = DEFAULT_RUN_DISCOVERY_SESSION_DEPENDENCIES
+  deps: RunReviewSessionDependencies = DEFAULT_RUN_REVIEW_SESSION_DEPENDENCIES
 ): Promise<{
   sessionPath: string;
-  result: DiscoverySessionResult;
+  result: ReviewSessionResult;
 }> {
   const projectPath = runtimeContext?.projectPath ?? process.cwd();
   const sessionId = runtimeContext?.sessionId ?? "session";
@@ -307,14 +307,14 @@ export async function runDiscoverySession(
   const sessionPath =
     runtimeContext?.sessionPath ?? (await deps.createLogSession(undefined, projectPath, gitBranch));
 
-  let worktree: ReturnType<RunDiscoverySessionDependencies["createSessionWorktree"]> | null = null;
+  let worktree: ReturnType<RunReviewSessionDependencies["createSessionWorktree"]> | null = null;
   let shouldDeleteSessionRefs = true;
 
   try {
-    await updateDiscoverySessionState(deps, projectPath, runtimeContext?.sessionId, {
+    await updateReviewSessionState(deps, projectPath, runtimeContext?.sessionId, {
       sessionPath,
-      currentPhase: "discovery",
-      phase: "discovery",
+      currentPhase: "review",
+      phase: "review",
       sessionStatus: "running",
       currentAgent: null,
     });
@@ -322,10 +322,10 @@ export async function runDiscoverySession(
     worktree = deps.createSessionWorktree(projectPath, sessionId);
     const reviewerCwd = worktree.agentProjectPath;
 
-    await updateDiscoverySessionState(deps, projectPath, runtimeContext?.sessionId, {
+    await updateReviewSessionState(deps, projectPath, runtimeContext?.sessionId, {
       sessionPath,
-      currentPhase: "discovery",
-      phase: "discovery",
+      currentPhase: "review",
+      phase: "review",
       sessionStatus: "running",
       worktreeProjectPath: worktree.worktreeProjectPath,
       worktreeBranch: worktree.retainedBranch,
@@ -350,14 +350,14 @@ export async function runDiscoverySession(
     const reviewerBaselineFingerprint = worktree.sourceBaselineFingerprint;
 
     if (!reviewerBaselineCommitSha || !reviewerBaselineFingerprint) {
-      throw new Error("Discovery baseline metadata is incomplete.");
+      throw new Error("Review baseline metadata is incomplete.");
     }
 
     const artifactPath = getFindingsArtifactPath(CONFIG_DIR, projectPath, sessionId);
 
-    await updateDiscoverySessionState(deps, projectPath, runtimeContext?.sessionId, {
-      currentPhase: "discovery",
-      phase: "discovery",
+    await updateReviewSessionState(deps, projectPath, runtimeContext?.sessionId, {
+      currentPhase: "review",
+      phase: "review",
       sessionStatus: "running",
       currentAgent: null,
       artifactPath,
@@ -367,7 +367,7 @@ export async function runDiscoverySession(
       selectedFindingIds: [],
     });
 
-    const phaseResult = await runDiscoveryPhase({
+    const phaseResult = await runReviewPhase({
       config,
       reviewOptions,
       sessionId: runtimeContext?.sessionId,
@@ -400,9 +400,9 @@ export async function runDiscoverySession(
     });
 
     if (phaseResult.findings.length === 0) {
-      await updateDiscoverySessionState(deps, projectPath, runtimeContext?.sessionId, {
-        currentPhase: "discovery",
-        phase: "discovery",
+      await updateReviewSessionState(deps, projectPath, runtimeContext?.sessionId, {
+        currentPhase: "review",
+        phase: "review",
         sessionStatus: phaseResult.sessionStatus,
         currentAgent: null,
         accumulatedFindings: [],
@@ -417,13 +417,13 @@ export async function runDiscoverySession(
       return {
         sessionPath,
         result: {
-          phase: "discovery",
+          phase: "review",
           sessionStatus: phaseResult.sessionStatus,
           reviewOutcome: phaseResult.sessionStatus === "interrupted" ? "incomplete" : "clean",
           reason:
             phaseResult.sessionStatus === "interrupted"
-              ? "Discovery was interrupted before it completed."
-              : "Discovery found no actionable findings.",
+              ? "Review was interrupted before it completed."
+              : "Review found no actionable findings.",
           iterations: phaseResult.iterations,
           findings: [],
         },
@@ -435,9 +435,9 @@ export async function runDiscoverySession(
       createFindingsArtifact(sessionId, projectPath, sessionPath, worktree, phaseResult.findings)
     );
     shouldDeleteSessionRefs = false;
-    await updateDiscoverySessionState(deps, projectPath, runtimeContext?.sessionId, {
-      currentPhase: "discovery",
-      phase: "discovery",
+    await updateReviewSessionState(deps, projectPath, runtimeContext?.sessionId, {
+      currentPhase: "review",
+      phase: "review",
       sessionStatus: phaseResult.sessionStatus,
       currentAgent: null,
       artifactPath,
@@ -451,13 +451,13 @@ export async function runDiscoverySession(
     return {
       sessionPath,
       result: {
-        phase: "discovery",
+        phase: "review",
         sessionStatus: phaseResult.sessionStatus,
         reviewOutcome: "findings-pending",
         reason:
           phaseResult.sessionStatus === "interrupted"
-            ? "Discovery was interrupted after persisting findings."
-            : "Discovery complete: findings pending.",
+            ? "Review was interrupted after persisting findings."
+            : "Review complete: findings pending.",
         iterations: phaseResult.iterations,
         findings: phaseResult.findings,
         artifact: savedArtifact,
@@ -465,9 +465,9 @@ export async function runDiscoverySession(
       },
     };
   } catch (error) {
-    await updateDiscoverySessionState(deps, projectPath, runtimeContext?.sessionId, {
-      currentPhase: "discovery",
-      phase: "discovery",
+    await updateReviewSessionState(deps, projectPath, runtimeContext?.sessionId, {
+      currentPhase: "review",
+      phase: "review",
       sessionStatus: wasInterrupted() ? "interrupted" : "failed",
       currentAgent: null,
       reviewOutcome: "incomplete",
@@ -476,13 +476,11 @@ export async function runDiscoverySession(
     return {
       sessionPath,
       result: {
-        phase: "discovery",
+        phase: "review",
         sessionStatus: wasInterrupted() ? "interrupted" : "failed",
         reviewOutcome: "incomplete",
         reason:
-          error instanceof Error
-            ? `Discovery failed: ${error.message}`
-            : `Discovery failed: ${error}`,
+          error instanceof Error ? `Review failed: ${error.message}` : `Review failed: ${error}`,
         iterations: 0,
         findings: [],
       },

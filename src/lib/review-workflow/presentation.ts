@@ -1,9 +1,9 @@
 import type { Finding } from "@/lib/types";
 import type {
   BatchFixEntry,
-  DiscoveryIterationEntry,
   FindingSelectionEntry,
   LogEntry,
+  ReviewIterationEntry,
 } from "@/lib/types/log";
 import type { FindingFixResult, FindingId, StoredFinding } from "./findings/types";
 
@@ -13,7 +13,7 @@ interface WorkflowFixResultDisplay extends FindingFixResult {
 
 export interface WorkflowPresentationData {
   hasBatchFirstLifecycle: boolean;
-  discoveryEntries: DiscoveryIterationEntry[];
+  reviewEntries: ReviewIterationEntry[];
   selectionEntry?: FindingSelectionEntry;
   batchFixEntry?: BatchFixEntry;
   storedFindings: StoredFinding[];
@@ -52,13 +52,13 @@ export function storedFindingToFinding(finding: StoredFinding): Finding {
 }
 
 export function deriveWorkflowPresentationData(entries: LogEntry[]): WorkflowPresentationData {
-  const discoveryEntries: DiscoveryIterationEntry[] = [];
+  const reviewEntries: ReviewIterationEntry[] = [];
   let selectionEntry: FindingSelectionEntry | undefined;
   let batchFixEntry: BatchFixEntry | undefined;
 
   for (const entry of entries) {
-    if (entry.type === "discovery_iteration") {
-      discoveryEntries.push(entry);
+    if (entry.type === "review_iteration") {
+      reviewEntries.push(entry);
       continue;
     }
 
@@ -72,7 +72,7 @@ export function deriveWorkflowPresentationData(entries: LogEntry[]): WorkflowPre
     }
   }
 
-  const storedFindings = discoveryEntries.at(-1)?.findings ?? [];
+  const storedFindings = reviewEntries.at(-1)?.findings ?? [];
   const regressionFindings: StoredFinding[] = [];
   const findingsById = createFindingMap(storedFindings);
   const selectedFindingIds =
@@ -95,8 +95,8 @@ export function deriveWorkflowPresentationData(entries: LogEntry[]): WorkflowPre
 
   return {
     hasBatchFirstLifecycle:
-      discoveryEntries.length > 0 || selectionEntry !== undefined || batchFixEntry !== undefined,
-    discoveryEntries,
+      reviewEntries.length > 0 || selectionEntry !== undefined || batchFixEntry !== undefined,
+    reviewEntries,
     selectionEntry,
     batchFixEntry,
     storedFindings,

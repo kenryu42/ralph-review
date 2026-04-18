@@ -1,6 +1,6 @@
 // Boundary-first entrypoints kept intentionally imported so these module homes
 // are established and ready for phase-by-phase implementation.
-import "@/lib/review-workflow/discovery";
+import "@/lib/review-workflow/review";
 import "@/lib/review-workflow/findings";
 import "@/lib/review-workflow/remediation";
 import "@/lib/review-workflow/results";

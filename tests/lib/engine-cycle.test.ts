@@ -166,12 +166,7 @@ function createDependencies(state: HarnessState): RunReviewCycleDeps {
   };
 
   return {
-    createDiscoveryReviewerPrompt: ({
-      baselineCommitSha,
-      iteration,
-      knownFindings,
-      customInstructions,
-    }) => {
+    createReviewerPrompt: ({ baselineCommitSha, iteration, knownFindings, customInstructions }) => {
       return [
         `BASELINE=${baselineCommitSha}`,
         `ITERATION=${iteration}`,
@@ -182,11 +177,11 @@ function createDependencies(state: HarnessState): RunReviewCycleDeps {
         .join("\n");
     },
     createFixerPrompt: () => {
-      throw new Error("fixer prompt should not be used during discovery");
+      throw new Error("fixer prompt should not be used during review");
     },
     createFixerSummaryRetryReminder: () => "retry fixer",
-    createReviewerPrompt: () => {
-      throw new Error("legacy reviewer prompt should not be used during discovery");
+    createTargetedReviewPrompt: () => {
+      throw new Error("legacy reviewer prompt should not be used during review");
     },
     createReviewerSummaryRetryReminder: () => "retry reviewer",
     AGENTS: {
@@ -254,7 +249,7 @@ function createDependencies(state: HarnessState): RunReviewCycleDeps {
       state.appendedEntries.push(entry);
     },
     createLogSession: async () => TEST_SESSION_PATH,
-    getGitBranch: async () => "feature/discovery",
+    getGitBranch: async () => "feature/review",
     parseReviewSummaryOutput: () => {
       const next = state.reviewParseQueue.shift();
       if (!next) {
@@ -323,22 +318,22 @@ describe("runReviewCycle", () => {
     expect(state.savedArtifacts[0]?.findings.map((finding) => finding.id)).toEqual(["F001"]);
     expect(state.savedArtifacts[0]?.selectedFindingIds).toEqual([]);
 
-    const discoveryEntries = state.appendedEntries.filter(
-      (entry) => entry.type === "discovery_iteration"
+    const reviewEntries = state.appendedEntries.filter(
+      (entry) => entry.type === "review_iteration"
     );
-    expect(discoveryEntries).toHaveLength(2);
-    expect(discoveryEntries[0]?.netNewFindingIds).toEqual(["F001"]);
-    expect(discoveryEntries[1]?.netNewFindingIds).toEqual([]);
+    expect(reviewEntries).toHaveLength(2);
+    expect(reviewEntries[0]?.netNewFindingIds).toEqual(["F001"]);
+    expect(reviewEntries[1]?.netNewFindingIds).toEqual([]);
 
     const sessionEnd = state.appendedEntries.find((entry) => entry.type === "session_end");
     expect(sessionEnd?.type).toBe("session_end");
-    expect(sessionEnd?.phase).toBe("discovery");
+    expect(sessionEnd?.phase).toBe("review");
     expect(sessionEnd?.sessionStatus).toBe("completed");
     expect(sessionEnd?.reviewOutcome).toBe("findings-pending");
 
     expect(
       state.updateSessionStateCalls.some(
-        (call) => call.updates.phase === "discovery" && call.expectedSessionId === TEST_SESSION_ID
+        (call) => call.updates.phase === "review" && call.expectedSessionId === TEST_SESSION_ID
       )
     ).toBe(true);
     expect(
@@ -351,7 +346,7 @@ describe("runReviewCycle", () => {
     ).toBe(true);
   });
 
-  test("returns clean and skips artifact persistence when discovery finds nothing new on the first pass", async () => {
+  test("returns clean and skips artifact persistence when review finds nothing new on the first pass", async () => {
     const state = createHarnessState();
     queueRunAgentResults(state, createSuccessResult("review-pass-1"));
     queueReviewParses(state, createReviewParse(createReviewSummary([])));
@@ -379,7 +374,7 @@ describe("runReviewCycle", () => {
     expect(sessionEnd?.reviewOutcome).toBe("clean");
   });
 
-  test("runs discovery directly with the reviewer and keeps the original baseline", async () => {
+  test("runs review directly with the reviewer and keeps the original baseline", async () => {
     const state = createHarnessState();
     queueRunAgentResults(state, createSuccessResult("review-pass-1"));
     queueReviewParses(state, createReviewParse(createReviewSummary([])));

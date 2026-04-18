@@ -1,12 +1,9 @@
-import type {
-  DiscoveryIterationResult,
-  DiscoveryPhaseResult,
-} from "@/lib/review-workflow/discovery/types";
 import { mergeFindingsIntoInventory } from "@/lib/review-workflow/findings/inventory";
 import type { StoredFinding } from "@/lib/review-workflow/findings/types";
+import type { ReviewIterationResult, ReviewPhaseResult } from "@/lib/review-workflow/review/types";
 import type { Config, ReviewOptions } from "@/lib/types";
 
-interface RunDiscoveryPhaseOptions {
+interface RunReviewPhaseOptions {
   config: Config;
   reviewOptions?: ReviewOptions;
   sessionId?: string;
@@ -22,7 +19,7 @@ interface RunDiscoveryPhaseOptions {
     findings: ReviewSummaryLike["findings"];
     duration: number;
   }>;
-  appendLog: (logPath: string, entry: DiscoveryIterationLogEntry) => Promise<void>;
+  appendLog: (logPath: string, entry: ReviewIterationLogEntry) => Promise<void>;
   updateSessionState: (
     storageRoot: string | undefined,
     projectPath: string,
@@ -34,8 +31,8 @@ interface RunDiscoveryPhaseOptions {
   wasInterrupted: () => boolean;
 }
 
-interface DiscoveryIterationLogEntry extends DiscoveryIterationResult {
-  type: "discovery_iteration";
+interface ReviewIterationLogEntry extends ReviewIterationResult {
+  type: "review_iteration";
   timestamp: number;
   iteration: number;
   duration?: number;
@@ -54,8 +51,8 @@ interface ReviewSummaryLike {
   }>;
 }
 
-async function updateDiscoverySessionState(
-  options: Pick<RunDiscoveryPhaseOptions, "projectPath" | "sessionId" | "updateSessionState">,
+async function updateReviewSessionState(
+  options: Pick<RunReviewPhaseOptions, "projectPath" | "sessionId" | "updateSessionState">,
   updates: Record<string, unknown>
 ): Promise<void> {
   if (!options.sessionId) {
@@ -72,26 +69,24 @@ async function updateDiscoverySessionState(
 async function assertWorktreeFingerprint(
   reviewerWorktreePath: string,
   expectedFingerprint: string,
-  computeWorkingTreeFingerprint: RunDiscoveryPhaseOptions["computeWorkingTreeFingerprint"]
+  computeWorkingTreeFingerprint: RunReviewPhaseOptions["computeWorkingTreeFingerprint"]
 ): Promise<void> {
   const currentFingerprint = await computeWorkingTreeFingerprint(reviewerWorktreePath);
   if (currentFingerprint !== expectedFingerprint) {
     throw new Error(
-      `Discovery mutated the reviewer worktree at ${reviewerWorktreePath}. Expected ${expectedFingerprint}, got ${currentFingerprint}.`
+      `Review phase mutated the reviewer worktree at ${reviewerWorktreePath}. Expected ${expectedFingerprint}, got ${currentFingerprint}.`
     );
   }
 }
 
-export async function runDiscoveryPhase(
-  options: RunDiscoveryPhaseOptions
-): Promise<DiscoveryPhaseResult> {
+export async function runReviewPhase(options: RunReviewPhaseOptions): Promise<ReviewPhaseResult> {
   let findings: StoredFinding[] = [];
   let iterations = 0;
 
   while (iterations < options.config.maxIterations) {
     if (options.wasInterrupted()) {
       return {
-        phase: "discovery",
+        phase: "review",
         sessionStatus: "interrupted",
         findings,
         iterations,
@@ -102,9 +97,9 @@ export async function runDiscoveryPhase(
     const iteration = iterations + 1;
     const iterationStartTime = Date.now();
 
-    await updateDiscoverySessionState(options, {
-      currentPhase: "discovery",
-      phase: "discovery",
+    await updateReviewSessionState(options, {
+      currentPhase: "review",
+      phase: "review",
       sessionStatus: "running",
       currentAgent: "reviewer",
       iteration,
@@ -119,20 +114,20 @@ export async function runDiscoveryPhase(
     findings = merged.findings;
     iterations = iteration;
 
-    const entry: DiscoveryIterationLogEntry = {
-      type: "discovery_iteration",
+    const entry: ReviewIterationLogEntry = {
+      type: "review_iteration",
       timestamp: Date.now(),
       iteration,
       duration: reviewerResult.duration ?? Date.now() - iterationStartTime,
-      phase: "discovery",
+      phase: "review",
       sessionStatus: "running",
       findings,
       netNewFindingIds: merged.newFindings.map((finding) => finding.id),
     };
     await options.appendLog(options.sessionPath, entry);
-    await updateDiscoverySessionState(options, {
-      currentPhase: "discovery",
-      phase: "discovery",
+    await updateReviewSessionState(options, {
+      currentPhase: "review",
+      phase: "review",
       sessionStatus: "running",
       currentAgent: null,
       iteration,
@@ -146,7 +141,7 @@ export async function runDiscoveryPhase(
 
     if (options.wasInterrupted()) {
       return {
-        phase: "discovery",
+        phase: "review",
         sessionStatus: "interrupted",
         findings,
         iterations,
@@ -156,7 +151,7 @@ export async function runDiscoveryPhase(
 
     if (merged.newFindings.length === 0) {
       return {
-        phase: "discovery",
+        phase: "review",
         sessionStatus: "completed",
         findings,
         iterations,
@@ -166,7 +161,7 @@ export async function runDiscoveryPhase(
   }
 
   return {
-    phase: "discovery",
+    phase: "review",
     sessionStatus: "completed",
     findings,
     iterations,

@@ -13,17 +13,17 @@ import {
   createFixerSummaryRetryReminder,
   createReviewerSummaryRetryReminder,
 } from "@/lib/prompts/protocol";
-import {
-  createDiscoveryReviewerPrompt,
-  createReviewerPrompt,
-} from "@/lib/review-workflow/discovery/prompt";
-import {
-  DEFAULT_RUN_DISCOVERY_SESSION_DEPENDENCIES,
-  type RunDiscoveryRuntimeContext,
-  type RunDiscoverySessionDependencies,
-  runDiscoverySession,
-} from "@/lib/review-workflow/discovery/run-discovery-session";
 import { createFixerPrompt } from "@/lib/review-workflow/remediation/prompt";
+import {
+  createReviewerPrompt,
+  createTargetedReviewPrompt,
+} from "@/lib/review-workflow/review/prompt";
+import {
+  DEFAULT_RUN_REVIEW_SESSION_DEPENDENCIES,
+  type RunReviewRuntimeContext,
+  type RunReviewSessionDependencies,
+  runReviewSession,
+} from "@/lib/review-workflow/review/run-review-session";
 import { updateSessionState } from "@/lib/session";
 import {
   extractJsonBlock as extractJsonBlockFromOutput,
@@ -45,19 +45,19 @@ import type {
   SessionStatus,
 } from "@/lib/types";
 
-export interface RunReviewCycleDependencies extends RunDiscoverySessionDependencies {
+export interface RunReviewCycleDependencies extends RunReviewSessionDependencies {
   createFixerPrompt: typeof createFixerPrompt;
   createFixerSummaryRetryReminder: typeof createFixerSummaryRetryReminder;
-  createReviewerPrompt: typeof createReviewerPrompt;
+  createTargetedReviewPrompt: typeof createTargetedReviewPrompt;
   createOrAutoApplyHandoff: typeof createOrAutoApplyHandoff;
 }
 
 const DEFAULT_RUN_REVIEW_CYCLE_DEPENDENCIES: RunReviewCycleDependencies = {
-  ...DEFAULT_RUN_DISCOVERY_SESSION_DEPENDENCIES,
-  createDiscoveryReviewerPrompt,
+  ...DEFAULT_RUN_REVIEW_SESSION_DEPENDENCIES,
+  createReviewerPrompt,
   createFixerPrompt,
   createFixerSummaryRetryReminder,
-  createReviewerPrompt,
+  createTargetedReviewPrompt,
   createReviewerSummaryRetryReminder,
   AGENTS,
   runAgent,
@@ -140,7 +140,7 @@ export interface CycleResult {
   commitSha?: string;
   retainedWorktree?: RetainedSessionWorktree;
   artifactPath?: string;
-  artifact?: ReturnType<RunDiscoverySessionDependencies["saveFindingsArtifact"]> extends Promise<
+  artifact?: ReturnType<RunReviewSessionDependencies["saveFindingsArtifact"]> extends Promise<
     infer T
   >
     ? T
@@ -208,7 +208,7 @@ function setupSignalHandler(): void {
   }
 
   process.on("SIGINT", () => {
-    console.log("\n⚠️  Interrupt received. Finishing the current discovery step...");
+    console.log("\n⚠️  Interrupt received. Finishing the current review step...");
     interrupted = true;
   });
   signalHandlerRegistered = true;
@@ -267,8 +267,8 @@ function createSessionEndEntry(
 export async function runReviewCycle(
   config: Config,
   _onIteration?: OnIterationCallback,
-  reviewOptions?: Parameters<typeof runDiscoverySession>[1],
-  runtimeContext?: RunDiscoveryRuntimeContext,
+  reviewOptions?: Parameters<typeof runReviewSession>[1],
+  runtimeContext?: RunReviewRuntimeContext,
   deps: RunReviewCycleDependencies = DEFAULT_RUN_REVIEW_CYCLE_DEPENDENCIES
 ): Promise<CycleResult> {
   resetInterrupt();
@@ -281,7 +281,7 @@ export async function runReviewCycle(
     (await deps.createLogSession(undefined, runtimeContext?.projectPath ?? process.cwd()));
 
   try {
-    const discovery = await runDiscoverySession(
+    const review = await runReviewSession(
       config,
       reviewOptions,
       runtimeContext,
@@ -289,18 +289,18 @@ export async function runReviewCycle(
       deps
     );
 
-    sessionPath = discovery.sessionPath;
+    sessionPath = review.sessionPath;
     finalResult = {
-      success: discovery.result.sessionStatus === "completed",
-      finalStatus: mapSessionStatusToFinalStatus(discovery.result.sessionStatus),
-      iterations: discovery.result.iterations,
-      reason: discovery.result.reason,
-      sessionPath: discovery.sessionPath,
-      phase: discovery.result.phase,
-      sessionStatus: discovery.result.sessionStatus,
-      reviewOutcome: discovery.result.reviewOutcome,
-      artifact: discovery.result.artifact,
-      artifactPath: discovery.result.artifactPath,
+      success: review.result.sessionStatus === "completed",
+      finalStatus: mapSessionStatusToFinalStatus(review.result.sessionStatus),
+      iterations: review.result.iterations,
+      reason: review.result.reason,
+      sessionPath: review.sessionPath,
+      phase: review.result.phase,
+      sessionStatus: review.result.sessionStatus,
+      reviewOutcome: review.result.reviewOutcome,
+      artifact: review.result.artifact,
+      artifactPath: review.result.artifactPath,
     };
 
     return finalResult;

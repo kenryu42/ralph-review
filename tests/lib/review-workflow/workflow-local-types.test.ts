@@ -1,14 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import type { DiscoveryIterationResult } from "@/lib/review-workflow/discovery/types";
 import type { FindingSelectionMode } from "@/lib/review-workflow/findings/selection";
 import type { BatchFixResult, RemediationSelection } from "@/lib/review-workflow/remediation/types";
+import type { ReviewIterationResult } from "@/lib/review-workflow/review/types";
 import type { WorkflowSessionState } from "@/lib/review-workflow/shared/types";
 import type { ReviewOutcome } from "@/lib/types";
 
 describe("review workflow local types", () => {
-  test("supports discovery and remediation workflow-local contracts", () => {
-    const discovery: DiscoveryIterationResult = {
-      phase: "discovery",
+  test("supports review and remediation workflow-local contracts", () => {
+    const review: ReviewIterationResult = {
+      phase: "review",
       sessionStatus: "running",
       findings: [],
       netNewFindingIds: [],
@@ -34,7 +34,7 @@ describe("review workflow local types", () => {
       reviewOutcome: outcome,
     };
 
-    expect(discovery.phase).toBe("discovery");
+    expect(review.phase).toBe("review");
     expect(selection.selectedFindingIds).toEqual([]);
     expect(batchFix.phase).toBe("batch-fix");
     expect(mode).toBe("all");

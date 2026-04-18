@@ -30,14 +30,14 @@ function withCustomFocus(instruction: string, customInstructions?: string): stri
   return `${instruction}\n\n${CUSTOM_FOCUS_PROMPT(customInstructions)}`;
 }
 
-export interface ReviewerPromptOptions {
+export interface TargetedReviewPromptOptions {
   repoPath: string;
   baseBranch?: string;
   commitSha?: string;
   customInstructions?: string;
 }
 
-export interface DiscoveryReviewerPromptOptions {
+export interface ReviewerPromptOptions {
   repoPath?: string;
   baselineCommitSha: string;
   includeDefaultReviewPrompt?: boolean;
@@ -77,15 +77,15 @@ function formatKnownFindings(knownFindings: StoredFinding[]): string {
   });
 
   return [
-    "Known findings already captured in the discovery inventory. Do not repeat them unless you have a materially different issue that is not already covered.",
+    "Known findings already captured in the review inventory. Do not repeat them unless you have a materially different issue that is not already covered.",
     ...lines,
   ].join("\n");
 }
 
-function buildDiscoveryContext(options: DiscoveryReviewerPromptOptions): string[] {
+function buildReviewContext(options: ReviewerPromptOptions): string[] {
   const lines = [
     `Review the session worktree checked out at baseline commit \`${options.baselineCommitSha}\`.`,
-    "Treat the baseline commit as immutable source-of-truth input for discovery.",
+    "Treat the baseline commit as immutable source-of-truth input for review.",
     "Tracked files, staged/unstaged modifications, and untracked files are in scope unless Git ignores them.",
     "Report only net-new actionable findings that are not already present in the known-finding inventory.",
     'If there are no net-new actionable findings, return `"findings": []` with a valid overall summary instead of repeating earlier findings.',
@@ -98,7 +98,7 @@ function buildDiscoveryContext(options: DiscoveryReviewerPromptOptions): string[
   }
 
   if (typeof options.iteration === "number" && options.iteration > 1) {
-    lines.push(`This is discovery pass ${options.iteration}.`);
+    lines.push(`This is review pass ${options.iteration}.`);
   }
 
   if (options.baseBranch) {
@@ -123,16 +123,16 @@ function buildDiscoveryContext(options: DiscoveryReviewerPromptOptions): string[
   return lines;
 }
 
-export function createDiscoveryReviewerPrompt(options: DiscoveryReviewerPromptOptions): string {
-  const discoveryContext = buildDiscoveryContext(options).join("\n\n");
+export function createReviewerPrompt(options: ReviewerPromptOptions): string {
+  const reviewContext = buildReviewContext(options).join("\n\n");
   const prefix =
     options.includeDefaultReviewPrompt === false ? "" : `${defaultReviewPrompt.trim()}\n`;
 
-  return `${prefix}${createReviewerStructuredOutputInstructions()}\n\n${discoveryContext}`;
+  return `${prefix}${createReviewerStructuredOutputInstructions()}\n\n${reviewContext}`;
 }
 
 /** Target priority: commitSha > baseBranch > uncommitted (default), with custom focus overlay. */
-export function createReviewerPrompt(options: ReviewerPromptOptions): string {
+export function createTargetedReviewPrompt(options: TargetedReviewPromptOptions): string {
   const { repoPath, baseBranch, commitSha, customInstructions } = options;
 
   let instruction: string;
