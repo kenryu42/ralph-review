@@ -6,11 +6,11 @@ import {
   checkAllAgents,
   checkTmuxInstalled,
   createInitRuntime,
-  discoverAutoModelCandidates,
   getRoleAgentPriorityRank,
   getRoleModelPriorityRank,
   type InitRuntimeOverrides,
   pickAutoRoleCandidate,
+  reviewAutoModelCandidates,
   runInit,
   runInitWithRuntime,
   selectAutoReasoning,
@@ -133,7 +133,7 @@ interface InitHarnessOptions {
   tmuxInstalled?: boolean;
   availability?: Record<AgentType, boolean>;
   capabilities?: AgentCapabilitiesMap;
-  discoverAgentCapabilities?: InitRuntimeOverrides["discoverAgentCapabilities"];
+  reviewAgentCapabilities?: InitRuntimeOverrides["reviewAgentCapabilities"];
   cwd?: string;
   repoConfigPath?: string | null;
   configOverrideResult?: ConfigOverride;
@@ -163,7 +163,7 @@ function createInitHarness(options: InitHarnessOptions = {}) {
     placeholder?: string;
     validate?: (value: string | undefined) => string | Error | undefined;
   }> = [];
-  const discoverCalls: Array<{
+  const reviewCalls: Array<{
     probeAgents?: AgentType[];
     cacheNamespace?: string;
   }> = [];
@@ -319,10 +319,10 @@ function createInitHarness(options: InitHarnessOptions = {}) {
       savedOverridePaths.push(path);
     },
     buildConfigOverride: () => options.configOverrideResult ?? { maxIterations: 7 },
-    discoverAgentCapabilities:
-      options.discoverAgentCapabilities ??
+    reviewAgentCapabilities:
+      options.reviewAgentCapabilities ??
       (async (input = {}) => {
-        discoverCalls.push({
+        reviewCalls.push({
           probeAgents: input.probeAgents,
           cacheNamespace: input.cacheNamespace,
         });
@@ -353,7 +353,7 @@ function createInitHarness(options: InitHarnessOptions = {}) {
     spinnerStops,
     selectCalls,
     textCalls,
-    discoverCalls,
+    reviewCalls,
     savedConfigs,
     savedConfigPaths,
     savedOverrides,
@@ -675,8 +675,8 @@ describe("init command", () => {
     });
   });
 
-  describe("auto model discovery", () => {
-    test("skips dynamic agent when model discovery fails", async () => {
+  describe("auto model review", () => {
+    test("skips dynamic agent when model review fails", async () => {
       const availability = {
         codex: false,
         claude: false,
@@ -686,7 +686,7 @@ describe("init command", () => {
         pi: true,
       } satisfies Record<AgentType, boolean>;
 
-      const result = await discoverAutoModelCandidates(availability, {
+      const result = await reviewAutoModelCandidates(availability, {
         fetchOpencodeModels: async () => {
           throw new Error("failed");
         },
@@ -1235,11 +1235,11 @@ describe("init command", () => {
       expect(harness.exits).toEqual([1]);
     });
 
-    test("exits when auto capability discovery fails", async () => {
+    test("exits when auto capability review fails", async () => {
       const harness = createInitHarness({
         availability: createAvailability({ codex: true }),
         selectResponses: ["auto"],
-        discoverAgentCapabilities: async () => {
+        reviewAgentCapabilities: async () => {
           throw new Error("boom");
         },
       });
@@ -1333,7 +1333,7 @@ describe("init command", () => {
       const harness = createInitHarness({
         availability: createAvailability({ opencode: true }),
         selectResponses: ["custom", "opencode", "open-model", CANCEL],
-        discoverAgentCapabilities: async (input = {}) => {
+        reviewAgentCapabilities: async (input = {}) => {
           if (input.cacheNamespace === "init-custom-opencode") {
             return createCapabilities({
               opencode: {
@@ -1358,7 +1358,7 @@ describe("init command", () => {
       const harness = createInitHarness({
         availability: createAvailability({ opencode: true }),
         selectResponses: ["custom", "opencode"],
-        discoverAgentCapabilities: async (input = {}) => {
+        reviewAgentCapabilities: async (input = {}) => {
           if (input.cacheNamespace === "init-custom-opencode") {
             throw new Error("probe failed");
           }
@@ -1378,7 +1378,7 @@ describe("init command", () => {
       const harness = createInitHarness({
         availability: createAvailability({ opencode: true }),
         selectResponses: ["custom", "opencode"],
-        discoverAgentCapabilities: async (input = {}) => {
+        reviewAgentCapabilities: async (input = {}) => {
           if (input.cacheNamespace === "init-custom-opencode") {
             return {} as unknown as AgentCapabilitiesMap;
           }
@@ -1397,7 +1397,7 @@ describe("init command", () => {
       const harness = createInitHarness({
         availability: createAvailability({ opencode: true }),
         selectResponses: ["custom", "opencode"],
-        discoverAgentCapabilities: async (input = {}) => {
+        reviewAgentCapabilities: async (input = {}) => {
           if (input.cacheNamespace === "init-custom-opencode") {
             return createCapabilities({
               opencode: {
@@ -1422,7 +1422,7 @@ describe("init command", () => {
       const harness = createInitHarness({
         availability: createAvailability({ pi: true }),
         selectResponses: ["custom", "pi"],
-        discoverAgentCapabilities: async (input = {}) => {
+        reviewAgentCapabilities: async (input = {}) => {
           if (input.cacheNamespace === "init-custom-pi") {
             return createCapabilities({
               pi: {
@@ -1437,7 +1437,7 @@ describe("init command", () => {
       });
 
       await expect(runInitWithRuntime(harness.overrides)).rejects.toThrow("forced-exit:1");
-      expect(harness.errors).toContain("No provider/model entries were discovered for Pi.");
+      expect(harness.errors).toContain("No provider/model entries were found for Pi.");
       expect(harness.exits).toContain(1);
     });
 
@@ -1445,7 +1445,7 @@ describe("init command", () => {
       const harness = createInitHarness({
         availability: createAvailability({ pi: true }),
         selectResponses: ["custom", "pi", "not-json"],
-        discoverAgentCapabilities: async (input = {}) => {
+        reviewAgentCapabilities: async (input = {}) => {
           if (input.cacheNamespace === "init-custom-pi") {
             return createCapabilities({
               pi: {
@@ -1592,7 +1592,7 @@ describe("init command", () => {
           configExists: async () => false,
           checkTmuxInstalled: () => true,
           checkAllAgents: () => createAvailability({ codex: true }),
-          discoverAgentCapabilities: async () => createCapabilities(),
+          reviewAgentCapabilities: async () => createCapabilities(),
           ensureConfigDir: async () => {},
           saveConfig: async () => {},
           exit: ((code: number) => {

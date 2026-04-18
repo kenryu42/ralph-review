@@ -353,7 +353,7 @@ describe("buildSessionJson", () => {
 
   test("preserves pending-findings sessions in JSON output", () => {
     const session = createSessionStats({
-      phase: "discovery",
+      phase: "review",
       sessionStatus: "completed",
       reviewOutcome: "findings-pending",
       totalFindings: 4,
@@ -361,7 +361,7 @@ describe("buildSessionJson", () => {
 
     const result = buildSessionJson("test-project", session, [], []);
 
-    expect(result.phase).toBe("discovery");
+    expect(result.phase).toBe("review");
     expect(result.sessionStatus).toBe("completed");
     expect(result.reviewOutcome).toBe("findings-pending");
     expect(result.summary.totalFindings).toBe(4);

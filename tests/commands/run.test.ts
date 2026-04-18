@@ -1060,7 +1060,7 @@ describe("run command", () => {
         category: "agents",
         title: "opencode capability probe",
         severity: "warning",
-        summary: "Model discovery probe returned warnings.",
+        summary: "Model review probe returned warnings.",
         remediation: ["Run opencode --help"],
       };
       const harness = createRunHarness({
@@ -1070,7 +1070,7 @@ describe("run command", () => {
       await startReview([], harness.overrides);
 
       expect(harness.warnings).toContain("Preflight warnings:");
-      expect(harness.messages).toContain("  Model discovery probe returned warnings.");
+      expect(harness.messages).toContain("  Model review probe returned warnings.");
       expect(harness.messages).toContain("    -> Run opencode --help");
       expect(harness.createSessionCalls).toHaveLength(1);
     });
@@ -1089,7 +1089,7 @@ describe("run command", () => {
         category: "agents",
         title: "opencode capability probe",
         severity: "warning",
-        summary: "Model discovery probe returned warnings.",
+        summary: "Model review probe returned warnings.",
         remediation: ["Run opencode --help"],
       };
       const harness = createRunHarness({
@@ -1399,7 +1399,7 @@ describe("run command", () => {
       expect(harness.updateSessionStateCalls[1]?.updates.state).toBe("interrupted");
     });
 
-    test("guides the user to rr fix when discovery completes with pending findings", async () => {
+    test("guides the user to rr fix when review completes with pending findings", async () => {
       const harness = createRunHarness({
         env: {
           RR_SESSION_ID: "session-123",
@@ -1407,7 +1407,7 @@ describe("run command", () => {
         runReviewCycleResult: createCycleResult({
           success: true,
           reviewOutcome: "findings-pending",
-          reason: "Discovery complete: findings pending",
+          reason: "Review complete: findings pending",
         }),
       });
 
@@ -1419,10 +1419,10 @@ describe("run command", () => {
       });
     });
 
-    test("stores workflow phase and status in session state when discovery finishes", async () => {
+    test("stores workflow phase and status in session state when review finishes", async () => {
       const harness = createRunHarness({
         runReviewCycleResult: createCycleResult({
-          phase: "discovery",
+          phase: "review",
           sessionStatus: "completed",
           reviewOutcome: "findings-pending",
           artifactPath: "/tmp/findings/session-123.json",
@@ -1431,7 +1431,7 @@ describe("run command", () => {
 
       await runForeground([], harness.overrides);
 
-      expect(harness.updateSessionStateCalls[1]?.updates.currentPhase).toBe("discovery");
+      expect(harness.updateSessionStateCalls[1]?.updates.currentPhase).toBe("review");
       expect(harness.updateSessionStateCalls[1]?.updates.sessionStatus).toBe("completed");
       expect(harness.updateSessionStateCalls[1]?.updates.artifactPath).toBe(
         "/tmp/findings/session-123.json"

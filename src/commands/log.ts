@@ -300,9 +300,7 @@ function renderTerminalSession(
 
   p.log.message("");
   if (hasBatchFirstSummary(session)) {
-    p.log.step(
-      `Discovery: ${session.iterations} iterations · ${session.totalFindings ?? 0} findings`
-    );
+    p.log.step(`Review: ${session.iterations} iterations · ${session.totalFindings ?? 0} findings`);
     p.log.message(formatPriorityCounts(session.priorityCounts));
 
     if (session.totalSelectedFindings !== undefined) {

@@ -352,7 +352,7 @@ async function runInBackground(
     runtime.prompt.note(
       "rr         - Open Interactive Mode\n" +
         "rr stop    - Stop the review\n" +
-        `rr fix --session ${sessionId} - Fix selected findings after discovery`,
+        `rr fix --session ${sessionId} - Fix selected findings after review`,
       "Commands"
     );
   } catch (error) {
@@ -438,8 +438,8 @@ export async function runForeground(
       state: "running",
       mode: "foreground",
       lastHeartbeat: runtime.timer.now(),
-      currentPhase: "discovery",
-      phase: "discovery",
+      currentPhase: "review",
+      phase: "review",
       sessionStatus: "running",
       currentAgent: null,
       branch: branch ?? sessionState?.branch,
@@ -478,11 +478,11 @@ export async function runForeground(
     if (completionState === "success") {
       if (cycleResult.reviewOutcome === "findings-pending") {
         runtime.prompt.log.success(
-          `Discovery complete! Findings are ready for selection (${cycleResult.iterations} iterations)`
+          `Review complete! Findings are ready for selection (${cycleResult.iterations} iterations)`
         );
       } else if (cycleResult.reviewOutcome === "clean") {
         runtime.prompt.log.success(
-          `Discovery complete! No actionable findings (${cycleResult.iterations} iterations)`
+          `Review complete! No actionable findings (${cycleResult.iterations} iterations)`
         );
       } else {
         runtime.prompt.log.success(`Review cycle complete! (${cycleResult.iterations} iterations)`);
@@ -706,7 +706,7 @@ export async function startReview(
       baseBranch: options.base,
       commitSha: options.commit,
       customInstructions: options.custom,
-      capabilityDiscoveryOptions: {
+      capabilityReviewOptions: {
         probeAgents: getDynamicProbeAgents(loadedConfig),
       },
     });

@@ -28,7 +28,7 @@ import {
 } from "@/lib/config";
 import { formatConfigLayersDisplay, formatReadableConfigSection } from "@/lib/config-display";
 import { loadConfigDisplayLayers } from "@/lib/config-layers";
-import { type AgentCapabilitiesMap, discoverAgentCapabilities } from "@/lib/diagnostics";
+import { type AgentCapabilitiesMap, reviewAgentCapabilities } from "@/lib/diagnostics";
 import { getTmuxInstallHint } from "@/lib/diagnostics/tmux-install";
 import {
   type AgentSettings,
@@ -88,7 +88,7 @@ export interface AutoSelectionDependencies {
   capabilitiesByAgent?: AgentCapabilitiesMap;
 }
 
-export interface AutoModelDiscoveryResult {
+export interface AutoModelReviewResult {
   candidates: AutoModelCandidate[];
   skippedAgents: AgentType[];
 }
@@ -163,7 +163,7 @@ export interface InitRuntime {
   saveConfig: typeof saveConfig;
   saveConfigOverride: typeof saveConfigOverride;
   buildConfigOverride: typeof buildConfigOverride;
-  discoverAgentCapabilities: typeof discoverAgentCapabilities;
+  reviewAgentCapabilities: typeof reviewAgentCapabilities;
   checkTmuxInstalled: typeof checkTmuxInstalled;
   checkAllAgents: typeof checkAllAgents;
   getTmuxInstallHint: typeof getTmuxInstallHint;
@@ -224,7 +224,7 @@ export function createInitRuntime(overrides: InitRuntimeOverrides = {}): InitRun
     saveConfig: overrides.saveConfig ?? saveConfig,
     saveConfigOverride: overrides.saveConfigOverride ?? saveConfigOverride,
     buildConfigOverride: overrides.buildConfigOverride ?? buildConfigOverride,
-    discoverAgentCapabilities: overrides.discoverAgentCapabilities ?? discoverAgentCapabilities,
+    reviewAgentCapabilities: overrides.reviewAgentCapabilities ?? reviewAgentCapabilities,
     checkTmuxInstalled: overrides.checkTmuxInstalled ?? checkTmuxInstalled,
     checkAllAgents: overrides.checkAllAgents ?? checkAllAgents,
     getTmuxInstallHint: overrides.getTmuxInstallHint ?? getTmuxInstallHint,
@@ -488,7 +488,7 @@ async function promptForModel(
       const spinner = runtime.prompt.spinner();
       spinner.start(`Fetching ${getAgentDisplayName(agent)} models...`);
       try {
-        const discovered = await runtime.discoverAgentCapabilities({
+        const discovered = await runtime.reviewAgentCapabilities({
           availabilityOverride: availability,
           probeAgents: [agent],
           cacheNamespace: `init-custom-${agent}`,
@@ -534,7 +534,7 @@ async function promptForModel(
       typeof entry.provider === "string" && entry.provider.trim().length > 0
   );
   if (piModels.length === 0) {
-    runtime.prompt.log.error("No provider/model entries were discovered for Pi.");
+    runtime.prompt.log.error("No provider/model entries were found for Pi.");
     runtime.exit(1);
   }
 
@@ -661,16 +661,16 @@ function toCandidates(
   }));
 }
 
-export async function discoverAutoModelCandidates(
+export async function reviewAutoModelCandidates(
   availability: AgentAvailability,
   deps: AutoSelectionDependencies = {}
-): Promise<AutoModelDiscoveryResult> {
+): Promise<AutoModelReviewResult> {
   const candidates: AutoModelCandidate[] = [];
   const skipped = new Set<AgentType>();
 
   const capabilitiesByAgent =
     deps.capabilitiesByAgent ??
-    (await discoverAgentCapabilities({
+    (await reviewAgentCapabilities({
       availabilityOverride: availability,
       deps: {
         fetchOpencodeModels: deps.fetchOpencodeModels,
@@ -735,7 +735,7 @@ export async function buildAutoInitInput(
   availability: AgentAvailability,
   deps: AutoSelectionDependencies = {}
 ): Promise<AutoInitInputResult> {
-  const { candidates, skippedAgents } = await discoverAutoModelCandidates(availability, deps);
+  const { candidates, skippedAgents } = await reviewAutoModelCandidates(availability, deps);
 
   const reviewer = toRoleSelection(pickAutoRoleCandidate("reviewer", candidates));
   const fixer = toRoleSelection(pickAutoRoleCandidate("fixer", candidates));
@@ -1038,7 +1038,7 @@ export async function runInitWithRuntime(
     const spinner = runtime.prompt.spinner();
     spinner.start("Detecting installed models and building automatic configuration...");
     try {
-      const capabilitiesByAgent = await runtime.discoverAgentCapabilities({
+      const capabilitiesByAgent = await runtime.reviewAgentCapabilities({
         availabilityOverride: agentAvailability,
         probeAgents: ["opencode", "pi"],
         cacheNamespace: "init-auto",
@@ -1064,7 +1064,7 @@ export async function runInitWithRuntime(
       runtime.exit(1);
     }
   } else if (setupMode === "custom") {
-    const capabilitiesByAgent = await runtime.discoverAgentCapabilities({
+    const capabilitiesByAgent = await runtime.reviewAgentCapabilities({
       availabilityOverride: agentAvailability,
       probeAgents: [],
       cacheNamespace: "init-custom",

@@ -65,7 +65,7 @@ export const COMMANDS: CommandDef[] = [
   },
   {
     name: "run",
-    description: "Run discovery only and persist findings for later fixing",
+    description: "Run review only and persist findings for later fixing",
     options: [
       { name: "max", alias: "m", type: "number", description: "Max iterations" },
       {
@@ -112,7 +112,7 @@ export const COMMANDS: CommandDef[] = [
   },
   {
     name: "fix",
-    description: "Fix selected findings from a persisted discovery session",
+    description: "Fix selected findings from a persisted review session",
     options: [
       {
         name: "session",
@@ -323,7 +323,7 @@ export const COMMANDS: CommandDef[] = [
   },
   {
     name: "_run-foreground",
-    description: "Internal: run discovery session in tmux foreground",
+    description: "Internal: run review session in tmux foreground",
     hidden: true,
     options: [
       { name: "max", type: "number", description: "Max iterations" },
