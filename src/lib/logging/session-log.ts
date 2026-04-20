@@ -1,19 +1,11 @@
 import { rename } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
-import {
-  getAgentDisplayName,
-  getAgentModelStatsKey,
-  getModelDisplayName,
-} from "@/lib/agents/models";
+import { getAgentDisplayName, getModelDisplayName } from "@/lib/agents/models";
 import { CONFIG_DIR } from "@/lib/config";
 import type {
-  AgentStats,
-  AgentType,
-  DashboardData,
   DerivedRunStatus,
   IterationEntry,
   LogEntry,
-  ModelStats,
   Priority,
   ProjectStats,
   SessionStats,
@@ -186,13 +178,6 @@ export async function createLogSession(
   return join(getProjectLogsDir(storageRoot, projectPath), filename);
 }
 
-export function getHtmlPath(logPath: string): string {
-  if (logPath.endsWith(".jsonl")) {
-    return `${logPath.slice(0, -".jsonl".length)}.html`;
-  }
-  return `${logPath}.html`;
-}
-
 export function getSummaryPath(logPath: string): string {
   if (logPath.endsWith(LOG_FILE_EXTENSION)) {
     return `${logPath.slice(0, -LOG_FILE_EXTENSION.length)}${SUMMARY_FILE_SUFFIX}`;
@@ -204,7 +189,7 @@ export async function deleteSessionFiles(sessionPath: string): Promise<void> {
   await closeLogSink(sessionPath);
   SUMMARY_CACHE.delete(sessionPath);
 
-  const paths = [sessionPath, getHtmlPath(sessionPath), getSummaryPath(sessionPath)];
+  const paths = [sessionPath, getSummaryPath(sessionPath)];
   await Promise.all(
     paths.map(async (p) => {
       try {
@@ -1037,192 +1022,5 @@ export async function computeProjectStats(
     averageIterations,
     fixRate,
     sessions: sessionStats,
-  };
-}
-
-export function buildAgentStats(
-  projects: ProjectStats[],
-  role: "reviewer" | "fixer"
-): AgentStats[] {
-  const agentMap = new Map<AgentType, AgentStats>();
-  const agentField = role === "reviewer" ? "reviewer" : "fixer";
-
-  for (const project of projects) {
-    for (const session of project.sessions) {
-      const agent = session[agentField];
-      if (!agent) continue;
-
-      // For reviewers: issues found = fixes + skipped (all issues discovered)
-      // For fixers: issues fixed = fixes only (issues actually resolved)
-      const issueCount =
-        role === "reviewer" ? session.totalFixes + session.totalSkipped : session.totalFixes;
-
-      const existing = agentMap.get(agent);
-      if (existing) {
-        existing.sessionCount++;
-        existing.totalIssues += issueCount;
-        existing.totalSkipped += session.totalSkipped;
-      } else {
-        agentMap.set(agent, {
-          agent,
-          sessionCount: 1,
-          totalIssues: issueCount,
-          totalSkipped: session.totalSkipped,
-          averageIterations: 0,
-        });
-      }
-    }
-  }
-
-  // Compute average iterations per agent
-  for (const project of projects) {
-    for (const session of project.sessions) {
-      const agent = session[agentField];
-      if (!agent) continue;
-      const stats = agentMap.get(agent);
-      if (stats) {
-        stats.averageIterations += session.iterations;
-      }
-    }
-  }
-
-  for (const stats of agentMap.values()) {
-    if (stats.sessionCount > 0) {
-      stats.averageIterations = stats.averageIterations / stats.sessionCount;
-    }
-  }
-
-  return Array.from(agentMap.values()).sort((a, b) => b.sessionCount - a.sessionCount);
-}
-
-export function buildModelStats(
-  projects: ProjectStats[],
-  role: "reviewer" | "fixer"
-): ModelStats[] {
-  const modelMap = new Map<string, ModelStats>();
-  const agentField = role === "reviewer" ? "reviewer" : "fixer";
-  const modelField = role === "reviewer" ? "reviewerModel" : "fixerModel";
-  const displayField = role === "reviewer" ? "reviewerModelDisplayName" : "fixerModelDisplayName";
-  const reasoningField = role === "reviewer" ? "reviewerReasoning" : "fixerReasoning";
-
-  for (const project of projects) {
-    for (const session of project.sessions) {
-      const agent = session[agentField];
-      const model = session[modelField];
-      if (!agent || !model) continue;
-      const issueCount =
-        role === "reviewer" ? session.totalFixes + session.totalSkipped : session.totalFixes;
-      const modelKey = getAgentModelStatsKey(agent, model);
-      const reasoningLevel = session[reasoningField];
-
-      const existing = modelMap.get(modelKey);
-      if (existing) {
-        existing.sessionCount++;
-        existing.totalIssues += issueCount;
-        existing.totalSkipped += session.totalSkipped;
-        if (reasoningLevel) {
-          if (existing.reasoningLevel === "default") {
-            existing.reasoningLevel = reasoningLevel;
-          } else if (existing.reasoningLevel !== reasoningLevel) {
-            existing.reasoningLevel = "mixed";
-          }
-        }
-      } else {
-        modelMap.set(modelKey, {
-          agent,
-          model,
-          displayName: session[displayField],
-          reasoningLevel: reasoningLevel ?? "default",
-          sessionCount: 1,
-          totalIssues: issueCount,
-          totalSkipped: session.totalSkipped,
-          averageIterations: 0,
-        });
-      }
-    }
-  }
-
-  // Compute average iterations per model
-  for (const project of projects) {
-    for (const session of project.sessions) {
-      const agent = session[agentField];
-      const model = session[modelField];
-      if (!agent || !model) continue;
-      const modelKey = getAgentModelStatsKey(agent, model);
-      const stats = modelMap.get(modelKey);
-      if (stats) {
-        stats.averageIterations += session.iterations;
-      }
-    }
-  }
-
-  for (const stats of modelMap.values()) {
-    if (stats.sessionCount > 0) {
-      stats.averageIterations = stats.averageIterations / stats.sessionCount;
-    }
-  }
-
-  return Array.from(modelMap.values()).sort((a, b) => b.sessionCount - a.sessionCount);
-}
-
-export async function buildDashboardData(
-  storageRoot: string = CONFIG_DIR,
-  currentProjectPath?: string
-): Promise<DashboardData> {
-  const requestedProject = currentProjectPath ? getProjectName(currentProjectPath) : undefined;
-
-  const allSessions = await listLogSessions(storageRoot);
-  const sessionsByProject = new Map<string, LogSession[]>();
-
-  for (const session of allSessions) {
-    const existing = sessionsByProject.get(session.projectName) || [];
-    existing.push(session);
-    sessionsByProject.set(session.projectName, existing);
-  }
-
-  const projects: ProjectStats[] = [];
-  for (const [projectName, sessions] of sessionsByProject) {
-    const stats = await computeProjectStats(projectName, sessions);
-    projects.push(stats);
-  }
-
-  projects.sort((a, b) => b.totalFixes - a.totalFixes);
-  let totalFixes = 0;
-  let totalSkipped = 0;
-  let totalIterations = 0;
-  const priorityCounts = emptyPriorityCounts();
-  let totalSessions = 0;
-
-  for (const project of projects) {
-    totalFixes += project.totalFixes;
-    totalSkipped += project.totalSkipped;
-    totalSessions += project.sessionCount;
-    totalIterations += project.averageIterations * project.sessionCount;
-    aggregatePriorityCounts(priorityCounts, project.priorityCounts);
-  }
-
-  const averageIterations = totalSessions > 0 ? totalIterations / totalSessions : 0;
-  const fixRate = totalFixes + totalSkipped > 0 ? totalFixes / (totalFixes + totalSkipped) : 0;
-  const currentProject =
-    requestedProject && projects.some((project) => project.projectName === requestedProject)
-      ? requestedProject
-      : undefined;
-
-  return {
-    generatedAt: Date.now(),
-    currentProject,
-    globalStats: {
-      totalFixes,
-      totalSkipped,
-      priorityCounts,
-      totalSessions,
-      averageIterations,
-      fixRate,
-    },
-    projects,
-    reviewerAgentStats: buildAgentStats(projects, "reviewer"),
-    fixerAgentStats: buildAgentStats(projects, "fixer"),
-    reviewerModelStats: buildModelStats(projects, "reviewer"),
-    fixerModelStats: buildModelStats(projects, "fixer"),
   };
 }

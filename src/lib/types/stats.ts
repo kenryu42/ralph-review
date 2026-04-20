@@ -10,29 +10,6 @@ import type {
 import type { HandoffStatus } from "./handoff";
 import type { LogEntry } from "./log";
 
-/** Stats breakdown per agent */
-export interface AgentStats {
-  agent: AgentType;
-  sessionCount: number;
-  /** For reviewers: issues found. For fixers: fixes applied. */
-  totalIssues: number;
-  totalSkipped: number;
-  averageIterations: number;
-}
-
-/** Stats breakdown per model */
-export interface ModelStats {
-  agent: AgentType;
-  model: string;
-  displayName: string;
-  reasoningLevel: ReasoningLevel | "default" | "mixed";
-  sessionCount: number;
-  /** For reviewers: issues found. For fixers: fixes applied. */
-  totalIssues: number;
-  totalSkipped: number;
-  averageIterations: number;
-}
-
 export interface SessionStats {
   sessionPath: string;
   sessionName: string;
@@ -80,22 +57,4 @@ export interface ProjectStats {
   averageIterations: number;
   fixRate: number;
   sessions: SessionStats[];
-}
-
-export interface DashboardData {
-  generatedAt: number;
-  currentProject?: string;
-  globalStats: {
-    totalFixes: number;
-    totalSkipped: number;
-    priorityCounts: Record<Priority, number>;
-    totalSessions: number;
-    averageIterations: number;
-    fixRate: number;
-  };
-  projects: ProjectStats[];
-  reviewerAgentStats: AgentStats[];
-  fixerAgentStats: AgentStats[];
-  reviewerModelStats: ModelStats[];
-  fixerModelStats: ModelStats[];
 }

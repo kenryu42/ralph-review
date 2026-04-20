@@ -43,12 +43,10 @@ export type {
   SystemEntry,
 } from "./log";
 export {
-  type CodeLocation,
   type Finding,
   isReviewSummary,
-  type LineRange,
   parseCodexReviewText,
   type ReviewSummary,
 } from "./review";
 export type { IterationResult, ReviewOptions, RunState } from "./run";
-export type { AgentStats, DashboardData, ModelStats, ProjectStats, SessionStats } from "./stats";
+export type { ProjectStats, SessionStats } from "./stats";
