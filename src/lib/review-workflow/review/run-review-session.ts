@@ -94,6 +94,10 @@ function isInterruptLikeFailure(result: IterationResult, wasInterrupted: () => b
   return !result.success && (wasInterrupted() || result.exitCode === 130);
 }
 
+function isReviewerInterruptedError(error: unknown): boolean {
+  return error instanceof Error && error.message === "Reviewer interrupted";
+}
+
 async function updateReviewSessionState(
   deps: RunReviewSessionDependencies,
   projectPath: string,
@@ -309,6 +313,7 @@ export async function runReviewSession(
 
   let worktree: ReturnType<RunReviewSessionDependencies["createSessionWorktree"]> | null = null;
   let shouldDeleteSessionRefs = true;
+  let completedReviewIterations = 0;
 
   try {
     await updateReviewSessionState(deps, projectPath, runtimeContext?.sessionId, {
@@ -391,6 +396,7 @@ export async function runReviewSession(
           knownFindings,
           wasInterrupted
         );
+        completedReviewIterations = iteration;
 
         return {
           findings: reviewerResult.summary.findings,
@@ -465,10 +471,11 @@ export async function runReviewSession(
       },
     };
   } catch (error) {
+    const interrupted = wasInterrupted() || isReviewerInterruptedError(error);
     await updateReviewSessionState(deps, projectPath, runtimeContext?.sessionId, {
       currentPhase: "review",
       phase: "review",
-      sessionStatus: wasInterrupted() ? "interrupted" : "failed",
+      sessionStatus: interrupted ? "interrupted" : "failed",
       currentAgent: null,
       reviewOutcome: "incomplete",
     });
@@ -477,11 +484,11 @@ export async function runReviewSession(
       sessionPath,
       result: {
         phase: "review",
-        sessionStatus: wasInterrupted() ? "interrupted" : "failed",
+        sessionStatus: interrupted ? "interrupted" : "failed",
         reviewOutcome: "incomplete",
         reason:
           error instanceof Error ? `Review failed: ${error.message}` : `Review failed: ${error}`,
-        iterations: 0,
+        iterations: completedReviewIterations,
         findings: [],
       },
     };
