@@ -1,6 +1,6 @@
 import type { InputRenderable, TextareaRenderable } from "@opentui/core";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { TUI_COLORS } from "@/lib/tui/shared/colors";
 import type { DefaultReview } from "@/lib/types";
 
@@ -297,6 +297,18 @@ export function ReviewModeOverlay({
     Math.min(MAX_LIST_PICKER_SELECT_HEIGHT, terminalHeight - LIST_PICKER_VERTICAL_OVERHEAD)
   );
   const pickerOverlayHeight = pickerSelectHeight + LIST_PICKER_VERTICAL_OVERHEAD;
+
+  useEffect(() => {
+    if (step !== "max-iterations") {
+      return;
+    }
+    const input = maxIterationsInputRef.current;
+    if (!input) {
+      return;
+    }
+    input.focus();
+    input.selectAll();
+  }, [step]);
 
   useKeyboard((key) => {
     if (step === "max-iterations") {
