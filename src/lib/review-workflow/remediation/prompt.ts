@@ -242,7 +242,7 @@ JSON rules:
 - Return \`unresolved\` when the finding still needs follow-up, including when you skip it for lack of proof or cannot safely remediate it.
 - You must return one result entry for every selected finding ID.
 - Do not include any finding that was not selected.
-- Use \`fixed\` only when you verified the issue and applied a real code change.
-- Use \`skipped\` when the finding was unproven, out of scope, or did not require a safe change.
+- Use \`resolved\` only when you verified the issue and applied a real code change.
+- Use \`unresolved\` when the finding was unproven, out of scope, or did not require a safe change.
 - The delimited JSON block must be the final output.`;
 }

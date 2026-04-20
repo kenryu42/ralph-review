@@ -45,4 +45,17 @@ describe("review-workflow/remediation/createBatchFixerPrompt", () => {
     expect(prompt).toContain("baseline at commit `baseline-sha-123`");
     expect(prompt).toContain("You must return one result entry for every selected finding ID");
   });
+
+  test("keeps status vocabulary consistent with runBatchFixPhase parser", () => {
+    const prompt = createBatchFixerPrompt({
+      baselineCommitSha: "baseline-sha-123",
+      mutableWorkspacePath: "/tmp/workspace",
+      selectedFindings: [createFinding("F001")],
+    });
+
+    expect(prompt).toContain("`resolved`");
+    expect(prompt).toContain("`unresolved`");
+    expect(prompt).not.toContain("Use `fixed`");
+    expect(prompt).not.toContain("Use `skipped`");
+  });
 });
