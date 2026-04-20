@@ -30,7 +30,7 @@ interface LogsOptions {
 }
 
 // Session state uses "default" when branch is unavailable, but logs store undefined.
-export function normalizeBranch(branch: string | undefined): string | undefined {
+function normalizeBranch(branch: string | undefined): string | undefined {
   const trimmed = branch?.trim();
   if (!trimmed || trimmed === "default") {
     return undefined;
@@ -58,7 +58,7 @@ function hasUniqueProjectBranchMatch(
 
 /**
  * Mark sessions in the array as "running" if they match any active session.
- * This operates directly on SessionStats[] without requiring DashboardData.
+ * This operates directly on SessionStats[].
  */
 export function markSessionStatsRunning(
   sessions: SessionStats[],
@@ -78,7 +78,7 @@ export function markSessionStatsRunning(
   }
 }
 
-export function isUnknownEmptySession(session: SessionStats): boolean {
+function isUnknownEmptySession(session: SessionStats): boolean {
   return session.status === "unknown" && session.iterations === 0;
 }
 

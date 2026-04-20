@@ -282,11 +282,6 @@ export const COMMANDS: CommandDef[] = [
     ],
   },
   {
-    name: "dashboard",
-    description: "Open review dashboard in browser",
-    examples: ["rr dashboard"],
-  },
-  {
     name: "doctor",
     description: "Run environment and configuration diagnostics",
     options: [

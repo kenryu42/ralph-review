@@ -4,7 +4,6 @@ import * as p from "@clack/prompts";
 import { getCommandDef, getVersion, parseArgs, printCommandHelp, printUsage } from "./cli-core";
 import { runApply } from "./commands/apply";
 import { runConfig } from "./commands/config";
-import { runDashboard } from "./commands/dashboard";
 import { runDiscard } from "./commands/discard";
 import { runDoctor } from "./commands/doctor";
 import { runFix, runFixForeground } from "./commands/fix";
@@ -52,7 +51,6 @@ export interface CliDeps {
   runStop: typeof runStop;
   runLog: typeof runLog;
   runPrune: typeof runPrune;
-  runDashboard: typeof runDashboard;
   runDoctor: typeof runDoctor;
   runList: typeof runList;
   runUpdate: typeof runUpdate;
@@ -91,7 +89,6 @@ const DEFAULT_CLI_DEPS: CliDeps = {
   runStop,
   runLog,
   runPrune,
-  runDashboard,
   runDoctor,
   runList,
   runUpdate,
@@ -229,10 +226,6 @@ export async function runCli(
 
       case "prune":
         await cliDeps.runPrune(commandArgs);
-        break;
-
-      case "dashboard":
-        await cliDeps.runDashboard(commandArgs);
         break;
 
       case "doctor":
