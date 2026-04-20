@@ -68,7 +68,6 @@ describe("cli", () => {
       expect(usage).toContain("list");
       expect(usage).toContain("stop");
       expect(usage).toContain("log");
-      expect(usage).toContain("dashboard");
       expect(usage).toContain("doctor");
       expect(usage).toContain("update");
     });
@@ -113,7 +112,6 @@ describe("cli", () => {
       expect(names).toContain("list");
       expect(names).toContain("stop");
       expect(names).toContain("log");
-      expect(names).toContain("dashboard");
       expect(names).toContain("doctor");
       expect(names).toContain("update");
       expect(names).toContain("_run-foreground");

@@ -112,9 +112,6 @@ function createCliHarness(overrides: Partial<CliDeps> = {}): CliHarness {
     runLog: async (argv) => {
       calls.push(`log:${argv.join(",")}`);
     },
-    runDashboard: async (argv) => {
-      calls.push(`dashboard:${argv.join(",")}`);
-    },
     runDoctor: async (argv) => {
       calls.push(`doctor:${argv?.join(",") ?? ""}`);
     },
@@ -325,11 +322,6 @@ describe("cli entrypoints", () => {
       { command: "_run-foreground", args: ["--max", "1"], expectedCall: "_run-foreground:--max,1" },
       { command: "stop", args: ["--all"], expectedCall: "stop:--all" },
       { command: "log", args: ["--json"], expectedCall: "log:--json" },
-      {
-        command: "dashboard",
-        args: ["--host", "127.0.0.1"],
-        expectedCall: "dashboard:--host,127.0.0.1",
-      },
       { command: "doctor", args: ["--fix"], expectedCall: "doctor:--fix" },
       { command: "update", args: ["--check"], expectedCall: "update:--check" },
     ] as const;
