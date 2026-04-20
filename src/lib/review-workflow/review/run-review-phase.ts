@@ -149,7 +149,7 @@ export async function runReviewPhase(options: RunReviewPhaseOptions): Promise<Re
       };
     }
 
-    if (merged.newFindings.length === 0) {
+    if (!options.reviewOptions?.forceMaxIterations && merged.newFindings.length === 0) {
       return {
         phase: "review",
         sessionStatus: "completed",
