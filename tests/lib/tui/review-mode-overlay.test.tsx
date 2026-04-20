@@ -37,6 +37,7 @@ describe("buildReviewRunArgs", () => {
 
 describe("ReviewModeOverlay", () => {
   let testSetup: Awaited<ReturnType<typeof testRender>> | null = null;
+  let restoreSpawnSync: (() => void) | null = null;
 
   afterEach(async () => {
     if (testSetup) {
@@ -45,6 +46,9 @@ describe("ReviewModeOverlay", () => {
       });
       testSetup = null;
     }
+
+    restoreSpawnSync?.();
+    restoreSpawnSync = null;
   });
 
   async function renderOverlay(
@@ -105,6 +109,62 @@ describe("ReviewModeOverlay", () => {
       );
       await setup.renderOnce();
     });
+  }
+
+  function mockGitBranches({
+    currentBranch,
+    branches,
+  }: {
+    currentBranch: string;
+    branches: string[];
+  }) {
+    const originalSpawnSync = Bun.spawnSync;
+
+    type SpawnSyncArgs =
+      | [command: string[], options?: { cwd?: string; stdout?: "pipe"; stderr?: "pipe" }]
+      | [
+          options: {
+            cmd: string[];
+            cwd?: string;
+            stdout?: "pipe";
+            stderr?: "pipe";
+          },
+        ];
+
+    Bun.spawnSync = ((...args: SpawnSyncArgs) => {
+      const firstArg = args[0];
+      const command = Array.isArray(firstArg) ? firstArg : firstArg.cmd;
+
+      if (command[0] === "git" && command[1] === "branch" && command[2] === "--show-current") {
+        return {
+          exitCode: 0,
+          stdout: Buffer.from(currentBranch),
+          stderr: Buffer.from(""),
+        };
+      }
+
+      if (
+        command[0] === "git" &&
+        command[1] === "branch" &&
+        command[2] === "--format=%(refname:short)"
+      ) {
+        return {
+          exitCode: 0,
+          stdout: Buffer.from(branches.join("\n")),
+          stderr: Buffer.from(""),
+        };
+      }
+
+      if (Array.isArray(firstArg)) {
+        return originalSpawnSync(firstArg, args[1]);
+      }
+
+      return originalSpawnSync(firstArg);
+    }) as typeof Bun.spawnSync;
+
+    restoreSpawnSync = () => {
+      Bun.spawnSync = originalSpawnSync;
+    };
   }
 
   test("submits uncommitted changes immediately by default", async () => {
@@ -190,7 +250,66 @@ describe("ReviewModeOverlay", () => {
     expect(closeCount).toBe(1);
   });
 
+  test("shows the current repo branch description for base branch options", async () => {
+    mockGitBranches({
+      currentBranch: "new-review-flow",
+      branches: ["main", "release"],
+    });
+
+    const setup = await renderOverlay({
+      defaultReview: { type: "base", branch: "main" },
+    });
+
+    await emitKey(setup, "return");
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("Current: new-review-flow");
+    expect(frame).not.toContain("Local branch");
+    expect(frame).not.toContain("Type manually...");
+  });
+
+  test("shows an unavailable state when no alternate base branches exist", async () => {
+    mockGitBranches({
+      currentBranch: "new-review-flow",
+      branches: ["new-review-flow"],
+    });
+
+    const submitted: string[][] = [];
+    const setup = await renderOverlay(
+      {
+        defaultReview: { type: "base", branch: "main" },
+        onSubmit: (args) => {
+          submitted.push(args);
+        },
+      },
+      {
+        width: 100,
+        height: 14,
+      }
+    );
+
+    await emitKey(setup, "return");
+    await emitKey(setup, "return");
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("No alternate branches available.");
+    expect(frame).toContain("Current repo branch: new-review-flow");
+    expect(frame).not.toContain("Type manually...");
+    expect(submitted).toEqual([]);
+  });
+
   test("keeps the base branch list visible on short terminals", async () => {
+    mockGitBranches({
+      currentBranch: "new-review-flow",
+      branches: ["main", "release"],
+    });
+
     const setup = await renderOverlay(
       {
         defaultReview: { type: "base", branch: "main" },
@@ -207,6 +326,7 @@ describe("ReviewModeOverlay", () => {
     });
 
     const frame = setup.captureCharFrame();
-    expect(frame).toContain("Type manually...");
+    expect(frame).toContain("main");
+    expect(frame).toContain("release");
   });
 });

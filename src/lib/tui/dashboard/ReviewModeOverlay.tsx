@@ -22,8 +22,6 @@ type ReviewTextareaKeyBinding = {
 
 type ReviewModeStep = "picker" | "branch-picker" | "editor";
 
-const MANUAL_BRANCH_VALUE = "__manual__";
-
 interface ReviewModeOverlayProps {
   defaultReview?: DefaultReview;
   projectPath: string;
@@ -135,7 +133,12 @@ export function buildReviewRunArgs(mode: ReviewModeSelection, value?: string): s
     : [metadata.runFlag, trimmedValue];
 }
 
-function getGitBranches(projectPath: string): string[] {
+interface GitBranchData {
+  currentBranch: string | null;
+  branches: string[];
+}
+
+function getGitBranches(projectPath: string): GitBranchData {
   try {
     const currentResult = Bun.spawnSync(["git", "branch", "--show-current"], {
       cwd: projectPath,
@@ -151,17 +154,26 @@ function getGitBranches(projectPath: string): string[] {
       stderr: "pipe",
     });
     if (branchesResult.exitCode !== 0) {
-      return [];
+      return {
+        currentBranch: currentBranch || null,
+        branches: [],
+      };
     }
 
-    return branchesResult.stdout
-      .toString()
-      .split("\n")
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0 && line !== currentBranch)
-      .sort((a, b) => a.localeCompare(b));
+    return {
+      currentBranch: currentBranch || null,
+      branches: branchesResult.stdout
+        .toString()
+        .split("\n")
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0 && line !== currentBranch)
+        .sort((a, b) => a.localeCompare(b)),
+    };
   } catch {
-    return [];
+    return {
+      currentBranch: null,
+      branches: [],
+    };
   }
 }
 
@@ -182,16 +194,22 @@ export function ReviewModeOverlay({
 
   const editorMode = step === "editor" && selectedMode !== "uncommitted" ? selectedMode : null;
 
-  const branchOptions = useMemo(() => {
-    const branches = getGitBranches(projectPath);
-    const options = branches.map((name) => ({ name, description: `Local branch`, value: name }));
-    options.push({
-      name: "Type manually...",
-      description: "Enter a branch name or ref",
-      value: MANUAL_BRANCH_VALUE,
-    });
-    return options;
+  const branchPickerData = useMemo(() => {
+    const branchData = getGitBranches(projectPath);
+    const description = branchData.currentBranch
+      ? `Current: ${branchData.currentBranch}`
+      : "Current repo branch";
+
+    return {
+      ...branchData,
+      options: branchData.branches.map((name) => ({
+        name,
+        description,
+        value: name,
+      })),
+    };
   }, [projectPath]);
+  const branchOptions = branchPickerData.options;
 
   const branchPickerSelectHeight = Math.max(
     1,
@@ -339,6 +357,24 @@ export function ReviewModeOverlay({
   }
 
   function renderBranchPicker() {
+    if (branchOptions.length === 0) {
+      return (
+        <box flexDirection="column" gap={1}>
+          <text fg={TUI_COLORS.text.muted}>No alternate branches available.</text>
+          <text fg={TUI_COLORS.text.dim}>
+            {branchPickerData.currentBranch
+              ? `Current repo branch: ${branchPickerData.currentBranch}`
+              : "Current repo branch could not be determined."}
+          </text>
+          {error && <text fg={TUI_COLORS.status.error}>{error}</text>}
+          <text>
+            <span fg={TUI_COLORS.accent.key}>[Esc]</span>
+            <span fg={TUI_COLORS.text.muted}> Back</span>
+          </text>
+        </box>
+      );
+    }
+
     return (
       <box flexDirection="column" gap={1}>
         <text fg={TUI_COLORS.text.muted}>Select a base branch to compare against.</text>
@@ -349,11 +385,6 @@ export function ReviewModeOverlay({
           showScrollIndicator
           onSelect={(_index, option) => {
             if (!option) {
-              return;
-            }
-            if (option.value === MANUAL_BRANCH_VALUE) {
-              setSelectedMode("base");
-              setStep("editor");
               return;
             }
             submitSelectedMode("base", option.value as string);
