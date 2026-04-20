@@ -344,4 +344,67 @@ describe("prune command", () => {
     expect(await Bun.file(archived.metadataPath).exists()).toBe(false);
     expect(await Bun.file(archived.patchPath).exists()).toBe(false);
   });
+
+  test("all-projects skips missing project directories instead of aborting", async () => {
+    const missingProjectPath = await mkdtemp(join(tmpdir(), "ralph-prune-missing-project-"));
+    await rm(missingProjectPath, { recursive: true, force: true });
+
+    const sessionId = "session-missing-project";
+    await saveFindingsArtifact(
+      storageRoot,
+      createArtifact(missingProjectPath, sessionId, "2026-01-01T00:00:00.000Z")
+    );
+
+    const infos: string[] = [];
+    const successes: string[] = [];
+    await expect(
+      runPrune(["--all-projects"], {
+        getCommandDef,
+        parseCommand,
+        cwd: () => repoPath,
+        storageRoot,
+        listProjectPendingHandoffs: listPendingFromStorage,
+        listProjectArchivedHandoffs: listArchivedFromStorage,
+        logInfo: (message) => infos.push(message),
+        logSuccess: (message) => successes.push(message),
+        logWarn: () => {},
+        logError: () => {},
+        exit: () => {},
+        now: () => 1_800_000_000_000,
+      })
+    ).resolves.toBeUndefined();
+
+    expect(infos.some((message) => message.includes(sessionId))).toBe(true);
+    expect(successes).toEqual([]);
+  });
+
+  test("apply continues cleanup when a recorded project path is no longer a git repository", async () => {
+    const nonGitProjectPath = await mkdtemp(join(tmpdir(), "ralph-prune-nongit-project-"));
+    const sessionId = "session-non-git";
+    const artifact = createArtifact(nonGitProjectPath, sessionId, "2026-01-01T00:00:00.000Z");
+    const artifactPath = getFindingsArtifactPath(storageRoot, nonGitProjectPath, sessionId);
+    await saveFindingsArtifact(storageRoot, artifact);
+
+    const successes: string[] = [];
+    await expect(
+      runPrune(["--all-projects", "--apply"], {
+        getCommandDef,
+        parseCommand,
+        cwd: () => repoPath,
+        storageRoot,
+        listProjectPendingHandoffs: listPendingFromStorage,
+        listProjectArchivedHandoffs: listArchivedFromStorage,
+        logInfo: () => {},
+        logSuccess: (message) => successes.push(message),
+        logWarn: () => {},
+        logError: () => {},
+        exit: () => {},
+        now: () => 1_800_000_000_000,
+      })
+    ).resolves.toBeUndefined();
+
+    expect(await Bun.file(artifactPath).exists()).toBe(false);
+    expect(successes.at(-1)).toContain("Pruned 1 review session");
+    await rm(nonGitProjectPath, { recursive: true, force: true });
+  });
 });

@@ -214,24 +214,27 @@ async function collectProjectPaths(
 }
 
 async function listProjectSessionRefs(projectPath: string): Promise<Map<string, SessionRef[]>> {
-  const result = Bun.spawnSync(
-    ["git", "for-each-ref", "--format=%(refname)", "refs/ralph-review/sessions"],
-    {
-      cwd: projectPath,
-      stdout: "pipe",
-      stderr: "pipe",
-    }
-  );
+  let result: ReturnType<typeof Bun.spawnSync>;
+  try {
+    result = Bun.spawnSync(
+      ["git", "for-each-ref", "--format=%(refname)", "refs/ralph-review/sessions"],
+      {
+        cwd: projectPath,
+        stdout: "pipe",
+        stderr: "pipe",
+      }
+    );
+  } catch {
+    return new Map();
+  }
 
   if (result.exitCode !== 0) {
     return new Map();
   }
 
+  const stdout = result.stdout?.toString() ?? "";
   const refsBySession = new Map<string, SessionRef[]>();
-  for (const line of result.stdout
-    .toString()
-    .split("\n")
-    .map((entry) => entry.trim())) {
+  for (const line of stdout.split("\n").map((entry) => entry.trim())) {
     const match = /^refs\/ralph-review\/sessions\/([^/]+)\/(baseline|source|final)$/u.exec(line);
     if (!match) {
       continue;
@@ -251,13 +254,31 @@ async function baselineCommitExists(
   projectPath: string,
   baselineCommitSha: string
 ): Promise<boolean> {
-  return (
-    Bun.spawnSync(["git", "cat-file", "-e", `${baselineCommitSha}^{commit}`], {
-      cwd: projectPath,
-      stdout: "ignore",
-      stderr: "ignore",
-    }).exitCode === 0
-  );
+  try {
+    return (
+      Bun.spawnSync(["git", "cat-file", "-e", `${baselineCommitSha}^{commit}`], {
+        cwd: projectPath,
+        stdout: "ignore",
+        stderr: "ignore",
+      }).exitCode === 0
+    );
+  } catch {
+    return false;
+  }
+}
+
+function isGitRepository(projectPath: string): boolean {
+  try {
+    return (
+      Bun.spawnSync(["git", "rev-parse", "--is-inside-work-tree"], {
+        cwd: projectPath,
+        stdout: "ignore",
+        stderr: "ignore",
+      }).exitCode === 0
+    );
+  } catch {
+    return false;
+  }
 }
 
 async function hasSessionWorktree(
@@ -400,7 +421,9 @@ async function removeSessionWorktreeDir(
 
 async function applyCandidate(candidate: PruneCandidate, storageRoot: string): Promise<void> {
   await removeSessionWorktreeDir(storageRoot, candidate.projectPath, candidate.sessionId);
-  deleteSessionRefs(candidate.projectPath, candidate.sessionId);
+  if (isGitRepository(candidate.projectPath)) {
+    deleteSessionRefs(candidate.projectPath, candidate.sessionId);
+  }
   await removePath(candidate.pendingMetadataPath);
   await removePath(candidate.pendingPatchPath);
   if (!candidate.keepArchivedHistory) {
