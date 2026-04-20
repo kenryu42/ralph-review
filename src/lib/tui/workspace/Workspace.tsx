@@ -17,6 +17,7 @@ import type {
   SessionStats,
   SkippedEntry,
 } from "@/lib/types";
+import { resolveWorkspaceFocusState } from "./workspace-focus";
 import type { FocusedPane, SessionGroupData } from "./workspace-types";
 
 interface WorkspaceProps {
@@ -48,6 +49,7 @@ interface WorkspaceProps {
   canFixPendingSession: boolean;
   outputVisible: boolean;
   focusedPane: FocusedPane;
+  overlayBlocked?: boolean;
 }
 
 export function Workspace({
@@ -79,14 +81,20 @@ export function Workspace({
   canFixPendingSession,
   outputVisible,
   focusedPane,
+  overlayBlocked = false,
 }: WorkspaceProps) {
+  const { sidebarFocused, detailFocused, outputFocused } = resolveWorkspaceFocusState(
+    focusedPane,
+    overlayBlocked
+  );
+
   return (
     <box flexDirection="column" flexGrow={1} minHeight={0}>
       <box flexDirection="row" flexGrow={1} minHeight={0} gap={1} paddingLeft={1} paddingRight={1}>
         <SessionSidebar
           groups={sessionGroups}
           selectedSessionId={selectedSessionId}
-          focused={focusedPane === "sidebar"}
+          focused={sidebarFocused}
         />
         <DetailPane
           session={session}
@@ -113,14 +121,14 @@ export function Workspace({
           isStopping={isStopping}
           activeSessionCount={activeSessionCount}
           canFixPendingSession={canFixPendingSession}
-          focused={focusedPane === "detail"}
+          focused={detailFocused}
         />
       </box>
       <OutputDrawer
         output={tmuxOutput}
         sessionName={session?.sessionName ?? null}
         visible={outputVisible}
-        focused={focusedPane === "output"}
+        focused={outputFocused}
       />
     </box>
   );
