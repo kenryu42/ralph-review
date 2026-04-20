@@ -237,8 +237,9 @@ describe("ReviewModeOverlay", () => {
     });
 
     await emitKey(setup, "return");
+    await emitKey(setup, "return");
 
-    expect(submitted).toEqual([["--uncommitted"]]);
+    expect(submitted).toEqual([["--uncommitted", "--max", "5"]]);
   });
 
   test("highlights the base branch option when defaultReview is base", async () => {
@@ -273,8 +274,9 @@ describe("ReviewModeOverlay", () => {
     await emitKey(setup, "down");
     await emitKey(setup, "return");
     await emitKey(setup, "return");
+    await emitKey(setup, "return");
 
-    expect(submitted).toEqual([["--commit", "abc1234"]]);
+    expect(submitted).toEqual([["--commit", "abc1234", "--max", "5"]]);
   });
 
   test("submits custom instructions with enter", async () => {
@@ -295,8 +297,9 @@ describe("ReviewModeOverlay", () => {
       await setup.renderOnce();
     });
     await emitKey(setup, "return");
+    await emitKey(setup, "return");
 
-    expect(submitted).toEqual([["--custom", "check security"]]);
+    expect(submitted).toEqual([["--custom", "check security", "--max", "5"]]);
   });
 
   test("closes the picker when q is pressed", async () => {

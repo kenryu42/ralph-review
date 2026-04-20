@@ -1,4 +1,4 @@
-import type { TextareaRenderable } from "@opentui/core";
+import type { InputRenderable, TextareaRenderable } from "@opentui/core";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import { useMemo, useRef, useState } from "react";
 import { TUI_COLORS } from "@/lib/tui/shared/colors";
@@ -21,10 +21,15 @@ type ReviewTextareaKeyBinding = {
   action: "submit";
 };
 
-type ReviewModeStep = "picker" | "branch-picker" | "commit-picker" | "editor";
+type ReviewModeStep = "picker" | "branch-picker" | "commit-picker" | "editor" | "max-iterations";
+
+const DEFAULT_MAX_ITERATIONS = 5;
+const MIN_MAX_ITERATIONS = 1;
+const MAX_MAX_ITERATIONS = 999;
 
 interface ReviewModeOverlayProps {
   defaultReview?: DefaultReview;
+  defaultMaxIterations?: number;
   projectPath: string;
   onClose: () => void;
   onSubmit: (args: string[]) => void;
@@ -225,20 +230,35 @@ function getGitCommits(projectPath: string): GitCommit[] {
   }
 }
 
+function clampMaxIterations(value: number): number {
+  if (!Number.isFinite(value)) {
+    return DEFAULT_MAX_ITERATIONS;
+  }
+  return Math.min(MAX_MAX_ITERATIONS, Math.max(MIN_MAX_ITERATIONS, Math.trunc(value)));
+}
+
 export function ReviewModeOverlay({
   defaultReview,
+  defaultMaxIterations,
   projectPath,
   onClose,
   onSubmit,
 }: ReviewModeOverlayProps) {
   const { height: terminalHeight } = useTerminalDimensions();
+  const initialMaxIterations = clampMaxIterations(defaultMaxIterations ?? DEFAULT_MAX_ITERATIONS);
   const [selectedMode, setSelectedMode] = useState<ReviewModeSelection>(
     getInitialReviewMode(defaultReview)
   );
   const [drafts, setDrafts] = useState<ReviewModeDrafts>(() => createInitialDrafts(defaultReview));
   const [step, setStep] = useState<ReviewModeStep>("picker");
   const [error, setError] = useState<string | null>(null);
+  const [pendingArgs, setPendingArgs] = useState<string[] | null>(null);
+  const [previousStep, setPreviousStep] = useState<ReviewModeStep>("picker");
+  const [maxIterationsDraft, setMaxIterationsDraft] = useState<string>(
+    String(initialMaxIterations)
+  );
   const textareaRef = useRef<TextareaRenderable>(null);
+  const maxIterationsInputRef = useRef<InputRenderable>(null);
 
   const editorMode =
     step === "editor" && selectedMode !== "uncommitted" && selectedMode !== "commit"
@@ -279,6 +299,36 @@ export function ReviewModeOverlay({
   const pickerOverlayHeight = pickerSelectHeight + LIST_PICKER_VERTICAL_OVERHEAD;
 
   useKeyboard((key) => {
+    if (step === "max-iterations") {
+      if (key.name === "escape") {
+        setError(null);
+        setPendingArgs(null);
+        setStep(previousStep);
+        return;
+      }
+
+      if (key.name === "up") {
+        const current = parseInt(maxIterationsDraft, 10);
+        const base = Number.isFinite(current) ? current : initialMaxIterations - 1;
+        setMaxIterationsDraft(String(clampMaxIterations(base + 1)));
+        setError(null);
+        return;
+      }
+
+      if (key.name === "down") {
+        const current = parseInt(maxIterationsDraft, 10);
+        const base = Number.isFinite(current) ? current : initialMaxIterations + 1;
+        setMaxIterationsDraft(String(clampMaxIterations(base - 1)));
+        setError(null);
+        return;
+      }
+
+      if (key.name === "enter" || key.name === "return") {
+        submitWithMaxIterations();
+      }
+      return;
+    }
+
     if (step === "editor" && editorMode) {
       if (key.name === "escape") {
         returnToPicker();
@@ -367,10 +417,38 @@ export function ReviewModeOverlay({
   function submitSelectedMode(mode: ReviewModeSelection, value?: string) {
     try {
       setError(null);
-      onSubmit(buildReviewRunArgs(mode, value));
+      const args = buildReviewRunArgs(mode, value);
+      goToMaxIterations(args);
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : String(submitError));
     }
+  }
+
+  function goToMaxIterations(args: string[]) {
+    setPendingArgs(args);
+    setPreviousStep(step);
+    setMaxIterationsDraft(String(initialMaxIterations));
+    setError(null);
+    setStep("max-iterations");
+  }
+
+  function submitWithMaxIterations() {
+    const raw = maxIterationsDraft;
+    const parsed = parseInt(raw, 10);
+    if (!Number.isInteger(parsed) || parsed < MIN_MAX_ITERATIONS) {
+      setError(`Max iterations must be an integer greater than or equal to ${MIN_MAX_ITERATIONS}.`);
+      return;
+    }
+    if (parsed > MAX_MAX_ITERATIONS) {
+      setError(`Max iterations must be ${MAX_MAX_ITERATIONS} or fewer.`);
+      return;
+    }
+    if (!pendingArgs) {
+      setError("Review mode is missing.");
+      return;
+    }
+    setError(null);
+    onSubmit([...pendingArgs, "--max", String(parsed)]);
   }
 
   function openEditor(mode: EditorReviewMode) {
@@ -515,6 +593,45 @@ export function ReviewModeOverlay({
     );
   }
 
+  function renderMaxIterations() {
+    return (
+      <box flexDirection="column" gap={1}>
+        <text fg={TUI_COLORS.text.muted}>
+          How many review iterations at most? (default {initialMaxIterations})
+        </text>
+        <input
+          ref={maxIterationsInputRef}
+          focused
+          value={maxIterationsDraft}
+          placeholder={String(initialMaxIterations)}
+          width={12}
+          backgroundColor="#101425"
+          focusedBackgroundColor="#101425"
+          onInput={(next) => {
+            if (next === "" || /^\d+$/.test(next)) {
+              setMaxIterationsDraft(next);
+              setError(null);
+              return;
+            }
+            const input = maxIterationsInputRef.current;
+            if (input) {
+              input.value = maxIterationsDraft;
+            }
+          }}
+        />
+        {error && <text fg={TUI_COLORS.status.error}>{error}</text>}
+        <text>
+          <span fg={TUI_COLORS.accent.key}>[Up/Down]</span>
+          <span fg={TUI_COLORS.text.muted}> Adjust </span>
+          <span fg={TUI_COLORS.accent.key}>[Enter]</span>
+          <span fg={TUI_COLORS.text.muted}> Start review </span>
+          <span fg={TUI_COLORS.accent.key}>[Esc]</span>
+          <span fg={TUI_COLORS.text.muted}> Back</span>
+        </text>
+      </box>
+    );
+  }
+
   function renderEditor(mode: EditorReviewMode) {
     const metadata = REVIEW_MODE_EDITOR_META[mode];
     return (
@@ -565,13 +682,15 @@ export function ReviewModeOverlay({
         border
         borderStyle="double"
         title={
-          editorMode
-            ? REVIEW_MODE_EDITOR_META[editorMode].title
-            : step === "branch-picker"
-              ? REVIEW_MODE_EDITOR_META.base.title
-              : step === "commit-picker"
-                ? "Target Commit"
-                : "Review Mode"
+          step === "max-iterations"
+            ? "Max Iterations"
+            : editorMode
+              ? REVIEW_MODE_EDITOR_META[editorMode].title
+              : step === "branch-picker"
+                ? REVIEW_MODE_EDITOR_META.base.title
+                : step === "commit-picker"
+                  ? "Target Commit"
+                  : "Review Mode"
         }
         titleAlignment="left"
         padding={isPickerStep ? LIST_PICKER_PADDING : 2}
@@ -580,13 +699,15 @@ export function ReviewModeOverlay({
         backgroundColor="#1a1a2e"
         flexDirection="column"
       >
-        {editorMode
-          ? renderEditor(editorMode)
-          : step === "branch-picker"
-            ? renderBranchPicker()
-            : step === "commit-picker"
-              ? renderCommitPicker()
-              : renderPicker()}
+        {step === "max-iterations"
+          ? renderMaxIterations()
+          : editorMode
+            ? renderEditor(editorMode)
+            : step === "branch-picker"
+              ? renderBranchPicker()
+              : step === "commit-picker"
+                ? renderCommitPicker()
+                : renderPicker()}
       </box>
     </box>
   );

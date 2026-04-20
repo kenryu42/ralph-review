@@ -16,6 +16,7 @@ interface DashboardOverlaysProps {
   pendingFixTarget: PendingFixTarget | null;
   canShowSession: boolean;
   defaultReview?: DefaultReview;
+  defaultMaxIterations?: number;
   projectPath: string;
   sessions: ActiveSession[];
   onCloseHelp: () => void;
@@ -37,6 +38,7 @@ export function DashboardOverlays({
   pendingFixTarget,
   canShowSession,
   defaultReview,
+  defaultMaxIterations,
   projectPath,
   sessions,
   onCloseHelp,
@@ -54,6 +56,7 @@ export function DashboardOverlays({
       {showRunOverlay && (
         <ReviewModeOverlay
           defaultReview={defaultReview}
+          defaultMaxIterations={defaultMaxIterations}
           projectPath={projectPath}
           onClose={onCloseRunOverlay}
           onSubmit={onSubmitRunOverlay}
