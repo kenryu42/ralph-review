@@ -11,6 +11,7 @@ import type { FocusedPane } from "@/lib/tui/workspace/workspace-types";
 import { DashboardOverlays } from "./DashboardOverlays";
 import { getPendingFixTarget } from "./dashboard-fix-state";
 import { cycleDashboardFocus, cycleDashboardFocusReverse } from "./dashboard-focus";
+import { isDashboardOverlayBlockingFocus } from "./dashboard-overlay-state";
 import { Header } from "./Header";
 import { StatusBar } from "./StatusBar";
 import { useDashboardRunControl } from "./use-dashboard-run-control";
@@ -191,6 +192,13 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
 
   const displayError = state.error || runError;
   const showRunOverlay = showReviewModeOverlay && !state.currentSession;
+  const isOverlayBlocked = isDashboardOverlayBlockingFocus({
+    showHelp,
+    showRunOverlay,
+    showFixFindings,
+    showSession,
+    showStopPicker,
+  });
   const hasSession = !displayError && Boolean(state.currentSession);
 
   return (
@@ -238,6 +246,7 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
             canFixPendingSession={canFixPendingSession}
             outputVisible={outputVisible}
             focusedPane={focusedPane}
+            overlayBlocked={isOverlayBlocked}
           />
         )}
         <StatusBar
