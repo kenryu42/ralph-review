@@ -720,12 +720,23 @@ export function createSessionWorktree(
     `Failed to write session ref ${baselineRef}`
   );
 
-  const worktree = createSessionWorktreeAt(
-    sourceProjectPath,
-    worktreeId,
-    sourceBaseline.commitSha,
-    storageRoot
-  );
+  let worktree: GitSessionWorktree;
+  try {
+    worktree = createSessionWorktreeAt(
+      sourceProjectPath,
+      worktreeId,
+      sourceBaseline.commitSha,
+      storageRoot
+    );
+  } catch (error) {
+    try {
+      deleteSessionRefs(sourceProjectPath, worktreeId);
+    } catch (cleanupError) {
+      throw new Error(`${error} Cleanup also failed: ${cleanupError}`);
+    }
+    throw error;
+  }
+
   worktree.baselineCommitSha = sourceBaseline.commitSha;
   worktree.baselineRef = baselineRef;
   worktree.sourceBaselineCommitSha = sourceBaseline.commitSha;

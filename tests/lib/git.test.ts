@@ -708,4 +708,43 @@ describe("session worktree management", () => {
       }
     }
   });
+
+  test("deletes session refs when worktree creation fails", () => {
+    initTestRepo(tempDir);
+    commit(tempDir, "base.txt", "base commit");
+    const sessionId = "session-ref-cleanup";
+
+    const restoreSpawnSync = patchSpawnSyncFailure(
+      (command) =>
+        command[0] === "git" &&
+        command[1] === "worktree" &&
+        command[2] === "add" &&
+        command[3] === "--detach"
+    );
+
+    try {
+      expect(() => createSessionWorktree(tempDir, sessionId, storageRoot)).toThrow();
+    } finally {
+      restoreSpawnSync();
+    }
+
+    const sourceRef = `refs/ralph-review/sessions/${sessionId}/source`;
+    const baselineRef = `refs/ralph-review/sessions/${sessionId}/baseline`;
+    const sourceRefExitCode = Bun.spawnSync(["git", "show-ref", "--verify", "--quiet", sourceRef], {
+      cwd: tempDir,
+      stdout: "ignore",
+      stderr: "ignore",
+    }).exitCode;
+    const baselineRefExitCode = Bun.spawnSync(
+      ["git", "show-ref", "--verify", "--quiet", baselineRef],
+      {
+        cwd: tempDir,
+        stdout: "ignore",
+        stderr: "ignore",
+      }
+    ).exitCode;
+
+    expect(sourceRefExitCode).not.toBe(0);
+    expect(baselineRefExitCode).not.toBe(0);
+  });
 });
