@@ -6,7 +6,8 @@ import type { DefaultReview } from "@/lib/types";
 
 export type ReviewModeSelection = "uncommitted" | "base" | "commit" | "custom";
 
-type EditorReviewMode = Exclude<ReviewModeSelection, "uncommitted">;
+type ReviewModeInputMode = Exclude<ReviewModeSelection, "uncommitted">;
+type EditorReviewMode = Exclude<ReviewModeInputMode, "commit">;
 type ReviewModeDrafts = Record<EditorReviewMode, string>;
 
 interface ReviewModeOption {
@@ -20,7 +21,7 @@ type ReviewTextareaKeyBinding = {
   action: "submit";
 };
 
-type ReviewModeStep = "picker" | "branch-picker" | "editor";
+type ReviewModeStep = "picker" | "branch-picker" | "commit-picker" | "editor";
 
 interface ReviewModeOverlayProps {
   defaultReview?: DefaultReview;
@@ -31,22 +32,22 @@ interface ReviewModeOverlayProps {
 
 const REVIEW_MODE_OPTIONS: ReviewModeOption[] = [
   {
-    label: "Uncommitted changes",
+    label: "Review uncommitted changes",
     description: "Review the current working tree changes.",
     mode: "uncommitted",
   },
   {
-    label: "Against base branch",
+    label: "Review against base branch",
     description: "Compare the current branch against a base branch or ref.",
     mode: "base",
   },
   {
-    label: "Target commit",
+    label: "Review a commit",
     description: "Review a specific commit SHA or ref.",
     mode: "commit",
   },
   {
-    label: "Custom",
+    label: "Custom review instructions",
     description: "Provide custom review instructions.",
     mode: "custom",
   },
@@ -57,9 +58,9 @@ const REVIEW_TEXTAREA_KEY_BINDINGS: ReviewTextareaKeyBinding[] = [
   { name: "linefeed", action: "submit" },
 ];
 
-const BRANCH_PICKER_PADDING = 1;
-const BRANCH_PICKER_VERTICAL_OVERHEAD = BRANCH_PICKER_PADDING * 2 + 6;
-const MAX_BRANCH_PICKER_SELECT_HEIGHT = 10;
+const LIST_PICKER_PADDING = 1;
+const LIST_PICKER_VERTICAL_OVERHEAD = LIST_PICKER_PADDING * 2 + 6;
+const MAX_LIST_PICKER_SELECT_HEIGHT = 10;
 
 interface ReviewModeEditorMeta {
   title: string;
@@ -70,7 +71,7 @@ interface ReviewModeEditorMeta {
   runFlag: "--base" | "--commit" | "--custom";
 }
 
-const REVIEW_MODE_EDITOR_META: Record<EditorReviewMode, ReviewModeEditorMeta> = {
+const REVIEW_MODE_EDITOR_META: Record<ReviewModeInputMode, ReviewModeEditorMeta> = {
   base: {
     title: "Against Base Branch",
     prompt: "Enter the base branch or ref to compare against.",
@@ -106,7 +107,6 @@ function getInitialReviewMode(defaultReview?: DefaultReview): ReviewModeSelectio
 function createInitialDrafts(defaultReview?: DefaultReview): ReviewModeDrafts {
   return {
     base: defaultReview?.type === "base" ? defaultReview.branch : "",
-    commit: "",
     custom: "",
   };
 }
@@ -136,6 +136,11 @@ export function buildReviewRunArgs(mode: ReviewModeSelection, value?: string): s
 interface GitBranchData {
   currentBranch: string | null;
   branches: string[];
+}
+
+interface GitCommit {
+  shortSha: string;
+  subject: string;
 }
 
 function getGitBranches(projectPath: string): GitBranchData {
@@ -177,6 +182,49 @@ function getGitBranches(projectPath: string): GitBranchData {
   }
 }
 
+function getGitCommits(projectPath: string): GitCommit[] {
+  try {
+    const commitsResult = Bun.spawnSync(
+      ["git", "log", "--no-color", "--pretty=format:%h%x09%s", "HEAD"],
+      {
+        cwd: projectPath,
+        stdout: "pipe",
+        stderr: "pipe",
+      }
+    );
+    if (commitsResult.exitCode !== 0) {
+      return [];
+    }
+
+    return commitsResult.stdout
+      .toString()
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0)
+      .flatMap((line) => {
+        const separatorIndex = line.indexOf("\t");
+        if (separatorIndex <= 0) {
+          return [];
+        }
+
+        const shortSha = line.slice(0, separatorIndex).trim();
+        const subject = line.slice(separatorIndex + 1).trim();
+        if (shortSha.length === 0) {
+          return [];
+        }
+
+        return [
+          {
+            shortSha,
+            subject,
+          },
+        ];
+      });
+  } catch {
+    return [];
+  }
+}
+
 export function ReviewModeOverlay({
   defaultReview,
   projectPath,
@@ -192,7 +240,10 @@ export function ReviewModeOverlay({
   const [error, setError] = useState<string | null>(null);
   const textareaRef = useRef<TextareaRenderable>(null);
 
-  const editorMode = step === "editor" && selectedMode !== "uncommitted" ? selectedMode : null;
+  const editorMode =
+    step === "editor" && selectedMode !== "uncommitted" && selectedMode !== "commit"
+      ? selectedMode
+      : null;
 
   const branchPickerData = useMemo(() => {
     const branchData = getGitBranches(projectPath);
@@ -211,11 +262,21 @@ export function ReviewModeOverlay({
   }, [projectPath]);
   const branchOptions = branchPickerData.options;
 
-  const branchPickerSelectHeight = Math.max(
-    1,
-    Math.min(MAX_BRANCH_PICKER_SELECT_HEIGHT, terminalHeight - BRANCH_PICKER_VERTICAL_OVERHEAD)
+  const commitOptions = useMemo(
+    () =>
+      getGitCommits(projectPath).map((commit) => ({
+        name: commit.subject || commit.shortSha,
+        description: commit.shortSha,
+        value: commit.shortSha,
+      })),
+    [projectPath]
   );
-  const branchPickerOverlayHeight = branchPickerSelectHeight + BRANCH_PICKER_VERTICAL_OVERHEAD;
+
+  const pickerSelectHeight = Math.max(
+    1,
+    Math.min(MAX_LIST_PICKER_SELECT_HEIGHT, terminalHeight - LIST_PICKER_VERTICAL_OVERHEAD)
+  );
+  const pickerOverlayHeight = pickerSelectHeight + LIST_PICKER_VERTICAL_OVERHEAD;
 
   useKeyboard((key) => {
     if (step === "editor" && editorMode) {
@@ -231,7 +292,7 @@ export function ReviewModeOverlay({
       return;
     }
 
-    if (step === "branch-picker") {
+    if (step === "branch-picker" || step === "commit-picker") {
       if (key.name === "escape") {
         setError(null);
         setStep("picker");
@@ -281,6 +342,11 @@ export function ReviewModeOverlay({
         return;
       }
 
+      if (selectedMode === "commit") {
+        openCommitPicker();
+        return;
+      }
+
       openEditor(selectedMode);
     }
   });
@@ -316,6 +382,11 @@ export function ReviewModeOverlay({
   function openBranchPicker() {
     setError(null);
     setStep("branch-picker");
+  }
+
+  function openCommitPicker() {
+    setError(null);
+    setStep("commit-picker");
   }
 
   function returnToPicker() {
@@ -381,13 +452,55 @@ export function ReviewModeOverlay({
         <select
           focused
           options={branchOptions}
-          height={branchPickerSelectHeight}
+          height={pickerSelectHeight}
           showScrollIndicator
           onSelect={(_index, option) => {
             if (!option) {
               return;
             }
             submitSelectedMode("base", option.value as string);
+          }}
+        />
+        {error && <text fg={TUI_COLORS.status.error}>{error}</text>}
+        <text>
+          <span fg={TUI_COLORS.accent.key}>[Enter]</span>
+          <span fg={TUI_COLORS.text.muted}> Select</span>
+          <span fg={TUI_COLORS.text.dim}> </span>
+          <span fg={TUI_COLORS.accent.key}>[Esc]</span>
+          <span fg={TUI_COLORS.text.muted}> Back</span>
+        </text>
+      </box>
+    );
+  }
+
+  function renderCommitPicker() {
+    if (commitOptions.length === 0) {
+      return (
+        <box flexDirection="column" gap={1}>
+          <text fg={TUI_COLORS.text.muted}>No commits available.</text>
+          <text fg={TUI_COLORS.text.dim}>Commit history could not be determined.</text>
+          {error && <text fg={TUI_COLORS.status.error}>{error}</text>}
+          <text>
+            <span fg={TUI_COLORS.accent.key}>[Esc]</span>
+            <span fg={TUI_COLORS.text.muted}> Back</span>
+          </text>
+        </box>
+      );
+    }
+
+    return (
+      <box flexDirection="column" gap={1}>
+        <text fg={TUI_COLORS.text.muted}>Select a commit to review.</text>
+        <select
+          focused
+          options={commitOptions}
+          height={pickerSelectHeight}
+          showScrollIndicator
+          onSelect={(_index, option) => {
+            if (!option) {
+              return;
+            }
+            submitSelectedMode("commit", option.value as string);
           }}
         />
         {error && <text fg={TUI_COLORS.status.error}>{error}</text>}
@@ -435,6 +548,9 @@ export function ReviewModeOverlay({
     );
   }
 
+  const isPickerStep = step === "branch-picker" || step === "commit-picker";
+  const overlayWidth = step === "commit-picker" ? 90 : 74;
+
   return (
     <box
       position="absolute"
@@ -453,12 +569,14 @@ export function ReviewModeOverlay({
             ? REVIEW_MODE_EDITOR_META[editorMode].title
             : step === "branch-picker"
               ? REVIEW_MODE_EDITOR_META.base.title
-              : "Review Mode"
+              : step === "commit-picker"
+                ? "Target Commit"
+                : "Review Mode"
         }
         titleAlignment="left"
-        padding={step === "branch-picker" ? BRANCH_PICKER_PADDING : 2}
-        width={74}
-        height={step === "branch-picker" ? branchPickerOverlayHeight : "auto"}
+        padding={isPickerStep ? LIST_PICKER_PADDING : 2}
+        width={overlayWidth}
+        height={isPickerStep ? pickerOverlayHeight : "auto"}
         backgroundColor="#1a1a2e"
         flexDirection="column"
       >
@@ -466,7 +584,9 @@ export function ReviewModeOverlay({
           ? renderEditor(editorMode)
           : step === "branch-picker"
             ? renderBranchPicker()
-            : renderPicker()}
+            : step === "commit-picker"
+              ? renderCommitPicker()
+              : renderPicker()}
       </box>
     </box>
   );

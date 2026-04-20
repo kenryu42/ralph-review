@@ -167,6 +167,67 @@ describe("ReviewModeOverlay", () => {
     };
   }
 
+  function mockGitCommits(
+    commits:
+      | {
+          shortSha: string;
+          subject: string;
+        }[]
+      | null
+  ) {
+    const originalSpawnSync = Bun.spawnSync;
+
+    type SpawnSyncArgs =
+      | [command: string[], options?: { cwd?: string; stdout?: "pipe"; stderr?: "pipe" }]
+      | [
+          options: {
+            cmd: string[];
+            cwd?: string;
+            stdout?: "pipe";
+            stderr?: "pipe";
+          },
+        ];
+
+    Bun.spawnSync = ((...args: SpawnSyncArgs) => {
+      const firstArg = args[0];
+      const command = Array.isArray(firstArg) ? firstArg : firstArg.cmd;
+
+      if (
+        command[0] === "git" &&
+        command[1] === "log" &&
+        command[2] === "--no-color" &&
+        command[3] === "--pretty=format:%h%x09%s" &&
+        command[4] === "HEAD"
+      ) {
+        if (commits === null) {
+          return {
+            exitCode: 1,
+            stdout: Buffer.from(""),
+            stderr: Buffer.from("git log failed"),
+          };
+        }
+
+        return {
+          exitCode: 0,
+          stdout: Buffer.from(
+            commits.map((commit) => `${commit.shortSha}\t${commit.subject}`).join("\n")
+          ),
+          stderr: Buffer.from(""),
+        };
+      }
+
+      if (Array.isArray(firstArg)) {
+        return originalSpawnSync(firstArg, args[1]);
+      }
+
+      return originalSpawnSync(firstArg);
+    }) as typeof Bun.spawnSync;
+
+    restoreSpawnSync = () => {
+      Bun.spawnSync = originalSpawnSync;
+    };
+  }
+
   test("submits uncommitted changes immediately by default", async () => {
     const submitted: string[][] = [];
     const setup = await renderOverlay({
@@ -186,10 +247,17 @@ describe("ReviewModeOverlay", () => {
     });
 
     const frame = setup.captureCharFrame();
-    expect(frame).toContain("▶ Against base branch");
+    expect(frame).toContain("▶ Review against base branch");
   });
 
   test("supports j and arrow navigation before confirming", async () => {
+    mockGitCommits([
+      {
+        shortSha: "abc1234",
+        subject: "fix: tighten review mode selection",
+      },
+    ]);
+
     const submitted: string[][] = [];
     const setup = await renderOverlay({
       onSubmit: (args) => {
@@ -204,12 +272,6 @@ describe("ReviewModeOverlay", () => {
 
     await emitKey(setup, "down");
     await emitKey(setup, "return");
-
-    await act(async () => {
-      await setup.mockInput.typeText("abc1234");
-      await setup.renderOnce();
-    });
-
     await emitKey(setup, "return");
 
     expect(submitted).toEqual([["--commit", "abc1234"]]);
@@ -271,6 +333,68 @@ describe("ReviewModeOverlay", () => {
     expect(frame).not.toContain("Type manually...");
   });
 
+  test("shows commit message names and short sha descriptions for target commit options", async () => {
+    mockGitCommits([
+      {
+        shortSha: "0d28f568",
+        subject: "fix(git): clean up session refs if worktree creation fails",
+      },
+      {
+        shortSha: "021559f8",
+        subject: "fix(prune): handle missing or non-git project directories during cleanup",
+      },
+    ]);
+
+    const setup = await renderOverlay();
+
+    await emitKey(setup, "down");
+    await emitKey(setup, "down");
+    await emitKey(setup, "return");
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("fix(git): clean up session refs if worktree creation fails");
+    expect(frame).toContain("0d28f568");
+    expect(frame).toContain(
+      "fix(prune): handle missing or non-git project directories during cleanup"
+    );
+    expect(frame).toContain("021559f8");
+    expect(frame).not.toContain("Enter the commit SHA or ref to review.");
+  });
+
+  test("shows an unavailable state when target commits cannot be listed", async () => {
+    mockGitCommits(null);
+
+    const submitted: string[][] = [];
+    const setup = await renderOverlay(
+      {
+        onSubmit: (args) => {
+          submitted.push(args);
+        },
+      },
+      {
+        width: 100,
+        height: 14,
+      }
+    );
+
+    await emitKey(setup, "down");
+    await emitKey(setup, "down");
+    await emitKey(setup, "return");
+    await emitKey(setup, "return");
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("No commits available.");
+    expect(frame).toContain("Commit history could not be determined.");
+    expect(frame).not.toContain("Type manually...");
+    expect(submitted).toEqual([]);
+  });
+
   test("shows an unavailable state when no alternate base branches exist", async () => {
     mockGitBranches({
       currentBranch: "new-review-flow",
@@ -328,5 +452,37 @@ describe("ReviewModeOverlay", () => {
     const frame = setup.captureCharFrame();
     expect(frame).toContain("main");
     expect(frame).toContain("release");
+  });
+
+  test("keeps the target commit list visible on short terminals", async () => {
+    mockGitCommits([
+      {
+        shortSha: "0d28f568",
+        subject: "fix(git): clean up session refs if worktree creation fails",
+      },
+      {
+        shortSha: "021559f8",
+        subject: "fix(prune): handle missing or non-git project directories during cleanup",
+      },
+    ]);
+
+    const setup = await renderOverlay(
+      {},
+      {
+        width: 100,
+        height: 14,
+      }
+    );
+
+    await emitKey(setup, "down");
+    await emitKey(setup, "down");
+    await emitKey(setup, "return");
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("0d28f568");
+    expect(frame).toContain("021559f8");
   });
 });
