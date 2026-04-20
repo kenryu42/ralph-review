@@ -159,7 +159,6 @@ rr
 | `rr list` | List active review sessions |
 | `rr stop` | Stop running review session (`--all` to stop all) |
 | `rr log` | View review logs (`-n 5` for last 5, `--json` for JSON output) |
-| `rr dashboard` | Open review dashboard in browser |
 | `rr doctor` | Run environment and configuration diagnostics (`--fix` to auto-resolve) |
 | `rr update` | Check for and install a newer `ralph-review` version |
 

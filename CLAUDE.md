@@ -56,8 +56,6 @@ ralph-review is a CLI that automates code review cycles using AI agents (Claude,
 | `src/lib/tmux.ts` | Background execution via tmux sessions |
 | `src/lib/config.ts` | Configuration storage (~/.config/ralph-review/) |
 | `src/lib/logger.ts` | Log file management |
-| `src/lib/html/` | HTML generation for log viewer and dashboard |
-| `src/lib/server.ts` | Dashboard HTTP server with session management |
 | `src/lib/tui/` | Terminal UI components (OpenTUI + React) |
 | `src/terminal/` | Theme and color palette for terminal output |
 
@@ -81,8 +79,7 @@ Commands in `src/commands/` map 1:1 to CLI subcommands:
 - `list.ts` — List active review sessions (`rr list` / `rr ls`)
 - `status.ts` — Session Panel launcher for bare `rr`
 - `stop.ts` — Stop running sessions
-- `logs.ts` — View review logs (terminal or JSON)
-- `dashboard.ts` — Open HTML dashboard in browser
+- `log.ts` — View review logs (terminal or JSON)
 
 ## Code Style
 
