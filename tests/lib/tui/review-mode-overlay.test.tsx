@@ -52,7 +52,8 @@ describe("ReviewModeOverlay", () => {
       defaultReview?: DefaultReview;
       onClose?: () => void;
       onSubmit?: (args: string[]) => void;
-    } = {}
+    } = {},
+    terminalSize: { width: number; height: number } = { width: 100, height: 30 }
   ) {
     const defaultProps: Parameters<typeof ReviewModeOverlay>[0] = {
       defaultReview: { type: "uncommitted" },
@@ -63,8 +64,8 @@ describe("ReviewModeOverlay", () => {
     };
 
     testSetup = await testRender(createElement(ReviewModeOverlay, defaultProps), {
-      width: 100,
-      height: 30,
+      width: terminalSize.width,
+      height: terminalSize.height,
     });
 
     await act(async () => {
@@ -187,5 +188,25 @@ describe("ReviewModeOverlay", () => {
     await emitKey(setup, "q");
 
     expect(closeCount).toBe(1);
+  });
+
+  test("keeps the base branch list visible on short terminals", async () => {
+    const setup = await renderOverlay(
+      {
+        defaultReview: { type: "base", branch: "main" },
+      },
+      {
+        width: 100,
+        height: 14,
+      }
+    );
+
+    await emitKey(setup, "return");
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("Type manually...");
   });
 });

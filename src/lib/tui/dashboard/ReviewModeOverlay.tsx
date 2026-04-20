@@ -1,5 +1,5 @@
 import type { TextareaRenderable } from "@opentui/core";
-import { useKeyboard } from "@opentui/react";
+import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import { useMemo, useRef, useState } from "react";
 import { TUI_COLORS } from "@/lib/tui/shared/colors";
 import type { DefaultReview } from "@/lib/types";
@@ -58,6 +58,10 @@ const REVIEW_TEXTAREA_KEY_BINDINGS: ReviewTextareaKeyBinding[] = [
   { name: "return", action: "submit" },
   { name: "linefeed", action: "submit" },
 ];
+
+const BRANCH_PICKER_PADDING = 1;
+const BRANCH_PICKER_VERTICAL_OVERHEAD = BRANCH_PICKER_PADDING * 2 + 6;
+const MAX_BRANCH_PICKER_SELECT_HEIGHT = 10;
 
 interface ReviewModeEditorMeta {
   title: string;
@@ -167,6 +171,7 @@ export function ReviewModeOverlay({
   onClose,
   onSubmit,
 }: ReviewModeOverlayProps) {
+  const { height: terminalHeight } = useTerminalDimensions();
   const [selectedMode, setSelectedMode] = useState<ReviewModeSelection>(
     getInitialReviewMode(defaultReview)
   );
@@ -187,6 +192,12 @@ export function ReviewModeOverlay({
     });
     return options;
   }, [projectPath]);
+
+  const branchPickerSelectHeight = Math.max(
+    1,
+    Math.min(MAX_BRANCH_PICKER_SELECT_HEIGHT, terminalHeight - BRANCH_PICKER_VERTICAL_OVERHEAD)
+  );
+  const branchPickerOverlayHeight = branchPickerSelectHeight + BRANCH_PICKER_VERTICAL_OVERHEAD;
 
   useKeyboard((key) => {
     if (step === "editor" && editorMode) {
@@ -329,12 +340,12 @@ export function ReviewModeOverlay({
 
   function renderBranchPicker() {
     return (
-      <box flexDirection="column" gap={1} margin={1} flexGrow={1}>
+      <box flexDirection="column" gap={1}>
         <text fg={TUI_COLORS.text.muted}>Select a base branch to compare against.</text>
         <select
           focused
           options={branchOptions}
-          flexGrow={1}
+          height={branchPickerSelectHeight}
           showScrollIndicator
           onSelect={(_index, option) => {
             if (!option) {
@@ -414,10 +425,11 @@ export function ReviewModeOverlay({
               : "Review Mode"
         }
         titleAlignment="left"
-        padding={2}
+        padding={step === "branch-picker" ? BRANCH_PICKER_PADDING : 2}
         width={74}
-        height={step === "branch-picker" ? "25%" : "auto"}
+        height={step === "branch-picker" ? branchPickerOverlayHeight : "auto"}
         backgroundColor="#1a1a2e"
+        flexDirection="column"
       >
         {editorMode
           ? renderEditor(editorMode)
