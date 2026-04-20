@@ -343,7 +343,11 @@ function renderTerminalSession(
       const file = fix.file ? ` ${fix.file}` : "";
       p.log.message(`${fix.priority}  ${fix.title}${file}`);
     }
-  } else if (session.totalFixes === 0 && session.status === "completed") {
+  } else if (
+    session.totalFixes === 0 &&
+    session.status === "completed" &&
+    session.reviewOutcome !== "findings-pending"
+  ) {
     p.log.message("");
     p.log.success("No issues found - code is clean!");
   }

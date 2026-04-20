@@ -352,6 +352,36 @@ describe("runLog integration", () => {
     expect(logs.message).toContain("Handoff: pending-apply · commit-sha-1");
   });
 
+  test("does not report findings-pending sessions as clean", async () => {
+    const fixture = await createProjectFixture();
+    fixtures.push(fixture);
+    const logsProjectDir = getProjectLogsDir(CONFIG_DIR, fixture.projectPath);
+    const pendingLog = join(logsProjectDir, "pending-findings.jsonl");
+    fixture.logPaths.push(pendingLog);
+
+    await writeLogEntries(pendingLog, [
+      createSystemEntry(fixture.projectPath),
+      {
+        ...createSessionEndEntry("completed"),
+        phase: "review",
+        sessionStatus: "completed",
+        reviewOutcome: "findings-pending",
+        iterations: 1,
+      },
+    ]);
+
+    const { logs } = await withProjectCwd(fixture.projectPath, async () =>
+      withMutedTerminalLogs(async () =>
+        captureClackLogs(async () => {
+          await runLog([]);
+        })
+      )
+    );
+
+    expect(logs.message.some((entry) => entry.includes("Pending findings: run rr fix"))).toBe(true);
+    expect(logs.success).not.toContain("No issues found - code is clean!");
+  });
+
   test("renders and outputs project JSON after filtering unknown-empty sessions", async () => {
     const fixture = await createProjectFixture();
     fixtures.push(fixture);
