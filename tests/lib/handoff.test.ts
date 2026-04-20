@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -17,6 +17,7 @@ import {
   reapplyArchivedHandoff,
   revertArchivedHandoff,
 } from "@/lib/handoff";
+import { getProjectStorageDir } from "@/lib/logger";
 
 function runGitIn(repoPath: string, args: string[]): void {
   const result = Bun.spawnSync(["git", ...args], {
@@ -47,6 +48,16 @@ function initTestRepoWithObjectFormat(repoPath: string, objectFormat: "sha1" | "
   runGitIn(repoPath, ["config", "user.name", "Tester"]);
   runGitIn(repoPath, ["config", "user.email", "test@example.com"]);
   runGitIn(repoPath, ["config", "commit.gpgsign", "false"]);
+}
+
+function gitRefExists(repoPath: string, ref: string): boolean {
+  return (
+    Bun.spawnSync(["git", "show-ref", "--verify", "--quiet", ref], {
+      cwd: repoPath,
+      stdout: "ignore",
+      stderr: "ignore",
+    }).exitCode === 0
+  );
 }
 
 describe("handoff", () => {
@@ -370,5 +381,100 @@ describe("handoff", () => {
       "session-3",
       "session-2",
     ]);
+  });
+
+  test("creates final handoff ref only after patch creation succeeds", async () => {
+    await writeFile(join(repoPath, "app.txt"), "draft\n");
+    const sessionId = "session-patch-failure";
+    const worktree = createSessionWorktree(repoPath, sessionId, storageRoot);
+    const patchPath = join(
+      getProjectStorageDir(storageRoot, repoPath),
+      "handoffs",
+      `${sessionId}.patch`
+    );
+    await mkdir(patchPath, { recursive: true });
+
+    try {
+      await writeFile(join(worktree.worktreeProjectPath, "app.txt"), "fixed draft\n");
+
+      await expect(
+        createOrAutoApplyHandoff(storageRoot, {
+          sessionId,
+          projectPath: repoPath,
+          logPath: join(repoPath, ".ralph-review", "logs", `${sessionId}.jsonl`),
+          worktree,
+          autoApply: false,
+        })
+      ).rejects.toThrow();
+    } finally {
+      discardSessionWorktree(worktree);
+    }
+
+    expect(gitRefExists(repoPath, `refs/ralph-review/sessions/${sessionId}/final`)).toBe(false);
+  });
+
+  test("rejects pending handoffs that still use the legacy sourceFingerprint field", async () => {
+    const sessionId = "session-legacy-pending";
+    const projectStorageDir = getProjectStorageDir(storageRoot, repoPath);
+    const patchPath = join(projectStorageDir, "handoffs", `${sessionId}.patch`);
+    const metadataPath = join(projectStorageDir, "handoffs", `${sessionId}.json`);
+    await Bun.write(patchPath, "diff --git a/app.txt b/app.txt\n", { createPath: true });
+    await Bun.write(
+      metadataPath,
+      JSON.stringify(
+        {
+          sessionId,
+          projectPath: repoPath,
+          sourceRepoPath: repoPath,
+          logPath: join(repoPath, ".ralph-review", "logs", `${sessionId}.jsonl`),
+          hiddenRef: `refs/ralph-review/sessions/${sessionId}/final`,
+          patchPath,
+          sourceFingerprint: "legacy-fingerprint-1",
+          commitSha: "commit-sha-1",
+          state: "pending-apply",
+          createdAt: 1_700_000_000_000,
+          updatedAt: 1_700_000_000_001,
+        },
+        null,
+        2
+      ),
+      { createPath: true }
+    );
+
+    const pending = await readPendingHandoff(storageRoot, repoPath, sessionId);
+    expect(pending).toBeNull();
+  });
+
+  test("skips archived handoffs that still use the legacy sourceFingerprint field", async () => {
+    const sessionId = "session-legacy-archived";
+    const projectStorageDir = getProjectStorageDir(storageRoot, repoPath);
+    const patchPath = join(projectStorageDir, "handoff-history", `${sessionId}.patch`);
+    const metadataPath = join(projectStorageDir, "handoff-history", `${sessionId}.json`);
+    await Bun.write(patchPath, "diff --git a/app.txt b/app.txt\n", { createPath: true });
+    await Bun.write(
+      metadataPath,
+      JSON.stringify(
+        {
+          sessionId,
+          projectPath: repoPath,
+          sourceRepoPath: repoPath,
+          logPath: join(repoPath, ".ralph-review", "logs", `${sessionId}.jsonl`),
+          patchPath,
+          sourceFingerprint: "legacy-fingerprint-2",
+          appliedFingerprint: "applied-fingerprint-1",
+          commitSha: "commit-sha-2",
+          appliedVia: "manual",
+          state: "archived-applied",
+          createdAt: 1_700_000_000_000,
+          appliedAt: 1_700_000_000_002,
+        },
+        null,
+        2
+      ),
+      { createPath: true }
+    );
+
+    const archived = await listProjectArchivedHandoffs(storageRoot, repoPath);
+    expect(archived).toHaveLength(0);
   });
 });

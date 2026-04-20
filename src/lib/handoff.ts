@@ -521,18 +521,18 @@ export async function createOrAutoApplyHandoff(
     throw new Error("Session worktree is missing its source baseline fingerprint.");
   }
 
-  const hiddenRef = buildHandoffRef(options.sessionId);
-  createHandoffRef(options.worktree.sourceRepoPath, hiddenRef, retained.commitSha);
-  options.worktree.finalCommitSha = retained.commitSha;
-  options.worktree.finalRef = hiddenRef;
-  options.worktree.preserveBranchOnDiscard = false;
-
   await createBaselineToFinalPatch(
     options.worktree.worktreeProjectPath,
     sourceBaselineCommitSha,
     retained.commitSha,
     patchPath
   );
+
+  const hiddenRef = buildHandoffRef(options.sessionId);
+  createHandoffRef(options.worktree.sourceRepoPath, hiddenRef, retained.commitSha);
+  options.worktree.finalCommitSha = retained.commitSha;
+  options.worktree.finalRef = hiddenRef;
+  options.worktree.preserveBranchOnDiscard = false;
 
   const handoffUpdatedAt = Date.now();
   const artifact: PendingHandoffArtifact = {
