@@ -411,6 +411,7 @@ describe("handoff", () => {
     }
 
     expect(gitRefExists(repoPath, `refs/ralph-review/sessions/${sessionId}/final`)).toBe(false);
+    expect(gitRefExists(repoPath, `refs/heads/${worktree.retainedBranch}`)).toBe(false);
   });
 
   test("rejects pending handoffs that still use the legacy sourceFingerprint field", async () => {

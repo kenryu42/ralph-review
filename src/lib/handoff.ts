@@ -509,6 +509,7 @@ export async function createOrAutoApplyHandoff(
   if (!retained?.commitSha) {
     return null;
   }
+  options.worktree.preserveBranchOnDiscard = false;
 
   const patchPath = getPendingHandoffPatchPath(storageRoot, options.projectPath, options.sessionId);
   const sourceBaselineCommitSha = options.worktree.sourceBaselineCommitSha;
@@ -532,7 +533,6 @@ export async function createOrAutoApplyHandoff(
   createHandoffRef(options.worktree.sourceRepoPath, hiddenRef, retained.commitSha);
   options.worktree.finalCommitSha = retained.commitSha;
   options.worktree.finalRef = hiddenRef;
-  options.worktree.preserveBranchOnDiscard = false;
 
   const handoffUpdatedAt = Date.now();
   const artifact: PendingHandoffArtifact = {
