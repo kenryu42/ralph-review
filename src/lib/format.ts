@@ -41,7 +41,7 @@ export function formatReviewType(reviewOptions: ReviewOptions | undefined): stri
   }
 
   if (reviewOptions.customInstructions) {
-    return formatCustomReviewType(reviewOptions.customInstructions);
+    return `uncommitted changes + ${formatCustomReviewType(reviewOptions.customInstructions)}`;
   }
 
   return "uncommitted changes";

@@ -111,13 +111,13 @@ function buildReviewContext(options: ReviewerPromptOptions): string[] {
     lines.push(`The snapshot includes the changes from commit \`${options.commitSha}\`.`);
   }
 
-  if (options.customInstructions) {
-    lines.push(`Additional review focus from user instructions:\n${options.customInstructions}`);
-  }
-
   const knownFindingsSection = formatKnownFindings(options.knownFindings ?? []);
   if (knownFindingsSection) {
     lines.push(knownFindingsSection);
+  }
+
+  if (options.customInstructions) {
+    lines.push(`Additional review focus from user instructions:\n${options.customInstructions}`);
   }
 
   return lines;
@@ -134,24 +134,10 @@ export function createReviewerPrompt(options: ReviewerPromptOptions): string {
 /** Target priority: commitSha > baseBranch > uncommitted (default), with custom focus overlay. */
 export function createTargetedReviewPrompt(options: TargetedReviewPromptOptions): string {
   const { repoPath, baseBranch, commitSha, customInstructions } = options;
-
-  let instruction: string;
-
-  if (commitSha) {
-    instruction = withCustomFocus(
-      resolveReviewScopeInstruction(repoPath, undefined, commitSha),
-      customInstructions
-    );
-  } else if (baseBranch) {
-    instruction = withCustomFocus(
-      resolveReviewScopeInstruction(repoPath, baseBranch),
-      customInstructions
-    );
-  } else if (customInstructions) {
-    instruction = customInstructions;
-  } else {
-    instruction = resolveReviewScopeInstruction(repoPath);
-  }
+  const instruction = withCustomFocus(
+    resolveReviewScopeInstruction(repoPath, baseBranch, commitSha),
+    customInstructions
+  );
 
   return `${defaultReviewPrompt.trim()}\n${createReviewerStructuredOutputInstructions()}\n\n${instruction}`;
 }

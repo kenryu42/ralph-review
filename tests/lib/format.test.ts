@@ -19,21 +19,23 @@ describe("formatReviewType", () => {
     expect(formatReviewType({ commitSha: "abc1234567890" })).toBe("commit (abc1234)");
   });
 
-  test("returns custom format with short instructions", () => {
+  test("returns uncommitted + custom format with short instructions", () => {
     expect(formatReviewType({ customInstructions: "check for typos" })).toBe(
-      "custom (check for typos)"
+      "uncommitted changes + custom (check for typos)"
     );
   });
 
   test("truncates long custom instructions at 40 chars", () => {
     const longInstruction = "a".repeat(50);
     const result = formatReviewType({ customInstructions: longInstruction });
-    expect(result).toBe(`custom (${"a".repeat(40)}...)`);
+    expect(result).toBe(`uncommitted changes + custom (${"a".repeat(40)}...)`);
   });
 
   test("custom instructions exactly 40 chars are not truncated", () => {
     const instruction = "a".repeat(40);
-    expect(formatReviewType({ customInstructions: instruction })).toBe(`custom (${instruction})`);
+    expect(formatReviewType({ customInstructions: instruction })).toBe(
+      `uncommitted changes + custom (${instruction})`
+    );
   });
 
   test("returns commit + custom format when both are provided", () => {

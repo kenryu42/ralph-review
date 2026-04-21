@@ -67,13 +67,18 @@ describe("createTargetedReviewPrompt", () => {
     expectStructuredOutputProtocol(prompt);
   });
 
-  test("uses custom instructions when no commit or base branch is provided", () => {
+  test("appends custom instructions after uncommitted review guidance", () => {
     const prompt = createTargetedReviewPrompt({
       repoPath: REPO_PATH,
       customInstructions: "Only review src/lib/logger.ts for regressions",
     });
 
+    const uncommittedInstruction = "staged, unstaged, and untracked files";
+    const customInstruction = "Additional review focus from user instructions";
+
+    expect(prompt).toContain(uncommittedInstruction);
     expect(prompt).toContain("Only review src/lib/logger.ts for regressions");
+    expect(prompt.indexOf(uncommittedInstruction)).toBeLessThan(prompt.indexOf(customInstruction));
     expectStructuredOutputProtocol(prompt);
   });
 
@@ -155,6 +160,9 @@ describe("createReviewerPrompt", () => {
     expect(prompt).toContain("Guard undefined config");
     expect(prompt).toContain("Report only net-new actionable findings");
     expect(prompt).toContain('return `"findings": []`');
+    expect(prompt.indexOf("Known findings already captured")).toBeLessThan(
+      prompt.indexOf("Additional review focus from user instructions")
+    );
     expectStructuredOutputProtocol(prompt);
   });
 });
