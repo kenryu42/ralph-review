@@ -1,4 +1,4 @@
-import { useKeyboard, useRenderer } from "@opentui/react";
+import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import { useCallback, useMemo, useState } from "react";
 import type { LogSession } from "@/lib/logger";
 import { formatProjectNameForDisplay } from "@/lib/tui/sessions/session-display";
@@ -9,6 +9,8 @@ import {
   resolveSessionOverlayKeyAction,
 } from "./session-overlay-utils";
 import { useSessionOverlayState } from "./use-session-overlay-state";
+
+const NARROW_WIDTH_THRESHOLD = 110;
 
 interface SessionOverlayProps {
   onClose: () => void;
@@ -114,7 +116,7 @@ function SessionDeleteModal({ sessionName, error, isDeleting }: SessionDeleteMod
 type OverlayPane = "list" | "detail";
 
 export function SessionOverlay({ onClose }: SessionOverlayProps) {
-  const renderer = useRenderer();
+  const { width: terminalWidth, height: terminalHeight } = useTerminalDimensions();
   const {
     sessions,
     selectedPath,
@@ -165,12 +167,20 @@ export function SessionOverlay({ onClose }: SessionOverlayProps) {
     clearDeleteError();
   }, [clearDeleteError, isDeleting]);
 
+  const isOverlayBlocked = showHelp || showDeleteConfirm;
+  const isNarrow = terminalWidth < NARROW_WIDTH_THRESHOLD;
+  // Overhead: outer padding (2) + panel border (2) + panel padding (2) + status bar (2) = 8.
+  // In narrow mode the tab strip (1) and its gap (1) add two more rows.
+  const selectHeight = Math.max(3, terminalHeight - (isNarrow ? 10 : 8));
+
   useKeyboard((key) => {
     const action = resolveSessionOverlayKeyAction({
       keyName: key.name,
       showHelp,
       showDeleteConfirm,
       hasSelectedSession: Boolean(selectedSession),
+      isNarrow,
+      focusedPane,
     });
 
     if (action === "close-delete-confirm") {
@@ -204,20 +214,87 @@ export function SessionOverlay({ onClose }: SessionOverlayProps) {
       return;
     }
 
+    if (action === "focus-detail") {
+      setFocusedPane("detail");
+      return;
+    }
+
     if (action === "close-overlay") {
       onClose();
       return;
     }
   });
 
-  // Overhead: outer padding (2) + panel border (2) + panel padding (2) + status bar (2) = 8
-  const selectHeight = Math.max(3, renderer.height - 8);
-  const isOverlayBlocked = showHelp || showDeleteConfirm;
-
   const listBorderColor =
     focusedPane === "list" ? TUI_COLORS.ui.borderFocused : TUI_COLORS.ui.border;
   const detailBorderColor =
     focusedPane === "detail" ? TUI_COLORS.ui.borderFocused : TUI_COLORS.ui.border;
+
+  const listPanel = (
+    <box
+      border
+      borderStyle="rounded"
+      borderColor={listBorderColor}
+      title={sessionTitle}
+      titleAlignment="left"
+      width={isNarrow ? undefined : 70}
+      flexGrow={isNarrow ? 1 : 0}
+      flexShrink={isNarrow ? 1 : 0}
+      minHeight={0}
+      flexDirection="column"
+      padding={1}
+    >
+      {isLoading ? (
+        <text fg={TUI_COLORS.text.muted}>Loading...</text>
+      ) : sessionsError ? (
+        <text fg={TUI_COLORS.status.error}>{sessionsError}</text>
+      ) : selectOptions.length === 0 ? (
+        <text fg={TUI_COLORS.text.muted}>No sessions found</text>
+      ) : (
+        <select
+          options={selectOptions}
+          height={selectHeight}
+          focused={focusedPane === "list" && !isOverlayBlocked}
+          showScrollIndicator
+          showDescription={false}
+          itemSpacing={1}
+          selectedIndex={sessionSlots.findIndex((s) => s?.path === selectedPath)}
+          onChange={(idx) => {
+            const slot = sessionSlots[idx];
+            if (slot) setSelectedPath(slot.path);
+          }}
+        />
+      )}
+    </box>
+  );
+
+  const detailPanel = (
+    <box
+      border
+      borderStyle="rounded"
+      borderColor={detailBorderColor}
+      title={selectedSession ? sessionLabel(selectedSession) : "Session Detail"}
+      titleAlignment="left"
+      flexGrow={1}
+      minHeight={0}
+      flexDirection="column"
+      padding={1}
+    >
+      {statsLoading ? (
+        <text fg={TUI_COLORS.text.muted}>Loading...</text>
+      ) : statsError ? (
+        <text fg={TUI_COLORS.status.error}>{statsError}</text>
+      ) : !selectedStats ? (
+        <text fg={TUI_COLORS.text.muted}>Select a session to view details</text>
+      ) : (
+        <SessionDetailPane
+          stats={selectedStats}
+          focused={focusedPane === "detail" && !isOverlayBlocked}
+          height={selectHeight}
+        />
+      )}
+    </box>
+  );
 
   return (
     <box
@@ -229,67 +306,30 @@ export function SessionOverlay({ onClose }: SessionOverlayProps) {
       flexDirection="column"
       backgroundColor="#0d0d1a"
     >
-      <box flexDirection="row" width="100%" flexGrow={1} minHeight={0} gap={1} padding={1}>
-        <box
-          border
-          borderStyle="rounded"
-          borderColor={listBorderColor}
-          title={sessionTitle}
-          titleAlignment="left"
-          width={70}
-          flexShrink={0}
-          flexDirection="column"
-          padding={1}
-        >
-          {isLoading ? (
-            <text fg={TUI_COLORS.text.muted}>Loading...</text>
-          ) : sessionsError ? (
-            <text fg={TUI_COLORS.status.error}>{sessionsError}</text>
-          ) : selectOptions.length === 0 ? (
-            <text fg={TUI_COLORS.text.muted}>No sessions found</text>
-          ) : (
-            <select
-              options={selectOptions}
-              height={selectHeight}
-              focused={focusedPane === "list" && !isOverlayBlocked}
-              showScrollIndicator
-              showDescription={false}
-              itemSpacing={1}
-              selectedIndex={sessionSlots.findIndex((s) => s?.path === selectedPath)}
-              onChange={(idx) => {
-                const slot = sessionSlots[idx];
-                if (slot) setSelectedPath(slot.path);
-              }}
-            />
-          )}
+      {isNarrow ? (
+        <box flexDirection="column" width="100%" flexGrow={1} minHeight={0} gap={1} padding={1}>
+          <box flexDirection="row" gap={3} paddingLeft={1} paddingRight={1}>
+            <text>
+              <span fg={focusedPane === "list" ? TUI_COLORS.ui.borderFocused : TUI_COLORS.text.dim}>
+                {focusedPane === "list" ? "▸ Logs" : "  Logs"}
+              </span>
+            </text>
+            <text>
+              <span
+                fg={focusedPane === "detail" ? TUI_COLORS.ui.borderFocused : TUI_COLORS.text.dim}
+              >
+                {focusedPane === "detail" ? "▸ Detail" : "  Detail"}
+              </span>
+            </text>
+          </box>
+          {focusedPane === "list" ? listPanel : detailPanel}
         </box>
-
-        <box
-          border
-          borderStyle="rounded"
-          borderColor={detailBorderColor}
-          title={selectedSession ? sessionLabel(selectedSession) : "Session Detail"}
-          titleAlignment="left"
-          flexGrow={1}
-          minHeight={0}
-          flexDirection="column"
-          padding={1}
-        >
-          {statsLoading ? (
-            <text fg={TUI_COLORS.text.muted}>Loading...</text>
-          ) : statsError ? (
-            <text fg={TUI_COLORS.status.error}>{statsError}</text>
-          ) : !selectedStats ? (
-            <text fg={TUI_COLORS.text.muted}>Select a session to view details</text>
-          ) : (
-            <SessionDetailPane
-              stats={selectedStats}
-              focused={focusedPane === "detail" && !isOverlayBlocked}
-              height={selectHeight}
-            />
-          )}
+      ) : (
+        <box flexDirection="row" width="100%" flexGrow={1} minHeight={0} gap={1} padding={1}>
+          {listPanel}
+          {detailPanel}
         </box>
-      </box>
+      )}
 
       <box
         flexDirection="row"
@@ -299,6 +339,12 @@ export function SessionOverlay({ onClose }: SessionOverlayProps) {
         paddingBottom={1}
       >
         <box flexDirection="row" gap={2}>
+          {isNarrow && (
+            <text>
+              <span fg={TUI_COLORS.accent.key}>[Tab]</span>
+              <span fg={TUI_COLORS.text.muted}> Switch</span>
+            </text>
+          )}
           <text>
             <span fg={TUI_COLORS.accent.key}>[d]</span>
             <span fg={TUI_COLORS.text.muted}> Delete</span>

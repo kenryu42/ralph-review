@@ -129,11 +129,15 @@ describe("SessionOverlay", () => {
     options: {
       sessions?: Promise<LogSession[]>;
       stats?: Promise<SessionStats>;
+      width?: number;
+      height?: number;
     } = {}
   ): Promise<Awaited<ReturnType<typeof testRender>>> {
     const {
       sessions = new Promise<LogSession[]>(() => {}),
       stats = Promise.resolve(buildSessionStats()),
+      width = 120,
+      height = 30,
     } = options;
 
     spyOn(logger, "listLogSessions").mockImplementation(() => sessions);
@@ -145,8 +149,8 @@ describe("SessionOverlay", () => {
     };
 
     testSetup = await testRender(createElement(SessionOverlay, defaultProps), {
-      width: 120,
-      height: 30,
+      width,
+      height,
     });
 
     await act(async () => {
@@ -580,6 +584,132 @@ describe("SessionOverlay", () => {
     const frame = setup.captureCharFrame();
     expect(frame).toContain("Cannot delete a running session");
     expect(frame).toContain("Delete Session Log");
+  });
+
+  test("narrow layout shows both tab labels and switches pane content on Tab", async () => {
+    const session = buildLogSession({
+      path: "/tmp/logs/session-a.jsonl",
+      name: "session-a.jsonl",
+    });
+    const sessionsDeferred = createDeferred<LogSession[]>();
+    const statsDeferred = createDeferred<SessionStats>();
+    const setup = await renderOverlay(
+      {},
+      {
+        sessions: sessionsDeferred.promise,
+        stats: statsDeferred.promise,
+        width: 80,
+        height: 30,
+      }
+    );
+
+    await act(async () => {
+      sessionsDeferred.resolve([session]);
+      statsDeferred.resolve(
+        buildSessionStats({
+          sessionPath: session.path,
+          gitBranch: "feature/narrow-layout",
+        })
+      );
+      await setup.renderOnce();
+      await Promise.resolve();
+      await setup.renderOnce();
+    });
+    await settleOverlay(setup);
+
+    let frame = setup.captureCharFrame();
+    expect(frame).toContain("Logs");
+    expect(frame).toContain("Detail");
+    expect(frame).toContain("[Tab] Switch");
+    expect(frame).toContain("Focus: List");
+    expect(frame).toContain("session-a");
+    expect(frame).not.toContain("feature/narrow-layout");
+
+    await pressKeyAndRender(setup, "tab");
+    await settleOverlay(setup);
+    frame = setup.captureCharFrame();
+    expect(frame).toContain("Focus: Detail");
+    expect(frame).toContain("feature/narrow-layout");
+  });
+
+  test("wide layout renders both panes side-by-side without tab strip switch hint", async () => {
+    const setup = await renderOverlay({}, { width: 140, height: 30 });
+    const frame = setup.captureCharFrame();
+
+    expect(frame).not.toContain("[Tab] Switch");
+  });
+
+  test("Enter moves focus from list to detail in narrow layout", async () => {
+    const session = buildLogSession({
+      path: "/tmp/logs/session-a.jsonl",
+      name: "session-a.jsonl",
+    });
+    const sessionsDeferred = createDeferred<LogSession[]>();
+    const statsDeferred = createDeferred<SessionStats>();
+    const setup = await renderOverlay(
+      {},
+      {
+        sessions: sessionsDeferred.promise,
+        stats: statsDeferred.promise,
+        width: 80,
+        height: 30,
+      }
+    );
+
+    await act(async () => {
+      sessionsDeferred.resolve([session]);
+      statsDeferred.resolve(buildSessionStats({ sessionPath: session.path }));
+      await setup.renderOnce();
+      await Promise.resolve();
+      await setup.renderOnce();
+    });
+    await settleOverlay(setup);
+
+    let frame = setup.captureCharFrame();
+    expect(frame).toContain("Focus: List");
+
+    await pressKeyAndRender(setup, "return");
+    await settleOverlay(setup);
+    frame = setup.captureCharFrame();
+    expect(frame).toContain("Focus: Detail");
+
+    // Enter from detail should NOT switch back to list.
+    await pressKeyAndRender(setup, "return");
+    await settleOverlay(setup);
+    frame = setup.captureCharFrame();
+    expect(frame).toContain("Focus: Detail");
+  });
+
+  test("Enter does not change focus in wide layout", async () => {
+    const session = buildLogSession({
+      path: "/tmp/logs/session-a.jsonl",
+      name: "session-a.jsonl",
+    });
+    const sessionsDeferred = createDeferred<LogSession[]>();
+    const statsDeferred = createDeferred<SessionStats>();
+    const setup = await renderOverlay(
+      {},
+      {
+        sessions: sessionsDeferred.promise,
+        stats: statsDeferred.promise,
+        width: 140,
+        height: 30,
+      }
+    );
+
+    await act(async () => {
+      sessionsDeferred.resolve([session]);
+      statsDeferred.resolve(buildSessionStats({ sessionPath: session.path }));
+      await setup.renderOnce();
+      await Promise.resolve();
+      await setup.renderOnce();
+    });
+    await settleOverlay(setup);
+
+    await pressKeyAndRender(setup, "return");
+    await settleOverlay(setup);
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("Focus: List");
   });
 
   test("does not open fixing from the history session overlay", async () => {
