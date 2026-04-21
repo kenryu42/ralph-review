@@ -111,4 +111,54 @@ describe("resolveSessionOverlayKeyAction", () => {
       })
     ).toBe("none");
   });
+
+  test("Enter focuses detail only from the list pane in narrow mode", () => {
+    expect(
+      resolveSessionOverlayKeyAction({
+        keyName: "return",
+        showHelp: false,
+        showDeleteConfirm: false,
+        hasSelectedSession: true,
+        isNarrow: true,
+        focusedPane: "list",
+      })
+    ).toBe("focus-detail");
+
+    expect(
+      resolveSessionOverlayKeyAction({
+        keyName: "enter",
+        showHelp: false,
+        showDeleteConfirm: false,
+        hasSelectedSession: true,
+        isNarrow: true,
+        focusedPane: "list",
+      })
+    ).toBe("focus-detail");
+  });
+
+  test("Enter does nothing from the detail pane in narrow mode", () => {
+    expect(
+      resolveSessionOverlayKeyAction({
+        keyName: "return",
+        showHelp: false,
+        showDeleteConfirm: false,
+        hasSelectedSession: true,
+        isNarrow: true,
+        focusedPane: "detail",
+      })
+    ).toBe("none");
+  });
+
+  test("Enter does nothing in wide mode regardless of focus", () => {
+    expect(
+      resolveSessionOverlayKeyAction({
+        keyName: "return",
+        showHelp: false,
+        showDeleteConfirm: false,
+        hasSelectedSession: true,
+        isNarrow: false,
+        focusedPane: "list",
+      })
+    ).toBe("none");
+  });
 });

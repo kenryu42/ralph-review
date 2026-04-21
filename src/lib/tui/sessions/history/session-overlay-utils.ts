@@ -46,6 +46,7 @@ export type SessionOverlayKeyAction =
   | "confirm-delete"
   | "close-help"
   | "cycle-focus"
+  | "focus-detail"
   | "close-overlay";
 
 export function resolveSessionOverlayKeyAction({
@@ -53,11 +54,15 @@ export function resolveSessionOverlayKeyAction({
   showHelp,
   showDeleteConfirm,
   hasSelectedSession,
+  isNarrow = false,
+  focusedPane = "list",
 }: {
   keyName: string;
   showHelp: boolean;
   showDeleteConfirm: boolean;
   hasSelectedSession: boolean;
+  isNarrow?: boolean;
+  focusedPane?: "list" | "detail";
 }): SessionOverlayKeyAction {
   if (showDeleteConfirm) {
     if (keyName === "escape" || keyName === "n" || keyName === "q") {
@@ -86,6 +91,10 @@ export function resolveSessionOverlayKeyAction({
 
   if (keyName === "tab" || keyName === "left" || keyName === "right") {
     return "cycle-focus";
+  }
+
+  if (isNarrow && focusedPane === "list" && (keyName === "return" || keyName === "enter")) {
+    return "focus-detail";
   }
 
   if (keyName === "escape" || keyName === "l" || keyName === "q") {
