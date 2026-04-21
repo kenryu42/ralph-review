@@ -36,13 +36,21 @@ function withModel(args: string[], model?: string): string[] {
   return model ? [...args, "--model", model] : args;
 }
 
+function requireReviewerPrompt(prompt: string): string {
+  if (!prompt.trim()) {
+    throw new Error("Codex reviewer requires a generated review prompt");
+  }
+
+  return prompt;
+}
+
 export const codexConfig: AgentConfig = {
   command: "codex",
   buildArgs: (
     role: AgentRole,
     prompt: string,
     model?: string,
-    reviewOptions?: ReviewOptions,
+    _reviewOptions?: ReviewOptions,
     _provider?: string,
     reasoning?: string
   ): string[] => {
@@ -52,20 +60,7 @@ export const codexConfig: AgentConfig = {
     }
 
     const baseReviewArgs = withReasoningEffort(["exec", "review", "--json"], reasoning);
-
-    if (prompt) {
-      return withModel([...baseReviewArgs, prompt], model);
-    }
-
-    if (reviewOptions?.commitSha) {
-      return withModel([...baseReviewArgs, "--commit", reviewOptions.commitSha], model);
-    }
-
-    if (reviewOptions?.baseBranch) {
-      return withModel([...baseReviewArgs, "--base", reviewOptions.baseBranch], model);
-    }
-
-    return withModel([...baseReviewArgs, "--uncommitted"], model);
+    return withModel([...baseReviewArgs, requireReviewerPrompt(prompt)], model);
   },
   buildEnv: defaultBuildEnv,
 };

@@ -18,6 +18,7 @@ type AgentModule = (typeof AGENTS)["codex"];
 type SpawnProcess = ReturnType<typeof Bun.spawn>;
 
 let originalCodexModule: AgentModule;
+let originalClaudeModule: (typeof AGENTS)["claude"];
 let originalPiModule: (typeof AGENTS)["pi"];
 let originalSpawn: typeof Bun.spawn;
 
@@ -70,12 +71,14 @@ async function withMutedTerminalStreams<T>(run: () => Promise<T>): Promise<T> {
 
 beforeEach(() => {
   originalCodexModule = AGENTS.codex;
+  originalClaudeModule = AGENTS.claude;
   originalPiModule = AGENTS.pi;
   originalSpawn = Bun.spawn;
 });
 
 afterEach(() => {
   AGENTS.codex = originalCodexModule;
+  AGENTS.claude = originalClaudeModule;
   AGENTS.pi = originalPiModule;
   Bun.spawn = originalSpawn;
 });
@@ -151,8 +154,12 @@ describe("runAgent", () => {
 
   test("uses default prompt and config iteration timeout when omitted", async () => {
     let capturedPrompt = "unexpected";
+    const claudeReviewerConfig: Config = {
+      ...baseConfig,
+      reviewer: { agent: "claude", model: "claude-sonnet-4-5", reasoning: "medium" },
+    };
 
-    AGENTS.codex = {
+    AGENTS.claude = {
       config: {
         command: "mock-defaults-command",
         buildArgs: (_role, prompt) => {
@@ -169,7 +176,7 @@ describe("runAgent", () => {
       return createMockProcess(createTextStream("ok\n"), null, Promise.resolve(0));
     }) as typeof Bun.spawn;
 
-    const result = await withMutedTerminalStreams(() => runAgent("reviewer", baseConfig));
+    const result = await withMutedTerminalStreams(() => runAgent("reviewer", claudeReviewerConfig));
 
     expect(capturedPrompt).toBe("");
     expect(result.success).toBe(true);

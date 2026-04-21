@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { AGENTS } from "@/lib/agents";
-import type { AgentConfig, ReviewOptions } from "@/lib/types";
+import type { AgentConfig } from "@/lib/types";
 
 describe("agents", () => {
   describe("AGENTS registry", () => {
@@ -27,10 +27,17 @@ describe("agents", () => {
   });
 
   describe("codex buildArgs", () => {
+    const reviewerPrompt = "GENERATED_REVIEW_PROMPT";
+
     test("builds reviewer args correctly", () => {
-      const args = AGENTS.codex.config.buildArgs("reviewer", "", undefined);
+      const args = AGENTS.codex.config.buildArgs("reviewer", reviewerPrompt, undefined);
+      expect(args[0]).toBe("exec");
       expect(args).toContain("review");
-      expect(args).toContain("--uncommitted");
+      expect(args).toContain("--json");
+      expect(args).toContain(reviewerPrompt);
+      expect(args).not.toContain("--uncommitted");
+      expect(args).not.toContain("--commit");
+      expect(args).not.toContain("--base");
     });
 
     test("builds fixer args correctly", () => {
@@ -39,40 +46,32 @@ describe("agents", () => {
       expect(args.some((a: string) => a.includes("fix the bug"))).toBe(true);
     });
 
-    test("uses --uncommitted when no reviewOptions provided", () => {
-      const args = AGENTS.codex.config.buildArgs("reviewer", "", undefined, undefined);
+    test("rejects reviewer args when prompt is empty", () => {
+      expect(() => AGENTS.codex.config.buildArgs("reviewer", "", undefined)).toThrow(
+        "Codex reviewer requires a generated review prompt"
+      );
+    });
+
+    test("never translates reviewOptions into codex scope flags", () => {
+      const args = AGENTS.codex.config.buildArgs("reviewer", reviewerPrompt, undefined, {
+        commitSha: "abc123",
+        baseBranch: "main",
+        customInstructions: "check security",
+      });
+
+      expect(args).toContain("exec");
       expect(args).toContain("review");
-      expect(args).toContain("--uncommitted");
+      expect(args).toContain("--json");
+      expect(args).toContain(reviewerPrompt);
+      expect(args).not.toContain("--uncommitted");
       expect(args).not.toContain("--commit");
       expect(args).not.toContain("--base");
     });
 
-    test("uses --commit when commitSha provided", () => {
-      const reviewOptions: ReviewOptions = { commitSha: "abc123" };
-      const args = AGENTS.codex.config.buildArgs("reviewer", "", undefined, reviewOptions);
-      expect(args).toContain("review");
-      expect(args).toContain("--commit");
-      expect(args).toContain("abc123");
-      expect(args).not.toContain("--uncommitted");
-    });
-
-    test("uses --base when baseBranch provided", () => {
-      const reviewOptions: ReviewOptions = { baseBranch: "main" };
-      const args = AGENTS.codex.config.buildArgs("reviewer", "", undefined, reviewOptions);
-      expect(args).toContain("review");
-      expect(args).toContain("--base");
-      expect(args).toContain("main");
-      expect(args).not.toContain("--uncommitted");
-    });
-
     test("uses review mode when reviewer instructions are provided", () => {
-      const reviewOptions: ReviewOptions = { customInstructions: "check security" };
-      const args = AGENTS.codex.config.buildArgs(
-        "reviewer",
-        "check security",
-        undefined,
-        reviewOptions
-      );
+      const args = AGENTS.codex.config.buildArgs("reviewer", "check security", undefined, {
+        customInstructions: "check security",
+      });
       expect(args).toContain("exec");
       expect(args).toContain("review");
       expect(args).toContain("--json");
@@ -91,11 +90,10 @@ describe("agents", () => {
     });
 
     test("uses review mode when prompt is combined with commitSha", () => {
-      const reviewOptions: ReviewOptions = {
+      const args = AGENTS.codex.config.buildArgs("reviewer", "ignored", undefined, {
         commitSha: "abc123",
         customInstructions: "check security",
-      };
-      const args = AGENTS.codex.config.buildArgs("reviewer", "ignored", undefined, reviewOptions);
+      });
       expect(args).toContain("exec");
       expect(args).toContain("review");
       expect(args).toContain("--json");
@@ -106,11 +104,10 @@ describe("agents", () => {
     });
 
     test("uses review mode when prompt is combined with baseBranch", () => {
-      const reviewOptions: ReviewOptions = {
+      const args = AGENTS.codex.config.buildArgs("reviewer", "ignored", undefined, {
         baseBranch: "main",
         customInstructions: "check security",
-      };
-      const args = AGENTS.codex.config.buildArgs("reviewer", "ignored", undefined, reviewOptions);
+      });
       expect(args).toContain("exec");
       expect(args).toContain("review");
       expect(args).toContain("--json");
@@ -120,18 +117,10 @@ describe("agents", () => {
       expect(args).not.toContain("--uncommitted");
     });
 
-    test("commitSha takes precedence over baseBranch", () => {
-      const reviewOptions: ReviewOptions = { commitSha: "abc123", baseBranch: "main" };
-      const args = AGENTS.codex.config.buildArgs("reviewer", "", undefined, reviewOptions);
-      expect(args).toContain("--commit");
-      expect(args).toContain("abc123");
-      expect(args).not.toContain("--base");
-    });
-
     test("uses configured reasoning level when valid", () => {
       const args = AGENTS.codex.config.buildArgs(
         "reviewer",
-        "",
+        reviewerPrompt,
         undefined,
         undefined,
         undefined,
@@ -144,7 +133,7 @@ describe("agents", () => {
     test("falls back to high thinking when config value is invalid", () => {
       const args = AGENTS.codex.config.buildArgs(
         "reviewer",
-        "",
+        reviewerPrompt,
         undefined,
         undefined,
         undefined,
