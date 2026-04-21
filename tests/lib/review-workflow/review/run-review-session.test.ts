@@ -1,9 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import type { RunReviewSessionDependencies } from "@/lib/review-workflow/review/run-review-session";
 import { runReviewSession } from "@/lib/review-workflow/review/run-review-session";
-import { CONFIG_SCHEMA_URI, CONFIG_VERSION, type Config, type ReviewSummary } from "@/lib/types";
+import {
+  CONFIG_SCHEMA_URI,
+  CONFIG_VERSION,
+  type Config,
+  type ReviewOptions,
+  type ReviewSummary,
+} from "@/lib/types";
 
-function createConfig(): Config {
+function createConfig(overrides: Partial<Config> = {}): Config {
   return {
     $schema: CONFIG_SCHEMA_URI,
     version: CONFIG_VERSION,
@@ -13,11 +19,13 @@ function createConfig(): Config {
     iterationTimeout: 10,
     defaultReview: { type: "uncommitted" },
     notifications: { sound: { enabled: false } },
+    ...overrides,
   };
 }
 
 function createDependencies(overrides: {
   runAgent: RunReviewSessionDependencies["runAgent"];
+  createReviewerPrompt?: RunReviewSessionDependencies["createReviewerPrompt"];
   computeWorkingTreeFingerprintAsync?: RunReviewSessionDependencies["computeWorkingTreeFingerprintAsync"];
   parseReviewSummaryOutput?: RunReviewSessionDependencies["parseReviewSummaryOutput"];
 }): RunReviewSessionDependencies {
@@ -29,10 +37,20 @@ function createDependencies(overrides: {
   };
 
   return {
-    createReviewerPrompt: () => "REVIEW_PROMPT",
+    createReviewerPrompt: overrides.createReviewerPrompt ?? (() => "REVIEW_PROMPT"),
     createReviewerSummaryRetryReminder: () => "RETRY_REMINDER",
     AGENTS: {
       claude: {
+        config: {
+          command: "mock",
+          buildArgs: () => [],
+          buildEnv: () => ({}),
+        },
+        extractResult: async (output: string) => output,
+        detectSessionId: () => null,
+        getUpdateInstructions: () => [],
+      },
+      codex: {
         config: {
           command: "mock",
           buildArgs: () => [],
@@ -135,5 +153,102 @@ describe("review-workflow/review/runReviewSession", () => {
     expect(result.result.sessionStatus).toBe("failed");
     expect(result.result.reviewOutcome).toBe("incomplete");
     expect(result.result.iterations).toBe(1);
+  });
+
+  test("builds codex reviewer runs from generated prompt without default review markdown", async () => {
+    let capturedPromptOptions:
+      | Parameters<RunReviewSessionDependencies["createReviewerPrompt"]>[0]
+      | undefined;
+    let runAgentCall:
+      | {
+          prompt: string;
+          reviewOptions: ReviewOptions | undefined;
+          cwd: string | undefined;
+        }
+      | undefined;
+    const reviewOptions: ReviewOptions = {
+      baseBranch: "main",
+      customInstructions: "Focus on auth flows.",
+    };
+    const deps = createDependencies({
+      createReviewerPrompt: (options) => {
+        capturedPromptOptions = options;
+        return "GENERATED_REVIEW_PROMPT";
+      },
+      runAgent: async (_role, _config, prompt, _timeout, forwardedReviewOptions, cwd) => {
+        runAgentCall = {
+          prompt: prompt ?? "",
+          reviewOptions: forwardedReviewOptions,
+          cwd,
+        };
+
+        return {
+          success: true,
+          output: "structured output",
+          exitCode: 0,
+          duration: 1,
+        };
+      },
+    });
+
+    const result = await runReviewSession(
+      createConfig({ reviewer: { agent: "codex" } }),
+      reviewOptions,
+      {
+        projectPath: "/repo/project",
+        sessionId: "session-123",
+        sessionPath: "/tmp/session-123.jsonl",
+      },
+      () => false,
+      deps
+    );
+
+    expect(result.result.sessionStatus).toBe("completed");
+    expect(capturedPromptOptions).toMatchObject({
+      repoPath: "/tmp/worktree",
+      baselineCommitSha: "baseline-sha-123",
+      includeDefaultReviewPrompt: false,
+      baseBranch: "main",
+      customInstructions: "Focus on auth flows.",
+    });
+    expect(runAgentCall).toEqual({
+      prompt: "GENERATED_REVIEW_PROMPT",
+      reviewOptions,
+      cwd: "/tmp/worktree",
+    });
+  });
+
+  test("passes commitSha into codex reviewer prompt generation", async () => {
+    let capturedPromptOptions:
+      | Parameters<RunReviewSessionDependencies["createReviewerPrompt"]>[0]
+      | undefined;
+    const deps = createDependencies({
+      createReviewerPrompt: (options) => {
+        capturedPromptOptions = options;
+        return "GENERATED_REVIEW_PROMPT";
+      },
+      runAgent: async () => ({
+        success: true,
+        output: "structured output",
+        exitCode: 0,
+        duration: 1,
+      }),
+    });
+
+    const result = await runReviewSession(
+      createConfig({ reviewer: { agent: "codex" } }),
+      { commitSha: "abc1234" },
+      {
+        projectPath: "/repo/project",
+        sessionId: "session-123",
+        sessionPath: "/tmp/session-123.jsonl",
+      },
+      () => false,
+      deps
+    );
+
+    expect(result.result.sessionStatus).toBe("completed");
+    expect(capturedPromptOptions?.commitSha).toBe("abc1234");
+    expect(capturedPromptOptions?.includeDefaultReviewPrompt).toBe(false);
   });
 });
