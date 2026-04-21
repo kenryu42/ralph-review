@@ -76,7 +76,6 @@ describe("createTargetedReviewPrompt", () => {
     const uncommittedInstruction = "staged, unstaged, and untracked files";
     const customInstruction = "Additional review focus from user instructions";
 
-    expect(prompt).toContain(uncommittedInstruction);
     expect(prompt).toContain("Only review src/lib/logger.ts for regressions");
     expect(prompt.indexOf(uncommittedInstruction)).toBeLessThan(prompt.indexOf(customInstruction));
     expectStructuredOutputProtocol(prompt);
@@ -85,7 +84,6 @@ describe("createTargetedReviewPrompt", () => {
   test("defaults to uncommitted review instructions", () => {
     const prompt = createTargetedReviewPrompt({ repoPath: REPO_PATH });
 
-    expect(prompt).toContain("staged, unstaged, and untracked files");
     expect(prompt).not.toContain("Ignore untracked files.");
     expectStructuredOutputProtocol(prompt);
   });
@@ -100,8 +98,6 @@ describe("createReviewerPrompt", () => {
     });
 
     expect(prompt).not.toContain("# Review guidelines:");
-    expect(prompt).toContain("staged, unstaged, and untracked files");
-    expect(prompt).toContain("Git ignores");
     expectStructuredOutputProtocol(prompt);
   });
 
@@ -111,9 +107,7 @@ describe("createReviewerPrompt", () => {
       baselineCommitSha: "baseline-sha-123",
     });
 
-    expect(prompt).toContain("staged, unstaged, and untracked files");
     expect(prompt).toContain("baseline-sha-123");
-    expect(prompt).toContain("unless Git ignores them");
     expectStructuredOutputProtocol(prompt);
   });
 
