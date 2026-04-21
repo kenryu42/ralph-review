@@ -1,4 +1,4 @@
-import type { ScrollBoxRenderable, TabSelectRenderable } from "@opentui/core";
+import type { ScrollBoxRenderable } from "@opentui/core";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FindingSelectionMode } from "@/lib/review-workflow/findings/selection";
@@ -21,13 +21,6 @@ export interface FixIssuesOverlayProps {
 type OverlayFocus = "list" | "filter";
 type OverlayPane = "selection" | "details";
 
-const MODE_ORDER: FindingSelectionMode[] = ["all", "priority", "id"];
-const TAB_OPTIONS = [
-  { name: "All", description: "Fix every pending issue", value: "all" },
-  { name: "Priority", description: "Select by priority", value: "priority" },
-  { name: "Issues", description: "Select specific issues", value: "id" },
-];
-
 interface FindingRowSegment {
   text: string;
   color?: string;
@@ -46,6 +39,24 @@ interface PrioritySelectionRow {
   priority: Priority;
   lines: FindingRowLine[];
 }
+
+type NavigableRowId = "all" | `priority:${Priority}` | `issue:${FindingId}`;
+
+type NavigableRow =
+  | { kind: "header"; id: string; label: string }
+  | { kind: "all"; id: "all"; lines: FindingRowLine[] }
+  | {
+      kind: "priority";
+      id: `priority:${Priority}`;
+      priority: Priority;
+      lines: FindingRowLine[];
+    }
+  | {
+      kind: "issue";
+      id: `issue:${FindingId}`;
+      finding: StoredFinding;
+      lines: FindingRowLine[];
+    };
 
 function clampIndex(index: number, max: number): number {
   if (max <= 0) {
@@ -198,6 +209,17 @@ function buildPrioritySelectionRow(
   };
 }
 
+function buildAllSelectionRow(totalCount: number, isSelected: boolean): FindingRowLine[] {
+  return [
+    {
+      segments: [
+        { text: `${isSelected ? "[x]" : "[ ]"} ` },
+        { text: `Fix all pending (${totalCount})` },
+      ],
+    },
+  ];
+}
+
 function sortSelectedPriorities(selectedPriorities: Priority[]): Priority[] {
   return PRIORITIES.filter((priority) => selectedPriorities.includes(priority));
 }
@@ -208,10 +230,6 @@ function sortSelectedFindingIds(
 ): FindingId[] {
   const selectedIds = new Set(selectedFindingIds);
   return findings.map((finding) => finding.id).filter((findingId) => selectedIds.has(findingId));
-}
-
-function getFindingAtIndex(findings: StoredFinding[], index: number): StoredFinding | null {
-  return findings[clampIndex(index, findings.length)] ?? null;
 }
 
 function buildFixCommandArgs(
@@ -283,9 +301,14 @@ function filterFindings(findings: StoredFinding[], query: string): StoredFinding
 
 function getSelectionDisabledReason(
   mode: FindingSelectionMode,
+  allSelected: boolean,
   selectedPriorities: Priority[],
   selectedFindingIds: FindingId[]
 ): string | null {
+  if (!allSelected && selectedPriorities.length === 0 && selectedFindingIds.length === 0) {
+    return "Select a scope to enable Run.";
+  }
+
   if (mode === "priority" && selectedPriorities.length === 0) {
     return "Select at least one priority to enable Run.";
   }
@@ -297,46 +320,15 @@ function getSelectionDisabledReason(
   return null;
 }
 
-function HighlightedRowList({
-  rows,
-  highlightedIndex,
-  getKey,
-}: {
-  rows: Array<{ lines: FindingRowLine[] }>;
-  highlightedIndex: number;
-  getKey: (row: { lines: FindingRowLine[] }, index: number) => string;
-}) {
-  return (
-    <box flexDirection="column">
-      {rows.map((row, index) => {
-        const key = getKey(row, index);
-        const isHighlighted = index === clampIndex(highlightedIndex, rows.length);
-        const textColor = isHighlighted ? TUI_COLORS.text.primary : TUI_COLORS.text.secondary;
-
-        return (
-          <box
-            key={key}
-            flexDirection="column"
-            backgroundColor={isHighlighted ? "#1f2940" : undefined}
-            paddingLeft={1}
-          >
-            {row.lines.map((line, lineIndex) => (
-              // biome-ignore lint/suspicious/noArrayIndexKey: lines within a row are structurally stable
-              <text key={`${key}-${lineIndex}`} fg={textColor} wrapMode="none">
-                <span>{lineIndex === 0 && isHighlighted ? "▶ " : "  "}</span>
-                {line.segments.map((segment, segmentIndex) => (
-                  // biome-ignore lint/suspicious/noArrayIndexKey: segments within a line are structurally stable
-                  <span key={`${key}-${lineIndex}-${segmentIndex}`} fg={segment.color ?? textColor}>
-                    {segment.text}
-                  </span>
-                ))}
-              </text>
-            ))}
-          </box>
-        );
-      })}
-    </box>
-  );
+function rowLineCount(row: NavigableRow): number {
+  switch (row.kind) {
+    case "header":
+      return 1;
+    case "all":
+    case "priority":
+    case "issue":
+      return row.lines.length;
+  }
 }
 
 function DetailField({
@@ -366,16 +358,13 @@ export function FixIssuesOverlay({
   onClose,
 }: FixIssuesOverlayProps) {
   const { width: terminalWidth, height: terminalHeight } = useTerminalDimensions();
-  const tabSelectRef = useRef<TabSelectRenderable>(null);
-  const findingListRef = useRef<ScrollBoxRenderable>(null);
-  const priorityListRef = useRef<ScrollBoxRenderable>(null);
-  const [mode, setMode] = useState<FindingSelectionMode>("all");
-  const [focusArea, setFocusArea] = useState<OverlayFocus>("list");
-  const [focusedPane, setFocusedPane] = useState<OverlayPane>("selection");
-  const [priorityIndex, setPriorityIndex] = useState(0);
-  const [findingIndex, setFindingIndex] = useState(0);
+  const selectionListRef = useRef<ScrollBoxRenderable>(null);
+  const [allSelected, setAllSelected] = useState(true);
   const [selectedPriorities, setSelectedPriorities] = useState<Priority[]>([]);
   const [selectedFindingIds, setSelectedFindingIds] = useState<FindingId[]>([]);
+  const [cursorRowId, setCursorRowId] = useState<NavigableRowId>("all");
+  const [focusArea, setFocusArea] = useState<OverlayFocus>("list");
+  const [focusedPane, setFocusedPane] = useState<OverlayPane>("selection");
   const [filterQuery, setFilterQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
 
@@ -385,14 +374,8 @@ export function FixIssuesOverlay({
   const selectionPanelWidth = isWideLayout
     ? Math.min(56, Math.max(44, Math.floor(contentWidth * 0.36)))
     : undefined;
-  const stackedSelectionHeight = Math.max(
-    mode === "id" ? 12 : 7,
-    Math.floor(contentHeight * (mode === "id" ? 0.48 : 0.3))
-  );
-  const selectionPanelContentWidth = Math.max(
-    18,
-    (selectionPanelWidth ?? contentWidth) - (mode === "id" ? 8 : 6)
-  );
+  const stackedSelectionHeight = Math.max(12, Math.floor(contentHeight * 0.48));
+  const selectionPanelContentWidth = Math.max(18, (selectionPanelWidth ?? contentWidth) - 8);
 
   const priorityCounts = useMemo(
     () =>
@@ -433,6 +416,12 @@ export function FixIssuesOverlay({
       });
   }, [findings]);
 
+  const mode: FindingSelectionMode = allSelected
+    ? "all"
+    : selectedPriorities.length > 0
+      ? "priority"
+      : "id";
+
   const selectedCount = useMemo(() => {
     if (mode === "all") {
       return findings.length;
@@ -445,29 +434,64 @@ export function FixIssuesOverlay({
     return orderedSelectedFindingIds.length;
   }, [findings, mode, orderedSelectedFindingIds, selectedPrioritySet]);
 
-  const currentPriority = PRIORITIES[clampIndex(priorityIndex, PRIORITIES.length)] ?? "P0";
-  const currentFinding = getFindingAtIndex(filteredFindings, findingIndex);
+  const rows = useMemo<NavigableRow[]>(() => {
+    const allRow: NavigableRow = {
+      kind: "all",
+      id: "all",
+      lines: buildAllSelectionRow(findings.length, allSelected),
+    };
 
-  const currentPriorityFindings = useMemo(
-    () => findings.filter((finding) => finding.priority === currentPriority),
-    [currentPriority, findings]
+    const priorityRows: NavigableRow[] = priorityCounts.map(({ priority, count }) => ({
+      kind: "priority",
+      id: `priority:${priority}` as const,
+      priority,
+      lines: buildPrioritySelectionRow(priority, count, selectedPrioritySet.has(priority)).lines,
+    }));
+
+    const issueRows: NavigableRow[] = filteredFindings.map((finding) => ({
+      kind: "issue",
+      id: `issue:${finding.id}` as const,
+      finding,
+      lines: buildWrappedFindingRow(finding, {
+        isSelected: selectedFindingIdSet.has(finding.id),
+        contentWidth: selectionPanelContentWidth,
+      }).lines,
+    }));
+
+    return [
+      { kind: "header", id: "header:quick", label: "Quick action" },
+      allRow,
+      { kind: "header", id: "header:priority", label: "By priority" },
+      ...priorityRows,
+      { kind: "header", id: "header:issue", label: "By issue" },
+      ...issueRows,
+    ];
+  }, [
+    allSelected,
+    filteredFindings,
+    findings.length,
+    priorityCounts,
+    selectedFindingIdSet,
+    selectedPrioritySet,
+    selectionPanelContentWidth,
+  ]);
+
+  const navigableIds = useMemo(
+    () => rows.filter((row) => row.kind !== "header").map((row) => row.id),
+    [rows]
   );
-  const wrappedPriorityRows = useMemo(
-    () =>
-      priorityCounts.map((item) =>
-        buildPrioritySelectionRow(item.priority, item.count, selectedPrioritySet.has(item.priority))
-      ),
-    [priorityCounts, selectedPrioritySet]
-  );
-  const wrappedFindingRows = useMemo(
-    () =>
-      filteredFindings.map((finding) =>
-        buildWrappedFindingRow(finding, {
-          isSelected: selectedFindingIdSet.has(finding.id),
-          contentWidth: selectionPanelContentWidth,
-        })
-      ),
-    [filteredFindings, selectedFindingIdSet, selectionPanelContentWidth]
+
+  useEffect(() => {
+    if (!navigableIds.includes(cursorRowId)) {
+      const fallback =
+        navigableIds.find((id) => id.startsWith("issue:")) ?? navigableIds[0] ?? "all";
+      setCursorRowId(fallback);
+    }
+  }, [cursorRowId, navigableIds]);
+
+  const currentRow = useMemo(
+    () => rows.find((row) => row.id === cursorRowId) ?? null,
+    [cursorRowId, rows]
   );
 
   const pendingCountLabel = `${findings.length} pending`;
@@ -479,7 +503,12 @@ export function FixIssuesOverlay({
     selectedPriorities,
     orderedSelectedFindingIds
   );
-  const disabledReason = getSelectionDisabledReason(mode, selectedPriorities, selectedFindingIds);
+  const disabledReason = getSelectionDisabledReason(
+    mode,
+    allSelected,
+    selectedPriorities,
+    selectedFindingIds
+  );
   const fullCommand = commandPreview ?? baseCommandPreview;
   const commandTail = fullCommand.slice("rr fix".length);
 
@@ -487,44 +516,33 @@ export function FixIssuesOverlay({
   const maxPathWidth = Math.max(10, terminalWidth - 2 - pathReservedRight);
 
   useEffect(() => {
-    if (mode !== "id" && focusArea === "filter") {
-      setFocusArea("list");
-    }
-  }, [focusArea, mode]);
-
-  useEffect(() => {
-    tabSelectRef.current?.setSelectedIndex(MODE_ORDER.indexOf(mode));
-  }, [mode]);
-
-  useEffect(() => {
-    if (filteredFindings.length === 0) {
-      if (findingIndex !== 0) {
-        setFindingIndex(0);
-      }
+    if (focusArea !== "list" || rows.length === 0) {
       return;
     }
 
-    const nextIndex = clampIndex(findingIndex, filteredFindings.length);
-    if (nextIndex !== findingIndex) {
-      setFindingIndex(nextIndex);
-    }
-  }, [filteredFindings.length, findingIndex]);
-
-  useEffect(() => {
-    if (mode !== "id" || focusArea !== "list" || wrappedFindingRows.length === 0) {
-      return;
-    }
-
-    const list = findingListRef.current;
+    const list = selectionListRef.current;
     if (!list) {
       return;
     }
 
-    const currentIndex = clampIndex(findingIndex, wrappedFindingRows.length);
-    const top = wrappedFindingRows
-      .slice(0, currentIndex)
-      .reduce((total, row) => total + row.lines.length, 0);
-    const currentHeight = wrappedFindingRows[currentIndex]?.lines.length ?? 1;
+    const currentIndex = rows.findIndex((row) => row.id === cursorRowId);
+    if (currentIndex < 0) {
+      return;
+    }
+
+    let top = 0;
+    for (let i = 0; i < currentIndex; i++) {
+      const row = rows[i];
+      if (!row) {
+        continue;
+      }
+      top += rowLineCount(row);
+      if (row.kind === "header" && i > 0) {
+        top += 1;
+      }
+    }
+    const currentRow = rows[currentIndex];
+    const currentHeight = currentRow ? rowLineCount(currentRow) : 1;
     const bottom = top + currentHeight;
     const viewportHeight = Math.max(1, list.height);
 
@@ -536,47 +554,7 @@ export function FixIssuesOverlay({
     if (bottom > list.scrollTop + viewportHeight) {
       list.scrollTop = Math.max(0, bottom - viewportHeight);
     }
-  }, [findingIndex, focusArea, mode, wrappedFindingRows]);
-
-  useEffect(() => {
-    if (mode !== "priority" || wrappedPriorityRows.length === 0) {
-      return;
-    }
-
-    const list = priorityListRef.current;
-    if (!list) {
-      return;
-    }
-
-    const currentIndex = clampIndex(priorityIndex, wrappedPriorityRows.length);
-    if (currentIndex < list.scrollTop) {
-      list.scrollTop = currentIndex;
-      return;
-    }
-
-    const viewportHeight = Math.max(1, list.height);
-    if (currentIndex >= list.scrollTop + viewportHeight) {
-      list.scrollTop = Math.max(0, currentIndex - viewportHeight + 1);
-    }
-  }, [mode, priorityIndex, wrappedPriorityRows]);
-
-  const setActiveMode = useCallback((nextMode: FindingSelectionMode) => {
-    setMode(nextMode);
-    setError(null);
-    setFocusArea((currentFocus) => (nextMode === "id" ? currentFocus : "list"));
-  }, []);
-
-  const cycleMode = useCallback(
-    (direction: -1 | 1) => {
-      const currentIndex = MODE_ORDER.indexOf(mode);
-      const nextIndex = clampIndex(currentIndex + direction, MODE_ORDER.length);
-      const nextMode = MODE_ORDER[nextIndex];
-      if (nextMode) {
-        setActiveMode(nextMode);
-      }
-    },
-    [mode, setActiveMode]
-  );
+  }, [cursorRowId, focusArea, rows]);
 
   const cycleFocusedPane = useCallback(() => {
     setFocusedPane((current) => (current === "selection" ? "details" : "selection"));
@@ -586,37 +564,83 @@ export function FixIssuesOverlay({
     onClose();
   }, [onClose]);
 
-  const toggleCurrentPriority = useCallback(() => {
-    const priority = PRIORITIES[clampIndex(priorityIndex, PRIORITIES.length)];
-    if (!priority) {
-      return;
-    }
+  const moveCursor = useCallback(
+    (direction: -1 | 1) => {
+      if (rows.length === 0) {
+        return;
+      }
 
-    setSelectedPriorities((current) => {
-      const next = current.includes(priority)
-        ? current.filter((value) => value !== priority)
-        : [...current, priority];
-      return sortSelectedPriorities(next);
-    });
-    setError(null);
-  }, [priorityIndex]);
+      let nextIndex = rows.findIndex((row) => row.id === cursorRowId);
+      if (nextIndex < 0) {
+        nextIndex = direction > 0 ? -1 : rows.length;
+      }
 
-  const toggleCurrentFindingId = useCallback(() => {
-    const highlightedFinding = getFindingAtIndex(filteredFindings, findingIndex);
-    if (!highlightedFinding) {
-      return;
-    }
+      while (true) {
+        const candidateIndex = clampIndex(nextIndex + direction, rows.length);
+        if (candidateIndex === nextIndex) {
+          return;
+        }
 
-    setSelectedFindingIds((current) => {
-      const next = current.includes(highlightedFinding.id)
-        ? current.filter((value) => value !== highlightedFinding.id)
-        : [...current, highlightedFinding.id];
-      return sortSelectedFindingIds(next, findings);
-    });
-    setError(null);
-  }, [filteredFindings, findingIndex, findings]);
+        nextIndex = candidateIndex;
+        const candidate = rows[nextIndex];
+        if (!candidate || candidate.kind === "header") {
+          continue;
+        }
 
-  const confirmFixSelection = useCallback(async () => {
+        setCursorRowId(candidate.id);
+        setError(null);
+        return;
+      }
+    },
+    [cursorRowId, rows]
+  );
+
+  const toggleRow = useCallback(
+    (row: NavigableRow) => {
+      if (row.kind === "all") {
+        if (allSelected) {
+          setAllSelected(false);
+        } else {
+          setAllSelected(true);
+          setSelectedPriorities([]);
+          setSelectedFindingIds([]);
+        }
+        setError(null);
+        return;
+      }
+
+      if (row.kind === "priority") {
+        setAllSelected(false);
+        setSelectedFindingIds([]);
+        setSelectedPriorities((current) =>
+          sortSelectedPriorities(
+            current.includes(row.priority)
+              ? current.filter((value) => value !== row.priority)
+              : [...current, row.priority]
+          )
+        );
+        setError(null);
+        return;
+      }
+
+      if (row.kind === "issue") {
+        setAllSelected(false);
+        setSelectedPriorities([]);
+        setSelectedFindingIds((current) =>
+          sortSelectedFindingIds(
+            current.includes(row.finding.id)
+              ? current.filter((value) => value !== row.finding.id)
+              : [...current, row.finding.id],
+            findings
+          )
+        );
+        setError(null);
+      }
+    },
+    [allSelected, findings]
+  );
+
+  const confirmFixSelection = useCallback(() => {
     const commandArgs = buildFixCommandArgs(
       sessionId,
       mode,
@@ -641,7 +665,13 @@ export function FixIssuesOverlay({
     sessionId,
   ]);
 
-  const handleListKeyDown = useCallback(
+  const focusFilter = useCallback(() => {
+    setFocusedPane("selection");
+    setFocusArea("filter");
+    setError(null);
+  }, []);
+
+  const handleKeyDown = useCallback(
     (key: { name: string }) => {
       if (key.name === "tab") {
         cycleFocusedPane();
@@ -661,25 +691,14 @@ export function FixIssuesOverlay({
         return;
       }
 
-      if (key.name === "left") {
-        cycleMode(-1);
-        return;
-      }
-
-      if (key.name === "right") {
-        cycleMode(1);
-        return;
-      }
-
-      if (mode === "id" && key.name === "/") {
-        setFocusedPane("selection");
-        setFocusArea("filter");
+      if (key.name === "/" && focusedPane === "selection") {
+        focusFilter();
         return;
       }
 
       if (focusedPane !== "selection") {
         if (key.name === "enter" || key.name === "return") {
-          void confirmFixSelection();
+          confirmFixSelection();
         }
         return;
       }
@@ -688,49 +707,36 @@ export function FixIssuesOverlay({
       const isMoveDown = key.name === "down" || key.name === "j";
 
       if (isMoveUp || isMoveDown) {
-        const delta = isMoveUp ? -1 : 1;
-        if (mode === "priority") {
-          setPriorityIndex((current) => clampIndex(current + delta, PRIORITIES.length));
-          setError(null);
-        } else if (mode === "id") {
-          setFindingIndex((current) => clampIndex(current + delta, filteredFindings.length));
-          setError(null);
-        }
+        moveCursor(isMoveUp ? -1 : 1);
         return;
       }
 
       if (key.name === "enter" || key.name === "return") {
-        void confirmFixSelection();
+        confirmFixSelection();
         return;
       }
 
       if (key.name === "space") {
-        if (mode === "priority") {
-          toggleCurrentPriority();
-          return;
-        }
-
-        if (mode === "id") {
-          toggleCurrentFindingId();
+        if (currentRow && currentRow.kind !== "header") {
+          toggleRow(currentRow);
         }
       }
     },
     [
       closeOverlay,
-      cycleFocusedPane,
       confirmFixSelection,
-      cycleMode,
+      currentRow,
+      cycleFocusedPane,
       findings.length,
       focusArea,
       focusedPane,
-      filteredFindings.length,
-      mode,
-      toggleCurrentFindingId,
-      toggleCurrentPriority,
+      focusFilter,
+      moveCursor,
+      toggleRow,
     ]
   );
 
-  useKeyboard(handleListKeyDown);
+  useKeyboard(handleKeyDown);
 
   const actionMessage = error
     ? error
@@ -748,21 +754,12 @@ export function FixIssuesOverlay({
     focusedPane === "selection" ? TUI_COLORS.ui.borderFocused : TUI_COLORS.ui.border;
   const detailsBorderColor =
     focusedPane === "details" ? TUI_COLORS.ui.borderFocused : TUI_COLORS.ui.border;
+  const isFilterFocused = focusedPane === "selection" && focusArea === "filter";
 
   const updateFilterQuery = useCallback((nextValue: string) => {
     setFilterQuery(nextValue);
     setError(null);
   }, []);
-
-  const handleTabChange = useCallback(
-    (index: number) => {
-      const nextMode = MODE_ORDER[index];
-      if (nextMode) {
-        setActiveMode(nextMode);
-      }
-    },
-    [setActiveMode]
-  );
 
   if (findings.length === 0) {
     return (
@@ -790,188 +787,42 @@ export function FixIssuesOverlay({
     );
   }
 
-  function renderSelectionPanel() {
-    if (mode === "all") {
+  function renderRow(row: NavigableRow, index: number) {
+    const isHighlighted = focusArea === "list" && row.id === cursorRowId && row.kind !== "header";
+    const isHeader = row.kind === "header";
+    const needsSpacer = isHeader && index > 0;
+
+    if (row.kind === "header") {
       return (
-        <box flexDirection="column" gap={1} flexGrow={1} minHeight={0}>
-          <text fg={TUI_COLORS.text.secondary}>
-            <strong>Batch everything pending</strong>
-          </text>
-          <text fg={TUI_COLORS.text.muted}>
-            The fixer receives all {formatCountLabel(findings.length)} in one run.
-          </text>
+        <box key={row.id} flexDirection="column">
+          {needsSpacer ? <text> </text> : null}
           <text fg={TUI_COLORS.text.dim}>
-            <span>Press </span>
-            <span fg={TUI_COLORS.accent.key}>Enter</span>
-            <span> to start, or switch tabs to narrow scope.</span>
+            <strong>{row.label}</strong>
           </text>
         </box>
       );
     }
 
-    if (mode === "priority") {
-      return (
-        <box flexDirection="column" gap={1} flexGrow={1} minHeight={0}>
-          <text fg={TUI_COLORS.text.muted}>Select one or more priorities to batch together.</text>
-          <scrollbox
-            ref={priorityListRef}
-            focused={focusedPane === "selection" && focusArea === "list"}
-            flexGrow={1}
-            scrollY
-          >
-            <HighlightedRowList
-              rows={wrappedPriorityRows}
-              highlightedIndex={priorityIndex}
-              getKey={(row) => (row as PrioritySelectionRow).priority}
-            />
-          </scrollbox>
-        </box>
-      );
-    }
+    const textColor = isHighlighted ? TUI_COLORS.text.primary : TUI_COLORS.text.secondary;
 
     return (
-      <box flexDirection="column" gap={1} flexGrow={1} minHeight={0}>
-        <text fg={TUI_COLORS.text.dim}>
-          <strong>Filter issues</strong>
-        </text>
-        <input
-          value={filterQuery}
-          onChange={updateFilterQuery}
-          onInput={updateFilterQuery}
-          onSubmit={() => {
-            setFocusArea("list");
-          }}
-          onKeyDown={(key) => {
-            if (key.name === "tab") {
-              cycleFocusedPane();
-              return;
-            }
-
-            if (key.name === "escape" || key.name === "down") {
-              setFocusArea("list");
-            }
-          }}
-          placeholder="Type ID, title, path, or priority"
-          focused={focusedPane === "selection" && focusArea === "filter"}
-          width="100%"
-          backgroundColor="#111827"
-          focusedBackgroundColor="#0f172a"
-          textColor={TUI_COLORS.text.primary}
-          placeholderColor={TUI_COLORS.text.dim}
-        />
-        <text fg={TUI_COLORS.text.muted}>
-          {filterQuery.trim().length === 0
-            ? `Showing ${filteredFindings.length} issues`
-            : `Showing ${filteredFindings.length} of ${findings.length} issues`}
-        </text>
-        {filteredFindings.length === 0 ? (
-          <box flexGrow={1} justifyContent="center">
-            <text fg={TUI_COLORS.text.dim}>No issues match the current filter.</text>
-          </box>
-        ) : (
-          <scrollbox
-            ref={findingListRef}
-            focused={focusedPane === "selection" && focusArea === "list"}
-            flexGrow={1}
-            scrollY
-          >
-            <HighlightedRowList
-              rows={wrappedFindingRows}
-              highlightedIndex={findingIndex}
-              getKey={(row) => (row as WrappedFindingRow).finding.id}
-            />
-          </scrollbox>
-        )}
+      <box
+        key={row.id}
+        flexDirection="column"
+        backgroundColor={isHighlighted ? "#1f2940" : undefined}
+        paddingLeft={1}
+      >
+        {row.lines.map((line, lineIndex) => (
+          <text key={`${row.id}-${lineIndex}`} fg={textColor} wrapMode="none">
+            <span>{lineIndex === 0 && isHighlighted ? "▶ " : "  "}</span>
+            {line.segments.map((segment, segmentIndex) => (
+              <span key={`${row.id}-${lineIndex}-${segmentIndex}`} fg={segment.color ?? textColor}>
+                {segment.text}
+              </span>
+            ))}
+          </text>
+        ))}
       </box>
-    );
-  }
-
-  function renderPriorityDetail() {
-    const isPrioritySelected = selectedPrioritySet.has(currentPriority);
-
-    return (
-      <scrollbox focused={focusedPane === "details"} flexGrow={1} scrollY>
-        <box flexDirection="column" gap={1}>
-          <DetailField label="Priority" value={<PriorityText priority={currentPriority} />} />
-          <DetailField
-            label="Status"
-            value={disabledReason ?? "Ready to run this priority batch."}
-            color={disabledReason ? TUI_COLORS.status.warning : TUI_COLORS.text.secondary}
-          />
-          <DetailField
-            label="Selection"
-            value={isPrioritySelected ? "Included in this batch" : "Not selected"}
-            color={isPrioritySelected ? TUI_COLORS.status.success : TUI_COLORS.text.muted}
-          />
-          <DetailField label="Matches" value={formatCountLabel(currentPriorityFindings.length)} />
-          <text fg={TUI_COLORS.text.dim}>
-            <strong>Matching Issues</strong>
-          </text>
-          {currentPriorityFindings.length === 0 ? (
-            <text fg={TUI_COLORS.text.dim}>No issues in this priority.</text>
-          ) : (
-            currentPriorityFindings.map((finding) => (
-              <box key={finding.id} flexDirection="column">
-                <text fg={TUI_COLORS.text.secondary}>
-                  {finding.id} {toSingleLine(formatFindingTitleForDisplay(finding.title))}
-                </text>
-                <text fg={TUI_COLORS.text.dim}>
-                  {finding.filePath}:{finding.startLine}-{finding.endLine}
-                </text>
-              </box>
-            ))
-          )}
-        </box>
-      </scrollbox>
-    );
-  }
-
-  function renderFindingDetail() {
-    if (!currentFinding) {
-      return (
-        <scrollbox focused={focusedPane === "details"} flexGrow={1} scrollY>
-          <box flexDirection="column" gap={1}>
-            <DetailField label="Scope" value="Issue selection" />
-            <text fg={TUI_COLORS.text.dim}>No issues match the current filter.</text>
-          </box>
-        </scrollbox>
-      );
-    }
-
-    const isSelected = selectedFindingIdSet.has(currentFinding.id);
-
-    return (
-      <scrollbox focused={focusedPane === "details"} flexGrow={1} scrollY>
-        <box flexDirection="column" gap={1}>
-          <DetailField
-            label="Issue"
-            value={
-              <>
-                <span>{currentFinding.id} </span>
-                <PriorityText priority={currentFinding.priority} bracketed />
-              </>
-            }
-          />
-          <DetailField label="Title" value={formatFindingTitleForDisplay(currentFinding.title)} />
-          <text fg={TUI_COLORS.text.dim}>
-            <strong>Body</strong>
-          </text>
-          {currentFinding.body.split("\n").map((line, index) => (
-            <text key={`${currentFinding.id}-body-${index}`} fg={TUI_COLORS.text.secondary}>
-              {line}
-            </text>
-          ))}
-          <DetailField
-            label="Selection"
-            value={isSelected ? "Included in this batch" : "Not selected"}
-            color={isSelected ? TUI_COLORS.status.success : TUI_COLORS.text.muted}
-          />
-          <DetailField
-            label="Location"
-            value={`${currentFinding.filePath}:${currentFinding.startLine}-${currentFinding.endLine}`}
-          />
-        </box>
-      </scrollbox>
     );
   }
 
@@ -1006,14 +857,129 @@ export function FixIssuesOverlay({
     );
   }
 
+  function renderPriorityDetail(priority: Priority) {
+    const isPrioritySelected = selectedPrioritySet.has(priority);
+    const priorityFindings = findings.filter((finding) => finding.priority === priority);
+
+    return (
+      <scrollbox focused={focusedPane === "details"} flexGrow={1} scrollY>
+        <box flexDirection="column" gap={1}>
+          <DetailField label="Priority" value={<PriorityText priority={priority} />} />
+          <DetailField
+            label="Selection"
+            value={isPrioritySelected ? "Included in this batch" : "Not selected"}
+            color={isPrioritySelected ? TUI_COLORS.status.success : TUI_COLORS.text.muted}
+          />
+          <DetailField label="Matches" value={formatCountLabel(priorityFindings.length)} />
+          <text fg={TUI_COLORS.text.dim}>
+            <strong>Matching Issues</strong>
+          </text>
+          {priorityFindings.length === 0 ? (
+            <text fg={TUI_COLORS.text.dim}>No issues in this priority.</text>
+          ) : (
+            priorityFindings.map((finding) => (
+              <box key={finding.id} flexDirection="column">
+                <text fg={TUI_COLORS.text.secondary}>
+                  {finding.id} {toSingleLine(formatFindingTitleForDisplay(finding.title))}
+                </text>
+                <text fg={TUI_COLORS.text.dim}>
+                  {finding.filePath}:{finding.startLine}-{finding.endLine}
+                </text>
+              </box>
+            ))
+          )}
+        </box>
+      </scrollbox>
+    );
+  }
+
+  function renderFindingDetail(finding: StoredFinding) {
+    const isSelected = selectedFindingIdSet.has(finding.id);
+
+    return (
+      <scrollbox focused={focusedPane === "details"} flexGrow={1} scrollY>
+        <box flexDirection="column" gap={1}>
+          <DetailField
+            label="Issue"
+            value={
+              <>
+                <span>{finding.id} </span>
+                <PriorityText priority={finding.priority} bracketed />
+              </>
+            }
+          />
+          <DetailField label="Title" value={formatFindingTitleForDisplay(finding.title)} />
+          <text fg={TUI_COLORS.text.dim}>
+            <strong>Body</strong>
+          </text>
+          {finding.body.split("\n").map((line, index) => (
+            <text key={`${finding.id}-body-${index}`} fg={TUI_COLORS.text.secondary}>
+              {line}
+            </text>
+          ))}
+          <DetailField
+            label="Selection"
+            value={isSelected ? "Included in this batch" : "Not selected"}
+            color={isSelected ? TUI_COLORS.status.success : TUI_COLORS.text.muted}
+          />
+          <DetailField
+            label="Location"
+            value={`${finding.filePath}:${finding.startLine}-${finding.endLine}`}
+          />
+        </box>
+      </scrollbox>
+    );
+  }
+
+  function renderFilterDetail() {
+    return (
+      <scrollbox focused={focusedPane === "details"} flexGrow={1} scrollY>
+        <box flexDirection="column" gap={1}>
+          <DetailField label="Scope" value="Filter the issue list" />
+          <text fg={TUI_COLORS.text.secondary}>
+            Narrow the "By issue" section by ID, title, path, or priority.
+          </text>
+          <text fg={TUI_COLORS.text.muted}>
+            {filterQuery.trim().length === 0
+              ? `Showing ${filteredFindings.length} of ${findings.length} issues`
+              : `Showing ${filteredFindings.length} of ${findings.length} issues · "${filterQuery.trim()}"`}
+          </text>
+          <text fg={TUI_COLORS.text.dim}>
+            Press <span fg={TUI_COLORS.accent.key}>/</span> to jump back to the filter input.
+          </text>
+        </box>
+      </scrollbox>
+    );
+  }
+
+  function renderDetailsPanel() {
+    if (isFilterFocused) {
+      return renderFilterDetail();
+    }
+
+    if (!currentRow) {
+      return renderAllDetail();
+    }
+
+    switch (currentRow.kind) {
+      case "all":
+        return renderAllDetail();
+      case "priority":
+        return renderPriorityDetail(currentRow.priority);
+      case "issue":
+        return renderFindingDetail(currentRow.finding);
+      default:
+        return renderAllDetail();
+    }
+  }
+
   const footerKeys: Array<[string, string]> = [
     ["Tab", "Focus pane"],
-    ["←/→", "Scope"],
     ["↑/↓ j/k", "Move"],
     ["Space", "Toggle"],
-    ...(mode === "id" ? ([["/", "Filter"]] as Array<[string, string]>) : []),
+    ["/", "Filter"],
     ["Enter", "Run"],
-    ["Esc", mode === "id" && focusArea === "filter" ? "Back" : "Close"],
+    ["Esc", isFilterFocused ? "Back" : "Close"],
   ];
 
   return (
@@ -1059,16 +1025,6 @@ export function FixIssuesOverlay({
         </box>
       </box>
 
-      <tab-select
-        ref={tabSelectRef}
-        options={TAB_OPTIONS}
-        showDescription={false}
-        showUnderline
-        tabWidth={isWideLayout ? 18 : 14}
-        onChange={handleTabChange}
-        onSelect={handleTabChange}
-      />
-
       <box flexDirection={isWideLayout ? "row" : "column"} gap={1} flexGrow={1} minHeight={0}>
         <box
           border
@@ -1083,7 +1039,74 @@ export function FixIssuesOverlay({
           padding={1}
           minHeight={0}
         >
-          {renderSelectionPanel()}
+          <box flexDirection="column" flexShrink={0}>
+            <text fg={TUI_COLORS.text.dim}>
+              <strong>Issue filter</strong>
+            </text>
+            <box flexDirection="row" paddingLeft={1}>
+              <box flexShrink={0}>
+                <text
+                  fg={isFilterFocused ? TUI_COLORS.text.primary : TUI_COLORS.text.muted}
+                  wrapMode="none"
+                >
+                  <span>{isFilterFocused ? "▶ " : "  "}</span>
+                </text>
+              </box>
+              <input
+                value={filterQuery}
+                onChange={updateFilterQuery}
+                onInput={updateFilterQuery}
+                onSubmit={() => {
+                  setFocusArea("list");
+                }}
+                onKeyDown={(key) => {
+                  if (key.name === "tab") {
+                    key.preventDefault();
+                    key.stopPropagation();
+                    cycleFocusedPane();
+                    return;
+                  }
+
+                  if (key.name === "escape") {
+                    key.preventDefault();
+                    key.stopPropagation();
+                    setFocusArea("list");
+                    return;
+                  }
+
+                  if (key.name === "up" || key.name === "down") {
+                    key.preventDefault();
+                    key.stopPropagation();
+                    return;
+                  }
+
+                  if (key.name === "j" || key.name === "k" || key.name === "space") {
+                    key.stopPropagation();
+                  }
+                }}
+                placeholder="Type / to search"
+                focused={isFilterFocused}
+                flexGrow={1}
+                backgroundColor="#111827"
+                focusedBackgroundColor="#0f172a"
+                textColor={TUI_COLORS.text.primary}
+                placeholderColor={TUI_COLORS.text.dim}
+              />
+            </box>
+          </box>
+
+          <box height={1} flexShrink={0}>
+            <text> </text>
+          </box>
+
+          <scrollbox
+            ref={selectionListRef}
+            focused={focusedPane === "selection" && focusArea === "list"}
+            flexGrow={1}
+            scrollY
+          >
+            <box flexDirection="column">{rows.map((row, index) => renderRow(row, index))}</box>
+          </scrollbox>
         </box>
 
         <box
@@ -1097,11 +1120,7 @@ export function FixIssuesOverlay({
           flexDirection="column"
           padding={1}
         >
-          {mode === "all"
-            ? renderAllDetail()
-            : mode === "priority"
-              ? renderPriorityDetail()
-              : renderFindingDetail()}
+          {renderDetailsPanel()}
         </box>
       </box>
 

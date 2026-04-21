@@ -188,15 +188,27 @@ describe("FixIssuesOverlay", () => {
     };
   }
 
+  async function moveDown(
+    overlay: Awaited<ReturnType<typeof renderOverlay>>,
+    count: number
+  ): Promise<string> {
+    let frame = overlay.frame();
+    for (let index = 0; index < count; index += 1) {
+      frame = await overlay.press("j");
+    }
+
+    return frame;
+  }
+
   test("renders the command preview line above the action message without overlap", async () => {
     const overlay = await renderOverlay({ width: 100, height: 28 });
-    const frame = await overlay.press("\u001B[C");
+    const frame = overlay.frame();
 
-    expect(frame).toContain("rr fix");
-    expect(frame).toContain("Select at least one priority");
+    expect(frame).toContain("rr fix --session session-123 --all");
+    expect(frame).toContain("Press Enter to run the selected fix batch.");
 
     const commandLine = findTextLocation(frame, "rr fix");
-    const actionMessage = findTextLocation(frame, "Select at least one priority");
+    const actionMessage = findTextLocation(frame, "Press Enter to run");
 
     expect(actionMessage.y).toBeGreaterThan(commandLine.y);
   });
@@ -215,6 +227,17 @@ describe("FixIssuesOverlay", () => {
     expect(details.x).toBeGreaterThan(selection.x + 10);
   });
 
+  test("renders the filter section above quick action in the selection pane", async () => {
+    const overlay = await renderOverlay({ width: 120, height: 36 });
+    const frame = overlay.frame();
+    const filterSection = findTextLocation(frame, "Issue filter");
+    const filterRow = findTextLocation(frame, "Type / to search");
+    const quickAction = findTextLocation(frame, "Quick action");
+
+    expect(filterSection.y).toBeLessThan(quickAction.y);
+    expect(filterRow.y).toBeGreaterThan(filterSection.y);
+  });
+
   test("renders the compact modal with stacked selection and details", async () => {
     const overlay = await renderOverlay({ width: 96, height: 24 });
     const frame = overlay.frame();
@@ -223,8 +246,8 @@ describe("FixIssuesOverlay", () => {
 
     expect(frame).toContain("Fix Issues");
     expect(frame).toContain("3 pending");
-    expect(frame).toContain("[←/→]");
     expect(frame).toContain("[Tab]");
+    expect(frame).not.toContain("[←/→]");
     expect(details.y).toBeGreaterThan(selection.y);
   });
 
@@ -276,20 +299,22 @@ describe("FixIssuesOverlay", () => {
     expect(overlay.getCloseCount()).toBe(1);
   });
 
-  test("switches to priority mode, updates the summary, and submits repeated priority flags", async () => {
+  test("selects priorities and submits repeated --priority flags", async () => {
     const overlay = await renderOverlay();
-    let frame = await overlay.press("\u001B[C");
-    expect(frame).toContain("Select at least one priority");
-    expect(frame).toContain("Selected 0 of 3");
+    let frame = overlay.frame();
+    expect(frame).toContain("Selected 3 of 3");
+    expect(frame).toContain("rr fix --session session-123 --all");
 
+    await overlay.press("j");
     frame = await overlay.press(" ");
     expect(frame).toContain("Selected 1 of 3");
     expect(frame).toContain("--priority P0");
+    expect(frame).not.toContain("--all");
 
-    await overlay.press("\u001B[B");
+    await overlay.press("j");
     frame = await overlay.press(" ");
     expect(frame).toContain("Selected 2 of 3");
-    expect(frame).toContain("--priority P1");
+    expect(frame).toContain("--priority P0 --priority P1");
     await overlay.press("\r");
 
     expect(overlay.getSubmitCalls()).toEqual([
@@ -297,9 +322,36 @@ describe("FixIssuesOverlay", () => {
     ]);
   });
 
-  test("supports j/k navigation in priority mode", async () => {
+  test("toggling a priority clears the all selection", async () => {
     const overlay = await renderOverlay();
-    await overlay.press("\u001B[C");
+    let frame = overlay.frame();
+    expect(frame).toContain("[x] Fix all pending");
+
+    await overlay.press("j");
+    frame = await overlay.press(" ");
+
+    expect(frame).toContain("[ ] Fix all pending");
+    expect(frame).toContain("--priority P0");
+    expect(frame).not.toContain("--all");
+  });
+
+  test("toggling an issue clears priority selections", async () => {
+    const overlay = await renderOverlay();
+    await overlay.press("j");
+    await overlay.press(" ");
+    let frame = overlay.frame();
+    expect(frame).toContain("--priority P0");
+
+    frame = await moveDown(overlay, 4);
+    frame = await overlay.press(" ");
+
+    expect(frame).toContain("--id F001");
+    expect(frame).not.toContain("--priority");
+  });
+
+  test("supports j/k navigation across priorities", async () => {
+    const overlay = await renderOverlay();
+    await overlay.press("j");
     await overlay.press("j");
     await overlay.press(" ");
     await overlay.press("k");
@@ -311,12 +363,10 @@ describe("FixIssuesOverlay", () => {
     ]);
   });
 
-  test("shows verbose issue details with stripped titles in issues mode", async () => {
+  test("shows verbose issue details when the cursor sits on an issue row", async () => {
     const overlay = await renderOverlay();
-    await overlay.press("\u001B[C");
-    const frame = await overlay.press("\u001B[C");
+    const frame = await moveDown(overlay, 5);
 
-    expect(frame).toContain("Filter issues");
     expect(frame).toContain("[P0]");
     expect(frame).toContain("Race condition in worker shutdown");
     expect(frame).toContain("Shut down the worker before disposing shared resources.");
@@ -325,8 +375,7 @@ describe("FixIssuesOverlay", () => {
 
   test("renders wrapped issue rows without location text in the selection pane", async () => {
     const overlay = await renderOverlay({ width: 120, height: 28 });
-    await overlay.press("\u001B[C");
-    const frame = await overlay.press("\u001B[C");
+    const frame = await moveDown(overlay, 5);
 
     expect(frame).toContain("Race condition in");
     expect(frame).toContain("worker shutdown");
@@ -357,10 +406,9 @@ describe("FixIssuesOverlay", () => {
 
   test("submits rr fix with repeated id flags", async () => {
     const overlay = await renderOverlay();
-    await overlay.press("\u001B[C");
-    await overlay.press("\u001B[C");
+    await moveDown(overlay, 5);
     await overlay.press(" ");
-    await overlay.press("\u001B[B");
+    await overlay.press("j");
     await overlay.press(" ");
     await overlay.press("\r");
 
@@ -369,19 +417,79 @@ describe("FixIssuesOverlay", () => {
     ]);
   });
 
-  test("supports j/k navigation in issues mode", async () => {
+  test("section headers are skipped during navigation", async () => {
     const overlay = await renderOverlay();
-    await overlay.press("\u001B[C");
-    await overlay.press("\u001B[C");
     await overlay.press("j");
-    await overlay.press(" ");
-    await overlay.press("k");
-    await overlay.press(" ");
-    await overlay.press("\r");
+    let frame = await overlay.press(" ");
+    expect(frame).toContain("--priority P0");
 
-    expect(overlay.getSubmitCalls()).toEqual([
-      ["fix", "--session", "session-123", "--id", "F001", "--id", "F002"],
-    ]);
+    await overlay.press("j");
+    await overlay.press("j");
+    await overlay.press("j");
+    await overlay.press("j");
+    frame = await overlay.press(" ");
+
+    expect(frame).toContain("--id F001");
+    expect(frame).not.toContain("--priority");
+  });
+
+  test("slash jumps focus to the filter input from any list row", async () => {
+    const overlay = await renderOverlay();
+    await overlay.press("j");
+    let frame = await overlay.press(" ");
+    expect(frame).toContain("--priority P0");
+
+    frame = await overlay.press("/");
+    expect(frame).toContain("Filter the issue list");
+
+    frame = await overlay.typeText("F002");
+    expect(frame).toContain("F002");
+    expect(frame).not.toContain("Race condition in worker shutdown");
+  });
+
+  test("typing j, k, and space in the filter does not change the current selection", async () => {
+    const overlay = await renderOverlay();
+    await overlay.press("j");
+    let frame = await overlay.press(" ");
+    expect(frame).toContain("--priority P0");
+    expect(frame).toContain("Selected 1 of 3");
+
+    frame = await overlay.press("/");
+    expect(frame).toContain("Filter the issue list");
+
+    frame = await overlay.typeText("j k ");
+    expect(frame).toContain("j k ");
+    expect(frame).toContain("--priority P0");
+    expect(frame).toContain("Selected 1 of 3");
+  });
+
+  test("up and down stay in the filter instead of returning focus to the selection list", async () => {
+    const overlay = await renderOverlay();
+    let frame = await overlay.press("/");
+    expect(frame).toContain("Filter the issue list");
+
+    frame = await overlay.press("\u001B[B");
+    expect(frame).toContain("Filter the issue list");
+
+    frame = await overlay.press("\u001B[A");
+    expect(frame).toContain("Filter the issue list");
+
+    frame = await overlay.typeText("F002");
+    expect(frame).toContain("F002");
+    expect(frame).not.toContain("Race condition in worker shutdown");
+  });
+
+  test("filter focus clears the active row highlight until list focus returns", async () => {
+    const overlay = await renderOverlay();
+    let frame = await moveDown(overlay, 5);
+    expect(frame).toContain("▶ [ ] F001");
+
+    frame = await overlay.press("/");
+    expect(frame).toContain("Filter the issue list");
+    expect(frame).not.toContain("▶ [ ] F001");
+
+    frame = await overlay.press("\u001B");
+    expect(frame).toContain("▶ [ ] F001");
   });
 
   test("scrolls long details content when details pane is focused", async () => {
@@ -395,8 +503,7 @@ describe("FixIssuesOverlay", () => {
       width: 120,
       height: 32,
     });
-    await overlay.press("\u001B[C");
-    let frame = await overlay.press("\u001B[C");
+    let frame = await moveDown(overlay, 5);
 
     expect(frame).toContain("body line 1");
     expect(frame).not.toContain("body line 35");
@@ -413,12 +520,11 @@ describe("FixIssuesOverlay", () => {
 
   test("preserves hidden id selections across filtering and submits them after returning to the list", async () => {
     const overlay = await renderOverlay();
-    await overlay.press("\u001B[C");
-    await overlay.press("\u001B[C");
+    await moveDown(overlay, 5);
     await overlay.press(" ");
 
     let frame = await overlay.press("/");
-    expect(frame).toContain("Filter issues");
+    expect(frame).toContain("Filter the issue list");
 
     frame = await overlay.typeText("F002");
     expect(frame).toContain("F002");
@@ -436,18 +542,15 @@ describe("FixIssuesOverlay", () => {
 
   test("escape from filter focus returns to the list before closing the overlay", async () => {
     const overlay = await renderOverlay();
-    await overlay.press("\u001B[C");
-    await overlay.press("\u001B[C");
-
-    let frame = await overlay.press("/");
-    expect(frame).toContain("Filter issues");
+    await overlay.press("/");
+    let frame = overlay.frame();
+    expect(frame).toContain("Filter the issue list");
 
     frame = await overlay.typeText("F002");
     expect(frame).toContain("F002");
 
     frame = await overlay.press("\u001B");
     expect(overlay.getCloseCount()).toBe(0);
-    expect(frame).toContain("Selected 0 of 3");
 
     await overlay.press("\u001B");
     expect(overlay.getCloseCount()).toBe(1);
