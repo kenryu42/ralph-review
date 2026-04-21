@@ -4,11 +4,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { TUI_COLORS } from "@/lib/tui/shared/colors";
 import type { DefaultReview } from "@/lib/types";
 
-export type ReviewModeSelection = "uncommitted" | "base" | "commit" | "custom";
+export type ReviewModeSelection = "uncommitted" | "base" | "commit";
 
 type ReviewModeInputMode = Exclude<ReviewModeSelection, "uncommitted">;
-type EditorReviewMode = Exclude<ReviewModeInputMode, "commit">;
-type ReviewModeDrafts = Record<EditorReviewMode, string>;
+type ReviewModeStep = "picker" | "branch-picker" | "commit-picker" | "options";
+type OptionsFocusTarget = "max-iterations" | "custom-instructions";
 
 interface ReviewModeOption {
   label: string;
@@ -16,16 +16,11 @@ interface ReviewModeOption {
   mode: ReviewModeSelection;
 }
 
-type ReviewTextareaKeyBinding = {
-  name: string;
-  action: "submit";
-};
-
-type ReviewModeStep = "picker" | "branch-picker" | "commit-picker" | "editor" | "max-iterations";
-
 const DEFAULT_MAX_ITERATIONS = 5;
 const MIN_MAX_ITERATIONS = 1;
 const MAX_MAX_ITERATIONS = 999;
+const CUSTOM_INSTRUCTIONS_PLACEHOLDER =
+  "Focus on security boundaries, migrations, and error handling...";
 
 interface ReviewModeOverlayProps {
   defaultReview?: DefaultReview;
@@ -51,53 +46,31 @@ const REVIEW_MODE_OPTIONS: ReviewModeOption[] = [
     description: "Review a specific commit SHA or ref.",
     mode: "commit",
   },
-  {
-    label: "Default review + custom instructions",
-    description: "Append review instructions to the configured default review scope.",
-    mode: "custom",
-  },
-];
-
-const REVIEW_TEXTAREA_KEY_BINDINGS: ReviewTextareaKeyBinding[] = [
-  { name: "return", action: "submit" },
-  { name: "linefeed", action: "submit" },
 ];
 
 const LIST_PICKER_PADDING = 1;
 const LIST_PICKER_VERTICAL_OVERHEAD = LIST_PICKER_PADDING * 2 + 6;
 const MAX_LIST_PICKER_SELECT_HEIGHT = 10;
 
-interface ReviewModeEditorMeta {
+interface ReviewModeMeta {
   title: string;
-  prompt: string;
-  placeholder: string;
   emptyError: string;
   singleLineError?: string;
-  runFlag?: "--base" | "--commit";
+  runFlag: "--base" | "--commit";
 }
 
-const REVIEW_MODE_EDITOR_META: Record<ReviewModeInputMode, ReviewModeEditorMeta> = {
+const REVIEW_MODE_META: Record<ReviewModeInputMode, ReviewModeMeta> = {
   base: {
     title: "Against Base Branch",
-    prompt: "Enter the base branch or ref to compare against.",
-    placeholder: "origin/main",
     emptyError: "Base branch is required.",
     singleLineError: "Base branch must be a single line.",
     runFlag: "--base",
   },
   commit: {
     title: "Target Commit",
-    prompt: "Enter the commit SHA or ref to review.",
-    placeholder: "abc1234",
     emptyError: "Target commit is required.",
     singleLineError: "Target commit must be a single line.",
     runFlag: "--commit",
-  },
-  custom: {
-    title: "Custom Review",
-    prompt: "Enter review instructions to append to the default review scope.",
-    placeholder: "Focus on security boundaries, migrations, and error handling...",
-    emptyError: "Custom review instructions are required.",
   },
 };
 
@@ -108,39 +81,12 @@ function getInitialReviewMode(defaultReview?: DefaultReview): ReviewModeSelectio
   return "uncommitted";
 }
 
-function createInitialDrafts(defaultReview?: DefaultReview): ReviewModeDrafts {
-  return {
-    base: defaultReview?.type === "base" ? defaultReview.branch : "",
-    custom: "",
-  };
-}
-
-export function buildReviewRunArgs(
-  mode: ReviewModeSelection,
-  value?: string,
-  defaultReview?: DefaultReview
-): string[] {
+export function buildReviewRunArgs(mode: ReviewModeSelection, value?: string): string[] {
   if (mode === "uncommitted") {
     return ["--uncommitted"];
   }
 
-  if (mode === "custom") {
-    const metadata = REVIEW_MODE_EDITOR_META.custom;
-    const rawValue = value ?? "";
-    const trimmedValue = rawValue.trim();
-
-    if (trimmedValue.length === 0) {
-      throw new Error(metadata.emptyError);
-    }
-
-    if (defaultReview?.type === "base") {
-      return ["--base", defaultReview.branch, rawValue];
-    }
-
-    return ["--uncommitted", rawValue];
-  }
-
-  const metadata = REVIEW_MODE_EDITOR_META[mode];
+  const metadata = REVIEW_MODE_META[mode];
   const rawValue = value ?? "";
   const trimmedValue = rawValue.trim();
 
@@ -152,7 +98,7 @@ export function buildReviewRunArgs(
     throw new Error(metadata.singleLineError);
   }
 
-  return [metadata.runFlag ?? "--uncommitted", trimmedValue];
+  return [metadata.runFlag, trimmedValue];
 }
 
 interface GitBranchData {
@@ -266,7 +212,6 @@ export function ReviewModeOverlay({
   const [selectedMode, setSelectedMode] = useState<ReviewModeSelection>(
     getInitialReviewMode(defaultReview)
   );
-  const [drafts, setDrafts] = useState<ReviewModeDrafts>(() => createInitialDrafts(defaultReview));
   const [step, setStep] = useState<ReviewModeStep>("picker");
   const [error, setError] = useState<string | null>(null);
   const [pendingArgs, setPendingArgs] = useState<string[] | null>(null);
@@ -274,13 +219,11 @@ export function ReviewModeOverlay({
   const [maxIterationsDraft, setMaxIterationsDraft] = useState<string>(
     String(initialMaxIterations)
   );
-  const textareaRef = useRef<TextareaRenderable>(null);
+  const [customInstructionsDraft, setCustomInstructionsDraft] = useState("");
+  const [showCustomInstructions, setShowCustomInstructions] = useState(false);
+  const [optionsFocus, setOptionsFocus] = useState<OptionsFocusTarget>("max-iterations");
+  const customInstructionsRef = useRef<TextareaRenderable>(null);
   const maxIterationsInputRef = useRef<InputRenderable>(null);
-
-  const editorMode =
-    step === "editor" && selectedMode !== "uncommitted" && selectedMode !== "commit"
-      ? selectedMode
-      : null;
 
   const branchPickerData = useMemo(() => {
     const branchData = getGitBranches(projectPath);
@@ -316,19 +259,38 @@ export function ReviewModeOverlay({
   const pickerOverlayHeight = pickerSelectHeight + LIST_PICKER_VERTICAL_OVERHEAD;
 
   useEffect(() => {
-    if (step !== "max-iterations") {
+    if (step !== "options") {
       return;
     }
+
+    if (showCustomInstructions && optionsFocus === "custom-instructions") {
+      customInstructionsRef.current?.focus();
+      return;
+    }
+
     const input = maxIterationsInputRef.current;
     if (!input) {
       return;
     }
+
     input.focus();
     input.selectAll();
-  }, [step]);
+  }, [optionsFocus, showCustomInstructions, step]);
 
   useKeyboard((key) => {
-    if (step === "max-iterations") {
+    if (step === "options") {
+      if (showCustomInstructions && optionsFocus === "custom-instructions") {
+        if (key.name === "escape") {
+          hideCustomInstructions();
+        }
+        return;
+      }
+
+      if (key.name === "c") {
+        openCustomInstructions();
+        return;
+      }
+
       if (key.name === "escape") {
         setError(null);
         setPendingArgs(null);
@@ -353,20 +315,7 @@ export function ReviewModeOverlay({
       }
 
       if (key.name === "enter" || key.name === "return") {
-        submitWithMaxIterations();
-      }
-      return;
-    }
-
-    if (step === "editor" && editorMode) {
-      if (key.name === "escape") {
-        returnToPicker();
-        return;
-      }
-
-      if (key.name === "enter" || key.name === "return") {
-        const nextValue = syncEditorDraft(editorMode);
-        submitSelectedMode(editorMode, nextValue);
+        submitWithOptions();
       }
       return;
     }
@@ -421,47 +370,37 @@ export function ReviewModeOverlay({
         return;
       }
 
-      if (selectedMode === "commit") {
-        openCommitPicker();
-        return;
-      }
-
-      openEditor(selectedMode);
+      openCommitPicker();
     }
   });
 
-  function updateDraft(mode: EditorReviewMode, nextValue: string) {
-    setDrafts((current) => ({
-      ...current,
-      [mode]: nextValue,
-    }));
-  }
-
-  function syncEditorDraft(mode: EditorReviewMode): string {
-    const nextValue = textareaRef.current?.plainText ?? drafts[mode];
-    updateDraft(mode, nextValue);
+  function syncCustomInstructionsDraft(): string {
+    const nextValue = customInstructionsRef.current?.plainText ?? customInstructionsDraft;
+    setCustomInstructionsDraft(nextValue);
     return nextValue;
   }
 
   function submitSelectedMode(mode: ReviewModeSelection, value?: string) {
     try {
       setError(null);
-      const args = buildReviewRunArgs(mode, value, defaultReview);
-      goToMaxIterations(args);
+      const args = buildReviewRunArgs(mode, value);
+      goToOptions(args);
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : String(submitError));
     }
   }
 
-  function goToMaxIterations(args: string[]) {
+  function goToOptions(args: string[]) {
     setPendingArgs(args);
     setPreviousStep(step);
     setMaxIterationsDraft(String(initialMaxIterations));
+    setShowCustomInstructions(false);
+    setOptionsFocus("max-iterations");
     setError(null);
-    setStep("max-iterations");
+    setStep("options");
   }
 
-  function submitWithMaxIterations() {
+  function submitWithOptions() {
     const raw = maxIterationsDraft;
     const parsed = parseInt(raw, 10);
     if (!Number.isInteger(parsed) || parsed < MIN_MAX_ITERATIONS) {
@@ -476,14 +415,28 @@ export function ReviewModeOverlay({
       setError("Review mode is missing.");
       return;
     }
+
+    const customInstructions = syncCustomInstructionsDraft();
+    const nextArgs =
+      customInstructions.trim().length > 0
+        ? [...pendingArgs, customInstructions, "--max", String(parsed)]
+        : [...pendingArgs, "--max", String(parsed)];
+
     setError(null);
-    onSubmit([...pendingArgs, "--max", String(parsed)]);
+    onSubmit(nextArgs);
   }
 
-  function openEditor(mode: EditorReviewMode) {
-    setSelectedMode(mode);
+  function openCustomInstructions() {
+    setShowCustomInstructions(true);
+    setOptionsFocus("custom-instructions");
     setError(null);
-    setStep("editor");
+  }
+
+  function hideCustomInstructions() {
+    syncCustomInstructionsDraft();
+    setShowCustomInstructions(false);
+    setOptionsFocus("max-iterations");
+    setError(null);
   }
 
   function openBranchPicker() {
@@ -494,14 +447,6 @@ export function ReviewModeOverlay({
   function openCommitPicker() {
     setError(null);
     setStep("commit-picker");
-  }
-
-  function returnToPicker() {
-    if (editorMode) {
-      syncEditorDraft(editorMode);
-    }
-    setError(null);
-    setStep("picker");
   }
 
   function renderPicker() {
@@ -622,7 +567,34 @@ export function ReviewModeOverlay({
     );
   }
 
-  function renderMaxIterations() {
+  function renderCustomInstructionsHelper() {
+    if (showCustomInstructions) {
+      return (
+        <text>
+          <span fg={TUI_COLORS.accent.key}>[Esc]</span>
+          <span fg={TUI_COLORS.text.muted}> Hide custom instructions</span>
+        </text>
+      );
+    }
+
+    if (customInstructionsDraft.trim().length > 0) {
+      return (
+        <text fg={TUI_COLORS.text.muted}>
+          Custom instruction set. <span fg={TUI_COLORS.accent.key}>[c]</span>
+          <span fg={TUI_COLORS.text.muted}> Edit</span>
+        </text>
+      );
+    }
+
+    return (
+      <text>
+        <span fg={TUI_COLORS.accent.key}>[c]</span>
+        <span fg={TUI_COLORS.text.muted}> Custom Instruction</span>
+      </text>
+    );
+  }
+
+  function renderOptions() {
     return (
       <box flexDirection="column" gap={1}>
         <text fg={TUI_COLORS.text.muted}>
@@ -630,7 +602,7 @@ export function ReviewModeOverlay({
         </text>
         <input
           ref={maxIterationsInputRef}
-          focused
+          focused={optionsFocus === "max-iterations"}
           value={maxIterationsDraft}
           placeholder={String(initialMaxIterations)}
           width={12}
@@ -648,48 +620,33 @@ export function ReviewModeOverlay({
             }
           }}
         />
+        {showCustomInstructions && (
+          <>
+            <text fg={TUI_COLORS.text.muted}>Custom review instructions (optional).</text>
+            <textarea
+              ref={customInstructionsRef}
+              focused={optionsFocus === "custom-instructions"}
+              initialValue={customInstructionsDraft}
+              placeholder={CUSTOM_INSTRUCTIONS_PLACEHOLDER}
+              width={68}
+              height={7}
+              wrapMode="word"
+              backgroundColor="#101425"
+              focusedBackgroundColor="#101425"
+              onContentChange={() => {
+                syncCustomInstructionsDraft();
+              }}
+            />
+          </>
+        )}
         {error && <text fg={TUI_COLORS.status.error}>{error}</text>}
-        <text>
-          <span fg={TUI_COLORS.accent.key}>[Up/Down]</span>
-          <span fg={TUI_COLORS.text.muted}> Adjust </span>
-          <span fg={TUI_COLORS.accent.key}>[Enter]</span>
-          <span fg={TUI_COLORS.text.muted}> Start review </span>
-          <span fg={TUI_COLORS.accent.key}>[Esc]</span>
-          <span fg={TUI_COLORS.text.muted}> Back</span>
-        </text>
-      </box>
-    );
-  }
-
-  function renderEditor(mode: EditorReviewMode) {
-    const metadata = REVIEW_MODE_EDITOR_META[mode];
-    return (
-      <box flexDirection="column" gap={1}>
-        <text fg={TUI_COLORS.text.muted}>{metadata.prompt}</text>
-        <textarea
-          ref={textareaRef}
-          focused
-          key={mode}
-          initialValue={drafts[mode]}
-          placeholder={metadata.placeholder}
-          keyBindings={REVIEW_TEXTAREA_KEY_BINDINGS}
-          width={68}
-          height={7}
-          wrapMode="word"
-          backgroundColor="#101425"
-          focusedBackgroundColor="#101425"
-          onContentChange={() => {
-            if (!editorMode) {
-              return;
-            }
-            updateDraft(editorMode, textareaRef.current?.plainText ?? drafts[editorMode]);
-          }}
-        />
-        {error && <text fg={TUI_COLORS.status.error}>{error}</text>}
-        <text>
-          <span fg={TUI_COLORS.accent.key}>[Enter]</span>
-          <span fg={TUI_COLORS.text.muted}> Confirm</span>
-        </text>
+        {renderCustomInstructionsHelper()}
+        {!showCustomInstructions && (
+          <text>
+            <span fg={TUI_COLORS.accent.key}>[Enter]</span>
+            <span fg={TUI_COLORS.text.muted}> Start review </span>
+          </text>
+        )}
       </box>
     );
   }
@@ -711,15 +668,13 @@ export function ReviewModeOverlay({
         border
         borderStyle="double"
         title={
-          step === "max-iterations"
-            ? "Max Iterations"
-            : editorMode
-              ? REVIEW_MODE_EDITOR_META[editorMode].title
-              : step === "branch-picker"
-                ? REVIEW_MODE_EDITOR_META.base.title
-                : step === "commit-picker"
-                  ? "Target Commit"
-                  : "Review Mode"
+          step === "options"
+            ? "Options"
+            : step === "branch-picker"
+              ? REVIEW_MODE_META.base.title
+              : step === "commit-picker"
+                ? REVIEW_MODE_META.commit.title
+                : "Review Mode"
         }
         titleAlignment="left"
         padding={isPickerStep ? LIST_PICKER_PADDING : 2}
@@ -728,15 +683,13 @@ export function ReviewModeOverlay({
         backgroundColor="#1a1a2e"
         flexDirection="column"
       >
-        {step === "max-iterations"
-          ? renderMaxIterations()
-          : editorMode
-            ? renderEditor(editorMode)
-            : step === "branch-picker"
-              ? renderBranchPicker()
-              : step === "commit-picker"
-                ? renderCommitPicker()
-                : renderPicker()}
+        {step === "options"
+          ? renderOptions()
+          : step === "branch-picker"
+            ? renderBranchPicker()
+            : step === "commit-picker"
+              ? renderCommitPicker()
+              : renderPicker()}
       </box>
     </box>
   );

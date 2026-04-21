@@ -23,25 +23,6 @@ describe("buildReviewRunArgs", () => {
   test("returns the trimmed target commit", () => {
     expect(buildReviewRunArgs("commit", "  abc1234  ")).toEqual(["--commit", "abc1234"]);
   });
-
-  test("pairs multiline custom instructions with uncommitted review by default", () => {
-    expect(buildReviewRunArgs("custom", "line 1\nline 2")).toEqual([
-      "--uncommitted",
-      "line 1\nline 2",
-    ]);
-  });
-
-  test("pairs multiline custom instructions with the configured default base review", () => {
-    expect(
-      buildReviewRunArgs("custom", "line 1\nline 2", { type: "base", branch: "origin/main" })
-    ).toEqual(["--base", "origin/main", "line 1\nline 2"]);
-  });
-
-  test("rejects blank custom instructions", () => {
-    expect(() => buildReviewRunArgs("custom", "   ")).toThrow(
-      "Custom review instructions are required."
-    );
-  });
 });
 
 describe("ReviewModeOverlay", () => {
@@ -260,6 +241,16 @@ describe("ReviewModeOverlay", () => {
     expect(frame).toContain("▶ Review against base branch");
   });
 
+  test("shows only review scope options in the picker", async () => {
+    const setup = await renderOverlay();
+
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("Review uncommitted changes");
+    expect(frame).toContain("Review against base branch");
+    expect(frame).toContain("Review a commit");
+    expect(frame).not.toContain("Default review + custom instructions");
+  });
+
   test("supports j and arrow navigation before confirming", async () => {
     mockGitCommits([
       {
@@ -288,7 +279,114 @@ describe("ReviewModeOverlay", () => {
     expect(submitted).toEqual([["--commit", "abc1234", "--max", "5"]]);
   });
 
-  test("submits custom instructions with enter", async () => {
+  test("renames the max iterations step to options", async () => {
+    const setup = await renderOverlay();
+
+    await emitKey(setup, "return");
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("Options");
+    expect(frame).not.toContain("Max Iterations");
+    expect(frame).toContain("[c] Custom Instruction");
+  });
+
+  test("preserves hidden custom instructions in the options step", async () => {
+    const setup = await renderOverlay();
+
+    await emitKey(setup, "return");
+    await emitKey(setup, "c");
+    await act(async () => {
+      await setup.mockInput.typeText("check security");
+      await setup.renderOnce();
+    });
+    await emitKey(setup, "escape");
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("Custom instruction set.");
+    expect(frame).toContain("[c] Edit");
+  });
+
+  test("submits custom instructions with uncommitted review from options", async () => {
+    const submitted: string[][] = [];
+    const setup = await renderOverlay({
+      onSubmit: (args) => {
+        submitted.push(args);
+      },
+    });
+
+    await emitKey(setup, "return");
+    await emitKey(setup, "c");
+    await act(async () => {
+      await setup.mockInput.typeText("check security");
+      await setup.renderOnce();
+    });
+    await emitKey(setup, "escape");
+    await emitKey(setup, "return");
+
+    expect(submitted).toEqual([["--uncommitted", "check security", "--max", "5"]]);
+  });
+
+  test("omits blank custom instructions from uncommitted review submission", async () => {
+    const submitted: string[][] = [];
+    const setup = await renderOverlay({
+      onSubmit: (args) => {
+        submitted.push(args);
+      },
+    });
+
+    await emitKey(setup, "return");
+    await emitKey(setup, "c");
+    await act(async () => {
+      await setup.mockInput.typeText("   ");
+      await setup.renderOnce();
+    });
+    await emitKey(setup, "escape");
+    await emitKey(setup, "return");
+
+    expect(submitted).toEqual([["--uncommitted", "--max", "5"]]);
+  });
+
+  test("submits base review with custom instructions from options", async () => {
+    mockGitBranches({
+      currentBranch: "new-review-flow",
+      branches: ["main", "release"],
+    });
+
+    const submitted: string[][] = [];
+    const setup = await renderOverlay({
+      defaultReview: { type: "base", branch: "main" },
+      onSubmit: (args) => {
+        submitted.push(args);
+      },
+    });
+
+    await emitKey(setup, "return");
+    await emitKey(setup, "return");
+    await emitKey(setup, "c");
+    await act(async () => {
+      await setup.mockInput.typeText("check migrations");
+      await setup.renderOnce();
+    });
+    await emitKey(setup, "escape");
+    await emitKey(setup, "return");
+
+    expect(submitted).toEqual([["--base", "main", "check migrations", "--max", "5"]]);
+  });
+
+  test("submits commit review with custom instructions from options", async () => {
+    mockGitCommits([
+      {
+        shortSha: "abc1234",
+        subject: "fix: tighten review mode selection",
+      },
+    ]);
+
     const submitted: string[][] = [];
     const setup = await renderOverlay({
       onSubmit: (args) => {
@@ -298,17 +396,17 @@ describe("ReviewModeOverlay", () => {
 
     await emitKey(setup, "down");
     await emitKey(setup, "down");
-    await emitKey(setup, "down");
     await emitKey(setup, "return");
-
+    await emitKey(setup, "return");
+    await emitKey(setup, "c");
     await act(async () => {
-      await setup.mockInput.typeText("check security");
+      await setup.mockInput.typeText("check logging");
       await setup.renderOnce();
     });
-    await emitKey(setup, "return");
+    await emitKey(setup, "escape");
     await emitKey(setup, "return");
 
-    expect(submitted).toEqual([["--uncommitted", "check security", "--max", "5"]]);
+    expect(submitted).toEqual([["--commit", "abc1234", "check logging", "--max", "5"]]);
   });
 
   test("closes the picker when q is pressed", async () => {
