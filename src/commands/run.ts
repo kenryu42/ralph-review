@@ -32,7 +32,6 @@ export interface RunOptions {
   base?: string;
   uncommitted?: boolean;
   commit?: string;
-  custom?: string;
   sound?: boolean;
   "no-sound"?: boolean;
 }
@@ -611,9 +610,11 @@ export async function startReview(
   }
 
   let options: RunOptions;
+  let customInstructions: string | undefined;
   try {
-    const { values } = runtime.parseCommand<RunOptions>(runDef, args);
+    const { values, positional } = runtime.parseCommand<RunOptions>(runDef, args);
     options = values;
+    customInstructions = positional[0];
   } catch (error) {
     runtime.prompt.log.error(`${error}`);
     runtime.process.exit(1);
@@ -635,13 +636,16 @@ export async function startReview(
     return;
   }
 
-  const loadedConfig = await runtime.loadConfig(projectPath);
-
-  if (options.custom !== undefined && options.custom.trim().length === 0) {
-    runtime.prompt.log.error("--custom cannot be empty");
-    runtime.process.exit(1);
-    return;
+  if (customInstructions !== undefined) {
+    customInstructions = customInstructions.trim();
+    if (customInstructions.length === 0) {
+      runtime.prompt.log.error("Custom review instructions cannot be empty");
+      runtime.process.exit(1);
+      return;
+    }
   }
+
+  const loadedConfig = await runtime.loadConfig(projectPath);
 
   if (options.commit !== undefined) {
     options.commit = options.commit.trim();
@@ -653,13 +657,18 @@ export async function startReview(
   }
 
   const hasExplicitMode =
-    options.base !== undefined ||
-    options.uncommitted === true ||
-    options.commit !== undefined ||
-    options.custom !== undefined;
+    options.base !== undefined || options.uncommitted === true || options.commit !== undefined;
   if (!hasExplicitMode) {
-    if (loadedConfig?.defaultReview?.type === "base") {
-      options.base = loadedConfig.defaultReview.branch;
+    if (loadedConfig?.defaultReview) {
+      if (loadedConfig.defaultReview.type === "base") {
+        options.base = loadedConfig.defaultReview.branch;
+      }
+    } else if (customInstructions !== undefined) {
+      runtime.prompt.log.error(
+        "Custom review instructions require --base, --commit, or --uncommitted when no defaultReview is configured"
+      );
+      runtime.process.exit(1);
+      return;
     }
     // else: defaults to uncommitted behavior (no base flag)
   }
@@ -691,12 +700,6 @@ export async function startReview(
     return;
   }
 
-  if (options.uncommitted && options.custom !== undefined) {
-    runtime.prompt.log.error("Cannot use --uncommitted and --custom together");
-    runtime.process.exit(1);
-    return;
-  }
-
   const preflightSpinner = runtime.prompt.spinner();
   preflightSpinner.start("Running preflight checks...");
   let diagnostics: DiagnosticsReport;
@@ -705,7 +708,7 @@ export async function startReview(
       projectPath,
       baseBranch: options.base,
       commitSha: options.commit,
-      customInstructions: options.custom,
+      customInstructions,
       capabilityReviewOptions: {
         probeAgents: getDynamicProbeAgents(loadedConfig),
       },
@@ -758,7 +761,7 @@ export async function startReview(
     options.max,
     options.base,
     options.commit,
-    options.custom,
+    customInstructions,
     options.force,
     soundOverride
   );

@@ -67,6 +67,7 @@ function createLockData(sessionId = "lock-session-id"): SessionState {
 
 interface RunHarnessOptions {
   runValues?: RunOptions;
+  runPositional?: string[];
   foregroundValues?: {
     max?: number;
     force?: boolean;
@@ -257,7 +258,7 @@ function createRunHarness(options: RunHarnessOptions = {}): RunHarness {
       if (def.name === "run") {
         return {
           values: options.runValues ?? {},
-          positional: [],
+          positional: options.runPositional ?? [],
         };
       }
 
@@ -535,9 +536,20 @@ describe("run command", () => {
       expect(values.commit).toBe("abc123");
     });
 
-    test("parses --custom option", () => {
-      const { values } = parseCommand<RunOptions>(runDef, ["--custom", "Focus on security"]);
-      expect(values.custom).toBe("Focus on security");
+    test("captures positional custom instructions after a review flag", () => {
+      const { values, positional } = parseCommand<RunOptions>(runDef, [
+        "--base",
+        "main",
+        "Focus on security",
+      ]);
+      expect(values.base).toBe("main");
+      expect(positional).toEqual(["Focus on security"]);
+    });
+
+    test("rejects the removed --custom option", () => {
+      expect(() => parseCommand<RunOptions>(runDef, ["--custom", "Focus on security"])).toThrow(
+        'run: unknown option "--custom"'
+      );
     });
 
     test("parses --sound option", () => {
@@ -851,11 +863,12 @@ describe("run command", () => {
       expect(harness.diagnosticsCalls[0]?.options.baseBranch).toBe("origin/main");
     });
 
-    test("passes custom instructions to diagnostics when custom mode is selected", async () => {
+    test("passes positional custom instructions to diagnostics when paired with --uncommitted", async () => {
       const harness = createRunHarness({
         runValues: {
-          custom: "focus on security",
+          uncommitted: true,
         },
+        runPositional: ["focus on security"],
       });
 
       await startReview([], harness.overrides);
@@ -868,8 +881,8 @@ describe("run command", () => {
       const harness = createRunHarness({
         runValues: {
           base: "main",
-          custom: "focus on security",
         },
+        runPositional: ["focus on security"],
       });
 
       await startReview([], harness.overrides);
@@ -884,8 +897,8 @@ describe("run command", () => {
       const harness = createRunHarness({
         runValues: {
           commit: "abc123",
-          custom: "focus on security",
         },
+        runPositional: ["focus on security"],
       });
 
       await startReview([], harness.overrides);
@@ -950,11 +963,39 @@ describe("run command", () => {
       expect(harness.diagnosticsCalls).toHaveLength(0);
     });
 
-    test("exits when custom instructions are an empty string", async () => {
+    test("allows positional custom instructions with default uncommitted review", async () => {
       const harness = createRunHarness({
-        runValues: {
-          custom: "",
-        },
+        runPositional: ["focus on security"],
+      });
+
+      await startReview([], harness.overrides);
+
+      expect(harness.diagnosticsCalls).toHaveLength(1);
+      expect(harness.diagnosticsCalls[0]?.options.baseBranch).toBeUndefined();
+      expect(harness.diagnosticsCalls[0]?.options.customInstructions).toBe("focus on security");
+    });
+
+    test("uses configured defaultReview base when only positional custom instructions are provided", async () => {
+      const config = createConfig();
+      config.defaultReview = {
+        type: "base",
+        branch: "origin/main",
+      };
+      const harness = createRunHarness({
+        loadConfigResults: [config],
+        runPositional: ["focus on security"],
+      });
+
+      await startReview([], harness.overrides);
+
+      expect(harness.diagnosticsCalls).toHaveLength(1);
+      expect(harness.diagnosticsCalls[0]?.options.baseBranch).toBe("origin/main");
+      expect(harness.diagnosticsCalls[0]?.options.customInstructions).toBe("focus on security");
+    });
+
+    test("exits when positional custom instructions are empty", async () => {
+      const harness = createRunHarness({
+        runPositional: [""],
       });
 
       const exitCode = await captureExitCode(async () => {
@@ -962,7 +1003,7 @@ describe("run command", () => {
       });
 
       expect(exitCode).toBe(1);
-      expect(harness.errors).toContain("--custom cannot be empty");
+      expect(harness.errors).toContain("Custom review instructions cannot be empty");
       expect(harness.diagnosticsCalls).toHaveLength(0);
     });
 
@@ -982,12 +1023,10 @@ describe("run command", () => {
       expect(harness.errors[0]).toContain("Cannot use --base and --commit together");
     });
 
-    test("exits when --uncommitted and --custom are combined", async () => {
+    test("exits when positional custom instructions are provided without an explicit or default review scope", async () => {
       const harness = createRunHarness({
-        runValues: {
-          uncommitted: true,
-          custom: "focus on security",
-        },
+        loadConfigResults: [null],
+        runPositional: ["focus on security"],
       });
 
       const exitCode = await captureExitCode(async () => {
@@ -995,7 +1034,9 @@ describe("run command", () => {
       });
 
       expect(exitCode).toBe(1);
-      expect(harness.errors[0]).toContain("Cannot use --uncommitted and --custom together");
+      expect(harness.errors[0]).toContain(
+        "Custom review instructions require --base, --commit, or --uncommitted when no defaultReview is configured"
+      );
     });
 
     test("exits when --uncommitted and --base are combined", async () => {
@@ -1187,9 +1228,9 @@ describe("run command", () => {
         runValues: {
           max: 3,
           force: true,
-          custom: "check O'Hara path",
           sound: true,
         },
+        runPositional: ["check O'Hara path"],
         loadConfigResults: [config],
         generatedSessionId: "session-xyz",
         generatedSessionName: "rr-main-xyz",

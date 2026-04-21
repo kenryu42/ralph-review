@@ -127,9 +127,15 @@ describe("cli", () => {
       expect(optionNames).toContain("base");
       expect(optionNames).toContain("uncommitted");
       expect(optionNames).toContain("commit");
-      expect(optionNames).toContain("custom");
       expect(optionNames).toContain("sound");
       expect(optionNames).toContain("no-sound");
+      expect(optionNames).not.toContain("custom");
+      expect(runCmd?.positional).toEqual([
+        {
+          name: "custom-instructions",
+          description: "Additional review instructions to append to the selected review scope",
+        },
+      ]);
       expect(optionNames).not.toContain("interactive");
       expect(optionNames).not.toContain("no-interactive");
       expect(optionNames).not.toContain("list");
@@ -159,11 +165,21 @@ describe("cli", () => {
       expect(optionNames).toContain("manager");
     });
 
-    test("only config command defines positional args", () => {
+    test("config and run commands define positional args", () => {
       const publicCommands = COMMANDS.filter((c) => !c.hidden);
       for (const cmd of publicCommands) {
         if (cmd.name === "config") {
           expect(cmd.positional?.length).toBe(3);
+          continue;
+        }
+
+        if (cmd.name === "run") {
+          expect(cmd.positional).toEqual([
+            {
+              name: "custom-instructions",
+              description: "Additional review instructions to append to the selected review scope",
+            },
+          ]);
           continue;
         }
 

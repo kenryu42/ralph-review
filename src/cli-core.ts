@@ -92,12 +92,6 @@ export const COMMANDS: CommandDef[] = [
         description: "Review the changes introduced by a commit",
       },
       {
-        name: "custom",
-        type: "string",
-        placeholder: "PROMPT",
-        description: "Custom review instructions",
-      },
-      {
         name: "sound",
         type: "boolean",
         description: "Play a sound when session finishes (override config)",
@@ -108,7 +102,18 @@ export const COMMANDS: CommandDef[] = [
         description: "Disable finish sound for this run (override config)",
       },
     ],
-    examples: ["rr run", "rr run --base main", "rr fix --session session-123 --all"],
+    positional: [
+      {
+        name: "custom-instructions",
+        description: "Additional review instructions to append to the selected review scope",
+      },
+    ],
+    examples: [
+      "rr run",
+      "rr run --base main",
+      'rr run --base main "focus on security"',
+      "rr fix --session session-123 --all",
+    ],
   },
   {
     name: "fix",
