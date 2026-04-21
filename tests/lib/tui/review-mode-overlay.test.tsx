@@ -24,8 +24,17 @@ describe("buildReviewRunArgs", () => {
     expect(buildReviewRunArgs("commit", "  abc1234  ")).toEqual(["--commit", "abc1234"]);
   });
 
-  test("preserves multiline custom instructions", () => {
-    expect(buildReviewRunArgs("custom", "line 1\nline 2")).toEqual(["--custom", "line 1\nline 2"]);
+  test("pairs multiline custom instructions with uncommitted review by default", () => {
+    expect(buildReviewRunArgs("custom", "line 1\nline 2")).toEqual([
+      "--uncommitted",
+      "line 1\nline 2",
+    ]);
+  });
+
+  test("pairs multiline custom instructions with the configured default base review", () => {
+    expect(
+      buildReviewRunArgs("custom", "line 1\nline 2", { type: "base", branch: "origin/main" })
+    ).toEqual(["--base", "origin/main", "line 1\nline 2"]);
   });
 
   test("rejects blank custom instructions", () => {
@@ -299,7 +308,7 @@ describe("ReviewModeOverlay", () => {
     await emitKey(setup, "return");
     await emitKey(setup, "return");
 
-    expect(submitted).toEqual([["--custom", "check security", "--max", "5"]]);
+    expect(submitted).toEqual([["--uncommitted", "check security", "--max", "5"]]);
   });
 
   test("closes the picker when q is pressed", async () => {

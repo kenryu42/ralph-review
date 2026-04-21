@@ -52,8 +52,8 @@ const REVIEW_MODE_OPTIONS: ReviewModeOption[] = [
     mode: "commit",
   },
   {
-    label: "Custom review instructions",
-    description: "Provide custom review instructions.",
+    label: "Default review + custom instructions",
+    description: "Append review instructions to the configured default review scope.",
     mode: "custom",
   },
 ];
@@ -73,7 +73,7 @@ interface ReviewModeEditorMeta {
   placeholder: string;
   emptyError: string;
   singleLineError?: string;
-  runFlag: "--base" | "--commit" | "--custom";
+  runFlag?: "--base" | "--commit";
 }
 
 const REVIEW_MODE_EDITOR_META: Record<ReviewModeInputMode, ReviewModeEditorMeta> = {
@@ -95,10 +95,9 @@ const REVIEW_MODE_EDITOR_META: Record<ReviewModeInputMode, ReviewModeEditorMeta>
   },
   custom: {
     title: "Custom Review",
-    prompt: "Enter the custom review instructions.",
+    prompt: "Enter review instructions to append to the default review scope.",
     placeholder: "Focus on security boundaries, migrations, and error handling...",
     emptyError: "Custom review instructions are required.",
-    runFlag: "--custom",
   },
 };
 
@@ -116,9 +115,29 @@ function createInitialDrafts(defaultReview?: DefaultReview): ReviewModeDrafts {
   };
 }
 
-export function buildReviewRunArgs(mode: ReviewModeSelection, value?: string): string[] {
+export function buildReviewRunArgs(
+  mode: ReviewModeSelection,
+  value?: string,
+  defaultReview?: DefaultReview
+): string[] {
   if (mode === "uncommitted") {
     return ["--uncommitted"];
+  }
+
+  if (mode === "custom") {
+    const metadata = REVIEW_MODE_EDITOR_META.custom;
+    const rawValue = value ?? "";
+    const trimmedValue = rawValue.trim();
+
+    if (trimmedValue.length === 0) {
+      throw new Error(metadata.emptyError);
+    }
+
+    if (defaultReview?.type === "base") {
+      return ["--base", defaultReview.branch, rawValue];
+    }
+
+    return ["--uncommitted", rawValue];
   }
 
   const metadata = REVIEW_MODE_EDITOR_META[mode];
@@ -133,9 +152,7 @@ export function buildReviewRunArgs(mode: ReviewModeSelection, value?: string): s
     throw new Error(metadata.singleLineError);
   }
 
-  return metadata.runFlag === "--custom"
-    ? [metadata.runFlag, rawValue]
-    : [metadata.runFlag, trimmedValue];
+  return [metadata.runFlag ?? "--uncommitted", trimmedValue];
 }
 
 interface GitBranchData {
@@ -429,7 +446,7 @@ export function ReviewModeOverlay({
   function submitSelectedMode(mode: ReviewModeSelection, value?: string) {
     try {
       setError(null);
-      const args = buildReviewRunArgs(mode, value);
+      const args = buildReviewRunArgs(mode, value, defaultReview);
       goToMaxIterations(args);
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : String(submitError));
