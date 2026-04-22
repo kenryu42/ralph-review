@@ -159,8 +159,17 @@ export const COMMANDS: CommandDef[] = [
         type: "string",
         description: "Apply a specific pending handoff in the current project",
       },
+      {
+        name: "merge",
+        type: "boolean",
+        description: "Attempt a three-way merge when the repository no longer matches the baseline",
+      },
     ],
-    examples: ["rr apply", "rr apply --session session-123"],
+    examples: [
+      "rr apply",
+      "rr apply --session session-123",
+      "rr apply --merge --session session-123",
+    ],
   },
   {
     name: "discard",
