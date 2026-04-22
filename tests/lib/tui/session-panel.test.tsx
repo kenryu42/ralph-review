@@ -581,6 +581,7 @@ describe("DetailPane", () => {
     expect(frame).not.toContain("Workflow:");
     expect(frame).toContain("Findings inventory");
     expect(frame).toContain("Guard missing config");
+    expect(frame).not.toContain("Confidence:");
     expect(frame).toContain("Selected findings");
     expect(frame).toContain("Fix results");
     expect(frame).toContain("Added a null guard");

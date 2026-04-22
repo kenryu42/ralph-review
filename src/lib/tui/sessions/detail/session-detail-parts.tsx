@@ -11,6 +11,10 @@ export function toSingleLine(value: string): string {
   return value.replace(/\s+/g, " ").trim();
 }
 
+function formatConfidenceScore(value: number): string {
+  return `${Math.round(value * 100)}%`;
+}
+
 export function SectionHeader({
   title,
   count,
@@ -36,11 +40,13 @@ export function FindingsList({
   height = 8,
   focused = false,
   scrollable = true,
+  showConfidence = false,
 }: {
   findings: Finding[];
   height?: BoxHeight;
   focused?: boolean;
   scrollable?: boolean;
+  showConfidence?: boolean;
 }) {
   if (findings.length === 0) {
     return (
@@ -66,6 +72,11 @@ export function FindingsList({
             {toSingleLine(formatFindingTitleForDisplay(finding.title))}
           </text>
         </box>
+        {showConfidence && (
+          <text fg={TUI_COLORS.text.dim} paddingLeft={5} wrapMode="none">
+            Confidence: {formatConfidenceScore(finding.confidence_score)}
+          </text>
+        )}
         <text fg={TUI_COLORS.text.dim} paddingLeft={5} wrapMode="none">
           {toSingleLine(location.absolute_file_path)}:{lineRange}
         </text>
@@ -89,11 +100,13 @@ export function StoredFindingsList({
   height = 8,
   focused = false,
   scrollable = true,
+  showConfidence = false,
 }: {
   findings: StoredFinding[];
   height?: BoxHeight;
   focused?: boolean;
   scrollable?: boolean;
+  showConfidence?: boolean;
 }) {
   return (
     <FindingsList
@@ -101,6 +114,7 @@ export function StoredFindingsList({
       height={height}
       focused={focused}
       scrollable={scrollable}
+      showConfidence={showConfidence}
     />
   );
 }
