@@ -24,7 +24,7 @@ export function SessionSidebar({
       titleAlignment="left"
       flexDirection="column"
       flexGrow={2}
-      minWidth={24}
+      minWidth={36}
       gap={1}
       paddingTop={1}
       paddingBottom={1}

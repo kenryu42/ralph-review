@@ -27,6 +27,7 @@ export function SessionGroup({ group, selectedSessionId }: SessionGroupProps) {
           key={session.sessionId}
           session={session}
           isSelected={session.sessionId === selectedSessionId}
+          projectName={group.projectName}
         />
       ))}
       {group.sessions.length === 0 && (
