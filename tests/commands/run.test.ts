@@ -16,11 +16,15 @@ import { type CommandDef, parseCommand } from "@/lib/cli-parser";
 import { collectIssueItems as collectIssueItemsFromDiagnostics } from "@/lib/diagnostics";
 import type { DiagnosticItem, DiagnosticsReport } from "@/lib/diagnostics/types";
 import type { CycleResult } from "@/lib/engine";
+import type { FindingsArtifact } from "@/lib/review-workflow/findings/types";
+import type { FixSessionResult } from "@/lib/review-workflow/remediation/types";
 import type { SessionState } from "@/lib/session-state";
 import type { Config } from "@/lib/types";
 import { createCapabilities, createConfig } from "../helpers/diagnostics";
 
 const EXIT_PREFIX = "__FORCED_EXIT__:";
+type RunFixSessionFn =
+  typeof import("@/lib/review-workflow/remediation/run-fix-session").runFixSession;
 
 function createCycleResult(overrides: Partial<CycleResult> = {}): CycleResult {
   return {
@@ -30,6 +34,50 @@ function createCycleResult(overrides: Partial<CycleResult> = {}): CycleResult {
     iterations: 2,
     reason: "No issues found - code is clean",
     sessionPath: "/tmp/session",
+    ...overrides,
+  };
+}
+
+function createFindingsArtifact(overrides: Partial<FindingsArtifact> = {}): FindingsArtifact {
+  return {
+    artifactVersion: 1,
+    sessionId: "session-123",
+    projectPath: "/repo/project",
+    logPath: "/tmp/session-123.jsonl",
+    baselineRef: "refs/ralph-review/sessions/session-123/baseline",
+    baselineCommitSha: "baseline-sha-123",
+    sourceBaselineRef: "refs/ralph-review/sessions/session-123/source",
+    sourceBaselineCommitSha: "source-baseline-sha-123",
+    sourceBaselineFingerprint: "repo-fingerprint-1",
+    findings: [
+      {
+        id: "F001",
+        fingerprint: "fp-F001",
+        locationKey: "src/file-a.ts:10:12",
+        title: "Finding F001",
+        body: "Body for F001",
+        priority: "P0",
+        confidenceScore: 0.91,
+        filePath: "src/file-a.ts",
+        startLine: 10,
+        endLine: 12,
+      },
+      {
+        id: "F002",
+        fingerprint: "fp-F002",
+        locationKey: "src/file-b.ts:22:24",
+        title: "Finding F002",
+        body: "Body for F002",
+        priority: "P2",
+        confidenceScore: 0.88,
+        filePath: "src/file-b.ts",
+        startLine: 22,
+        endLine: 24,
+      },
+    ],
+    selectedFindingIds: [],
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
     ...overrides,
   };
 }
@@ -71,6 +119,8 @@ interface RunHarnessOptions {
   foregroundValues?: {
     max?: number;
     force?: boolean;
+    auto?: boolean;
+    priority?: string;
   };
   parseErrorFor?: Array<"run" | "_run-foreground">;
   commandDefs?: {
@@ -87,6 +137,8 @@ interface RunHarnessOptions {
   createSessionError?: Error;
   runReviewCycleResult?: CycleResult;
   runReviewCycleError?: Error;
+  runFixSessionResult?: FixSessionResult;
+  runFixSessionError?: Error;
   soundEnabled?: boolean;
   soundResult?: {
     played: boolean;
@@ -137,6 +189,7 @@ interface RunHarness {
     options: Record<string, unknown>;
     runtimeInfo: Record<string, unknown>;
   }>;
+  runFixSessionCalls: Array<Record<string, unknown>>;
   resolveSoundEnabledCalls: Array<{ override: "on" | "off" | undefined }>;
   playSoundCalls: Array<"success" | "warning" | "error">;
   openSessionPanelCalls: Array<{ projectPath: string; branch: string | undefined }>;
@@ -180,6 +233,7 @@ function createRunHarness(options: RunHarnessOptions = {}): RunHarness {
     options: Record<string, unknown>;
     runtimeInfo: Record<string, unknown>;
   }> = [];
+  const runFixSessionCalls: Array<Record<string, unknown>> = [];
   const resolveSoundEnabledCalls: Array<{ override: "on" | "off" | undefined }> = [];
   const playSoundCalls: Array<"success" | "warning" | "error"> = [];
   const openSessionPanelCalls: Array<{ projectPath: string; branch: string | undefined }> = [];
@@ -209,6 +263,23 @@ function createRunHarness(options: RunHarnessOptions = {}): RunHarness {
   const diagnostics = options.diagnostics ?? createDiagnosticsReport([], createConfig());
   const processEnv = { ...(options.env ?? {}) };
   const cwd = options.cwd ?? "/repo/project";
+  const defaultFixSessionResult: FixSessionResult = {
+    phase: "complete",
+    sessionStatus: "completed",
+    reviewOutcome: "fixed-selected",
+    reason: "Selected findings were resolved by remediation.",
+    artifact: createFindingsArtifact(),
+    selection: {
+      selectedFindingIds: ["F001"],
+      selectedFindings: [],
+    },
+    fixResults: [],
+    unresolvedSelectedFindings: [],
+    unselectedFindings: [],
+    handoffStatus: "pending-apply",
+    handoffUpdatedAt: 20_001,
+    commitSha: "commit-sha-1",
+  };
 
   let nowTick = 10_000;
 
@@ -410,6 +481,17 @@ function createRunHarness(options: RunHarnessOptions = {}): RunHarness {
     },
   };
 
+  (overrides as RunRuntimeOverrides & { runFixSession: RunFixSessionFn }).runFixSession = async (
+    _config,
+    fixOptions
+  ) => {
+    runFixSessionCalls.push(fixOptions as unknown as Record<string, unknown>);
+    if (options.runFixSessionError) {
+      throw options.runFixSessionError;
+    }
+    return options.runFixSessionResult ?? defaultFixSessionResult;
+  };
+
   return {
     overrides,
     errors,
@@ -437,6 +519,7 @@ function createRunHarness(options: RunHarnessOptions = {}): RunHarness {
     clearIntervalCalls,
     parseCalls,
     loadConfigCalls,
+    runFixSessionCalls,
   };
 }
 
@@ -524,6 +607,16 @@ describe("run command", () => {
     test("parses --force option", () => {
       const { values } = parseCommand<RunOptions>(runDef, ["--force"]);
       expect(values.force).toBe(true);
+    });
+
+    test("parses --auto option", () => {
+      const { values } = parseCommand<RunOptions>(runDef, ["--auto"]);
+      expect(values.auto).toBe(true);
+    });
+
+    test("parses --priority csv option", () => {
+      const { values } = parseCommand<RunOptions>(runDef, ["--priority", "P0,P1"]);
+      expect(values.priority).toBe("P0,P1");
     });
 
     test("parses -f shorthand", () => {
@@ -907,6 +1000,35 @@ describe("run command", () => {
       expect(harness.diagnosticsCalls[0]?.options.commitSha).toBe("abc123");
       expect(harness.diagnosticsCalls[0]?.options.customInstructions).toBe("focus on security");
       expect(harness.createSessionCalls).toHaveLength(1);
+    });
+
+    test("passes auto-fix priority filters through to the background command", async () => {
+      const harness = createRunHarness({
+        runValues: {
+          auto: true,
+          priority: "p1,p0",
+        },
+      });
+
+      await startReview(["--auto", "--priority", "p1,p0"], harness.overrides);
+
+      expect(harness.createSessionCalls[0]?.command).toContain("_run-foreground --auto");
+      expect(harness.createSessionCalls[0]?.command).toContain("--priority P0,P1");
+    });
+
+    test("exits when priority is provided without auto mode", async () => {
+      const harness = createRunHarness({
+        runValues: {
+          priority: "P0,P1",
+        },
+      });
+
+      const exitCode = await captureExitCode(async () => {
+        await startReview([], harness.overrides);
+      });
+
+      expect(exitCode).toBe(1);
+      expect(harness.errors).toContain("--priority requires --auto");
     });
 
     test("exits when base branch is an empty string", async () => {
@@ -1480,6 +1602,106 @@ describe("run command", () => {
         title: "Next Step",
         message: "Fix selected findings with:\nrr fix --session session-123",
       });
+    });
+
+    test("runs remediation automatically when auto mode is enabled", async () => {
+      const harness = createRunHarness({
+        env: {
+          RR_SESSION_ID: "session-123",
+        },
+        foregroundValues: {
+          auto: true,
+        },
+        runReviewCycleResult: createCycleResult({
+          reviewOutcome: "findings-pending",
+          artifact: createFindingsArtifact(),
+        }),
+      });
+
+      await runForeground(["--auto"], harness.overrides);
+
+      expect(harness.runFixSessionCalls).toEqual([
+        expect.objectContaining({
+          sessionId: "session-123",
+          selector: {
+            all: true,
+          },
+          isTTY: false,
+        }),
+      ]);
+      expect(harness.notes).not.toContainEqual({
+        title: "Next Step",
+        message: "Fix selected findings with:\nrr fix --session session-123",
+      });
+      expect(harness.updateSessionStateCalls[1]?.updates.reviewOutcome).toBe("fixed-selected");
+    });
+
+    test("passes auto-fix priority filters into remediation", async () => {
+      const harness = createRunHarness({
+        env: {
+          RR_SESSION_ID: "session-123",
+        },
+        foregroundValues: {
+          auto: true,
+          priority: "p1,p0",
+        },
+        runReviewCycleResult: createCycleResult({
+          reviewOutcome: "findings-pending",
+          artifact: createFindingsArtifact(),
+        }),
+      });
+
+      await runForeground(["--auto", "--priority", "p1,p0"], harness.overrides);
+
+      expect(harness.runFixSessionCalls).toEqual([
+        expect.objectContaining({
+          sessionId: "session-123",
+          selector: {
+            priorities: ["P0", "P1"],
+          },
+          isTTY: false,
+        }),
+      ]);
+    });
+
+    test("skips remediation when no findings match the selected auto-fix priorities", async () => {
+      const harness = createRunHarness({
+        env: {
+          RR_SESSION_ID: "session-123",
+        },
+        foregroundValues: {
+          auto: true,
+          priority: "P1",
+        },
+        runReviewCycleResult: createCycleResult({
+          reviewOutcome: "findings-pending",
+          artifact: createFindingsArtifact({
+            findings: [
+              {
+                id: "F010",
+                fingerprint: "fp-F010",
+                locationKey: "src/file-c.ts:33:39",
+                title: "Finding F010",
+                body: "Body for F010",
+                priority: "P2",
+                confidenceScore: 0.75,
+                filePath: "src/file-c.ts",
+                startLine: 33,
+                endLine: 39,
+              },
+            ],
+          }),
+        }),
+      });
+
+      await runForeground(["--auto", "--priority", "P1"], harness.overrides);
+
+      expect(harness.runFixSessionCalls).toEqual([]);
+      expect(harness.notes).toContainEqual({
+        title: "Auto Fix",
+        message: "No persisted findings matched priorities P1. Findings remain pending.",
+      });
+      expect(harness.updateSessionStateCalls[1]?.updates.reviewOutcome).toBe("findings-pending");
     });
 
     test("stores workflow phase and status in session state when review finishes", async () => {

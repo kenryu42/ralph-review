@@ -13,6 +13,13 @@ import { createLogSession, getGitBranch } from "@/lib/logger";
 import { playCompletionSound, resolveSoundEnabled, type SoundOverride } from "@/lib/notify/sound";
 import { CLI_PATH } from "@/lib/paths";
 import {
+  formatPriorityList,
+  getRepeatedPriorityFlagError,
+  parsePriorityList,
+} from "@/lib/priority-list";
+import { runFixSession } from "@/lib/review-workflow/remediation/run-fix-session";
+import type { FixSessionResult } from "@/lib/review-workflow/remediation/types";
+import {
   createSessionId,
   createSessionState,
   HEARTBEAT_INTERVAL_MS,
@@ -22,18 +29,32 @@ import {
   updateSessionState,
 } from "@/lib/session-state";
 import { createSession, generateSessionName, isInsideTmux, isTmuxInstalled } from "@/lib/tmux";
-import type { AgentType, Config, ReviewOptions } from "@/lib/types";
+import type { AgentType, Config, Priority, ReviewOptions } from "@/lib/types";
 
 type IntervalHandle = ReturnType<typeof setInterval>;
 
 export interface RunOptions {
   max?: number;
   force?: boolean;
+  auto?: boolean;
+  priority?: string;
   base?: string;
   uncommitted?: boolean;
   commit?: string;
   sound?: boolean;
   "no-sound"?: boolean;
+}
+
+function hasRepeatedPriorityFlag(args: string[]): boolean {
+  let count = 0;
+
+  for (const arg of args) {
+    if (arg === "--priority" || arg.startsWith("--priority=")) {
+      count += 1;
+    }
+  }
+
+  return count > 1;
 }
 
 export function classifyRunCompletion(result: CycleResult): "success" | "warning" | "error" {
@@ -87,6 +108,56 @@ export function formatRunAgentsNote(config: Config, reviewOptions: ReviewOptions
   return lines.join("\n");
 }
 
+function mapSessionStatusToFinalStatus(
+  status: FixSessionResult["sessionStatus"]
+): CycleResult["finalStatus"] {
+  if (status === "failed") {
+    return "failed";
+  }
+
+  if (status === "interrupted") {
+    return "interrupted";
+  }
+
+  return "completed";
+}
+
+function hasAutoFixPriorityMatches(result: CycleResult, priorities: Priority[]): boolean {
+  return (
+    result.artifact?.findings.some((finding) => priorities.includes(finding.priority)) ?? false
+  );
+}
+
+function mapFixSessionResult(baseResult: CycleResult, fixResult: FixSessionResult): CycleResult {
+  return {
+    ...baseResult,
+    success: fixResult.reviewOutcome === "fixed-selected",
+    finalStatus: mapSessionStatusToFinalStatus(fixResult.sessionStatus),
+    reason: fixResult.reason,
+    phase: fixResult.phase,
+    sessionStatus: fixResult.sessionStatus,
+    reviewOutcome: fixResult.reviewOutcome,
+    retainedWorktree: fixResult.retainedWorktree,
+    handoffStatus: fixResult.handoffStatus,
+    handoffUpdatedAt: fixResult.handoffUpdatedAt,
+    commitSha: fixResult.commitSha,
+    artifact: fixResult.artifact ?? baseResult.artifact,
+  };
+}
+
+async function pushRunSessionStateUpdate(
+  runtime: RunRuntime,
+  projectPath: string,
+  sessionId: string,
+  updates: Parameters<typeof updateSessionState>[3]
+): Promise<void> {
+  await runtime.sessionState
+    .updateSessionState(undefined, projectPath, sessionId, updates, {
+      expectedSessionId: sessionId,
+    })
+    .catch(() => {});
+}
+
 export function getDynamicProbeAgents(config: Config | null): AgentType[] {
   if (!config) {
     return [];
@@ -129,6 +200,7 @@ export interface RunRuntime {
   collectIssueItems: typeof collectIssueItems;
   getTmuxInstallHint: typeof getTmuxInstallHint;
   runReviewCycle: typeof runReviewCycle;
+  runFixSession: typeof runFixSession;
   createLogSession: typeof createLogSession;
   sessionState: {
     createSessionState: typeof createSessionState;
@@ -203,6 +275,7 @@ export function createRunRuntime(overrides: RunRuntimeOverrides = {}): RunRuntim
     collectIssueItems,
     getTmuxInstallHint,
     runReviewCycle,
+    runFixSession,
     createLogSession,
     sessionState: {
       createSessionState,
@@ -284,6 +357,8 @@ async function runInBackground(
   projectPath: string,
   config: Config,
   maxIterations?: number,
+  auto?: boolean,
+  priorities?: Priority[],
   baseBranch?: string,
   commitSha?: string,
   customInstructions?: string,
@@ -339,6 +414,12 @@ async function runInBackground(
   if (force) {
     commandArgs.push("--force");
   }
+  if (auto) {
+    commandArgs.push("--auto");
+  }
+  if (priorities && priorities.length > 0) {
+    commandArgs.push("--priority", formatPriorityList(priorities));
+  }
 
   const envVars = envParts.join(" ");
   const command = `${envVars} ${runtime.process.execPath} ${CLI_PATH} ${commandArgs.join(" ")}`;
@@ -382,6 +463,8 @@ export async function runForeground(
   const expectedSessionId = runtime.process.env.RR_SESSION_ID || undefined;
   const soundOverride = parseSoundOverride(runtime.process.env.RR_SOUND_OVERRIDE);
   let forceMaxIterations = false;
+  let autoFixRequested = false;
+  let autoFixPriorities: Priority[] | undefined;
   let completionState: "success" | "warning" | "error" = "error";
   const soundEnabled = runtime.sound.resolveSoundEnabled(config, soundOverride);
   let cycleResult: CycleResult | undefined;
@@ -391,14 +474,21 @@ export async function runForeground(
   const foregroundDef = runtime.getCommandDef("_run-foreground");
   if (foregroundDef) {
     try {
+      if (hasRepeatedPriorityFlag(args)) {
+        throw new Error(getRepeatedPriorityFlagError());
+      }
       const { values } = runtime.parseCommand<{
         max?: number;
         force?: boolean;
+        auto?: boolean;
+        priority?: string;
       }>(foregroundDef, args);
       if (values.max !== undefined) {
         config.maxIterations = values.max;
       }
       forceMaxIterations = values.force === true;
+      autoFixRequested = values.auto === true;
+      autoFixPriorities = values.priority ? parsePriorityList(values.priority) : undefined;
     } catch {
       // Ignore parse errors for internal command
     }
@@ -472,6 +562,25 @@ export async function runForeground(
       }
     );
 
+    if (autoFixRequested && cycleResult.reviewOutcome === "findings-pending" && sessionId) {
+      if (autoFixPriorities && !hasAutoFixPriorityMatches(cycleResult, autoFixPriorities)) {
+        runtime.prompt.note(
+          `No persisted findings matched priorities ${formatPriorityList(autoFixPriorities)}. Findings remain pending.`,
+          "Auto Fix"
+        );
+      } else {
+        const fixResult = await runtime.runFixSession(config, {
+          sessionId,
+          selector: autoFixPriorities ? { priorities: autoFixPriorities } : { all: true },
+          isTTY: false,
+          onProgress: async (updates) => {
+            await pushRunSessionStateUpdate(runtime, projectPath, sessionId, updates);
+          },
+        });
+        cycleResult = mapFixSessionResult(cycleResult, fixResult);
+      }
+    }
+
     completionState = classifyRunCompletion(cycleResult);
     runtime.consoleLog(`\n${"=".repeat(50)}`);
     if (completionState === "success") {
@@ -479,6 +588,8 @@ export async function runForeground(
         runtime.prompt.log.success(
           `Review complete! Findings are ready for selection (${cycleResult.iterations} iterations)`
         );
+      } else if (cycleResult.reviewOutcome === "fixed-selected") {
+        runtime.prompt.log.success(`${cycleResult.reason} (${cycleResult.iterations} iterations)`);
       } else if (cycleResult.reviewOutcome === "clean") {
         runtime.prompt.log.success(
           `Review complete! No actionable findings (${cycleResult.iterations} iterations)`
@@ -553,33 +664,25 @@ export async function runForeground(
         }
       );
     } else {
-      await runtime.sessionState.updateSessionState(
-        undefined,
-        projectPath,
-        sessionId,
-        {
-          state: "failed",
-          endTime: runtime.timer.now(),
-          reason: "Review exited unexpectedly",
-          currentPhase: undefined,
-          phase: undefined,
-          sessionStatus: undefined,
-          currentAgent: null,
-          lastHeartbeat: runtime.timer.now(),
-          worktreeProjectPath: undefined,
-          worktreeBranch: undefined,
-          worktreeMergeReady: undefined,
-          worktreeCommitSha: undefined,
-          artifactPath: undefined,
-          reviewOutcome: undefined,
-          handoffStatus: undefined,
-          handoffUpdatedAt: undefined,
-          commitSha: undefined,
-        },
-        {
-          expectedSessionId: sessionId,
-        }
-      );
+      await pushRunSessionStateUpdate(runtime, projectPath, sessionId, {
+        state: "failed",
+        endTime: runtime.timer.now(),
+        reason: "Review exited unexpectedly",
+        currentPhase: undefined,
+        phase: undefined,
+        sessionStatus: undefined,
+        currentAgent: null,
+        lastHeartbeat: runtime.timer.now(),
+        worktreeProjectPath: undefined,
+        worktreeBranch: undefined,
+        worktreeMergeReady: undefined,
+        worktreeCommitSha: undefined,
+        artifactPath: undefined,
+        reviewOutcome: undefined,
+        handoffStatus: undefined,
+        handoffUpdatedAt: undefined,
+        commitSha: undefined,
+      });
     }
 
     if (soundEnabled) {
@@ -612,6 +715,9 @@ export async function startReview(
   let options: RunOptions;
   let customInstructions: string | undefined;
   try {
+    if (hasRepeatedPriorityFlag(args)) {
+      throw new Error(getRepeatedPriorityFlagError());
+    }
     const { values, positional } = runtime.parseCommand<RunOptions>(runDef, args);
     options = values;
     customInstructions = positional[0];
@@ -646,6 +752,23 @@ export async function startReview(
   }
 
   const loadedConfig = await runtime.loadConfig(projectPath);
+
+  let priorities: Priority[] | undefined;
+  if (options.priority !== undefined) {
+    try {
+      priorities = parsePriorityList(options.priority);
+    } catch (error) {
+      runtime.prompt.log.error(`${error}`);
+      runtime.process.exit(1);
+      return;
+    }
+  }
+
+  if (priorities && !options.auto) {
+    runtime.prompt.log.error("--priority requires --auto");
+    runtime.process.exit(1);
+    return;
+  }
 
   if (options.commit !== undefined) {
     options.commit = options.commit.trim();
@@ -759,6 +882,8 @@ export async function startReview(
     projectPath,
     config,
     options.max,
+    options.auto,
+    priorities,
     options.base,
     options.commit,
     customInstructions,
