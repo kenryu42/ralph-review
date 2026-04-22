@@ -8,7 +8,6 @@ import { appendLog } from "@/lib/logger";
 
 interface ApplyOptions {
   session?: string;
-  merge?: boolean;
 }
 
 type ApplyDeps = PendingHandoffCommandDeps;
@@ -66,14 +65,7 @@ export async function runApply(args: string[], deps: Partial<ApplyDeps> = {}): P
   p.log.step(`Applying handoff: ${selection.handoff.sessionId}`);
 
   try {
-    const artifact = await applyPendingHandoff(
-      undefined,
-      projectPath,
-      selection.handoff.sessionId,
-      {
-        merge: parsed.merge === true,
-      }
-    );
+    const artifact = await applyPendingHandoff(undefined, projectPath, selection.handoff.sessionId);
     await appendLog(artifact.logPath, {
       type: "handoff",
       timestamp: Date.now(),
