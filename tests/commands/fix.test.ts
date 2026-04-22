@@ -269,15 +269,8 @@ async function captureExit(run: () => Promise<void>): Promise<number | undefined
 }
 
 describe("fix command", () => {
-  test("parses repeated priority flags as a union", () => {
-    const options = parseFixCommandOptions([
-      "--session",
-      "session-123",
-      "--priority",
-      "P0",
-      "--priority",
-      "P2",
-    ]);
+  test("parses csv priority values as a union", () => {
+    const options = parseFixCommandOptions(["--session", "session-123", "--priority", "P0, P2"]);
 
     expect(options).toEqual({
       sessionId: "session-123",
@@ -285,6 +278,23 @@ describe("fix command", () => {
         priorities: ["P0", "P2"],
       },
     });
+  });
+
+  test("normalizes lowercase csv priority values", () => {
+    const options = parseFixCommandOptions(["--session", "session-123", "--priority=p1,p0,p1"]);
+
+    expect(options).toEqual({
+      sessionId: "session-123",
+      selector: {
+        priorities: ["P0", "P1"],
+      },
+    });
+  });
+
+  test("rejects repeated priority flags", () => {
+    expect(() =>
+      parseFixCommandOptions(["--session", "session-123", "--priority", "P0", "--priority", "P2"])
+    ).toThrow("Use a single --priority flag with comma-separated values.");
   });
 
   test("parses repeated id flags as a union", () => {
@@ -331,10 +341,7 @@ describe("fix command", () => {
   test("launches a tmux-backed fixer session for explicit selectors", async () => {
     const harness = createFixHarness();
 
-    await runFix(
-      ["--session", "session-123", "--priority", "P0", "--priority", "P1"],
-      harness.deps
-    );
+    await runFix(["--session", "session-123", "--priority", "P0,P1"], harness.deps);
 
     expect(harness.createSessionStateCalls).toEqual([
       {
@@ -356,7 +363,7 @@ describe("fix command", () => {
     ]);
     expect(harness.createSessionCalls).toHaveLength(1);
     expect(harness.createSessionCalls[0]?.command).toContain(
-      "_fix-foreground --session session-123 --priority P0 --priority P1"
+      "_fix-foreground --session session-123 --priority P0,P1"
     );
     expect(harness.successes).toEqual(["Fix started in background session: rr-project-fix"]);
   });

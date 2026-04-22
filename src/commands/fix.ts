@@ -5,6 +5,11 @@ import { getTmuxInstallHint } from "@/lib/diagnostics/tmux-install";
 import { formatHandoffNote } from "@/lib/handoff-note";
 import { getGitBranch } from "@/lib/logger";
 import { CLI_PATH } from "@/lib/paths";
+import {
+  formatPriorityList,
+  getRepeatedPriorityFlagError,
+  parsePriorityList,
+} from "@/lib/priority-list";
 import { loadFindingsArtifactBySessionId } from "@/lib/review-workflow/findings/artifact";
 import type { FindingId, FindingsArtifact } from "@/lib/review-workflow/findings/types";
 import { runFixSession } from "@/lib/review-workflow/remediation/run-fix-session";
@@ -125,10 +130,6 @@ function unique<T>(values: T[]): T[] {
   return [...new Set(values)];
 }
 
-function isPriority(value: string): value is Priority {
-  return value === "P0" || value === "P1" || value === "P2" || value === "P3";
-}
-
 function isFindingId(value: string): value is FindingId {
   return /^F\d+$/u.test(value);
 }
@@ -147,7 +148,7 @@ function buildSelectorArgs(selector: ParsedFixCommandOptions["selector"]): strin
   }
 
   if (selector.priorities && selector.priorities.length > 0) {
-    return selector.priorities.flatMap((priority) => ["--priority", priority]);
+    return ["--priority", formatPriorityList(selector.priorities)];
   }
 
   if (selector.ids && selector.ids.length > 0) {
@@ -236,6 +237,7 @@ export function parseFixCommandOptions(args: string[]): ParsedFixCommandOptions 
   let all = false;
   const priorities: Priority[] = [];
   const ids: FindingId[] = [];
+  let priorityFlagSeen = false;
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
@@ -261,21 +263,23 @@ export function parseFixCommandOptions(args: string[]): ParsedFixCommandOptions 
     }
 
     if (arg === "--priority") {
-      const [value, nextIndex] = readOptionValue(args, index, "priority");
-      if (!isPriority(value)) {
-        throw new Error(`Invalid priority: ${value}`);
+      if (priorityFlagSeen) {
+        throw new Error(getRepeatedPriorityFlagError());
       }
-      priorities.push(value);
+      const [value, nextIndex] = readOptionValue(args, index, "priority");
+      priorities.push(...parsePriorityList(value));
+      priorityFlagSeen = true;
       index = nextIndex;
       continue;
     }
 
     if (arg.startsWith("--priority=")) {
-      const value = arg.slice("--priority=".length);
-      if (!isPriority(value)) {
-        throw new Error(`Invalid priority: ${value}`);
+      if (priorityFlagSeen) {
+        throw new Error(getRepeatedPriorityFlagError());
       }
-      priorities.push(value);
+      const value = arg.slice("--priority=".length);
+      priorities.push(...parsePriorityList(value));
+      priorityFlagSeen = true;
       continue;
     }
 
