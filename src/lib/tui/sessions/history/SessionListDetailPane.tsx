@@ -236,7 +236,7 @@ function IterationSection({ entry }: { entry: IterationEntry }) {
       {findings.length > 0 && (
         <box flexDirection="column">
           <SectionHeader title="Issues Found" count={findings.length} />
-          <FindingsList findings={displayFindings} scrollable={false} />
+          <FindingsList findings={displayFindings} scrollable={false} showConfidence />
         </box>
       )}
 
@@ -453,7 +453,7 @@ export function SessionDetailPane({
                   <text fg={TUI_COLORS.text.secondary} paddingLeft={2}>
                     {entry.findings.length} issues found
                   </text>
-                  <StoredFindingsList findings={entry.findings} scrollable={false} />
+                  <StoredFindingsList findings={entry.findings} scrollable={false} showConfidence />
                 </WorkflowSection>
               ))}
 
@@ -464,7 +464,11 @@ export function SessionDetailPane({
                     {workflow.selectionEntry.selectionMode}
                   </text>
                   {workflow.selectedFindings.length > 0 && (
-                    <StoredFindingsList findings={workflow.selectedFindings} scrollable={false} />
+                    <StoredFindingsList
+                      findings={workflow.selectedFindings}
+                      scrollable={false}
+                      showConfidence
+                    />
                   )}
                 </WorkflowSection>
               )}
@@ -488,6 +492,7 @@ export function SessionDetailPane({
                       <StoredFindingsList
                         findings={workflow.unresolvedSelectedFindings}
                         scrollable={false}
+                        showConfidence
                       />
                     </box>
                   )}
@@ -497,6 +502,7 @@ export function SessionDetailPane({
                       <StoredFindingsList
                         findings={workflow.regressionFindings}
                         scrollable={false}
+                        showConfidence
                       />
                     </box>
                   )}

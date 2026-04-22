@@ -1021,6 +1021,10 @@ describe("SessionDetailPane", () => {
     expect(frame).toContain("0 resolved");
     expect(frame).toContain("1 unresolved");
     expect(frame).toContain("Guard missing config");
+    expect(frame).toContain("Confidence: 97%");
+    expect(frame).toContain("Confidence: 92%");
+    expect(frame.indexOf("Guard missing config")).toBeLessThan(frame.indexOf("Confidence: 97%"));
+    expect(frame.indexOf("Confidence: 97%")).toBeLessThan(frame.indexOf("src/config.ts:10-12"));
   });
 
   test("renders iteration timeline with findings and fixes", async () => {
@@ -1068,6 +1072,9 @@ describe("SessionDetailPane", () => {
     expect(frame).toContain("45s");
     expect(frame).toContain("Issues Found");
     expect(frame).toContain("Missing null check");
+    expect(frame).toContain("Confidence: 90%");
+    expect(frame.indexOf("Missing null check")).toBeLessThan(frame.indexOf("Confidence: 90%"));
+    expect(frame.indexOf("Confidence: 90%")).toBeLessThan(frame.indexOf("src/lib/foo.ts"));
     expect(frame).toContain("src/lib/foo.ts");
     expect(frame).toContain("Decision:");
     expect(frame).toContain("APPLY_SELECTIVELY");
