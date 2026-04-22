@@ -220,6 +220,10 @@ function buildAllSelectionRow(totalCount: number, isSelected: boolean): FindingR
   ];
 }
 
+function formatConfidenceScore(value: number): string {
+  return `${Math.round(value * 100)}%`;
+}
+
 function sortSelectedPriorities(selectedPriorities: Priority[]): Priority[] {
   return PRIORITIES.filter((priority) => selectedPriorities.includes(priority));
 }
@@ -909,6 +913,7 @@ export function FixIssuesOverlay({
             }
           />
           <DetailField label="Title" value={formatFindingTitleForDisplay(finding.title)} />
+          <DetailField label="Confidence" value={formatConfidenceScore(finding.confidenceScore)} />
           <text fg={TUI_COLORS.text.dim}>
             <strong>Body</strong>
           </text>

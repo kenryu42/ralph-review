@@ -369,6 +369,14 @@ describe("FixIssuesOverlay", () => {
 
     expect(frame).toContain("[P0]");
     expect(frame).toContain("Race condition in worker shutdown");
+    expect(frame).toContain("Confidence");
+    expect(frame).toContain("91%");
+    expect(frame.indexOf("Race condition in worker shutdown")).toBeLessThan(
+      frame.indexOf("Confidence")
+    );
+    expect(frame.indexOf("Confidence")).toBeLessThan(
+      frame.indexOf("Shut down the worker before disposing shared resources.")
+    );
     expect(frame).toContain("Shut down the worker before disposing shared resources.");
     expect(frame).not.toContain("[P0] [P0] Race condition in worker shutdown");
   });
