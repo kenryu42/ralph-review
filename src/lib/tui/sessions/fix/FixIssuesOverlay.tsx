@@ -420,6 +420,15 @@ export function FixIssuesOverlay({
       });
   }, [findings]);
 
+  const findingsByPriority = useMemo(
+    () =>
+      PRIORITIES.map((priority) => ({
+        priority,
+        findings: findings.filter((finding) => finding.priority === priority),
+      })).filter((group) => group.findings.length > 0),
+    [findings]
+  );
+
   const mode: FindingSelectionMode = allSelected
     ? "all"
     : selectedPriorities.length > 0
@@ -841,6 +850,23 @@ export function FixIssuesOverlay({
           <text fg={TUI_COLORS.text.secondary}>
             Every pending finding, passed together via --all.
           </text>
+          <text fg={TUI_COLORS.text.dim}>
+            <strong>Findings by priority</strong>
+          </text>
+          {findingsByPriority.map(({ priority, findings: group }) => (
+            <box key={priority} flexDirection="column">
+              <text>
+                <PriorityText priority={priority} bracketed />
+                <span fg={TUI_COLORS.text.muted}> · {formatCountLabel(group.length)}</span>
+              </text>
+              {group.map((finding) => (
+                <text key={finding.id} fg={TUI_COLORS.text.secondary} wrapMode="none">
+                  <span fg={TUI_COLORS.text.muted}> {finding.id} </span>
+                  {toSingleLine(formatFindingTitleForDisplay(finding.title))}
+                </text>
+              ))}
+            </box>
+          ))}
           <text fg={TUI_COLORS.text.dim}>
             <strong>Impacted files</strong>
           </text>
