@@ -37,7 +37,7 @@ const DEFAULT_STOP_DEPS: StopDeps = {
 };
 
 type ResolvedStopHandoff = {
-  handoffStatus: Extract<HandoffStatus, "applied-auto" | "pending-apply">;
+  handoffStatus: Extract<HandoffStatus, "applied-auto" | "pending-apply" | "merge-conflicted">;
   commitSha?: string;
 };
 
@@ -78,8 +78,8 @@ function formatShellPath(path: string): string {
 
 function isReportedStopHandoffStatus(
   status: HandoffStatus | undefined
-): status is Extract<HandoffStatus, "applied-auto" | "pending-apply"> {
-  return status === "applied-auto" || status === "pending-apply";
+): status is Extract<HandoffStatus, "applied-auto" | "pending-apply" | "merge-conflicted"> {
+  return status === "applied-auto" || status === "pending-apply" || status === "merge-conflicted";
 }
 
 function createLogSessionFromPath(session: ActiveSession): LogSession | null {

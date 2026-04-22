@@ -559,6 +559,33 @@ describe("runStop", () => {
     );
   });
 
+  test("prints merge-conflict guidance after stopping a session with a conflicted handoff", async () => {
+    const cwd = process.cwd();
+    const sessionPath = `${cwd}/.ralph-review/logs/session-merge-conflicted.jsonl`;
+    const result = await runStopWithHarness([], {
+      fastTimeout: true,
+      activeSessions: [
+        createActiveSession({
+          sessionId: "current-session-id",
+          sessionName: "rr-current-session",
+          projectPath: cwd,
+          sessionPath,
+        }),
+      ],
+      computeSessionStats: async (path) =>
+        createSessionStats({
+          sessionPath: path,
+          sessionId: "current-session-id",
+          handoffStatus: "merge-conflicted",
+          commitSha: "commit-sha-4",
+        }),
+    });
+
+    expect(result.messages).toContain(
+      "Handoff:\nReviewed fixes hit merge conflicts.\nCommit: commit-sha-4\nResolve or abort the Git conflict. Ralph will reconcile the handoff automatically on a later command."
+    );
+  });
+
   test("prints project-qualified handoff commands for pending fixes when stopping all sessions", async () => {
     const otherProject = "/repo/other";
     const result = await runStopWithHarness(["--all"], {
