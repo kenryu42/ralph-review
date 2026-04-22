@@ -25,9 +25,9 @@ export function formatHandoffNote(options: HandoffNoteOptions): string | null {
       .join("\n");
   }
 
-  if (options.handoffStatus === "merge-conflicted") {
+  if (options.handoffStatus === "apply-conflicted") {
     return [
-      "Reviewed fixes hit merge conflicts.",
+      "Reviewed fixes hit conflicts during apply.",
       commitLine,
       "Resolve or abort the Git conflict. Ralph will reconcile the handoff automatically on a later command.",
     ]

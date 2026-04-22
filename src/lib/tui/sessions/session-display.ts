@@ -99,8 +99,8 @@ export function formatHandoffSummary(
       return commitSha ? `Applied to working tree · ${commitSha}` : "Applied to working tree";
     case "pending-apply":
       return commitSha ? `Pending apply · ${commitSha}` : "Pending apply";
-    case "merge-conflicted":
-      return commitSha ? `Merge conflicted · ${commitSha}` : "Merge conflicted";
+    case "apply-conflicted":
+      return commitSha ? `Apply conflicted · ${commitSha}` : "Apply conflicted";
     case "applied-manual":
       return commitSha ? `Applied manually · ${commitSha}` : "Applied manually";
     case "discarded":

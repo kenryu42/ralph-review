@@ -35,24 +35,20 @@ interface CreateOrAutoApplyOptions {
   autoApply?: boolean;
 }
 
-interface ApplyPendingHandoffOptions {
-  merge?: boolean;
-}
-
 export interface SessionHandoffResult {
   handoffStatus: Extract<HandoffStatus, "applied-auto" | "pending-apply">;
   commitSha: string;
   handoffUpdatedAt: number;
 }
 
-class PendingHandoffMergeConflictError extends Error {
+class PendingHandoffApplyConflictError extends Error {
   artifact: PendingHandoffArtifact;
 
   constructor(artifact: PendingHandoffArtifact) {
     super(
-      `Review handoff "${artifact.sessionId}" has merge conflicts. Resolve or abort the Git conflict, then rerun any rr command to reconcile the handoff automatically.`
+      `Review handoff "${artifact.sessionId}" has conflicts during apply. Resolve or abort the Git conflict, then rerun any rr command to reconcile the handoff automatically.`
     );
-    this.name = "PendingHandoffMergeConflictError";
+    this.name = "PendingHandoffApplyConflictError";
     this.artifact = artifact;
   }
 }
@@ -130,8 +126,8 @@ function normalizePendingHandoff(raw: unknown): PendingHandoffArtifact | null {
     state,
     createdAt,
     updatedAt,
-    mergeStartedAt,
-    mergeStartFingerprint,
+    applyStartedAt,
+    applyStartFingerprint,
   } = candidate;
   if (
     typeof sessionId !== "string" ||
@@ -144,14 +140,14 @@ function normalizePendingHandoff(raw: unknown): PendingHandoffArtifact | null {
     typeof commitSha !== "string" ||
     typeof createdAt !== "number" ||
     typeof updatedAt !== "number" ||
-    (state !== "pending-apply" && state !== "merge-conflicted")
+    (state !== "pending-apply" && state !== "apply-conflicted")
   ) {
     return null;
   }
 
   if (
-    state === "merge-conflicted" &&
-    (typeof mergeStartedAt !== "number" || typeof mergeStartFingerprint !== "string")
+    state === "apply-conflicted" &&
+    (typeof applyStartedAt !== "number" || typeof applyStartFingerprint !== "string")
   ) {
     return null;
   }
@@ -168,9 +164,9 @@ function normalizePendingHandoff(raw: unknown): PendingHandoffArtifact | null {
     state,
     createdAt,
     updatedAt,
-    mergeStartedAt: typeof mergeStartedAt === "number" ? mergeStartedAt : undefined,
-    mergeStartFingerprint:
-      typeof mergeStartFingerprint === "string" ? mergeStartFingerprint : undefined,
+    applyStartedAt: typeof applyStartedAt === "number" ? applyStartedAt : undefined,
+    applyStartFingerprint:
+      typeof applyStartFingerprint === "string" ? applyStartFingerprint : undefined,
   };
 }
 
@@ -190,7 +186,6 @@ function normalizeArchivedHandoff(raw: unknown): ArchivedAppliedHandoffArtifact 
     appliedFingerprint,
     commitSha,
     appliedVia,
-    applyMode,
     state,
     createdAt,
     appliedAt,
@@ -205,7 +200,6 @@ function normalizeArchivedHandoff(raw: unknown): ArchivedAppliedHandoffArtifact 
     typeof appliedFingerprint !== "string" ||
     typeof commitSha !== "string" ||
     (appliedVia !== "auto" && appliedVia !== "manual") ||
-    (applyMode !== undefined && applyMode !== "patch" && applyMode !== "merge") ||
     state !== "archived-applied" ||
     typeof createdAt !== "number" ||
     typeof appliedAt !== "number"
@@ -223,7 +217,6 @@ function normalizeArchivedHandoff(raw: unknown): ArchivedAppliedHandoffArtifact 
     appliedFingerprint,
     commitSha,
     appliedVia,
-    applyMode: applyMode === "merge" ? "merge" : "patch",
     state,
     createdAt,
     appliedAt,
@@ -356,7 +349,6 @@ async function archiveAppliedHandoff(
   artifact: PendingHandoffArtifact,
   appliedVia: ArchivedAppliedHandoffArtifact["appliedVia"],
   options: {
-    applyMode?: ArchivedAppliedHandoffArtifact["applyMode"];
     appliedFingerprint?: string;
   } = {}
 ): Promise<ArchivedAppliedHandoffArtifact> {
@@ -378,7 +370,6 @@ async function archiveAppliedHandoff(
       options.appliedFingerprint ?? computeWorkingTreeFingerprint(artifact.sourceRepoPath),
     commitSha: artifact.commitSha,
     appliedVia,
-    applyMode: options.applyMode ?? "patch",
     state: "archived-applied",
     createdAt: artifact.createdAt,
     appliedAt: Date.now(),
@@ -415,7 +406,7 @@ async function reconcilePendingHandoffArtifact(
   storageRoot: string,
   artifact: PendingHandoffArtifact
 ): Promise<PendingHandoffArtifact | null> {
-  if (artifact.state !== "merge-conflicted") {
+  if (artifact.state !== "apply-conflicted") {
     return artifact;
   }
 
@@ -424,7 +415,7 @@ async function reconcilePendingHandoffArtifact(
   }
 
   const currentFingerprint = computeWorkingTreeFingerprint(artifact.sourceRepoPath);
-  if (currentFingerprint === artifact.mergeStartFingerprint) {
+  if (currentFingerprint === artifact.applyStartFingerprint) {
     const restored = restorePendingApplyArtifact(artifact);
     await writePendingHandoff(storageRoot, restored);
     await appendHandoffStatusLog(restored, "pending-apply");
@@ -432,7 +423,6 @@ async function reconcilePendingHandoffArtifact(
   }
 
   await archiveAppliedHandoff(storageRoot, artifact, "manual", {
-    applyMode: "merge",
     appliedFingerprint: currentFingerprint,
   });
   deleteSessionRefs(artifact.sourceRepoPath, artifact.sessionId);
@@ -441,7 +431,7 @@ async function reconcilePendingHandoffArtifact(
   return null;
 }
 
-async function applyPendingHandoffWithMerge(
+async function applyPendingHandoffWithDivergedRepo(
   storageRoot: string,
   artifact: PendingHandoffArtifact,
   appliedVia: ArchivedAppliedHandoffArtifact["appliedVia"],
@@ -452,38 +442,36 @@ async function applyPendingHandoffWithMerge(
     hasUnmergedPaths(artifact.sourceRepoPath)
   ) {
     throw new Error(
-      `Review handoff "${artifact.sessionId}" requires a clean working tree before rr apply --merge.`
+      `Review handoff "${artifact.sessionId}" requires a clean working tree before rr apply.`
     );
   }
 
-  const checkpoint = createCheckpoint(artifact.sourceRepoPath, `apply-merge-${artifact.sessionId}`);
+  const checkpoint = createCheckpoint(artifact.sourceRepoPath, `apply-${artifact.sessionId}`);
 
   try {
     const applyResult = applyBinaryPatchWithThreeWay(artifact.sourceRepoPath, artifact.patchPath);
     if (applyResult === "conflicted") {
-      const mergeConflicted: PendingHandoffArtifact = {
+      const applyConflicted: PendingHandoffArtifact = {
         ...artifact,
-        state: "merge-conflicted",
-        mergeStartedAt: Date.now(),
-        mergeStartFingerprint: currentFingerprint,
+        state: "apply-conflicted",
+        applyStartedAt: Date.now(),
+        applyStartFingerprint: currentFingerprint,
         updatedAt: Date.now(),
       };
-      await writePendingHandoff(storageRoot, mergeConflicted);
-      await appendHandoffStatusLog(mergeConflicted, "merge-conflicted");
+      await writePendingHandoff(storageRoot, applyConflicted);
+      await appendHandoffStatusLog(applyConflicted, "apply-conflicted");
       discardCheckpoint(artifact.sourceRepoPath, checkpoint);
-      throw new PendingHandoffMergeConflictError(mergeConflicted);
+      throw new PendingHandoffApplyConflictError(applyConflicted);
     }
 
     unstageWorktreeChanges(artifact.sourceRepoPath);
-    await archiveAppliedHandoff(storageRoot, artifact, appliedVia, {
-      applyMode: "merge",
-    });
+    await archiveAppliedHandoff(storageRoot, artifact, appliedVia);
     deleteSessionRefs(artifact.sourceRepoPath, artifact.sessionId);
     await deletePendingHandoffFiles(storageRoot, artifact);
     discardCheckpoint(artifact.sourceRepoPath, checkpoint);
     return artifact;
   } catch (error) {
-    if (error instanceof PendingHandoffMergeConflictError) {
+    if (error instanceof PendingHandoffApplyConflictError) {
       throw error;
     }
 
@@ -495,12 +483,11 @@ async function applyPendingHandoffWithMerge(
 async function applyPendingHandoffArtifact(
   storageRoot: string,
   artifact: PendingHandoffArtifact,
-  appliedVia: ArchivedAppliedHandoffArtifact["appliedVia"],
-  options: ApplyPendingHandoffOptions = {}
+  appliedVia: ArchivedAppliedHandoffArtifact["appliedVia"]
 ): Promise<PendingHandoffArtifact> {
-  if (artifact.state === "merge-conflicted") {
+  if (artifact.state === "apply-conflicted") {
     throw new Error(
-      `Review handoff "${artifact.sessionId}" is waiting for Git merge conflicts to be resolved or aborted.`
+      `Review handoff "${artifact.sessionId}" is waiting for Git conflicts to be resolved or aborted.`
     );
   }
 
@@ -513,8 +500,8 @@ async function applyPendingHandoffArtifact(
     return artifact;
   }
 
-  if (options.merge === true) {
-    return await applyPendingHandoffWithMerge(
+  if (appliedVia === "manual") {
+    return await applyPendingHandoffWithDivergedRepo(
       storageRoot,
       artifact,
       appliedVia,
@@ -643,15 +630,14 @@ export async function listProjectReapplicableHandoffs(
 export async function applyPendingHandoff(
   storageRoot: string = CONFIG_DIR,
   projectPath: string,
-  sessionId: string,
-  options: ApplyPendingHandoffOptions = {}
+  sessionId: string
 ): Promise<PendingHandoffArtifact> {
   const artifact = await readPendingHandoff(storageRoot, projectPath, sessionId);
   if (!artifact) {
     throw new Error(`Pending review handoff "${sessionId}" was not found.`);
   }
 
-  return await applyPendingHandoffArtifact(storageRoot, artifact, "manual", options);
+  return await applyPendingHandoffArtifact(storageRoot, artifact, "manual");
 }
 
 export async function revertArchivedHandoff(
@@ -692,9 +678,9 @@ export async function discardPendingHandoff(
     throw new Error(`Pending review handoff "${sessionId}" was not found.`);
   }
 
-  if (artifact.state === "merge-conflicted") {
+  if (artifact.state === "apply-conflicted") {
     throw new Error(
-      `Review handoff "${artifact.sessionId}" is waiting for Git merge conflicts to be resolved or aborted.`
+      `Review handoff "${artifact.sessionId}" is waiting for Git conflicts to be resolved or aborted.`
     );
   }
 
