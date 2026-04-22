@@ -299,7 +299,7 @@ describe("FixIssuesOverlay", () => {
     expect(overlay.getCloseCount()).toBe(1);
   });
 
-  test("selects priorities and submits repeated --priority flags", async () => {
+  test("selects priorities and submits a csv --priority flag", async () => {
     const overlay = await renderOverlay();
     let frame = overlay.frame();
     expect(frame).toContain("Selected 3 of 3");
@@ -314,11 +314,11 @@ describe("FixIssuesOverlay", () => {
     await overlay.press("j");
     frame = await overlay.press(" ");
     expect(frame).toContain("Selected 2 of 3");
-    expect(frame).toContain("--priority P0 --priority P1");
+    expect(frame).toContain("--priority P0,P1");
     await overlay.press("\r");
 
     expect(overlay.getSubmitCalls()).toEqual([
-      ["fix", "--session", "session-123", "--priority", "P0", "--priority", "P1"],
+      ["fix", "--session", "session-123", "--priority", "P0,P1"],
     ]);
   });
 
@@ -359,7 +359,7 @@ describe("FixIssuesOverlay", () => {
     await overlay.press("\r");
 
     expect(overlay.getSubmitCalls()).toEqual([
-      ["fix", "--session", "session-123", "--priority", "P0", "--priority", "P1"],
+      ["fix", "--session", "session-123", "--priority", "P0,P1"],
     ]);
   });
 
@@ -422,6 +422,20 @@ describe("FixIssuesOverlay", () => {
 
     expect(overlay.getSubmitCalls()).toEqual([
       ["fix", "--session", "session-123", "--id", "F001", "--id", "F002"],
+    ]);
+  });
+
+  test("submits rr fix with a csv priority flag", async () => {
+    const overlay = await renderOverlay();
+
+    await overlay.press("j");
+    await overlay.press(" ");
+    await overlay.press("j");
+    await overlay.press(" ");
+    await overlay.press("\r");
+
+    expect(overlay.getSubmitCalls()).toEqual([
+      ["fix", "--session", "session-123", "--priority", "P0,P1"],
     ]);
   });
 

@@ -1,6 +1,7 @@
 import type { ScrollBoxRenderable } from "@opentui/core";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { formatPriorityList } from "@/lib/priority-list";
 import type { FindingSelectionMode } from "@/lib/review-workflow/findings/selection";
 import type { FindingId, StoredFinding } from "@/lib/review-workflow/findings/types";
 import { toSingleLine } from "@/lib/tui/sessions/detail/session-detail-parts";
@@ -254,9 +255,7 @@ function buildFixCommandArgs(
       return null;
     }
 
-    for (const priority of selectedPriorities) {
-      args.push("--priority", priority);
-    }
+    args.push("--priority", formatPriorityList(selectedPriorities));
 
     return args;
   }
