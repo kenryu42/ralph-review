@@ -749,6 +749,28 @@ interface ApplyBinaryPatchOptions {
   reverse?: boolean;
 }
 
+export function hasCleanWorktreeState(repoPath: string): boolean {
+  const result = runGit(repoPath, ["status", "--porcelain"]);
+  if (result.exitCode !== 0) {
+    throw new Error(
+      `Failed to inspect repository state before applying a handoff: ${result.stderr || result.stdout || `git exited with code ${result.exitCode}`}`
+    );
+  }
+
+  return result.stdout.length === 0;
+}
+
+export function hasUnmergedPaths(repoPath: string): boolean {
+  const result = runGit(repoPath, ["ls-files", "--unmerged"]);
+  if (result.exitCode !== 0) {
+    throw new Error(
+      `Failed to inspect repository conflicts before applying a handoff: ${result.stderr || result.stdout || `git exited with code ${result.exitCode}`}`
+    );
+  }
+
+  return result.stdout.length > 0;
+}
+
 export function applyBinaryPatch(
   repoPath: string,
   patchPath: string,
@@ -786,6 +808,44 @@ export async function applyBinaryPatchAsync(
   }
   writeArgs.push("--binary", patchPath);
   await assertCommandOkAsync(repoPath, writeArgs, "Failed to apply handoff patch");
+}
+
+export function applyBinaryPatchWithThreeWay(
+  repoPath: string,
+  patchPath: string
+): "applied" | "conflicted" {
+  const result = runGit(repoPath, ["apply", "--3way", "--binary", patchPath]);
+
+  if (result.exitCode === 0) {
+    return "applied";
+  }
+
+  if (hasUnmergedPaths(repoPath)) {
+    return "conflicted";
+  }
+
+  const details = result.stderr || result.stdout || "unknown git error";
+  throw new Error(`Failed to apply handoff patch with merge: ${details}`);
+}
+
+export function unstageWorktreeChanges(repoPath: string): void {
+  if (hasInitialCommit(repoPath)) {
+    assertGitOk(repoPath, ["reset"], "Failed to unstage applied handoff");
+    return;
+  }
+
+  const trackedPaths = runGit(repoPath, ["ls-files"]);
+  if (trackedPaths.exitCode !== 0) {
+    throw new Error(
+      `Failed to inspect index before unstaging applied handoff: ${trackedPaths.stderr || trackedPaths.stdout || `git exited with code ${trackedPaths.exitCode}`}`
+    );
+  }
+
+  if (trackedPaths.stdout.length === 0) {
+    return;
+  }
+
+  assertGitOk(repoPath, ["rm", "--cached", "-r", "--", "."], "Failed to unstage applied handoff");
 }
 
 function createSnapshotCheckpoint(repoPath: string, normalizedId: string): GitCheckpoint {
