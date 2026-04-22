@@ -30,6 +30,19 @@ function runGitIn(repoPath: string, args: string[]): void {
   }
 }
 
+function runGitResult(repoPath: string, args: string[]): { exitCode: number; stdout: string } {
+  const result = Bun.spawnSync(["git", ...args], {
+    cwd: repoPath,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+
+  return {
+    exitCode: result.exitCode,
+    stdout: result.stdout.toString(),
+  };
+}
+
 async function writeFile(path: string, content: string): Promise<void> {
   await Bun.write(path, content);
 }
@@ -77,6 +90,33 @@ describe("handoff", () => {
     await rm(storageRoot, { recursive: true, force: true });
     await rm(repoPath, { recursive: true, force: true });
   });
+
+  async function createPendingMergeHandoff(
+    sessionId: string,
+    mutateRepoAfterStart?: () => Promise<void>
+  ): Promise<void> {
+    await writeFile(join(repoPath, "app.txt"), "draft\n");
+
+    const worktree = createSessionWorktree(repoPath, sessionId, storageRoot);
+    try {
+      await writeFile(join(worktree.worktreeProjectPath, "app.txt"), "fixed draft\n");
+      runGitIn(repoPath, ["add", "app.txt"]);
+      runGitIn(repoPath, ["commit", "-m", "save draft"]);
+      await mutateRepoAfterStart?.();
+
+      const handoff = await createOrAutoApplyHandoff(storageRoot, {
+        sessionId,
+        projectPath: repoPath,
+        logPath: join(storageRoot, "logs", `${sessionId}.jsonl`),
+        worktree,
+        autoApply: false,
+      });
+
+      expect(handoff?.handoffStatus).toBe("pending-apply");
+    } finally {
+      discardSessionWorktree(worktree);
+    }
+  }
 
   test("returns an empty list when the handoff directory does not exist yet", async () => {
     expect(await listProjectPendingHandoffs(storageRoot, repoPath)).toEqual([]);
@@ -286,6 +326,110 @@ describe("handoff", () => {
     expect(archived).toHaveLength(1);
     expect(archived[0]?.sessionId).toBe("session-manual");
     expect(archived[0]?.appliedVia).toBe("manual");
+  });
+
+  test("applies a pending handoff via three-way merge when the repo has diverged cleanly", async () => {
+    await createPendingMergeHandoff("session-merge-clean", async () => {
+      await writeFile(join(repoPath, "other.txt"), "other change\n");
+      runGitIn(repoPath, ["add", "other.txt"]);
+      runGitIn(repoPath, ["commit", "-m", "other change"]);
+    });
+
+    const applied = await applyPendingHandoff(storageRoot, repoPath, "session-merge-clean", {
+      merge: true,
+    });
+
+    expect(applied.sessionId).toBe("session-merge-clean");
+    expect(await Bun.file(join(repoPath, "app.txt")).text()).toBe("fixed draft\n");
+    expect(await readPendingHandoff(storageRoot, repoPath, "session-merge-clean")).toBeNull();
+    const archived = await listProjectArchivedHandoffs(storageRoot, repoPath);
+    expect(archived).toHaveLength(1);
+    expect(archived[0]?.sessionId).toBe("session-merge-clean");
+    expect(archived[0]?.appliedVia).toBe("manual");
+    expect(archived[0]?.applyMode).toBe("merge");
+  });
+
+  test("rejects three-way merge apply when the repo has uncommitted changes", async () => {
+    await createPendingMergeHandoff("session-merge-dirty");
+    await writeFile(join(repoPath, "notes.txt"), "dirty working tree\n");
+
+    await expect(
+      applyPendingHandoff(storageRoot, repoPath, "session-merge-dirty", {
+        merge: true,
+      })
+    ).rejects.toThrow("requires a clean working tree");
+
+    const pending = await readPendingHandoff(storageRoot, repoPath, "session-merge-dirty");
+    expect(pending?.state).toBe("pending-apply");
+  });
+
+  test("persists a merge-conflicted handoff when three-way merge hits conflicts", async () => {
+    await createPendingMergeHandoff("session-merge-conflict", async () => {
+      await writeFile(join(repoPath, "app.txt"), "user changed after start\n");
+      runGitIn(repoPath, ["add", "app.txt"]);
+      runGitIn(repoPath, ["commit", "-m", "user change"]);
+    });
+
+    await expect(
+      applyPendingHandoff(storageRoot, repoPath, "session-merge-conflict", {
+        merge: true,
+      })
+    ).rejects.toThrow("Resolve or abort the Git conflict");
+
+    const pending = await readPendingHandoff(storageRoot, repoPath, "session-merge-conflict");
+    expect(pending?.state).toBe("merge-conflicted");
+    if (pending?.state === "merge-conflicted") {
+      expect(pending.mergeStartFingerprint).toBeString();
+      expect(pending.mergeStartedAt).toBeNumber();
+    }
+    expect(await Bun.file(join(repoPath, "app.txt")).text()).toContain("<<<<<<<");
+    expect(runGitResult(repoPath, ["ls-files", "--unmerged"]).stdout).toContain("app.txt");
+  });
+
+  test("auto-archives a merge-conflicted handoff after manual conflict resolution", async () => {
+    await createPendingMergeHandoff("session-merge-resolved", async () => {
+      await writeFile(join(repoPath, "app.txt"), "user changed after start\n");
+      runGitIn(repoPath, ["add", "app.txt"]);
+      runGitIn(repoPath, ["commit", "-m", "user change"]);
+    });
+
+    await expect(
+      applyPendingHandoff(storageRoot, repoPath, "session-merge-resolved", {
+        merge: true,
+      })
+    ).rejects.toThrow("Resolve or abort the Git conflict");
+
+    await writeFile(join(repoPath, "app.txt"), "resolved draft\n");
+    runGitIn(repoPath, ["add", "app.txt"]);
+
+    const pending = await readPendingHandoff(storageRoot, repoPath, "session-merge-resolved");
+    expect(pending).toBeNull();
+
+    const archived = await listProjectArchivedHandoffs(storageRoot, repoPath);
+    expect(archived).toHaveLength(1);
+    expect(archived[0]?.sessionId).toBe("session-merge-resolved");
+    expect(archived[0]?.applyMode).toBe("merge");
+    expect(archived[0]?.appliedFingerprint).toBe(computeWorkingTreeFingerprint(repoPath));
+  });
+
+  test("restores a merge-conflicted handoff to pending after the user aborts the merge", async () => {
+    await createPendingMergeHandoff("session-merge-aborted", async () => {
+      await writeFile(join(repoPath, "app.txt"), "user changed after start\n");
+      runGitIn(repoPath, ["add", "app.txt"]);
+      runGitIn(repoPath, ["commit", "-m", "user change"]);
+    });
+
+    await expect(
+      applyPendingHandoff(storageRoot, repoPath, "session-merge-aborted", {
+        merge: true,
+      })
+    ).rejects.toThrow("Resolve or abort the Git conflict");
+
+    runGitIn(repoPath, ["reset", "--hard", "HEAD"]);
+
+    const pending = await readPendingHandoff(storageRoot, repoPath, "session-merge-aborted");
+    expect(pending?.state).toBe("pending-apply");
+    expect(await listProjectArchivedHandoffs(storageRoot, repoPath)).toEqual([]);
   });
 
   test("discards a pending handoff without changing the source repo", async () => {
