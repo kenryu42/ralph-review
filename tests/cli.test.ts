@@ -124,6 +124,8 @@ describe("cli", () => {
       const optionNames = runCmd?.options?.map((o) => o.name) ?? [];
       expect(optionNames).toContain("max");
       expect(optionNames).toContain("force");
+      expect(optionNames).toContain("auto");
+      expect(optionNames).toContain("priority");
       expect(optionNames).toContain("base");
       expect(optionNames).toContain("uncommitted");
       expect(optionNames).toContain("commit");

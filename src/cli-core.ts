@@ -75,6 +75,17 @@ export const COMMANDS: CommandDef[] = [
         description: "Run full max iterations even if no issues are found",
       },
       {
+        name: "auto",
+        type: "boolean",
+        description: "Automatically run remediation after review completes",
+      },
+      {
+        name: "priority",
+        type: "string",
+        placeholder: "P0,P1",
+        description: "Priority filter for --auto using comma-separated values",
+      },
+      {
         name: "base",
         type: "string",
         placeholder: "BRANCH",
@@ -111,8 +122,9 @@ export const COMMANDS: CommandDef[] = [
     examples: [
       "rr run",
       "rr run --base main",
+      "rr run --auto --priority P0,P1",
       'rr run --base main "focus on security"',
-      "rr fix --session session-123 --all",
+      "rr fix --session session-123 --priority P0,P1",
     ],
   },
   {
@@ -145,7 +157,7 @@ export const COMMANDS: CommandDef[] = [
     ],
     examples: [
       "rr fix --session session-123 --all",
-      "rr fix --session session-123 --priority P0 --priority P1",
+      "rr fix --session session-123 --priority P0,P1",
       "rr fix --session session-123 --id F001 --id F003",
     ],
   },
@@ -332,6 +344,17 @@ export const COMMANDS: CommandDef[] = [
         alias: "f",
         type: "boolean",
         description: "Run full max iterations even if no issues are found",
+      },
+      {
+        name: "auto",
+        type: "boolean",
+        description: "Automatically run remediation after review completes",
+      },
+      {
+        name: "priority",
+        type: "string",
+        placeholder: "P0,P1",
+        description: "Priority filter for --auto using comma-separated values",
       },
     ],
   },
