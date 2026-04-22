@@ -1,4 +1,9 @@
-export type HandoffStatus = "applied-auto" | "pending-apply" | "applied-manual" | "discarded";
+export type HandoffStatus =
+  | "applied-auto"
+  | "pending-apply"
+  | "merge-conflicted"
+  | "applied-manual"
+  | "discarded";
 
 export interface PendingHandoffArtifact {
   sessionId: string;
@@ -9,9 +14,11 @@ export interface PendingHandoffArtifact {
   patchPath: string;
   sourceBaselineFingerprint: string;
   commitSha: string;
-  state: "pending-apply";
+  state: "pending-apply" | "merge-conflicted";
   createdAt: number;
   updatedAt: number;
+  mergeStartedAt?: number;
+  mergeStartFingerprint?: string;
 }
 
 export interface ArchivedAppliedHandoffArtifact {
@@ -24,6 +31,7 @@ export interface ArchivedAppliedHandoffArtifact {
   appliedFingerprint: string;
   commitSha: string;
   appliedVia: "auto" | "manual";
+  applyMode?: "patch" | "merge";
   state: "archived-applied";
   createdAt: number;
   appliedAt: number;
