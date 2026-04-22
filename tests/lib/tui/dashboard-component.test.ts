@@ -12,6 +12,7 @@ import { createConfig } from "../../helpers/diagnostics";
 interface SpawnResult {
   exitCode: number;
   stderr?: string;
+  stdout?: string;
 }
 
 interface DashboardHarnessOptions {
@@ -90,7 +91,7 @@ function createWorkspaceState(overrides: Partial<WorkspaceState> = {}): Workspac
   };
 }
 
-function createStderrStream(text: string): ReadableStream<Uint8Array> {
+function createTextStream(text: string): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder();
 
   return new ReadableStream({
@@ -118,7 +119,8 @@ async function mountDashboardHarness(options: DashboardHarnessOptions = {}) {
 
     return {
       exited: Promise.resolve(options.spawnResult?.exitCode ?? 0),
-      stderr: createStderrStream(options.spawnResult?.stderr ?? ""),
+      stdout: createTextStream(options.spawnResult?.stdout ?? ""),
+      stderr: createTextStream(options.spawnResult?.stderr ?? ""),
     };
   }) as typeof Bun.spawn;
 
@@ -381,6 +383,25 @@ describe("Dashboard component", () => {
       const errorFrame = await harness.press("\r", 4);
       expect(harness.spawnCalls).toHaveLength(1);
       expect(errorFrame).toContain("Error: spawn failed");
+    } finally {
+      await harness.destroy();
+    }
+  });
+
+  test("falls back to stdout when a failed spawn has no stderr output", async () => {
+    const harness = await mountDashboardHarness({
+      spawnResult: {
+        exitCode: 1,
+        stdout: "Findings artifact not found for session session-123",
+      },
+    });
+
+    try {
+      const overlayFrame = await harness.press("r");
+      expect(overlayFrame).toContain("review overlay");
+
+      const errorFrame = await harness.press("\r", 4);
+      expect(errorFrame).toContain("Error: Findings artifact not found for session session-123");
     } finally {
       await harness.destroy();
     }

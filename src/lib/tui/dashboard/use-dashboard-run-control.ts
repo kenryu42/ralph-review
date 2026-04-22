@@ -43,7 +43,7 @@ export function useDashboardRunControl(projectPath: string): DashboardRunControl
         const subprocess = Bun.spawn([process.execPath, CLI_PATH, command, ...argv], {
           cwd: projectPath,
           stdin: "ignore",
-          stdout: "ignore",
+          stdout: "pipe",
           stderr: "pipe",
         });
 
@@ -52,9 +52,14 @@ export function useDashboardRunControl(projectPath: string): DashboardRunControl
             isStartupSpawningRef.current = false;
 
             if (exitCode !== 0) {
-              const stderr = await new Response(subprocess.stderr).text();
+              const [stderr, stdout] = await Promise.all([
+                subprocess.stderr ? new Response(subprocess.stderr).text() : Promise.resolve(""),
+                subprocess.stdout ? new Response(subprocess.stdout).text() : Promise.resolve(""),
+              ]);
               setStartupMode(null);
-              setRunError(stderr.trim() || `Command failed with exit code ${exitCode}`);
+              setRunError(
+                stderr.trim() || stdout.trim() || `Command failed with exit code ${exitCode}`
+              );
             }
           })
           .catch((error) => {
