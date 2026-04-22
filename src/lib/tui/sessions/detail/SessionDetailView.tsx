@@ -59,6 +59,30 @@ interface SessionDetailViewProps {
 
 type BoxHeight = number | "auto" | `${number}%`;
 
+const METADATA_LABEL_WIDTH = 12;
+const METADATA_VALUE_INDENT = METADATA_LABEL_WIDTH + 1;
+
+function KeyValueRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <box flexDirection="row" gap={1}>
+      <box width={METADATA_LABEL_WIDTH} flexShrink={0}>
+        <text fg={TUI_COLORS.text.muted}>{label}</text>
+      </box>
+      <box flexDirection="row" gap={1} flexGrow={1} minWidth={0}>
+        {children}
+      </box>
+    </box>
+  );
+}
+
+function MetadataDivider() {
+  return (
+    <text fg={TUI_COLORS.text.dim} wrapMode="none">
+      {"─".repeat(40)}
+    </text>
+  );
+}
+
 function getStatusDisplay(
   status: string,
   currentAgent: AgentRole | null,
@@ -251,66 +275,61 @@ export function SessionDetailView({
   const workflowRegressionFindings = auditRegressionFindings;
   const batchDisplayFindings =
     inventoryFindings.length > 0 ? inventoryFindings.map(storedFindingToFinding) : displayFindings;
-  const workflowLine = [session.currentPhase, session.sessionStatus, session.reviewOutcome]
-    .filter(Boolean)
-    .join(" · ");
 
   const sessionIdentity = formatSessionIdentityDisplay(session, activeSessionCount);
 
   return (
     <box flexDirection="column" flexGrow={1} minHeight={0}>
-      <box flexDirection="row" gap={1}>
-        <text fg={TUI_COLORS.text.muted}>Status:</text>
-        {isStopping ? (
-          <>
-            <Spinner color={TUI_COLORS.status.warning} />
-            <text fg={TUI_COLORS.status.warning}>
-              <strong>Stopping review...</strong>
+      <box flexDirection="column" gap={1}>
+        <KeyValueRow label="Status">
+          {isStopping ? (
+            <>
+              <Spinner color={TUI_COLORS.status.warning} />
+              <text fg={TUI_COLORS.status.warning}>
+                <strong>Stopping review...</strong>
+              </text>
+            </>
+          ) : (
+            <>
+              {(session.state === "running" || session.state === "pending") && (
+                <Spinner color={statusDisplay.color} />
+              )}
+              <text fg={statusDisplay.color}>
+                <strong>{statusDisplay.text}</strong>
+              </text>
+            </>
+          )}
+        </KeyValueRow>
+
+        <KeyValueRow label="Review Type">
+          <text fg={TUI_COLORS.text.primary} wrapMode="none">
+            {toSingleLine(formatReviewType(reviewOptions))}
+          </text>
+        </KeyValueRow>
+
+        <box flexDirection="column">
+          <KeyValueRow label="Session">
+            <text fg={TUI_COLORS.text.primary} wrapMode="none">
+              {sessionIdentity.primary}
             </text>
-          </>
-        ) : (
-          <>
-            {(session.state === "running" || session.state === "pending") && (
-              <Spinner color={statusDisplay.color} />
-            )}
-            <text fg={statusDisplay.color}>
-              <strong>{statusDisplay.text}</strong>
-            </text>
-          </>
-        )}
+          </KeyValueRow>
+          {sessionIdentity.details.map((detail) => (
+            <box key={detail} paddingLeft={METADATA_VALUE_INDENT}>
+              <text fg={TUI_COLORS.text.dim} wrapMode="none">
+                {detail}
+              </text>
+            </box>
+          ))}
+        </box>
       </box>
 
-      <box flexDirection="row" gap={1}>
-        <text fg={TUI_COLORS.text.muted}>Review Type:</text>
-        <text fg={TUI_COLORS.text.primary} wrapMode="none">
-          {toSingleLine(formatReviewType(reviewOptions))}
-        </text>
-      </box>
-
-      {workflowLine && (
-        <box flexDirection="row" gap={1}>
-          <text fg={TUI_COLORS.text.muted}>Workflow:</text>
-          <text fg={TUI_COLORS.text.primary} wrapMode="none">
-            {workflowLine}
-          </text>
-        </box>
-      )}
-
-      <box flexDirection="column">
-        <box flexDirection="row" gap={1}>
-          <text fg={TUI_COLORS.text.muted}>Session:</text>
-          <text fg={TUI_COLORS.text.primary} wrapMode="none">
-            {sessionIdentity.primary}
-          </text>
-        </box>
-        {sessionIdentity.details.map((detail) => (
-          <text key={detail} fg={TUI_COLORS.text.dim} paddingLeft={2} wrapMode="none">
-            {detail}
-          </text>
-        ))}
+      <box paddingTop={1} paddingBottom={1}>
+        <MetadataDivider />
       </box>
 
       <ProgressBar current={iteration} max={maxIterations} />
+
+      <box paddingTop={1} />
 
       {batchFirstMode ? (
         <>

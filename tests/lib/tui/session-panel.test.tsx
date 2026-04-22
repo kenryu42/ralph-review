@@ -456,9 +456,9 @@ describe("DetailPane", () => {
     });
 
     expect(frame).toContain("running reviewer agent");
-    expect(frame).toContain("Review Type:");
+    expect(frame).toContain("Review Type");
     expect(frame).toContain("base (main)");
-    expect(frame).toContain("Session:");
+    expect(frame).toContain("Session");
     expect(frame).toContain("rr-test-123");
     expect(frame).toContain("rr-worktree-session-2");
     expect(frame).toContain("2 active sessions");
@@ -578,10 +578,7 @@ describe("DetailPane", () => {
       ],
     });
 
-    expect(frame).toContain("Workflow:");
-    expect(frame).toContain("complete");
-    expect(frame).toContain("completed");
-    expect(frame).toContain("incomplete");
+    expect(frame).not.toContain("Workflow:");
     expect(frame).toContain("Findings inventory");
     expect(frame).toContain("Guard missing config");
     expect(frame).toContain("Selected findings");
@@ -620,10 +617,10 @@ describe("DetailPane", () => {
       fixes: [buildFixEntry()],
       skipped: [buildSkippedEntry()],
       activeSessionCount: 2,
-      height: 20,
+      height: 22,
     });
 
-    expect(frame).toContain("Session:");
+    expect(frame).toContain("Session");
     expect(frame).toContain("Issues found");
     expect(frame).toContain("Fix applied");
     expect(frame).toContain("Skipped");
