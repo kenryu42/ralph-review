@@ -291,6 +291,30 @@ async function hasSessionWorktree(
   return entries.some((entry) => entry.startsWith(sessionId));
 }
 
+function extractSessionIdFromWorktreeEntry(entry: string): string | undefined {
+  const match = /^(.*)-\d{13}-[0-9a-f]{8}$/u.exec(entry);
+  const sessionId = match?.[1];
+  return sessionId && sessionId.length > 0 ? sessionId : undefined;
+}
+
+async function listSessionIdsFromWorktrees(
+  storageRoot: string,
+  projectPath: string
+): Promise<Set<string>> {
+  const worktreesDir = getProjectWorktreesDir(storageRoot, projectPath);
+  const entries = await readdir(worktreesDir).catch(() => []);
+  const sessionIds = new Set<string>();
+
+  for (const entry of entries) {
+    const sessionId = extractSessionIdFromWorktreeEntry(entry);
+    if (sessionId) {
+      sessionIds.add(sessionId);
+    }
+  }
+
+  return sessionIds;
+}
+
 function pickTimestamp(candidate: {
   artifact?: StoredArtifactSummary;
   pendingUpdatedAt?: number;
@@ -318,12 +342,14 @@ async function collectPruneCandidatesForProject(
   const pendingHandoffs = await deps.listProjectPendingHandoffs(storageRoot, projectPath);
   const archivedHandoffs = await deps.listProjectArchivedHandoffs(storageRoot, projectPath);
   const refsBySession = await listProjectSessionRefs(projectPath);
+  const worktreeSessionIds = await listSessionIdsFromWorktrees(storageRoot, projectPath);
 
   const sessionIds = new Set<string>([
     ...artifactsById.keys(),
     ...pendingHandoffs.map((handoff) => handoff.sessionId),
     ...archivedHandoffs.map((handoff) => handoff.sessionId),
     ...refsBySession.keys(),
+    ...worktreeSessionIds,
   ]);
 
   const candidates: PruneCandidate[] = [];

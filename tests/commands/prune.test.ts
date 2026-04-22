@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { getCommandDef } from "@/cli";
 import { runPrune } from "@/commands/prune";
 import { parseCommand } from "@/lib/cli-parser";
+import { getProjectWorktreesDir } from "@/lib/logger";
 import {
   getFindingsArtifactPath,
   saveFindingsArtifact,
@@ -343,6 +344,39 @@ describe("prune command", () => {
     expect(await Bun.file(artifact.logPath).exists()).toBe(false);
     expect(await Bun.file(archived.metadataPath).exists()).toBe(false);
     expect(await Bun.file(archived.patchPath).exists()).toBe(false);
+  });
+
+  test("force session apply prunes orphaned worktree-only sessions", async () => {
+    const sessionId = "session-orphan";
+    const worktreesDir = getProjectWorktreesDir(storageRoot, repoPath);
+    const worktreeEntry = `${sessionId}-1700000000000-deadbeef`;
+    const orphanWorktreeDir = join(worktreesDir, worktreeEntry);
+    await Bun.write(join(orphanWorktreeDir, ".keep"), "orphan\n", { createPath: true });
+
+    const errors: string[] = [];
+    const exits: number[] = [];
+    const successes: string[] = [];
+
+    await runPrune(["--session", sessionId, "--force", "--apply"], {
+      getCommandDef,
+      parseCommand,
+      cwd: () => repoPath,
+      storageRoot,
+      listProjectPendingHandoffs: listPendingFromStorage,
+      listProjectArchivedHandoffs: listArchivedFromStorage,
+      logInfo: () => {},
+      logSuccess: (message) => successes.push(message),
+      logWarn: () => {},
+      logError: (message) => errors.push(message),
+      exit: (code) => exits.push(code),
+      now: () => 1_800_000_000_000,
+    });
+
+    const remainingEntries = await readdir(worktreesDir).catch(() => []);
+    expect(remainingEntries.some((entry) => entry.startsWith(sessionId))).toBe(false);
+    expect(errors).toEqual([]);
+    expect(exits).toEqual([]);
+    expect(successes.at(-1)).toContain("Pruned 1 review session");
   });
 
   test("all-projects skips missing project directories instead of aborting", async () => {
