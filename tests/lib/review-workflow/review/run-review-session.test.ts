@@ -131,6 +131,51 @@ function createDependencies(overrides: {
 }
 
 describe("review-workflow/review/runReviewSession", () => {
+  test("generates unique fallback session ids when runtime context omits sessionId", async () => {
+    const createdWorktreeIds: string[] = [];
+    const baseDeps = createDependencies({
+      runAgent: async () => ({
+        success: true,
+        output: "",
+        exitCode: 0,
+        duration: 1,
+      }),
+    });
+    const deps: RunReviewSessionDependencies = {
+      ...baseDeps,
+      createSessionWorktree: (projectPath, worktreeId, storageRoot) => {
+        createdWorktreeIds.push(worktreeId);
+        return baseDeps.createSessionWorktree(projectPath, worktreeId, storageRoot);
+      },
+    };
+
+    await runReviewSession(
+      createConfig(),
+      undefined,
+      {
+        projectPath: "/repo/project",
+        sessionPath: "/tmp/session-123.jsonl",
+      },
+      () => false,
+      deps
+    );
+    await runReviewSession(
+      createConfig(),
+      undefined,
+      {
+        projectPath: "/repo/project",
+        sessionPath: "/tmp/session-123.jsonl",
+      },
+      () => false,
+      deps
+    );
+
+    expect(createdWorktreeIds).toHaveLength(2);
+    expect(createdWorktreeIds[0]).not.toBe("session");
+    expect(createdWorktreeIds[1]).not.toBe("session");
+    expect(createdWorktreeIds[0]).not.toBe(createdWorktreeIds[1]);
+  });
+
   test("classifies exit code 130 as interrupted even without parent SIGINT", async () => {
     const deps = createDependencies({
       runAgent: async () => ({

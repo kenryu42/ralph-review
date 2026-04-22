@@ -22,7 +22,7 @@ import {
 } from "@/lib/review-workflow/review/prompt";
 import { runReviewPhase } from "@/lib/review-workflow/review/run-review-phase";
 import type { ReviewSessionResult } from "@/lib/review-workflow/review/types";
-import { type SessionState, updateSessionState } from "@/lib/session";
+import { createSessionId, type SessionState, updateSessionState } from "@/lib/session";
 import { parseReviewSummaryOutput } from "@/lib/structured-output";
 import type {
   Config,
@@ -311,7 +311,7 @@ export async function runReviewSession(
   result: ReviewSessionResult;
 }> {
   const projectPath = runtimeContext?.projectPath ?? process.cwd();
-  const sessionId = runtimeContext?.sessionId ?? "session";
+  const sessionId = runtimeContext?.sessionId ?? createSessionId();
   const gitBranch = await deps.getGitBranch(projectPath);
   const sessionPath =
     runtimeContext?.sessionPath ?? (await deps.createLogSession(undefined, projectPath, gitBranch));

@@ -162,7 +162,6 @@ async function runStopWithHarness(
 
   mock.module("@/lib/session-state", () => ({
     ...actualSessionState,
-    createSessionId: () => "mock-session-id",
     listAllActiveSessions: async () => activeSessions,
     listProjectActiveSessions: async (_logsDir: string | undefined, projectPath: string) => {
       listProjectActiveSessionsCalls.push(projectPath);
