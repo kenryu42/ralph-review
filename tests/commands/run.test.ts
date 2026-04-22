@@ -1460,6 +1460,28 @@ describe("run command", () => {
       });
     });
 
+    test("guides the user to rr fix when a failed review preserved findings", async () => {
+      const harness = createRunHarness({
+        env: {
+          RR_SESSION_ID: "session-123",
+        },
+        runReviewCycleResult: createCycleResult({
+          success: false,
+          finalStatus: "failed",
+          sessionStatus: "failed",
+          reviewOutcome: "findings-pending",
+          reason: "Review failed after progress. Findings were preserved for remediation.",
+        }),
+      });
+
+      await runForeground([], harness.overrides);
+
+      expect(harness.notes).toContainEqual({
+        title: "Next Step",
+        message: "Fix selected findings with:\nrr fix --session session-123",
+      });
+    });
+
     test("stores workflow phase and status in session state when review finishes", async () => {
       const harness = createRunHarness({
         runReviewCycleResult: createCycleResult({

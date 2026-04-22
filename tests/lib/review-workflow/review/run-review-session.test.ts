@@ -23,11 +23,41 @@ function createConfig(overrides: Partial<Config> = {}): Config {
   };
 }
 
+function createReviewFinding(
+  overrides: Partial<ReviewSummary["findings"][number]> = {}
+): ReviewSummary["findings"][number] {
+  return {
+    title: "Guard missing config",
+    body: "A null check is missing before dereference.",
+    confidence_score: 0.97,
+    priority: 1,
+    code_location: {
+      absolute_file_path: "/repo/project/src/file.ts",
+      line_range: {
+        start: 10,
+        end: 12,
+      },
+    },
+    ...overrides,
+  };
+}
+
+function createReviewSummary(findings: ReviewSummary["findings"] = []): ReviewSummary {
+  return {
+    findings,
+    overall_correctness: "patch is incorrect",
+    overall_explanation: "Actionable findings remain.",
+    overall_confidence_score: 0.91,
+  };
+}
+
 function createDependencies(overrides: {
   runAgent: RunReviewSessionDependencies["runAgent"];
   createReviewerPrompt?: RunReviewSessionDependencies["createReviewerPrompt"];
   computeWorkingTreeFingerprintAsync?: RunReviewSessionDependencies["computeWorkingTreeFingerprintAsync"];
   parseReviewSummaryOutput?: RunReviewSessionDependencies["parseReviewSummaryOutput"];
+  deleteSessionRefs?: RunReviewSessionDependencies["deleteSessionRefs"];
+  saveFindingsArtifact?: RunReviewSessionDependencies["saveFindingsArtifact"];
 }): RunReviewSessionDependencies {
   const emptySummary: ReviewSummary = {
     findings: [],
@@ -78,7 +108,7 @@ function createDependencies(overrides: {
       sourceBaselineRef: "refs/ralph-review/sessions/session-123/source",
       sourceBaselineFingerprint: "baseline-fingerprint",
     }),
-    deleteSessionRefs: () => {},
+    deleteSessionRefs: overrides.deleteSessionRefs ?? (() => {}),
     discardCheckpoint: () => {},
     discardSessionWorktree: () => {},
     rollbackToCheckpoint: () => {},
@@ -95,7 +125,8 @@ function createDependencies(overrides: {
         usedRepair: false,
         failureReason: null,
       })),
-    saveFindingsArtifact: async (_storageRoot, artifact) => artifact,
+    saveFindingsArtifact:
+      overrides.saveFindingsArtifact ?? (async (_storageRoot, artifact) => artifact),
   };
 }
 
@@ -128,6 +159,149 @@ describe("review-workflow/review/runReviewSession", () => {
   });
 
   test("preserves completed iteration count when review phase errors after progress", async () => {
+    const savedArtifacts: Array<{ findings: unknown[] }> = [];
+    const deletedSessionRefs: string[] = [];
+    const deps = createDependencies({
+      runAgent: async () => ({
+        success: true,
+        output: "structured output",
+        exitCode: 0,
+        duration: 1,
+      }),
+      parseReviewSummaryOutput: () => ({
+        ok: true,
+        value: createReviewSummary([createReviewFinding()]),
+        source: "legacy-direct",
+        usedRepair: false,
+        failureReason: null,
+      }),
+      computeWorkingTreeFingerprintAsync: async () => "mismatched-fingerprint",
+      deleteSessionRefs: (_repoPath, sessionId) => {
+        deletedSessionRefs.push(sessionId);
+      },
+      saveFindingsArtifact: async (_storageRoot, artifact) => {
+        savedArtifacts.push({ findings: artifact.findings });
+        return artifact;
+      },
+    });
+
+    const result = await runReviewSession(
+      createConfig(),
+      undefined,
+      {
+        projectPath: "/repo/project",
+        sessionId: "session-123",
+        sessionPath: "/tmp/session-123.jsonl",
+      },
+      () => false,
+      deps
+    );
+
+    expect(result.result.sessionStatus).toBe("failed");
+    expect(result.result.reviewOutcome).toBe("findings-pending");
+    expect(result.result.iterations).toBe(1);
+    expect(result.result.reason).toContain("Findings were preserved");
+    expect(result.result.findings).toEqual([
+      expect.objectContaining({
+        id: "F001",
+        filePath: "src/file.ts",
+      }),
+    ]);
+    expect(result.result.artifact).toMatchObject({
+      sessionId: "session-123",
+      findings: [
+        expect.objectContaining({
+          id: "F001",
+          filePath: "src/file.ts",
+        }),
+      ],
+    });
+    expect(savedArtifacts).toHaveLength(1);
+    expect(savedArtifacts[0]?.findings).toMatchObject([
+      {
+        id: "F001",
+        filePath: "src/file.ts",
+      },
+    ]);
+    expect(deletedSessionRefs).toEqual([]);
+  });
+
+  test("preserves findings artifact when an interrupted reviewer run happens after progress", async () => {
+    const savedArtifacts: Array<{ findings: unknown[] }> = [];
+    const deletedSessionRefs: string[] = [];
+    let runAgentCalls = 0;
+    const deps = createDependencies({
+      runAgent: async () => {
+        runAgentCalls += 1;
+
+        if (runAgentCalls === 1) {
+          return {
+            success: true,
+            output: "structured output",
+            exitCode: 0,
+            duration: 1,
+          };
+        }
+
+        return {
+          success: false,
+          output: "",
+          exitCode: 130,
+          duration: 1,
+        };
+      },
+      parseReviewSummaryOutput: () => ({
+        ok: true,
+        value: createReviewSummary([createReviewFinding()]),
+        source: "legacy-direct",
+        usedRepair: false,
+        failureReason: null,
+      }),
+      deleteSessionRefs: (_repoPath, sessionId) => {
+        deletedSessionRefs.push(sessionId);
+      },
+      saveFindingsArtifact: async (_storageRoot, artifact) => {
+        savedArtifacts.push({ findings: artifact.findings });
+        return artifact;
+      },
+    });
+
+    const result = await runReviewSession(
+      createConfig(),
+      undefined,
+      {
+        projectPath: "/repo/project",
+        sessionId: "session-123",
+        sessionPath: "/tmp/session-123.jsonl",
+      },
+      () => false,
+      deps
+    );
+
+    expect(result.result.sessionStatus).toBe("interrupted");
+    expect(result.result.reviewOutcome).toBe("findings-pending");
+    expect(result.result.iterations).toBe(1);
+    expect(result.result.reason).toContain("Findings were preserved");
+    expect(result.result.artifact).toMatchObject({
+      sessionId: "session-123",
+      findings: [
+        expect.objectContaining({
+          id: "F001",
+          filePath: "src/file.ts",
+        }),
+      ],
+    });
+    expect(savedArtifacts).toHaveLength(1);
+    expect(savedArtifacts[0]?.findings).toMatchObject([
+      {
+        id: "F001",
+        filePath: "src/file.ts",
+      },
+    ]);
+    expect(deletedSessionRefs).toEqual([]);
+  });
+
+  test("keeps failed sessions incomplete when no findings were preserved", async () => {
     const deps = createDependencies({
       runAgent: async () => ({
         success: true,
@@ -153,6 +327,8 @@ describe("review-workflow/review/runReviewSession", () => {
     expect(result.result.sessionStatus).toBe("failed");
     expect(result.result.reviewOutcome).toBe("incomplete");
     expect(result.result.iterations).toBe(1);
+    expect(result.result.findings).toEqual([]);
+    expect(result.result.artifact).toBeUndefined();
   });
 
   test("builds codex reviewer runs from generated prompt without default review markdown", async () => {

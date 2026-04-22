@@ -79,6 +79,11 @@ export const DEFAULT_RUN_REVIEW_SESSION_DEPENDENCIES: RunReviewSessionDependenci
   saveFindingsArtifact,
 };
 
+function formatReviewFailureReason(error: unknown, interrupted: boolean): string {
+  const details = error instanceof Error ? error.message : String(error);
+  return interrupted ? `Review was interrupted: ${details}` : `Review failed: ${details}`;
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -314,6 +319,17 @@ export async function runReviewSession(
   let worktree: ReturnType<RunReviewSessionDependencies["createSessionWorktree"]> | null = null;
   let shouldDeleteSessionRefs = true;
   let completedReviewIterations = 0;
+  let latestPersistedFindings: StoredFinding[] = [];
+  let artifactPath: string | undefined;
+
+  const appendReviewLog: RunReviewSessionDependencies["appendLog"] = async (logPath, entry) => {
+    await deps.appendLog(logPath, entry);
+
+    if (entry.type === "review_iteration") {
+      latestPersistedFindings = entry.findings;
+      completedReviewIterations = entry.iteration;
+    }
+  };
 
   try {
     await updateReviewSessionState(deps, projectPath, runtimeContext?.sessionId, {
@@ -349,7 +365,7 @@ export async function runReviewSession(
       maxIterations: config.maxIterations,
       reviewOptions,
     };
-    await deps.appendLog(sessionPath, systemEntry);
+    await appendReviewLog(sessionPath, systemEntry);
 
     const reviewerBaselineCommitSha = worktree.baselineCommitSha;
     const reviewerBaselineFingerprint = worktree.sourceBaselineFingerprint;
@@ -358,7 +374,7 @@ export async function runReviewSession(
       throw new Error("Review baseline metadata is incomplete.");
     }
 
-    const artifactPath = getFindingsArtifactPath(CONFIG_DIR, projectPath, sessionId);
+    artifactPath = getFindingsArtifactPath(CONFIG_DIR, projectPath, sessionId);
 
     await updateReviewSessionState(deps, projectPath, runtimeContext?.sessionId, {
       currentPhase: "review",
@@ -381,7 +397,7 @@ export async function runReviewSession(
       sessionPath,
       reviewerWorktreePath: reviewerCwd,
       baselineFingerprint: reviewerBaselineFingerprint,
-      appendLog: deps.appendLog,
+      appendLog: appendReviewLog,
       updateSessionState: deps.updateSessionState,
       computeWorkingTreeFingerprint: deps.computeWorkingTreeFingerprintAsync,
       wasInterrupted,
@@ -396,7 +412,6 @@ export async function runReviewSession(
           knownFindings,
           wasInterrupted
         );
-        completedReviewIterations = iteration;
 
         return {
           findings: reviewerResult.summary.findings,
@@ -472,24 +487,57 @@ export async function runReviewSession(
     };
   } catch (error) {
     const interrupted = wasInterrupted() || isReviewerInterruptedError(error);
+    const sessionStatus = interrupted ? "interrupted" : "failed";
+    let reviewOutcome: ReviewSessionResult["reviewOutcome"] = "incomplete";
+    let findings: StoredFinding[] = [];
+    let preservedArtifact: FindingsArtifact | undefined;
+    let reason = formatReviewFailureReason(error, interrupted);
+
+    if (worktree && latestPersistedFindings.length > 0) {
+      try {
+        preservedArtifact = await deps.saveFindingsArtifact(
+          CONFIG_DIR,
+          createFindingsArtifact(
+            sessionId,
+            projectPath,
+            sessionPath,
+            worktree,
+            latestPersistedFindings
+          )
+        );
+        shouldDeleteSessionRefs = false;
+        reviewOutcome = "findings-pending";
+        findings = latestPersistedFindings;
+        reason = `${reason} Findings were preserved for remediation.`;
+      } catch (preserveError) {
+        const preserveDetails =
+          preserveError instanceof Error ? preserveError.message : String(preserveError);
+        reason = `${reason} Findings could not be preserved: ${preserveDetails}`;
+      }
+    }
+
     await updateReviewSessionState(deps, projectPath, runtimeContext?.sessionId, {
       currentPhase: "review",
       phase: "review",
-      sessionStatus: interrupted ? "interrupted" : "failed",
+      sessionStatus,
       currentAgent: null,
-      reviewOutcome: "incomplete",
+      artifactPath: preservedArtifact ? artifactPath : undefined,
+      accumulatedFindings: findings,
+      selectedFindingIds: [],
+      reviewOutcome,
     });
 
     return {
       sessionPath,
       result: {
         phase: "review",
-        sessionStatus: interrupted ? "interrupted" : "failed",
-        reviewOutcome: "incomplete",
-        reason:
-          error instanceof Error ? `Review failed: ${error.message}` : `Review failed: ${error}`,
+        sessionStatus,
+        reviewOutcome,
+        reason,
         iterations: completedReviewIterations,
-        findings: [],
+        findings,
+        artifact: preservedArtifact,
+        artifactPath: preservedArtifact ? artifactPath : undefined,
       },
     };
   } finally {
