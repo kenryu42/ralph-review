@@ -13,7 +13,7 @@ interface ApplyHarnessOptions {
 
 interface ApplyHarnessResult {
   listPendingCalls: string[];
-  applyCalls: Array<{ projectPath: string; sessionId: string; merge: boolean }>;
+  applyCalls: Array<{ projectPath: string; sessionId: string }>;
   appendCalls: Array<{ logPath: string; entry: Record<string, unknown> }>;
   infos: string[];
   errors: string[];
@@ -50,7 +50,7 @@ async function runApplyWithHarness(
 ): Promise<ApplyHarnessResult> {
   const handoffs = options.handoffs ?? [];
   const listPendingCalls: string[] = [];
-  const applyCalls: Array<{ projectPath: string; sessionId: string; merge: boolean }> = [];
+  const applyCalls: Array<{ projectPath: string; sessionId: string }> = [];
   const appendCalls: Array<{ logPath: string; entry: Record<string, unknown> }> = [];
   const infos: string[] = [];
   const errors: string[] = [];
@@ -80,10 +80,9 @@ async function runApplyWithHarness(
     applyPendingHandoff: async (
       _storageRoot: string | undefined,
       projectPath: string,
-      sessionId: string,
-      applyOptions?: { merge?: boolean }
+      sessionId: string
     ) => {
-      applyCalls.push({ projectPath, sessionId, merge: applyOptions?.merge === true });
+      applyCalls.push({ projectPath, sessionId });
       if (options.applyError) {
         throw options.applyError;
       }
@@ -224,7 +223,6 @@ describe("apply command", () => {
       {
         projectPath: process.cwd(),
         sessionId: "session-id",
-        merge: false,
       },
     ]);
     expect(result.steps).toEqual(["Applying handoff: session-id"]);
@@ -262,21 +260,6 @@ describe("apply command", () => {
       {
         projectPath: process.cwd(),
         sessionId: "session-alpha",
-        merge: false,
-      },
-    ]);
-  });
-
-  test("passes merge mode through to applyPendingHandoff when --merge is used", async () => {
-    const result = await runApplyWithHarness(["--merge"], {
-      handoffs: [createPendingHandoff()],
-    });
-
-    expect(result.applyCalls).toEqual([
-      {
-        projectPath: process.cwd(),
-        sessionId: "session-id",
-        merge: true,
       },
     ]);
   });

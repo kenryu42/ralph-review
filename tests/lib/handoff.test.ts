@@ -91,7 +91,7 @@ describe("handoff", () => {
     await rm(repoPath, { recursive: true, force: true });
   });
 
-  async function createPendingMergeHandoff(
+  async function createPendingDivergedHandoff(
     sessionId: string,
     mutateRepoAfterStart?: () => Promise<void>
   ): Promise<void> {
@@ -295,7 +295,7 @@ describe("handoff", () => {
     }
   });
 
-  test("applies a pending handoff only when the repo matches the captured fingerprint", async () => {
+  test("applies a pending handoff when the repo matches the captured fingerprint", async () => {
     await writeFile(join(repoPath, "app.txt"), "draft\n");
     const worktree = createSessionWorktree(repoPath, "session-manual", storageRoot);
 
@@ -313,10 +313,6 @@ describe("handoff", () => {
       discardSessionWorktree(worktree);
     }
 
-    await expect(applyPendingHandoff(storageRoot, repoPath, "session-manual")).rejects.toThrow(
-      "Current repository state no longer matches the saved review baseline."
-    );
-
     await writeFile(join(repoPath, "app.txt"), "draft\n");
     const applied = await applyPendingHandoff(storageRoot, repoPath, "session-manual");
     expect(applied.sessionId).toBe("session-manual");
@@ -328,106 +324,94 @@ describe("handoff", () => {
     expect(archived[0]?.appliedVia).toBe("manual");
   });
 
-  test("applies a pending handoff via three-way merge when the repo has diverged cleanly", async () => {
-    await createPendingMergeHandoff("session-merge-clean", async () => {
+  test("applies a pending handoff when the repo has diverged cleanly", async () => {
+    await createPendingDivergedHandoff("session-diverged-clean", async () => {
       await writeFile(join(repoPath, "other.txt"), "other change\n");
       runGitIn(repoPath, ["add", "other.txt"]);
       runGitIn(repoPath, ["commit", "-m", "other change"]);
     });
 
-    const applied = await applyPendingHandoff(storageRoot, repoPath, "session-merge-clean", {
-      merge: true,
-    });
+    const applied = await applyPendingHandoff(storageRoot, repoPath, "session-diverged-clean");
 
-    expect(applied.sessionId).toBe("session-merge-clean");
+    expect(applied.sessionId).toBe("session-diverged-clean");
     expect(await Bun.file(join(repoPath, "app.txt")).text()).toBe("fixed draft\n");
-    expect(await readPendingHandoff(storageRoot, repoPath, "session-merge-clean")).toBeNull();
+    expect(await readPendingHandoff(storageRoot, repoPath, "session-diverged-clean")).toBeNull();
     const archived = await listProjectArchivedHandoffs(storageRoot, repoPath);
     expect(archived).toHaveLength(1);
-    expect(archived[0]?.sessionId).toBe("session-merge-clean");
+    expect(archived[0]?.sessionId).toBe("session-diverged-clean");
     expect(archived[0]?.appliedVia).toBe("manual");
-    expect(archived[0]?.applyMode).toBe("merge");
   });
 
-  test("rejects three-way merge apply when the repo has uncommitted changes", async () => {
-    await createPendingMergeHandoff("session-merge-dirty");
+  test("rejects apply when the repo has uncommitted changes on a divergent handoff", async () => {
+    await createPendingDivergedHandoff("session-diverged-dirty");
     await writeFile(join(repoPath, "notes.txt"), "dirty working tree\n");
 
     await expect(
-      applyPendingHandoff(storageRoot, repoPath, "session-merge-dirty", {
-        merge: true,
-      })
+      applyPendingHandoff(storageRoot, repoPath, "session-diverged-dirty")
     ).rejects.toThrow("requires a clean working tree");
 
-    const pending = await readPendingHandoff(storageRoot, repoPath, "session-merge-dirty");
+    const pending = await readPendingHandoff(storageRoot, repoPath, "session-diverged-dirty");
     expect(pending?.state).toBe("pending-apply");
   });
 
-  test("persists a merge-conflicted handoff when three-way merge hits conflicts", async () => {
-    await createPendingMergeHandoff("session-merge-conflict", async () => {
+  test("persists an apply-conflicted handoff when apply hits conflicts", async () => {
+    await createPendingDivergedHandoff("session-diverged-conflict", async () => {
       await writeFile(join(repoPath, "app.txt"), "user changed after start\n");
       runGitIn(repoPath, ["add", "app.txt"]);
       runGitIn(repoPath, ["commit", "-m", "user change"]);
     });
 
     await expect(
-      applyPendingHandoff(storageRoot, repoPath, "session-merge-conflict", {
-        merge: true,
-      })
+      applyPendingHandoff(storageRoot, repoPath, "session-diverged-conflict")
     ).rejects.toThrow("Resolve or abort the Git conflict");
 
-    const pending = await readPendingHandoff(storageRoot, repoPath, "session-merge-conflict");
-    expect(pending?.state).toBe("merge-conflicted");
-    if (pending?.state === "merge-conflicted") {
-      expect(pending.mergeStartFingerprint).toBeString();
-      expect(pending.mergeStartedAt).toBeNumber();
+    const pending = await readPendingHandoff(storageRoot, repoPath, "session-diverged-conflict");
+    expect(pending?.state).toBe("apply-conflicted");
+    if (pending?.state === "apply-conflicted") {
+      expect(pending.applyStartFingerprint).toBeString();
+      expect(pending.applyStartedAt).toBeNumber();
     }
     expect(await Bun.file(join(repoPath, "app.txt")).text()).toContain("<<<<<<<");
     expect(runGitResult(repoPath, ["ls-files", "--unmerged"]).stdout).toContain("app.txt");
   });
 
-  test("auto-archives a merge-conflicted handoff after manual conflict resolution", async () => {
-    await createPendingMergeHandoff("session-merge-resolved", async () => {
+  test("auto-archives an apply-conflicted handoff after manual conflict resolution", async () => {
+    await createPendingDivergedHandoff("session-diverged-resolved", async () => {
       await writeFile(join(repoPath, "app.txt"), "user changed after start\n");
       runGitIn(repoPath, ["add", "app.txt"]);
       runGitIn(repoPath, ["commit", "-m", "user change"]);
     });
 
     await expect(
-      applyPendingHandoff(storageRoot, repoPath, "session-merge-resolved", {
-        merge: true,
-      })
+      applyPendingHandoff(storageRoot, repoPath, "session-diverged-resolved")
     ).rejects.toThrow("Resolve or abort the Git conflict");
 
     await writeFile(join(repoPath, "app.txt"), "resolved draft\n");
     runGitIn(repoPath, ["add", "app.txt"]);
 
-    const pending = await readPendingHandoff(storageRoot, repoPath, "session-merge-resolved");
+    const pending = await readPendingHandoff(storageRoot, repoPath, "session-diverged-resolved");
     expect(pending).toBeNull();
 
     const archived = await listProjectArchivedHandoffs(storageRoot, repoPath);
     expect(archived).toHaveLength(1);
-    expect(archived[0]?.sessionId).toBe("session-merge-resolved");
-    expect(archived[0]?.applyMode).toBe("merge");
+    expect(archived[0]?.sessionId).toBe("session-diverged-resolved");
     expect(archived[0]?.appliedFingerprint).toBe(computeWorkingTreeFingerprint(repoPath));
   });
 
-  test("restores a merge-conflicted handoff to pending after the user aborts the merge", async () => {
-    await createPendingMergeHandoff("session-merge-aborted", async () => {
+  test("restores an apply-conflicted handoff to pending after the user aborts the conflict", async () => {
+    await createPendingDivergedHandoff("session-diverged-aborted", async () => {
       await writeFile(join(repoPath, "app.txt"), "user changed after start\n");
       runGitIn(repoPath, ["add", "app.txt"]);
       runGitIn(repoPath, ["commit", "-m", "user change"]);
     });
 
     await expect(
-      applyPendingHandoff(storageRoot, repoPath, "session-merge-aborted", {
-        merge: true,
-      })
+      applyPendingHandoff(storageRoot, repoPath, "session-diverged-aborted")
     ).rejects.toThrow("Resolve or abort the Git conflict");
 
     runGitIn(repoPath, ["reset", "--hard", "HEAD"]);
 
-    const pending = await readPendingHandoff(storageRoot, repoPath, "session-merge-aborted");
+    const pending = await readPendingHandoff(storageRoot, repoPath, "session-diverged-aborted");
     expect(pending?.state).toBe("pending-apply");
     expect(await listProjectArchivedHandoffs(storageRoot, repoPath)).toEqual([]);
   });

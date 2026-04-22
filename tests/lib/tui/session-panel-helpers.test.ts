@@ -539,9 +539,9 @@ describe("SessionPanel helpers", () => {
       expect(formatHandoffSummary("discarded", "commit-sha-1")).toBe("Discarded · commit-sha-1");
     });
 
-    test("formats a concise summary for merge-conflicted handoffs", () => {
-      expect(formatHandoffSummary("merge-conflicted", "commit-sha-1")).toBe(
-        "Merge conflicted · commit-sha-1"
+    test("formats a concise summary for apply-conflicted handoffs", () => {
+      expect(formatHandoffSummary("apply-conflicted", "commit-sha-1")).toBe(
+        "Apply conflicted · commit-sha-1"
       );
     });
 
@@ -551,7 +551,7 @@ describe("SessionPanel helpers", () => {
         "rr discard --session session-123",
       ]);
       expect(formatHandoffCommands("session-123", "applied-auto")).toEqual([]);
-      expect(formatHandoffCommands("session-123", "merge-conflicted")).toEqual([]);
+      expect(formatHandoffCommands("session-123", "apply-conflicted")).toEqual([]);
       expect(formatHandoffCommands(undefined, "pending-apply")).toEqual([]);
     });
   });

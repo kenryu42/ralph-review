@@ -558,9 +558,9 @@ describe("runStop", () => {
     );
   });
 
-  test("prints merge-conflict guidance after stopping a session with a conflicted handoff", async () => {
+  test("prints apply-conflict guidance after stopping a session with a conflicted handoff", async () => {
     const cwd = process.cwd();
-    const sessionPath = `${cwd}/.ralph-review/logs/session-merge-conflicted.jsonl`;
+    const sessionPath = `${cwd}/.ralph-review/logs/session-apply-conflicted.jsonl`;
     const result = await runStopWithHarness([], {
       fastTimeout: true,
       activeSessions: [
@@ -575,13 +575,13 @@ describe("runStop", () => {
         createSessionStats({
           sessionPath: path,
           sessionId: "current-session-id",
-          handoffStatus: "merge-conflicted",
+          handoffStatus: "apply-conflicted",
           commitSha: "commit-sha-4",
         }),
     });
 
     expect(result.messages).toContain(
-      "Handoff:\nReviewed fixes hit merge conflicts.\nCommit: commit-sha-4\nResolve or abort the Git conflict. Ralph will reconcile the handoff automatically on a later command."
+      "Handoff:\nReviewed fixes hit conflicts during apply.\nCommit: commit-sha-4\nResolve or abort the Git conflict. Ralph will reconcile the handoff automatically on a later command."
     );
   });
 
