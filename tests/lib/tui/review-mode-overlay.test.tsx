@@ -75,6 +75,7 @@ describe("ReviewModeOverlay", () => {
       up: "\x1B[A",
       escape: "\x1B",
       return: "\r",
+      tab: "\t",
       q: "q",
       j: "j",
       k: "k",
@@ -330,6 +331,44 @@ describe("ReviewModeOverlay", () => {
     await emitKey(setup, "return");
 
     expect(submitted).toEqual([["--uncommitted", "check security", "--max", "5"]]);
+  });
+
+  test("submits auto-fix all from options", async () => {
+    const submitted: string[][] = [];
+    const setup = await renderOverlay({
+      onSubmit: (args) => {
+        submitted.push(args);
+      },
+    });
+
+    await emitKey(setup, "return");
+    await emitKey(setup, "tab");
+    await emitKey(setup, "down");
+    await emitKey(setup, "return");
+
+    expect(submitted).toEqual([["--uncommitted", "--max", "5", "--auto"]]);
+  });
+
+  test("submits auto-fix priorities with normalized csv values", async () => {
+    const submitted: string[][] = [];
+    const setup = await renderOverlay({
+      onSubmit: (args) => {
+        submitted.push(args);
+      },
+    });
+
+    await emitKey(setup, "return");
+    await emitKey(setup, "tab");
+    await emitKey(setup, "down");
+    await emitKey(setup, "down");
+    await emitKey(setup, "tab");
+    await act(async () => {
+      await setup.mockInput.typeText("p1,p0");
+      await setup.renderOnce();
+    });
+    await emitKey(setup, "return");
+
+    expect(submitted).toEqual([["--uncommitted", "--max", "5", "--auto", "--priority", "P0,P1"]]);
   });
 
   test("omits blank custom instructions from uncommitted review submission", async () => {

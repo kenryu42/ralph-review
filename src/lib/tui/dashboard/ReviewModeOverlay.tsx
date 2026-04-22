@@ -1,6 +1,7 @@
 import type { InputRenderable, TextareaRenderable } from "@opentui/core";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { formatPriorityList, parsePriorityList } from "@/lib/priority-list";
 import { TUI_COLORS } from "@/lib/tui/shared/colors";
 import type { DefaultReview } from "@/lib/types";
 
@@ -8,7 +9,12 @@ export type ReviewModeSelection = "uncommitted" | "base" | "commit";
 
 type ReviewModeInputMode = Exclude<ReviewModeSelection, "uncommitted">;
 type ReviewModeStep = "picker" | "branch-picker" | "commit-picker" | "options";
-type OptionsFocusTarget = "max-iterations" | "custom-instructions";
+type ReviewExecutionMode = "review-only" | "auto-all" | "auto-priority";
+type OptionsFocusTarget =
+  | "max-iterations"
+  | "execution-mode"
+  | "priority-list"
+  | "custom-instructions";
 
 interface ReviewModeOption {
   label: string;
@@ -16,11 +22,18 @@ interface ReviewModeOption {
   mode: ReviewModeSelection;
 }
 
+interface ReviewExecutionOption {
+  label: string;
+  description: string;
+  mode: ReviewExecutionMode;
+}
+
 const DEFAULT_MAX_ITERATIONS = 5;
 const MIN_MAX_ITERATIONS = 1;
 const MAX_MAX_ITERATIONS = 999;
 const CUSTOM_INSTRUCTIONS_PLACEHOLDER =
   "Focus on security boundaries, migrations, and error handling...";
+const PRIORITY_LIST_PLACEHOLDER = "P0,P1";
 
 interface ReviewModeOverlayProps {
   defaultReview?: DefaultReview;
@@ -45,6 +58,24 @@ const REVIEW_MODE_OPTIONS: ReviewModeOption[] = [
     label: "Review a commit",
     description: "Review a specific commit SHA or ref.",
     mode: "commit",
+  },
+];
+
+const REVIEW_EXECUTION_OPTIONS: ReviewExecutionOption[] = [
+  {
+    label: "Review only",
+    description: "Persist findings for later selection and remediation.",
+    mode: "review-only",
+  },
+  {
+    label: "Auto-fix all",
+    description: "Run remediation immediately for every persisted finding.",
+    mode: "auto-all",
+  },
+  {
+    label: "Auto-fix priorities",
+    description: "Run remediation immediately for a CSV priority filter.",
+    mode: "auto-priority",
   },
 ];
 
@@ -200,6 +231,33 @@ function clampMaxIterations(value: number): number {
   return Math.min(MAX_MAX_ITERATIONS, Math.max(MIN_MAX_ITERATIONS, Math.trunc(value)));
 }
 
+function cycleExecutionMode(current: ReviewExecutionMode, direction: 1 | -1): ReviewExecutionMode {
+  const currentIndex = REVIEW_EXECUTION_OPTIONS.findIndex((option) => option.mode === current);
+  const nextIndex = Math.min(
+    REVIEW_EXECUTION_OPTIONS.length - 1,
+    Math.max(0, currentIndex + direction)
+  );
+
+  return REVIEW_EXECUTION_OPTIONS[nextIndex]?.mode ?? current;
+}
+
+function getOptionsFocusOrder(
+  executionMode: ReviewExecutionMode,
+  showCustomInstructions: boolean
+): OptionsFocusTarget[] {
+  const focusOrder: OptionsFocusTarget[] = ["max-iterations", "execution-mode"];
+
+  if (executionMode === "auto-priority") {
+    focusOrder.push("priority-list");
+  }
+
+  if (showCustomInstructions) {
+    focusOrder.push("custom-instructions");
+  }
+
+  return focusOrder;
+}
+
 export function ReviewModeOverlay({
   defaultReview,
   defaultMaxIterations,
@@ -219,9 +277,13 @@ export function ReviewModeOverlay({
   const [maxIterationsDraft, setMaxIterationsDraft] = useState<string>(
     String(initialMaxIterations)
   );
+  const [executionMode, setExecutionMode] = useState<ReviewExecutionMode>("review-only");
+  const [priorityDraft, setPriorityDraft] = useState("");
+  const [priorityEdited, setPriorityEdited] = useState(false);
   const [customInstructionsDraft, setCustomInstructionsDraft] = useState("");
   const [showCustomInstructions, setShowCustomInstructions] = useState(false);
   const [optionsFocus, setOptionsFocus] = useState<OptionsFocusTarget>("max-iterations");
+  const priorityInputRef = useRef<InputRenderable>(null);
   const customInstructionsRef = useRef<TextareaRenderable>(null);
   const maxIterationsInputRef = useRef<InputRenderable>(null);
 
@@ -268,6 +330,21 @@ export function ReviewModeOverlay({
       return;
     }
 
+    if (executionMode === "auto-priority" && optionsFocus === "priority-list") {
+      const input = priorityInputRef.current;
+      if (!input) {
+        return;
+      }
+
+      input.focus();
+      input.selectAll();
+      return;
+    }
+
+    if (optionsFocus === "execution-mode") {
+      return;
+    }
+
     const input = maxIterationsInputRef.current;
     if (!input) {
       return;
@@ -275,10 +352,34 @@ export function ReviewModeOverlay({
 
     input.focus();
     input.selectAll();
-  }, [optionsFocus, showCustomInstructions, step]);
+  }, [executionMode, optionsFocus, showCustomInstructions, step]);
+
+  useEffect(() => {
+    if (step !== "options") {
+      return;
+    }
+
+    const focusOrder = getOptionsFocusOrder(executionMode, showCustomInstructions);
+    if (!focusOrder.includes(optionsFocus)) {
+      setOptionsFocus("execution-mode");
+    }
+  }, [executionMode, optionsFocus, showCustomInstructions, step]);
 
   useKeyboard((key) => {
     if (step === "options") {
+      if (key.name === "tab") {
+        const focusOrder = getOptionsFocusOrder(executionMode, showCustomInstructions);
+        const currentIndex = focusOrder.indexOf(optionsFocus);
+        const direction = key.shift ? -1 : 1;
+        const nextIndex = (currentIndex + direction + focusOrder.length) % focusOrder.length;
+        const nextFocus = focusOrder[nextIndex];
+        if (nextFocus) {
+          setOptionsFocus(nextFocus);
+          setError(null);
+        }
+        return;
+      }
+
       if (showCustomInstructions && optionsFocus === "custom-instructions") {
         if (key.name === "escape") {
           hideCustomInstructions();
@@ -298,20 +399,36 @@ export function ReviewModeOverlay({
         return;
       }
 
-      if (key.name === "up") {
-        const current = parseInt(maxIterationsDraft, 10);
-        const base = Number.isFinite(current) ? current : initialMaxIterations - 1;
-        setMaxIterationsDraft(String(clampMaxIterations(base + 1)));
-        setError(null);
-        return;
+      if (optionsFocus === "max-iterations") {
+        if (key.name === "up") {
+          const current = parseInt(maxIterationsDraft, 10);
+          const base = Number.isFinite(current) ? current : initialMaxIterations - 1;
+          setMaxIterationsDraft(String(clampMaxIterations(base + 1)));
+          setError(null);
+          return;
+        }
+
+        if (key.name === "down") {
+          const current = parseInt(maxIterationsDraft, 10);
+          const base = Number.isFinite(current) ? current : initialMaxIterations + 1;
+          setMaxIterationsDraft(String(clampMaxIterations(base - 1)));
+          setError(null);
+          return;
+        }
       }
 
-      if (key.name === "down") {
-        const current = parseInt(maxIterationsDraft, 10);
-        const base = Number.isFinite(current) ? current : initialMaxIterations + 1;
-        setMaxIterationsDraft(String(clampMaxIterations(base - 1)));
-        setError(null);
-        return;
+      if (optionsFocus === "execution-mode") {
+        if (key.name === "up") {
+          setExecutionMode((current) => cycleExecutionMode(current, -1));
+          setError(null);
+          return;
+        }
+
+        if (key.name === "down") {
+          setExecutionMode((current) => cycleExecutionMode(current, 1));
+          setError(null);
+          return;
+        }
       }
 
       if (key.name === "enter" || key.name === "return") {
@@ -394,6 +511,9 @@ export function ReviewModeOverlay({
     setPendingArgs(args);
     setPreviousStep(step);
     setMaxIterationsDraft(String(initialMaxIterations));
+    setExecutionMode("review-only");
+    setPriorityDraft("");
+    setPriorityEdited(false);
     setShowCustomInstructions(false);
     setOptionsFocus("max-iterations");
     setError(null);
@@ -416,11 +536,37 @@ export function ReviewModeOverlay({
       return;
     }
 
+    let priorityList: string | undefined;
+    if (executionMode === "auto-priority") {
+      const normalizedPriorityDraft =
+        !priorityEdited && priorityDraft.trim() === PRIORITY_LIST_PLACEHOLDER ? "" : priorityDraft;
+
+      if (normalizedPriorityDraft.trim().length === 0) {
+        setError("Priority list is required for auto-fix priorities.");
+        return;
+      }
+
+      try {
+        priorityList = formatPriorityList(parsePriorityList(normalizedPriorityDraft));
+      } catch (priorityError) {
+        setError(priorityError instanceof Error ? priorityError.message : String(priorityError));
+        return;
+      }
+    }
+
     const customInstructions = syncCustomInstructionsDraft();
     const nextArgs =
       customInstructions.trim().length > 0
         ? [...pendingArgs, customInstructions, "--max", String(parsed)]
         : [...pendingArgs, "--max", String(parsed)];
+
+    if (executionMode !== "review-only") {
+      nextArgs.push("--auto");
+    }
+
+    if (priorityList) {
+      nextArgs.push("--priority", priorityList);
+    }
 
     setError(null);
     onSubmit(nextArgs);
@@ -594,6 +740,37 @@ export function ReviewModeOverlay({
     );
   }
 
+  function renderExecutionModeOptions() {
+    return (
+      <box flexDirection="column" gap={1}>
+        <text fg={TUI_COLORS.text.muted}>What should happen after review?</text>
+        <box flexDirection="column">
+          {REVIEW_EXECUTION_OPTIONS.map((option) => {
+            const isSelected = option.mode === executionMode;
+            const isFocused = optionsFocus === "execution-mode" && isSelected;
+
+            return (
+              <box key={option.mode} flexDirection="column">
+                <box flexDirection="row">
+                  <text fg={isFocused ? TUI_COLORS.accent.key : TUI_COLORS.text.dim}>
+                    {isFocused ? "▶" : " "}
+                  </text>
+                  <text fg={isSelected ? TUI_COLORS.text.primary : TUI_COLORS.text.secondary}>
+                    {" "}
+                    {option.label}
+                  </text>
+                </box>
+                <text fg={TUI_COLORS.text.dim} paddingLeft={2}>
+                  {option.description}
+                </text>
+              </box>
+            );
+          })}
+        </box>
+      </box>
+    );
+  }
+
   function renderOptions() {
     return (
       <box flexDirection="column" gap={1}>
@@ -620,6 +797,28 @@ export function ReviewModeOverlay({
             }
           }}
         />
+        {renderExecutionModeOptions()}
+        {executionMode === "auto-priority" && (
+          <>
+            <text fg={TUI_COLORS.text.muted}>Priority list for auto-fix (CSV).</text>
+            <input
+              ref={priorityInputRef}
+              focused={optionsFocus === "priority-list"}
+              value={priorityDraft}
+              placeholder={PRIORITY_LIST_PLACEHOLDER}
+              width={24}
+              backgroundColor="#101425"
+              focusedBackgroundColor="#101425"
+              onInput={(next) => {
+                setPriorityDraft(next);
+                if (optionsFocus === "priority-list") {
+                  setPriorityEdited(true);
+                }
+                setError(null);
+              }}
+            />
+          </>
+        )}
         {showCustomInstructions && (
           <>
             <text fg={TUI_COLORS.text.muted}>Custom review instructions (optional).</text>
@@ -643,6 +842,9 @@ export function ReviewModeOverlay({
         {renderCustomInstructionsHelper()}
         {!showCustomInstructions && (
           <text>
+            <span fg={TUI_COLORS.accent.key}>[Tab]</span>
+            <span fg={TUI_COLORS.text.muted}> Next field </span>
+            <span fg={TUI_COLORS.text.dim}> </span>
             <span fg={TUI_COLORS.accent.key}>[Enter]</span>
             <span fg={TUI_COLORS.text.muted}> Start review </span>
           </text>
