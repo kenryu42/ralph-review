@@ -919,17 +919,17 @@ async function promptForInitScope(
     message: "Choose config scope",
     options: [
       {
-        value: "local",
-        label: "Repo-local config",
-        hint: relative(process.cwd(), repoConfigPath.path),
-      },
-      {
         value: "global",
         label: "Global config",
         hint: CONFIG_PATH.replace(homedir(), "~"),
       },
+      {
+        value: "local",
+        label: "Repo-local config",
+        hint: relative(process.cwd(), repoConfigPath.path),
+      },
     ],
-    initialValue: "local",
+    initialValue: "global",
   });
   handleCancel(runtime, scope);
   return scope as InitScope;
