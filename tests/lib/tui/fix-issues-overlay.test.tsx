@@ -514,6 +514,39 @@ describe("FixIssuesOverlay", () => {
     expect(frame).toContain("▶ [ ] F001");
   });
 
+  test("returns list focus to the first visible issue when filtering hides the active row", async () => {
+    const overlay = await renderOverlay();
+    let frame = await moveDown(overlay, 7);
+    expect(frame).toContain("▶ [ ] F003");
+
+    frame = await overlay.press("/");
+    expect(frame).toContain("Filter the issue list");
+
+    frame = await overlay.typeText("F001");
+    expect(frame).toContain("F001");
+    expect(frame).not.toContain("F003");
+
+    frame = await overlay.press("\u001B");
+    expect(frame).toContain("▶ [ ] F001");
+    expect(frame).not.toContain("▶ [ ] F003");
+  });
+
+  test("returns from the filter to a visible issue row that can be toggled immediately", async () => {
+    const overlay = await renderOverlay();
+    await moveDown(overlay, 7);
+    await overlay.press("/");
+    await overlay.typeText("F001");
+
+    let frame = await overlay.press("\u001B");
+    expect(frame).toContain("▶ [ ] F001");
+
+    frame = await overlay.press(" ");
+    expect(frame).toContain("--id F001");
+
+    await overlay.press("\r");
+    expect(overlay.getSubmitCalls()).toEqual([["fix", "--session", "session-123", "--id", "F001"]]);
+  });
+
   test("scrolls long details content when details pane is focused", async () => {
     const longBody = Array.from({ length: 40 }, (_, index) => `body line ${index + 1}`).join("\n");
     const longFinding = createFinding("F001", "P0", {

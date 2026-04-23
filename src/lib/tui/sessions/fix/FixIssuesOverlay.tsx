@@ -1,6 +1,6 @@
 import type { ScrollBoxRenderable } from "@opentui/core";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { formatPriorityList } from "@/lib/priority-list";
 import type { FindingSelectionMode } from "@/lib/review-workflow/findings/selection";
 import type { FindingId, StoredFinding } from "@/lib/review-workflow/findings/types";
@@ -323,15 +323,26 @@ function getSelectionDisabledReason(
   return null;
 }
 
-function rowLineCount(row: NavigableRow): number {
-  switch (row.kind) {
-    case "header":
-      return 1;
-    case "all":
-    case "priority":
-    case "issue":
-      return row.lines.length;
+function resolveCursorRowId(
+  cursorRowId: NavigableRowId,
+  navigableIds: NavigableRowId[]
+): NavigableRowId {
+  if (navigableIds.includes(cursorRowId)) {
+    return cursorRowId;
   }
+
+  return navigableIds.find((rowId) => rowId.startsWith("issue:")) ?? navigableIds[0] ?? "all";
+}
+
+function getNavigableRowRenderableId(rowId: NavigableRowId): string {
+  return `fix-issues-row:${rowId}`;
+}
+
+function scrollRowIntoView(
+  scrollboxRef: React.RefObject<ScrollBoxRenderable | null>,
+  rowId: NavigableRowId
+) {
+  scrollboxRef.current?.scrollChildIntoView(getNavigableRowRenderableId(rowId));
 }
 
 function DetailField({
@@ -488,22 +499,18 @@ export function FixIssuesOverlay({
     selectionPanelContentWidth,
   ]);
 
-  const navigableIds = useMemo(
-    () => rows.filter((row) => row.kind !== "header").map((row) => row.id),
+  const navigableIds = useMemo<NavigableRowId[]>(
+    () => rows.flatMap((row) => (row.kind === "header" ? [] : [row.id])),
     [rows]
   );
-
-  useEffect(() => {
-    if (!navigableIds.includes(cursorRowId)) {
-      const fallback =
-        navigableIds.find((id) => id.startsWith("issue:")) ?? navigableIds[0] ?? "all";
-      setCursorRowId(fallback);
-    }
-  }, [cursorRowId, navigableIds]);
+  const effectiveCursorRowId = useMemo(
+    () => resolveCursorRowId(cursorRowId, navigableIds),
+    [cursorRowId, navigableIds]
+  );
 
   const currentRow = useMemo(
-    () => rows.find((row) => row.id === cursorRowId) ?? null,
-    [cursorRowId, rows]
+    () => rows.find((row) => row.id === effectiveCursorRowId) ?? null,
+    [effectiveCursorRowId, rows]
   );
 
   const pendingCountLabel = `${findings.length} pending`;
@@ -527,47 +534,6 @@ export function FixIssuesOverlay({
   const pathReservedRight = selectedCountLabel.length + 3;
   const maxPathWidth = Math.max(10, terminalWidth - 2 - pathReservedRight);
 
-  useEffect(() => {
-    if (focusArea !== "list" || rows.length === 0) {
-      return;
-    }
-
-    const list = selectionListRef.current;
-    if (!list) {
-      return;
-    }
-
-    const currentIndex = rows.findIndex((row) => row.id === cursorRowId);
-    if (currentIndex < 0) {
-      return;
-    }
-
-    let top = 0;
-    for (let i = 0; i < currentIndex; i++) {
-      const row = rows[i];
-      if (!row) {
-        continue;
-      }
-      top += rowLineCount(row);
-      if (row.kind === "header" && i > 0) {
-        top += 1;
-      }
-    }
-    const currentRow = rows[currentIndex];
-    const currentHeight = currentRow ? rowLineCount(currentRow) : 1;
-    const bottom = top + currentHeight;
-    const viewportHeight = Math.max(1, list.height);
-
-    if (top < list.scrollTop) {
-      list.scrollTop = top;
-      return;
-    }
-
-    if (bottom > list.scrollTop + viewportHeight) {
-      list.scrollTop = Math.max(0, bottom - viewportHeight);
-    }
-  }, [cursorRowId, focusArea, rows]);
-
   const cycleFocusedPane = useCallback(() => {
     setFocusedPane((current) => (current === "selection" ? "details" : "selection"));
   }, []);
@@ -582,7 +548,7 @@ export function FixIssuesOverlay({
         return;
       }
 
-      let nextIndex = rows.findIndex((row) => row.id === cursorRowId);
+      let nextIndex = rows.findIndex((row) => row.id === effectiveCursorRowId);
       if (nextIndex < 0) {
         nextIndex = direction > 0 ? -1 : rows.length;
       }
@@ -600,11 +566,12 @@ export function FixIssuesOverlay({
         }
 
         setCursorRowId(candidate.id);
+        scrollRowIntoView(selectionListRef, candidate.id);
         setError(null);
         return;
       }
     },
-    [cursorRowId, rows]
+    [effectiveCursorRowId, rows]
   );
 
   const toggleRow = useCallback(
@@ -682,6 +649,11 @@ export function FixIssuesOverlay({
     setFocusArea("filter");
     setError(null);
   }, []);
+
+  const returnFocusToList = useCallback(() => {
+    setFocusArea("list");
+    scrollRowIntoView(selectionListRef, effectiveCursorRowId);
+  }, [effectiveCursorRowId]);
 
   const handleKeyDown = useCallback(
     (key: { name: string }) => {
@@ -800,7 +772,8 @@ export function FixIssuesOverlay({
   }
 
   function renderRow(row: NavigableRow, index: number) {
-    const isHighlighted = focusArea === "list" && row.id === cursorRowId && row.kind !== "header";
+    const isHighlighted =
+      focusArea === "list" && row.id === effectiveCursorRowId && row.kind !== "header";
     const isHeader = row.kind === "header";
     const needsSpacer = isHeader && index > 0;
 
@@ -820,6 +793,7 @@ export function FixIssuesOverlay({
     return (
       <box
         key={row.id}
+        id={getNavigableRowRenderableId(row.id)}
         flexDirection="column"
         backgroundColor={isHighlighted ? "#1f2940" : undefined}
         paddingLeft={1}
@@ -1087,7 +1061,7 @@ export function FixIssuesOverlay({
                 onChange={updateFilterQuery}
                 onInput={updateFilterQuery}
                 onSubmit={() => {
-                  setFocusArea("list");
+                  returnFocusToList();
                 }}
                 onKeyDown={(key) => {
                   if (key.name === "tab") {
@@ -1100,7 +1074,7 @@ export function FixIssuesOverlay({
                   if (key.name === "escape") {
                     key.preventDefault();
                     key.stopPropagation();
-                    setFocusArea("list");
+                    returnFocusToList();
                     return;
                   }
 
