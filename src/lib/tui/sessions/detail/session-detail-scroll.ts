@@ -1,6 +1,7 @@
 import type { ScrollBoxRenderable } from "@opentui/core";
-import { type RefObject, useEffect, useState } from "react";
+import { type RefObject, useRef, useState } from "react";
 import { TUI_COLORS } from "@/lib/tui/shared/colors";
+import { useMountEffect } from "@/lib/tui/shared/use-mount-effect";
 
 const SCROLL_METRICS_POLL_INTERVAL_MS = 100;
 
@@ -27,13 +28,16 @@ export function useScrollMetrics(
   focused: boolean | undefined
 ): ScrollMetrics {
   const [scrollMetrics, setScrollMetrics] = useState<ScrollMetrics>(DEFAULT_SCROLL_METRICS);
+  const focusedRef = useRef(focused);
 
-  useEffect(() => {
-    if (!focused) {
-      return;
-    }
+  focusedRef.current = focused;
 
+  useMountEffect(() => {
     const timer = setInterval(() => {
+      if (!focusedRef.current) {
+        return;
+      }
+
       const scrollbox = scrollboxRef.current;
       if (!scrollbox) {
         return;
@@ -61,7 +65,7 @@ export function useScrollMetrics(
     return () => {
       clearInterval(timer);
     };
-  }, [focused, scrollboxRef]);
+  });
 
   return scrollMetrics;
 }
