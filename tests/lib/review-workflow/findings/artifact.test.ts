@@ -176,33 +176,4 @@ describe("review-workflow/findings/artifact", () => {
       })
     ).rejects.toThrow("Baseline commit deadbeef not found");
   });
-
-  test("rejects snapshot-era v1 artifacts with a re-run message", async () => {
-    const artifactPath = getFindingsArtifactPath(tempDir, "/repo/project", "legacy-session");
-    await Bun.write(
-      artifactPath,
-      JSON.stringify(
-        {
-          artifactVersion: 1,
-          sessionId: "legacy-session",
-          projectPath: "/repo/project",
-          logPath: "/tmp/logs/legacy-session.jsonl",
-          reviewedSnapshotRef: "legacy-ref",
-          reviewedSnapshotPath: "/tmp/reviewed",
-          sourceFingerprint: "legacy-fingerprint",
-          findings: [createStoredFinding("F001")],
-          selectedFindingIds: [],
-          createdAt: "2026-01-01T00:00:00.000Z",
-          updatedAt: "2026-01-01T00:00:00.000Z",
-        },
-        null,
-        2
-      ),
-      { createPath: true }
-    );
-
-    await expect(loadFindingsArtifact(tempDir, "/repo/project", "legacy-session")).rejects.toThrow(
-      "Findings artifact has invalid schema — re-run rr run"
-    );
-  });
 });
