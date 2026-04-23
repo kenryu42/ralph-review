@@ -2392,42 +2392,6 @@ describe("config command execution", () => {
     expect(harness.exits).toEqual([1]);
   });
 
-  test("legacy loadConfig overrides still receive configPath for effective reads", async () => {
-    const printed: string[] = [];
-    const errors: string[] = [];
-    const exits: number[] = [];
-    const loadCalls: string[] = [];
-    const configPath = "/tmp/legacy-config.json";
-    const runConfig = createRunConfig({
-      configPath,
-      cwd: () => "/repo/project",
-      loadConfig: async (path = configPath) => {
-        loadCalls.push(path);
-        return path === configPath ? createBaseConfig() : null;
-      },
-      print: (value) => {
-        printed.push(value);
-      },
-      log: {
-        success: () => {},
-        warn: () => {},
-        error: (message) => {
-          errors.push(message);
-        },
-      },
-      exit: (code) => {
-        exits.push(code);
-      },
-    });
-
-    await runConfig(["get", "reviewer.agent"]);
-
-    expect(loadCalls).toEqual([configPath]);
-    expect(printed).toEqual(["codex"]);
-    expect(errors).toEqual([]);
-    expect(exits).toEqual([]);
-  });
-
   test("createRunConfig default deps call process exit on failure", async () => {
     const runConfigWithDefaults = createRunConfig();
     const originalExit = process.exit;

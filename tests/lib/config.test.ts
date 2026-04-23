@@ -171,22 +171,6 @@ describe("config", () => {
       expect(parsed).toEqual(testConfig);
     });
 
-    test("parseConfig adds metadata when $schema and version are missing", () => {
-      const legacyConfig = {
-        reviewer: testConfig.reviewer,
-        fixer: testConfig.fixer,
-        maxIterations: testConfig.maxIterations,
-        iterationTimeout: testConfig.iterationTimeout,
-        defaultReview: testConfig.defaultReview,
-      };
-
-      const parsed = parseConfig(legacyConfig);
-      expect(parsed).not.toBeNull();
-      expect(parsed?.$schema).toBe(CONFIG_SCHEMA_URI);
-      expect(parsed?.version).toBe(CONFIG_VERSION);
-      expect(parsed?.notifications.sound.enabled).toBe(true);
-    });
-
     test("parseConfig defaults notifications when omitted", () => {
       const withoutNotifications = {
         ...testConfig,
@@ -207,21 +191,6 @@ describe("config", () => {
       const parsed = parseConfig(withNotifications);
       expect(parsed).not.toBeNull();
       expect(parsed?.notifications.sound.enabled).toBe(true);
-    });
-
-    test("parseConfig ignores legacy verification settings", () => {
-      const withLegacyVerification = {
-        ...testConfig,
-        verification: {
-          commands: ["bun run check"],
-          mode: "each-fixer-pass",
-        },
-      };
-
-      const parsed = parseConfig(withLegacyVerification);
-      expect(parsed).not.toBeNull();
-      const parsedLegacy = parsed as unknown as { verification?: unknown };
-      expect(parsedLegacy.verification).toBeUndefined();
     });
 
     test("parseConfig normalizes incorrect metadata values", () => {

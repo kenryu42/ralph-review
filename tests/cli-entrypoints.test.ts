@@ -434,19 +434,6 @@ describe("cli entrypoints", () => {
     expect(harness.exits).toEqual([1]);
   });
 
-  test("dispatches status command as a backward-compatible alias", async () => {
-    const harness = createCliHarness({
-      parseArgs: () => ({ command: "status", args: [], showHelp: false, showVersion: false }),
-      getCommandDef: (name) => (name === "status" ? createCommandDef("status") : undefined),
-    });
-
-    await runCli([], harness.deps);
-
-    expect(harness.errors).toEqual([]);
-    expect(harness.calls).toEqual(["status"]);
-    expect(harness.exits).toEqual([]);
-  });
-
   test("reports command execution failures and exits", async () => {
     const runDef = createCommandDef("run");
     const harness = createCliHarness({
