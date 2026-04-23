@@ -272,6 +272,38 @@ describe("diagnostics capabilities", () => {
     expect(capabilities.pi.probeWarnings).toEqual([]);
   });
 
+  test("discovers pi models when pi writes the model table to stderr", async () => {
+    Bun.spawn = ((args) => {
+      expect(args).toEqual(["pi", "--list-models"]);
+      return createMockProcess(
+        createTextStream(""),
+        createTextStream(
+          [
+            "Warning: EPERM creating lockfile",
+            "provider  model                                       context  max-out  thinking  images",
+            "google    gemini-2.5-pro                              1.0M     65.5K    yes       yes",
+            "proxx     openai/gpt-5.4                              272K     128K     yes       yes",
+          ].join("\n")
+        ),
+        0
+      );
+    }) as typeof Bun.spawn;
+
+    const capabilities = await reviewAgentCapabilities({
+      availabilityOverride: {
+        ...createDynamicAvailability(),
+        opencode: false,
+      },
+    });
+
+    expect(capabilities.pi.modelCatalogSource).toBe("dynamic");
+    expect(capabilities.pi.models).toEqual([
+      { provider: "google", model: "gemini-2.5-pro" },
+      { provider: "proxx", model: "openai/gpt-5.4" },
+    ]);
+    expect(capabilities.pi.probeWarnings).toEqual([]);
+  });
+
   test("skips dynamic probes when probeAgents excludes opencode and pi", async () => {
     let opencodeProbeCalls = 0;
     let piProbeCalls = 0;
@@ -333,6 +365,22 @@ describe("diagnostics capabilities", () => {
     expect(parsed).toEqual([
       { provider: "anthropic", model: "claude-sonnet-4-5" },
       { provider: "llm-proxy", model: "gemini_cli/gemini-3-pro-preview" },
+    ]);
+  });
+
+  test("ignores preamble lines before the pi model table header", () => {
+    const parsed = parsePiListModelsOutput(
+      [
+        "Warning: (startup session lookup) EPERM creating lockfile",
+        "provider  model                                       context  max-out  thinking  images",
+        "google    gemini-2.5-pro                              1.0M     65.5K    yes       yes",
+        "proxx     openai/gpt-5.4                              272K     128K     yes       yes",
+      ].join("\n")
+    );
+
+    expect(parsed).toEqual([
+      { provider: "google", model: "gemini-2.5-pro" },
+      { provider: "proxx", model: "openai/gpt-5.4" },
     ]);
   });
 });

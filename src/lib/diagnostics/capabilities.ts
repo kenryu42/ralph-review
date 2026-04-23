@@ -48,39 +48,59 @@ function parseOpencodeModelsOutput(output: string): { value: string; label: stri
     .map((model) => ({ value: model, label: model }));
 }
 
-export function parsePiListModelsOutput(output: string): { provider: string; model: string }[] {
-  const models: { provider: string; model: string }[] = [];
+function isPiProviderToken(value: string): boolean {
+  return /^[a-z0-9][a-z0-9-]*$/i.test(value);
+}
+
+function dedupePiModels(
+  models: { provider: string; model: string }[]
+): { provider: string; model: string }[] {
+  const deduped: { provider: string; model: string }[] = [];
   const seen = new Set<string>();
 
-  for (const rawLine of output.split("\n")) {
-    const line = rawLine.trim();
-    if (!line) {
+  for (const entry of models) {
+    const key = `${entry.provider}\u0000${entry.model}`;
+    if (seen.has(key)) {
       continue;
     }
-    if (line.startsWith("provider") && line.includes("model")) {
-      continue;
-    }
+    seen.add(key);
+    deduped.push(entry);
+  }
 
-    const columns = line.split(/\s+/);
+  return deduped;
+}
+
+export function parsePiListModelsOutput(output: string): { provider: string; model: string }[] {
+  const models: { provider: string; model: string }[] = [];
+  const lines = output
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const headerIndex = lines.findIndex((line) => /^provider\s+model(?:\s+|$)/i.test(line));
+  const candidateLines = headerIndex === -1 ? lines : lines.slice(headerIndex + 1);
+
+  for (const line of candidateLines) {
+    const columns =
+      headerIndex === -1
+        ? line.split(/\s+/)
+        : line
+            .split(/\s{2,}/)
+            .map((value) => value.trim())
+            .filter(Boolean);
     if (columns.length < 2) {
       continue;
     }
 
     const provider = columns[0]?.trim();
     const model = columns[1]?.trim();
-    if (!provider || !model) {
+    if (!provider || !model || !isPiProviderToken(provider)) {
       continue;
     }
 
-    const key = `${provider}\u0000${model}`;
-    if (seen.has(key)) {
-      continue;
-    }
-    seen.add(key);
     models.push({ provider, model });
   }
 
-  return models;
+  return dedupePiModels(models);
 }
 
 async function runProbe(
@@ -131,7 +151,7 @@ async function fetchPiModels(): Promise<{ provider: string; model: string }[]> {
     throw new Error(stderr.trim() || `pi --list-models exited with code ${exitCode}`);
   }
 
-  return parsePiListModelsOutput(stdout);
+  return dedupePiModels([...parsePiListModelsOutput(stdout), ...parsePiListModelsOutput(stderr)]);
 }
 
 function createUninstalledCapability(agent: AgentType): AgentCapability {
