@@ -1,6 +1,6 @@
 import type { InputRenderable, TextareaRenderable } from "@opentui/core";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { formatPriorityList } from "@/lib/priority-list";
 import { PriorityText } from "@/lib/tui/sessions/priority-text";
 import { TUI_COLORS } from "@/lib/tui/shared/colors";
@@ -367,18 +367,22 @@ export function ReviewModeOverlay({
   const [customInstructionsDraft, setCustomInstructionsDraft] = useState("");
   const [showCustomInstructions, setShowCustomInstructions] = useState(false);
   const [optionsFocus, setOptionsFocus] = useState<OptionsFocusTarget>("max-iterations");
-  const selectedPrioritiesRef = useRef<Priority[]>([]);
-  const priorityCursorIndexRef = useRef(0);
   const customInstructionsRef = useRef<TextareaRenderable>(null);
   const maxIterationsInputRef = useRef<InputRenderable>(null);
 
-  useEffect(() => {
-    selectedPrioritiesRef.current = selectedPriorities;
-  }, [selectedPriorities]);
-
-  useEffect(() => {
-    priorityCursorIndexRef.current = priorityCursorIndex;
-  }, [priorityCursorIndex]);
+  const attachMaxIterationsInput = useCallback((input: InputRenderable | null) => {
+    maxIterationsInputRef.current = input;
+    if (!input) {
+      return;
+    }
+    const handleFocus = () => {
+      input.selectAll();
+    };
+    input.on("focused", handleFocus);
+    return () => {
+      input.off("focused", handleFocus);
+    };
+  }, []);
 
   const branchPickerData = useMemo(() => {
     const branchData = getGitBranches(projectPath);
@@ -455,45 +459,11 @@ export function ReviewModeOverlay({
     Math.min(68, configurationContentWidth - (showCustomInstructions ? 2 : 0))
   );
 
-  useEffect(() => {
-    if (step !== "options") {
-      return;
-    }
+  if (step === "options" && !getOptionsFocusOrder(showCustomInstructions).includes(optionsFocus)) {
+    setOptionsFocus("execution-mode");
+  }
 
-    if (isCustomInstructionsFocused) {
-      customInstructionsRef.current?.focus();
-      return;
-    }
-
-    if (optionsFocus === "execution-mode") {
-      return;
-    }
-
-    const input = maxIterationsInputRef.current;
-    if (!input) {
-      return;
-    }
-
-    input.focus();
-    input.selectAll();
-  }, [isCustomInstructionsFocused, optionsFocus, step]);
-
-  useEffect(() => {
-    if (step !== "options") {
-      return;
-    }
-
-    const focusOrder = getOptionsFocusOrder(showCustomInstructions);
-    if (!focusOrder.includes(optionsFocus)) {
-      setOptionsFocus("execution-mode");
-    }
-  }, [optionsFocus, showCustomInstructions, step]);
-
-  useEffect(() => {
-    if (step !== "options" || !showCustomInstructions || optionsFocus === "custom-instructions") {
-      return;
-    }
-
+  function pruneEmptyCustomInstructions() {
     const nextValue = customInstructionsRef.current?.plainText ?? customInstructionsDraft;
     const normalizedValue = nextValue.trim().length === 0 ? "" : nextValue;
     if (normalizedValue !== customInstructionsDraft) {
@@ -502,32 +472,26 @@ export function ReviewModeOverlay({
     if (normalizedValue.length === 0) {
       setShowCustomInstructions(false);
     }
-  }, [customInstructionsDraft, optionsFocus, showCustomInstructions, step]);
+  }
 
   function movePriorityCursor(direction: 1 | -1) {
-    setPriorityCursorIndex((current) => {
-      const next = clampPriorityCursorIndex(current + direction);
-      priorityCursorIndexRef.current = next;
-      return next;
-    });
+    setPriorityCursorIndex((current) => clampPriorityCursorIndex(current + direction));
     setError(null);
   }
 
   function toggleSelectedPriority() {
-    const priority = PRIORITIES[priorityCursorIndexRef.current] ?? PRIORITIES[0];
+    const priority = PRIORITIES[priorityCursorIndex] ?? PRIORITIES[0];
     if (!priority) {
       return;
     }
 
-    setSelectedPriorities((current) => {
-      const next = sortSelectedPriorities(
+    setSelectedPriorities((current) =>
+      sortSelectedPriorities(
         current.includes(priority)
           ? current.filter((value) => value !== priority)
           : [...current, priority]
-      );
-      selectedPrioritiesRef.current = next;
-      return next;
-    });
+      )
+    );
     setError(null);
   }
 
@@ -540,6 +504,9 @@ export function ReviewModeOverlay({
         const nextIndex = (currentIndex + direction + focusOrder.length) % focusOrder.length;
         const nextFocus = focusOrder[nextIndex];
         if (nextFocus) {
+          if (optionsFocus === "custom-instructions" && nextFocus !== "custom-instructions") {
+            pruneEmptyCustomInstructions();
+          }
           setOptionsFocus(nextFocus);
           setError(null);
         }
@@ -694,9 +661,7 @@ export function ReviewModeOverlay({
     setMaxIterationsDraft(String(initialMaxIterations));
     setExecutionMode("review-only");
     setSelectedPriorities([]);
-    selectedPrioritiesRef.current = [];
     setPriorityCursorIndex(0);
-    priorityCursorIndexRef.current = 0;
     setShowCustomInstructions(false);
     setOptionsFocus("max-iterations");
     setError(null);
@@ -722,7 +687,7 @@ export function ReviewModeOverlay({
     let priorityList: string | undefined;
     if (executionMode === "auto-priority") {
       const currentSelectedPriorityList = formatPriorityList(
-        sortSelectedPriorities(selectedPrioritiesRef.current)
+        sortSelectedPriorities(selectedPriorities)
       );
 
       if (currentSelectedPriorityList.length === 0) {
@@ -968,7 +933,7 @@ export function ReviewModeOverlay({
             <strong>Iterations</strong>
           </text>
           <input
-            ref={maxIterationsInputRef}
+            ref={attachMaxIterationsInput}
             focused={optionsFocus === "max-iterations"}
             value={maxIterationsDraft}
             placeholder={String(initialMaxIterations)}
