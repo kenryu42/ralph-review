@@ -121,6 +121,39 @@ function clampPriorityCursorIndex(index: number): number {
   return Math.min(PRIORITIES.length - 1, Math.max(0, index));
 }
 
+const PREVIEW_CUSTOM_INSTRUCTIONS_TOKEN = "<custom instructions>";
+
+function buildReviewCommandPreview(options: {
+  pendingArgs: string[] | null;
+  maxIterationsDraft: string;
+  executionMode: ReviewExecutionMode;
+  selectedPriorityList: string | null;
+  customInstructionsDraft: string;
+}): string {
+  const parts = ["rr", "run"];
+  if (options.pendingArgs) {
+    parts.push(...options.pendingArgs);
+  }
+
+  if (options.customInstructionsDraft.trim().length > 0) {
+    parts.push(PREVIEW_CUSTOM_INSTRUCTIONS_TOKEN);
+  }
+
+  const maxIterations =
+    options.maxIterationsDraft.trim().length > 0 ? options.maxIterationsDraft.trim() : "<max>";
+  parts.push("--max", maxIterations);
+
+  if (options.executionMode !== "review-only") {
+    parts.push("--auto");
+  }
+
+  if (options.executionMode === "auto-priority") {
+    parts.push("--priority", options.selectedPriorityList ?? "<priorities>");
+  }
+
+  return parts.join(" ");
+}
+
 function renderPrioritySelectionRow(priority: Priority, isSelected: boolean) {
   return (
     <>
@@ -348,6 +381,20 @@ export function ReviewModeOverlay({
     Math.min(MAX_LIST_PICKER_SELECT_HEIGHT, terminalHeight - LIST_PICKER_VERTICAL_OVERHEAD)
   );
   const pickerOverlayHeight = pickerSelectHeight + LIST_PICKER_VERTICAL_OVERHEAD;
+
+  const orderedSelectedPriorities = useMemo(
+    () => sortSelectedPriorities(selectedPriorities),
+    [selectedPriorities]
+  );
+  const selectedPriorityList =
+    orderedSelectedPriorities.length > 0 ? formatPriorityList(orderedSelectedPriorities) : null;
+  const commandPreview = buildReviewCommandPreview({
+    pendingArgs,
+    maxIterationsDraft,
+    executionMode,
+    selectedPriorityList,
+    customInstructionsDraft,
+  });
 
   useEffect(() => {
     if (step !== "options") {
@@ -903,6 +950,17 @@ export function ReviewModeOverlay({
           </>
         )}
         {error && <text fg={TUI_COLORS.status.error}>{error}</text>}
+        <box
+          border
+          borderColor={TUI_COLORS.ui.border}
+          paddingX={1}
+          paddingY={0}
+          backgroundColor="#0d1220"
+        >
+          <text fg={TUI_COLORS.text.primary} wrapMode="none">
+            {commandPreview}
+          </text>
+        </box>
         {renderCustomInstructionsHelper()}
         {!showCustomInstructions && (
           <text>

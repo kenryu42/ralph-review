@@ -445,6 +445,66 @@ describe("ReviewModeOverlay", () => {
     expect(submitted).toEqual([["--uncommitted", "--max", "4"]]);
   });
 
+  test("updates the preview for auto-fix priorities with ordered selected priorities", async () => {
+    const setup = await renderOverlay({}, { width: 120, height: 30 });
+
+    await emitKey(setup, "return");
+    await emitKey(setup, "tab");
+    await emitKey(setup, "down");
+    await emitKey(setup, "down");
+    await emitKey(setup, "tab");
+    await emitKey(setup, "space");
+    await emitKey(setup, "down");
+    await emitKey(setup, "space");
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("rr run --uncommitted --max 5 --auto --priority P0,P1");
+  });
+
+  test("shows a placeholder token for custom instructions in the preview", async () => {
+    const setup = await renderOverlay({}, { width: 120, height: 30 });
+
+    await emitKey(setup, "return");
+    await emitKey(setup, "c");
+    await act(async () => {
+      await setup.mockInput.typeText("check security");
+      await setup.renderOnce();
+    });
+    await emitKey(setup, "escape");
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("<custom instructions>");
+    expect(frame).not.toContain("check security");
+  });
+
+  test("does not submit while custom instructions is focused", async () => {
+    const submitted: string[][] = [];
+    const setup = await renderOverlay(
+      {
+        onSubmit: (args) => {
+          submitted.push(args);
+        },
+      },
+      { width: 120, height: 30 }
+    );
+
+    await emitKey(setup, "return");
+    await emitKey(setup, "c");
+    await act(async () => {
+      await setup.mockInput.typeText("check security");
+      await setup.renderOnce();
+    });
+    await emitKey(setup, "return");
+
+    expect(submitted).toEqual([]);
+  });
+
   test("omits blank custom instructions from uncommitted review submission", async () => {
     const submitted: string[][] = [];
     const setup = await renderOverlay({
