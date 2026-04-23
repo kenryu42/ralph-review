@@ -445,7 +445,7 @@ export function ReviewModeOverlay({
   const targetSummary = getReviewTargetSummary(pendingArgs);
   const executionSummary = getExecutionSummary(executionMode, selectedPriorityList);
   const customInstructionsStatus = customInstructionsDraft.trim().length > 0 ? "Set" : "Not set";
-  const optionsStatusMessage = error ?? "[Tab] moves focus  [Enter] starts the review.";
+  const optionsStatusMessage = error ?? "[Tab] moves focus  [Enter] starts the review";
   const optionsStatusColor = error ? TUI_COLORS.status.error : TUI_COLORS.text.muted;
   const optionsOverlayWidth = isWideOptionsLayout
     ? Math.min(OPTIONS_WIDE_OVERLAY_WIDTH, Math.max(96, terminalWidth - 4))
@@ -941,12 +941,7 @@ export function ReviewModeOverlay({
             const isFocused = optionsFocus === "execution-mode" && isSelected;
 
             return (
-              <box
-                key={option.mode}
-                flexDirection="column"
-                paddingX={1}
-                paddingY={0}
-              >
+              <box key={option.mode} flexDirection="column" paddingX={1} paddingY={0}>
                 <box flexDirection="row">
                   <text fg={isFocused ? TUI_COLORS.accent.key : TUI_COLORS.text.dim}>
                     {isFocused ? "▶ " : "  "}
@@ -995,12 +990,7 @@ export function ReviewModeOverlay({
         width={configurationPaneWidth}
         flexGrow={isWideOptionsLayout ? 0 : 1}
       >
-        <box
-          paddingX={1}
-          paddingY={0}
-          flexDirection="column"
-          gap={0}
-        >
+        <box paddingX={1} paddingY={0} flexDirection="column" gap={0}>
           <text fg={TUI_COLORS.text.dim}>
             <strong>Iterations</strong>
           </text>
@@ -1015,12 +1005,7 @@ export function ReviewModeOverlay({
           />
         </box>
 
-        <box
-          paddingX={1}
-          paddingY={0}
-          flexDirection="column"
-          gap={0}
-        >
+        <box marginTop={1} paddingX={1} paddingY={0} flexDirection="column" gap={0}>
           <text fg={TUI_COLORS.text.dim}>
             <strong>Execution</strong>
           </text>
@@ -1028,12 +1013,7 @@ export function ReviewModeOverlay({
         </box>
 
         {executionMode === "auto-priority" && (
-          <box
-            paddingX={1}
-            paddingY={0}
-            flexDirection="column"
-            gap={0}
-          >
+          <box paddingX={1} paddingY={0} flexDirection="column" gap={0}>
             <text fg={TUI_COLORS.text.dim}>
               <strong>Priority filter</strong>
             </text>
@@ -1044,10 +1024,7 @@ export function ReviewModeOverlay({
                   optionsFocus === "priority-list" && priorityCursorIndex === index;
 
                 return (
-                  <box
-                    key={priority}
-                    paddingLeft={1}
-                  >
+                  <box key={priority} paddingLeft={1}>
                     <text fg={isHighlighted ? TUI_COLORS.text.primary : TUI_COLORS.text.secondary}>
                       <span fg={isHighlighted ? TUI_COLORS.accent.key : TUI_COLORS.text.dim}>
                         {isHighlighted ? "▶ " : "  "}
@@ -1058,16 +1035,13 @@ export function ReviewModeOverlay({
                 );
               })}
             </box>
-            <text fg={TUI_COLORS.text.muted}>Space toggles.</text>
+            <text fg={TUI_COLORS.text.muted}>
+              Press <span fg={TUI_COLORS.accent.key}>[space]</span> to toggle
+            </text>
           </box>
         )}
 
-        <box
-          paddingX={1}
-          paddingY={0}
-          flexDirection="column"
-          gap={0}
-        >
+        <box marginTop={1} paddingX={1} paddingY={0} flexDirection="column" gap={0}>
           <text fg={TUI_COLORS.text.dim}>
             <strong>Custom instructions</strong>
           </text>
