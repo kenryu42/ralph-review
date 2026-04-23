@@ -434,6 +434,8 @@ export function ReviewModeOverlay({
   const targetSummary = getReviewTargetSummary(pendingArgs);
   const executionSummary = getExecutionSummary(executionMode, selectedPriorityList);
   const customInstructionsStatus = customInstructionsDraft.trim().length > 0 ? "Set" : "Not set";
+  const isCustomInstructionsFocused =
+    showCustomInstructions && optionsFocus === "custom-instructions";
   const optionsStatusColor = error ? TUI_COLORS.status.error : TUI_COLORS.text.muted;
   const optionsOverlayWidth = isWideOptionsLayout
     ? Math.min(OPTIONS_WIDE_OVERLAY_WIDTH, Math.max(96, terminalWidth - 4))
@@ -458,7 +460,7 @@ export function ReviewModeOverlay({
       return;
     }
 
-    if (showCustomInstructions && optionsFocus === "custom-instructions") {
+    if (isCustomInstructionsFocused) {
       customInstructionsRef.current?.focus();
       return;
     }
@@ -474,7 +476,7 @@ export function ReviewModeOverlay({
 
     input.focus();
     input.selectAll();
-  }, [optionsFocus, showCustomInstructions, step]);
+  }, [isCustomInstructionsFocused, optionsFocus, step]);
 
   useEffect(() => {
     if (step !== "options") {
@@ -486,6 +488,21 @@ export function ReviewModeOverlay({
       setOptionsFocus("execution-mode");
     }
   }, [optionsFocus, showCustomInstructions, step]);
+
+  useEffect(() => {
+    if (step !== "options" || !showCustomInstructions || optionsFocus === "custom-instructions") {
+      return;
+    }
+
+    const nextValue = customInstructionsRef.current?.plainText ?? customInstructionsDraft;
+    const normalizedValue = nextValue.trim().length === 0 ? "" : nextValue;
+    if (normalizedValue !== customInstructionsDraft) {
+      setCustomInstructionsDraft(normalizedValue);
+    }
+    if (normalizedValue.length === 0) {
+      setShowCustomInstructions(false);
+    }
+  }, [customInstructionsDraft, optionsFocus, showCustomInstructions, step]);
 
   function movePriorityCursor(direction: 1 | -1) {
     setPriorityCursorIndex((current) => {
@@ -529,7 +546,7 @@ export function ReviewModeOverlay({
         return;
       }
 
-      if (showCustomInstructions && optionsFocus === "custom-instructions") {
+      if (isCustomInstructionsFocused) {
         if (key.name === "escape") {
           hideCustomInstructions();
         }
@@ -887,36 +904,6 @@ export function ReviewModeOverlay({
     );
   }
 
-  function renderCustomInstructionsHelper() {
-    return (
-      <box flexDirection="column" gap={0}>
-        <box flexDirection="row" justifyContent="space-between">
-          <text fg={TUI_COLORS.text.secondary}>Status</text>
-          <text
-            fg={
-              customInstructionsStatus === "Set" ? TUI_COLORS.status.success : TUI_COLORS.text.muted
-            }
-          >
-            {customInstructionsStatus}
-          </text>
-        </box>
-        <text fg={TUI_COLORS.text.muted}>
-          {showCustomInstructions ? (
-            <>
-              Press <span fg={TUI_COLORS.accent.key}>[Esc]</span>
-              <span fg={TUI_COLORS.text.muted}> to close.</span>
-            </>
-          ) : (
-            <>
-              Press <span fg={TUI_COLORS.accent.key}>[c]</span>
-              <span fg={TUI_COLORS.text.muted}> to edit.</span>
-            </>
-          )}
-        </text>
-      </box>
-    );
-  }
-
   function renderExecutionModeOptions() {
     return (
       <box flexDirection="column" gap={0}>
@@ -1026,8 +1013,8 @@ export function ReviewModeOverlay({
         <box marginTop={1} paddingX={1} paddingY={0} flexDirection="column" gap={0}>
           <text fg={TUI_COLORS.text.dim}>
             <strong>Custom instructions</strong>
+            <span fg={TUI_COLORS.accent.key}> [C]</span>
           </text>
-          {renderCustomInstructionsHelper()}
           {showCustomInstructions && (
             <textarea
               ref={customInstructionsRef}
@@ -1037,6 +1024,10 @@ export function ReviewModeOverlay({
               width={textareaWidth}
               height={isWideOptionsLayout ? 5 : 4}
               wrapMode="word"
+              keyBindings={[{ name: "return", shift: true, action: "submit" }]}
+              onSubmit={() => {
+                submitWithOptions();
+              }}
               onContentChange={() => {
                 syncCustomInstructionsDraft();
               }}
@@ -1095,6 +1086,7 @@ export function ReviewModeOverlay({
   function renderOptions() {
     const isInlinePriorityControlActive =
       optionsFocus === "execution-mode" && executionMode === "auto-priority";
+    const reviewStartKeyLabel = isCustomInstructionsFocused ? "[Shift+Enter]" : "[Enter]";
 
     return (
       <box flexDirection="column" gap={0}>
@@ -1113,7 +1105,7 @@ export function ReviewModeOverlay({
                   <span fg={TUI_COLORS.text.muted}> to select </span>
                 </>
               )}
-              <span fg={TUI_COLORS.accent.key}>[Enter]</span>
+              <span fg={TUI_COLORS.accent.key}>{reviewStartKeyLabel}</span>
               <span fg={TUI_COLORS.text.muted}> starts review</span>
             </>
           )}

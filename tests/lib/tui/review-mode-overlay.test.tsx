@@ -5,6 +5,8 @@ import { act, createElement } from "react";
 import { buildReviewRunArgs, ReviewModeOverlay } from "@/lib/tui/dashboard/ReviewModeOverlay";
 import type { DefaultReview } from "@/lib/types";
 
+const CUSTOM_INSTRUCTIONS_PLACEHOLDER_FRAME = "Focus on security boundaries";
+
 function findTextLocation(frame: string, text: string): { x: number; y: number } {
   const lines = frame.split("\n");
   for (const [y, line] of lines.entries()) {
@@ -361,7 +363,7 @@ describe("ReviewModeOverlay", () => {
     expect(preview.y).toBeGreaterThan(configuration.y);
   });
 
-  test("shows the simplified footer helper text when there is no error", async () => {
+  test("shows the compact custom instructions label and default footer helper text", async () => {
     const setup = await renderOverlay({}, { width: 120, height: 30 });
 
     await emitKey(setup, "return");
@@ -370,9 +372,27 @@ describe("ReviewModeOverlay", () => {
     });
 
     const frame = setup.captureCharFrame();
+    expect(frame).toContain("Custom instructions [C]");
     expect(frame).toContain("[Tab] moves focus [Enter] starts review");
+    expect(frame).not.toContain("Status");
+    expect(frame).not.toContain("Press [c] to edit");
+    expect(frame).not.toContain("Press [Esc] to close.");
     expect(frame).not.toContain("Esc");
     expect(frame).not.toContain("C opens instructions");
+  });
+
+  test("shows shift enter in the footer while custom instructions is focused", async () => {
+    const setup = await renderOverlay({}, { width: 120, height: 30 });
+
+    await emitKey(setup, "return");
+    await emitKey(setup, "c");
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("[Tab] moves focus [Shift+Enter] starts review");
+    expect(frame).not.toContain("[Tab] moves focus [Enter] starts review");
   });
 
   test("preserves hidden custom instructions in the options step", async () => {
@@ -390,8 +410,48 @@ describe("ReviewModeOverlay", () => {
     });
 
     const frame = setup.captureCharFrame();
-    expect(frame).toContain("Custom instructions");
+    expect(frame).toContain("Custom instructions [C]");
     expect(frame).toContain("Set");
+  });
+
+  test("auto closes blank custom instructions when focus moves away", async () => {
+    const setup = await renderOverlay({}, { width: 120, height: 30 });
+
+    await emitKey(setup, "return");
+    await emitKey(setup, "c");
+    await act(async () => {
+      await setup.mockInput.typeText("   ");
+      await setup.renderOnce();
+    });
+    await emitKey(setup, "tab");
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("Custom instructions [C]");
+    expect(frame).not.toContain(CUSTOM_INSTRUCTIONS_PLACEHOLDER_FRAME);
+    expect(frame).toContain("[Tab] moves focus [Enter] starts review");
+  });
+
+  test("keeps custom instructions open when focus moves away and text is present", async () => {
+    const setup = await renderOverlay({}, { width: 120, height: 30 });
+
+    await emitKey(setup, "return");
+    await emitKey(setup, "c");
+    await act(async () => {
+      await setup.mockInput.typeText("check security");
+      await setup.renderOnce();
+    });
+    await emitKey(setup, "tab");
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("Custom instructions [C]");
+    expect(frame).toContain("check security");
+    expect(frame).toContain("[Tab] moves focus [Enter] starts review");
   });
 
   test("submits custom instructions with uncommitted review from options", async () => {
@@ -633,6 +693,35 @@ describe("ReviewModeOverlay", () => {
     await emitKey(setup, "return");
 
     expect(submitted).toEqual([]);
+  });
+
+  test("submits multiline custom instructions with shift enter while focused", async () => {
+    const submitted: string[][] = [];
+    const setup = await renderOverlay(
+      {
+        onSubmit: (args) => {
+          submitted.push(args);
+        },
+      },
+      { width: 120, height: 30 }
+    );
+
+    await emitKey(setup, "return");
+    await emitKey(setup, "c");
+    await act(async () => {
+      await setup.mockInput.typeText("check security");
+      await setup.renderOnce();
+    });
+    await emitKey(setup, "return");
+    await act(async () => {
+      await setup.mockInput.typeText("check migrations");
+      await setup.renderOnce();
+    });
+    await emitKey(setup, "return", { shift: true });
+
+    expect(submitted).toEqual([
+      ["--uncommitted", "check security\ncheck migrations", "--max", "5"],
+    ]);
   });
 
   test("omits blank custom instructions from uncommitted review submission", async () => {
