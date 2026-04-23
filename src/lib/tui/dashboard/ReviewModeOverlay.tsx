@@ -918,17 +918,12 @@ export function ReviewModeOverlay({
   }
 
   function renderExecutionModeOptions() {
-    const isInlinePriorityControlActive =
-      optionsFocus === "execution-mode" && executionMode === "auto-priority";
-
     return (
       <box flexDirection="column" gap={0}>
         <box flexDirection="column">
           {REVIEW_EXECUTION_OPTIONS.map((option) => {
             const isSelected = option.mode === executionMode;
             const isFocused = optionsFocus === "execution-mode" && isSelected;
-            const showInlinePriorityHelper =
-              isInlinePriorityControlActive && option.mode === "auto-priority";
             const showFocusMarker = isFocused && option.mode !== "auto-priority";
 
             return (
@@ -943,13 +938,6 @@ export function ReviewModeOverlay({
                   <text fg={isSelected ? TUI_COLORS.text.primary : TUI_COLORS.text.secondary}>
                     {" "}
                     {option.label}
-                    {showInlinePriorityHelper && (
-                      <>
-                        {" "}
-                        <span fg={TUI_COLORS.accent.key}>[Space]</span>
-                        <span fg={TUI_COLORS.text.muted}> to select</span>
-                      </>
-                    )}
                   </text>
                 </box>
               </box>
@@ -1105,6 +1093,9 @@ export function ReviewModeOverlay({
   }
 
   function renderOptions() {
+    const isInlinePriorityControlActive =
+      optionsFocus === "execution-mode" && executionMode === "auto-priority";
+
     return (
       <box flexDirection="column" gap={0}>
         <box flexDirection={isWideOptionsLayout ? "row" : "column"} gap={0} alignItems="stretch">
@@ -1116,6 +1107,12 @@ export function ReviewModeOverlay({
             <>
               <span fg={TUI_COLORS.accent.key}>[Tab]</span>
               <span fg={TUI_COLORS.text.muted}> moves focus </span>
+              {isInlinePriorityControlActive && (
+                <>
+                  <span fg={TUI_COLORS.accent.key}>[Space]</span>
+                  <span fg={TUI_COLORS.text.muted}> to select </span>
+                </>
+              )}
               <span fg={TUI_COLORS.accent.key}>[Enter]</span>
               <span fg={TUI_COLORS.text.muted}> starts review</span>
             </>

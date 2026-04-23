@@ -466,13 +466,14 @@ describe("ReviewModeOverlay", () => {
 
     const frame = setup.captureCharFrame();
     expect(frame).toContain("Priority filter");
-    expect(frame).toContain("◉ Auto-fix priorities [Space] to select");
+    expect(frame).toContain("◉ Auto-fix priorities");
+    expect(frame).not.toContain("◉ Auto-fix priorities [Space] to select");
     expect(frame).toContain("▶ ◇ P0");
     expect(frame).toContain("◇ P0");
     expect(frame).toContain("◇ P1");
     expect(frame).toContain("◇ P2");
     expect(frame).toContain("◇ P3");
-    expect(frame).toContain("[Space] to select");
+    expect(frame).toContain("[Tab] moves focus [Space] to select [Enter] starts review");
     expect(frame).not.toContain("P0,P1");
   });
 
@@ -555,7 +556,7 @@ describe("ReviewModeOverlay", () => {
 
     let frame = setup.captureCharFrame();
     expect(frame).toContain("◇ P0 ▶ ◇ P1");
-    expect(frame).toContain("[Space] to select");
+    expect(frame).toContain("[Tab] moves focus [Space] to select [Enter] starts review");
 
     await emitKey(setup, "up");
     await act(async () => {
@@ -563,11 +564,12 @@ describe("ReviewModeOverlay", () => {
     });
 
     frame = setup.captureCharFrame();
-    expect(frame).not.toContain("[Space] to select");
+    expect(frame).not.toContain("[Tab] moves focus [Space] to select [Enter] starts review");
+    expect(frame).toContain("[Tab] moves focus [Enter] starts review");
     expect(frame).toContain("◉ Auto-fix all");
   });
 
-  test("renders the toggle helper on the auto-fix priorities line only while active", async () => {
+  test("renders the select helper in the footer only while active", async () => {
     const setup = await renderOverlay({}, { width: 120, height: 30 });
 
     await emitKey(setup, "return");
@@ -579,7 +581,8 @@ describe("ReviewModeOverlay", () => {
     });
 
     let frame = setup.captureCharFrame();
-    expect(frame).toContain("◉ Auto-fix priorities [Space] to select");
+    expect(frame).toContain("[Tab] moves focus [Space] to select [Enter] starts review");
+    expect(frame).not.toContain("◉ Auto-fix priorities [Space] to select");
 
     await emitKey(setup, "up");
     await act(async () => {
@@ -587,7 +590,8 @@ describe("ReviewModeOverlay", () => {
     });
 
     frame = setup.captureCharFrame();
-    expect(frame).not.toContain("[Space] to select");
+    expect(frame).not.toContain("[Tab] moves focus [Space] to select [Enter] starts review");
+    expect(frame).toContain("[Tab] moves focus [Enter] starts review");
   });
 
   test("shows a placeholder token for custom instructions in the preview", async () => {
