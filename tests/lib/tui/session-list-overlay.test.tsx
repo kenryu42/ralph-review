@@ -823,7 +823,7 @@ describe("SessionDetailPane", () => {
     expect(frame).toContain("Run setup");
   });
 
-  test("does not start detail-pane metric polling while unfocused", async () => {
+  test("starts detail-pane metric polling on mount even when unfocused", async () => {
     const originalSetInterval = globalThis.setInterval;
     const originalClearInterval = globalThis.clearInterval;
     const intervalCalls: number[] = [];
@@ -837,7 +837,7 @@ describe("SessionDetailPane", () => {
     try {
       const stats = buildSessionStats();
       await renderDetailPane(stats, { focused: false });
-      expect(intervalCalls).toEqual([]);
+      expect(intervalCalls).toContain(100);
     } finally {
       globalThis.setInterval = originalSetInterval;
       globalThis.clearInterval = originalClearInterval;

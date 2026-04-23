@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { testRender } from "@opentui/react/test-utils";
-import { act, createElement } from "react";
+import { act, createElement, useState } from "react";
 import type {
   FindingFixResult,
   FindingId,
@@ -208,6 +208,23 @@ describe("DetailPane", () => {
       fixerModelDisplayName: "sonnet-4",
       ...overrides,
     };
+  }
+
+  function buildLiveTmuxOutput(title: string): string {
+    return [
+      "Running reviewer...",
+      JSON.stringify({
+        findings: [
+          createFinding({
+            title,
+            body: "Live reviewer output is still available.",
+          }),
+        ],
+        overall_correctness: "patch is incorrect",
+        overall_explanation: "Live reviewer output",
+        overall_confidence_score: 0.91,
+      }),
+    ].join("\n");
   }
 
   async function renderFrame({
@@ -602,6 +619,89 @@ describe("DetailPane", () => {
     expect(frame).toContain("codex");
     expect(frame).toContain("Looks clean.");
     expect(frame).toContain("Ship it.");
+  });
+
+  test("keeps live review findings visible across a same-iteration rerender and clears them on the next iteration", async () => {
+    let setSession!: (value: SessionState) => void;
+    let setTmuxOutput!: (value: string) => void;
+
+    async function settleHarness() {
+      await act(async () => {
+        await Promise.resolve();
+        await testSetup?.renderOnce();
+      });
+      await act(async () => {
+        await Promise.resolve();
+        await testSetup?.renderOnce();
+      });
+    }
+
+    function Harness() {
+      const [session, updateSession] = useState(
+        createSession({
+          state: "running",
+          iteration: 2,
+          currentAgent: "reviewer",
+        })
+      );
+      const [tmuxOutput, updateTmuxOutput] = useState(
+        buildLiveTmuxOutput("Cached live review finding")
+      );
+
+      setSession = updateSession;
+      setTmuxOutput = updateTmuxOutput;
+
+      return createElement(DetailPane, {
+        session,
+        fixes: [],
+        skipped: [],
+        findings: [],
+        storedFindings: [],
+        selectedFindingIds: [],
+        selectedFindings: [],
+        fixResults: [],
+        unresolvedSelectedFindings: [],
+        auditRegressionFindings: [],
+        latestReviewIteration: 1,
+        codexReviewText: null,
+        tmuxOutput,
+        maxIterations: 5,
+        isLoading: false,
+        projectStats: null,
+        isGitRepo: true,
+        currentAgent: "reviewer",
+        reviewOptions: undefined,
+        startupMode: null,
+        isStopping: false,
+        activeSessionCount: 1,
+        focused: false,
+      });
+    }
+
+    testSetup = await testRender(createElement(Harness), {
+      width: 160,
+      height: 60,
+    });
+    await settleHarness();
+    expect(testSetup.captureCharFrame()).toContain("Cached live review finding");
+
+    await act(async () => {
+      setTmuxOutput("");
+    });
+    await settleHarness();
+    expect(testSetup.captureCharFrame()).toContain("Cached live review finding");
+
+    await act(async () => {
+      setSession(
+        createSession({
+          state: "running",
+          iteration: 3,
+          currentAgent: "reviewer",
+        })
+      );
+    });
+    await settleHarness();
+    expect(testSetup.captureCharFrame()).not.toContain("Cached live review finding");
   });
 
   test("keeps section labels readable when the pane height is constrained", async () => {
