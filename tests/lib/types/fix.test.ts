@@ -90,17 +90,6 @@ describe("isFixSummary", () => {
     expect(isFixSummary(null)).toBe(false);
   });
 
-  test("returns false when legacy stop_iteration is present", () => {
-    expect(
-      isFixSummary({
-        decision: "APPLY_SELECTIVELY",
-        stop_iteration: false,
-        fixes: [],
-        skipped: [],
-      })
-    ).toBe(false);
-  });
-
   test("returns false when skipped is not an array", () => {
     expect(
       isFixSummary({

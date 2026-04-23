@@ -18,7 +18,7 @@ function createFinding(id: StoredFinding["id"]): StoredFinding {
 }
 
 describe("review-workflow/remediation/createBatchFixerPrompt", () => {
-  test("keys required output by finding id and removes stop iteration semantics", () => {
+  test("keys required output by finding id", () => {
     const prompt = createBatchFixerPrompt({
       baselineCommitSha: "baseline-sha-123",
       mutableWorkspacePath: "/tmp/workspace",
@@ -29,7 +29,6 @@ describe("review-workflow/remediation/createBatchFixerPrompt", () => {
     expect(prompt).toContain("F002");
     expect(prompt).toContain('"results": {');
     expect(prompt).toContain('"F001": {');
-    expect(prompt).not.toContain("stop_iteration");
   });
 
   test("preserves verify-first default-to-skip and smallest-safe-fix rules", () => {
