@@ -5,6 +5,18 @@ import { act, createElement } from "react";
 import { buildReviewRunArgs, ReviewModeOverlay } from "@/lib/tui/dashboard/ReviewModeOverlay";
 import type { DefaultReview } from "@/lib/types";
 
+function findTextLocation(frame: string, text: string): { x: number; y: number } {
+  const lines = frame.split("\n");
+  for (const [y, line] of lines.entries()) {
+    const x = line.indexOf(text);
+    if (x >= 0) {
+      return { x, y };
+    }
+  }
+
+  throw new Error(`Could not find "${text}" in frame:\n${frame}`);
+}
+
 describe("buildReviewRunArgs", () => {
   test("returns the uncommitted flag", () => {
     expect(buildReviewRunArgs("uncommitted")).toEqual(["--uncommitted"]);
@@ -288,8 +300,8 @@ describe("ReviewModeOverlay", () => {
     expect(submitted).toEqual([["--commit", "abc1234", "--max", "5"]]);
   });
 
-  test("renames the max iterations step to options", async () => {
-    const setup = await renderOverlay();
+  test("centers the review run overlay instead of pinning it to the top", async () => {
+    const setup = await renderOverlay({}, { width: 100, height: 30 });
 
     await emitKey(setup, "return");
     await act(async () => {
@@ -297,9 +309,68 @@ describe("ReviewModeOverlay", () => {
     });
 
     const frame = setup.captureCharFrame();
-    expect(frame).toContain("Options");
-    expect(frame).not.toContain("Max Iterations");
-    expect(frame).toContain("[c] Custom Instruction");
+    const header = findTextLocation(frame, "Review Run");
+
+    expect(header.y).toBeGreaterThan(5);
+    expect(header.y).toBeLessThan(16);
+  });
+
+  test("renders the guided options header and preview in wide layout", async () => {
+    const setup = await renderOverlay({}, { width: 120, height: 30 });
+
+    await emitKey(setup, "return");
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("Review Run");
+    expect(frame).toContain("Target: Uncommitted");
+    expect(frame).toContain("Configuration");
+    expect(frame).toContain("Run Preview");
+    expect(frame).toContain("rr run --uncommitted --max 5");
+    expect(frame).toContain("[Tab] moves focus  [Enter] starts the review.");
+    expect(frame).not.toContain("Set an upper bound for review/fix cycles in this run.");
+    expect(frame).toContain("╔═Review Run");
+    expect(frame).toContain("│ Iterations");
+    expect(frame).toContain("│Target: Uncommitted");
+
+    const configuration = findTextLocation(frame, "Configuration");
+    const preview = findTextLocation(frame, "Run Preview");
+
+    expect(preview.y).toBe(configuration.y);
+    expect(preview.x).toBeGreaterThan(configuration.x + 10);
+  });
+
+  test("stacks the preview below configuration on compact terminals", async () => {
+    const setup = await renderOverlay({}, { width: 92, height: 22 });
+
+    await emitKey(setup, "return");
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("Run Preview");
+
+    const configuration = findTextLocation(frame, "Configuration");
+    const preview = findTextLocation(frame, "Run Preview");
+
+    expect(preview.y).toBeGreaterThan(configuration.y);
+  });
+
+  test("shows the simplified footer helper text when there is no error", async () => {
+    const setup = await renderOverlay({}, { width: 120, height: 30 });
+
+    await emitKey(setup, "return");
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("[Tab] moves focus  [Enter] starts the review.");
+    expect(frame).not.toContain("Esc");
+    expect(frame).not.toContain("C opens instructions");
   });
 
   test("preserves hidden custom instructions in the options step", async () => {
@@ -317,17 +388,20 @@ describe("ReviewModeOverlay", () => {
     });
 
     const frame = setup.captureCharFrame();
-    expect(frame).toContain("Custom instruction set.");
-    expect(frame).toContain("[c] Edit");
+    expect(frame).toContain("Custom instructions");
+    expect(frame).toContain("Set");
   });
 
   test("submits custom instructions with uncommitted review from options", async () => {
     const submitted: string[][] = [];
-    const setup = await renderOverlay({
-      onSubmit: (args) => {
-        submitted.push(args);
+    const setup = await renderOverlay(
+      {
+        onSubmit: (args) => {
+          submitted.push(args);
+        },
       },
-    });
+      { width: 120, height: 30 }
+    );
 
     await emitKey(setup, "return");
     await emitKey(setup, "c");

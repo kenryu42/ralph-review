@@ -83,6 +83,12 @@ const REVIEW_EXECUTION_OPTIONS: ReviewExecutionOption[] = [
 const LIST_PICKER_PADDING = 1;
 const LIST_PICKER_VERTICAL_OVERHEAD = LIST_PICKER_PADDING * 2 + 6;
 const MAX_LIST_PICKER_SELECT_HEIGHT = 10;
+const OPTIONS_WIDE_MIN_WIDTH = 96;
+const OPTIONS_WIDE_MIN_HEIGHT = 28;
+const OPTIONS_WIDE_OVERLAY_WIDTH = 118;
+const OPTIONS_COMPACT_OVERLAY_WIDTH = 90;
+const OPTIONS_SECTION_BACKGROUND = "#101425";
+const OPTIONS_ACTIVE_BACKGROUND = "#1f2940";
 
 interface ReviewModeMeta {
   title: string;
@@ -119,6 +125,44 @@ function sortSelectedPriorities(selectedPriorities: Priority[]): Priority[] {
 
 function clampPriorityCursorIndex(index: number): number {
   return Math.min(PRIORITIES.length - 1, Math.max(0, index));
+}
+
+function getReviewTargetSummary(pendingArgs: string[] | null): string {
+  if (!pendingArgs || pendingArgs.length === 0) {
+    return "Unknown";
+  }
+
+  const [flag, value] = pendingArgs;
+  if (flag === "--uncommitted") {
+    return "Uncommitted";
+  }
+
+  if (flag === "--base") {
+    return `Base: ${value ?? "?"}`;
+  }
+
+  if (flag === "--commit") {
+    return `Commit: ${value ?? "?"}`;
+  }
+
+  return "Unknown";
+}
+
+function getExecutionSummary(
+  executionMode: ReviewExecutionMode,
+  selectedPriorityList: string | null
+): string {
+  if (executionMode === "review-only") {
+    return "Review only";
+  }
+
+  if (executionMode === "auto-all") {
+    return "Auto-fix all";
+  }
+
+  return selectedPriorityList
+    ? `Auto-fix priorities · ${selectedPriorityList}`
+    : "Auto-fix priorities";
 }
 
 const PREVIEW_CUSTOM_INSTRUCTIONS_TOKEN = "<custom instructions>";
@@ -318,7 +362,7 @@ export function ReviewModeOverlay({
   onClose,
   onSubmit,
 }: ReviewModeOverlayProps) {
-  const { height: terminalHeight } = useTerminalDimensions();
+  const { width: terminalWidth, height: terminalHeight } = useTerminalDimensions();
   const initialMaxIterations = clampMaxIterations(defaultMaxIterations ?? DEFAULT_MAX_ITERATIONS);
   const [selectedMode, setSelectedMode] = useState<ReviewModeSelection>(
     getInitialReviewMode(defaultReview)
@@ -395,6 +439,33 @@ export function ReviewModeOverlay({
     selectedPriorityList,
     customInstructionsDraft,
   });
+
+  const isWideOptionsLayout =
+    step === "options" &&
+    terminalWidth >= OPTIONS_WIDE_MIN_WIDTH &&
+    terminalHeight >= OPTIONS_WIDE_MIN_HEIGHT;
+  const targetSummary = getReviewTargetSummary(pendingArgs);
+  const executionSummary = getExecutionSummary(executionMode, selectedPriorityList);
+  const customInstructionsStatus = customInstructionsDraft.trim().length > 0 ? "Set" : "Not set";
+  const optionsStatusMessage = error ?? "[Tab] moves focus  [Enter] starts the review.";
+  const optionsStatusColor = error ? TUI_COLORS.status.error : TUI_COLORS.text.muted;
+  const optionsOverlayWidth = isWideOptionsLayout
+    ? Math.min(OPTIONS_WIDE_OVERLAY_WIDTH, Math.max(96, terminalWidth - 4))
+    : Math.min(OPTIONS_COMPACT_OVERLAY_WIDTH, Math.max(78, terminalWidth - 4));
+  const configurationPaneWidth = isWideOptionsLayout
+    ? Math.min(50, Math.max(46, Math.floor((optionsOverlayWidth - 8) * 0.45)))
+    : undefined;
+  const configurationContentWidth = Math.max(
+    28,
+    (configurationPaneWidth ?? optionsOverlayWidth) - 8
+  );
+  const previewPaneWidth = isWideOptionsLayout
+    ? Math.max(48, optionsOverlayWidth - (configurationPaneWidth ?? 0) - 8)
+    : undefined;
+  const textareaWidth = Math.max(
+    30,
+    Math.min(68, configurationContentWidth - (showCustomInstructions ? 2 : 0))
+  );
 
   useEffect(() => {
     if (step !== "options") {
@@ -703,6 +774,18 @@ export function ReviewModeOverlay({
     setStep("commit-picker");
   }
 
+  function handleMaxIterationsInput(next: string) {
+    if (next === "" || /^\d+$/.test(next)) {
+      setMaxIterationsDraft(next);
+      setError(null);
+      return;
+    }
+    const input = maxIterationsInputRef.current;
+    if (input) {
+      input.value = maxIterationsDraft;
+    }
+  }
+
   function renderPicker() {
     return (
       <box flexDirection="column" gap={1}>
@@ -822,55 +905,63 @@ export function ReviewModeOverlay({
   }
 
   function renderCustomInstructionsHelper() {
-    if (showCustomInstructions) {
-      return (
-        <text>
-          <span fg={TUI_COLORS.accent.key}>[Esc]</span>
-          <span fg={TUI_COLORS.text.muted}> Hide custom instructions</span>
-        </text>
-      );
-    }
-
-    if (customInstructionsDraft.trim().length > 0) {
-      return (
-        <text fg={TUI_COLORS.text.muted}>
-          Custom instruction set. <span fg={TUI_COLORS.accent.key}>[c]</span>
-          <span fg={TUI_COLORS.text.muted}> Edit</span>
-        </text>
-      );
-    }
-
     return (
-      <text>
-        <span fg={TUI_COLORS.accent.key}>[c]</span>
-        <span fg={TUI_COLORS.text.muted}> Custom Instruction</span>
-      </text>
+      <box flexDirection="column" gap={0}>
+        <box flexDirection="row" justifyContent="space-between">
+          <text fg={TUI_COLORS.text.secondary}>Status</text>
+          <text
+            fg={
+              customInstructionsStatus === "Set" ? TUI_COLORS.status.success : TUI_COLORS.text.muted
+            }
+          >
+            {customInstructionsStatus}
+          </text>
+        </box>
+        <text fg={TUI_COLORS.text.muted}>
+          {showCustomInstructions ? (
+            <>
+              Press <span fg={TUI_COLORS.accent.key}>[Esc]</span>
+              <span fg={TUI_COLORS.text.muted}> to close.</span>
+            </>
+          ) : (
+            <>
+              Press <span fg={TUI_COLORS.accent.key}>[c]</span>
+              <span fg={TUI_COLORS.text.muted}> to edit.</span>
+            </>
+          )}
+        </text>
+      </box>
     );
   }
 
   function renderExecutionModeOptions() {
     return (
-      <box flexDirection="column" gap={1}>
-        <text fg={TUI_COLORS.text.muted}>What should happen after review?</text>
+      <box flexDirection="column" gap={0}>
         <box flexDirection="column">
           {REVIEW_EXECUTION_OPTIONS.map((option) => {
             const isSelected = option.mode === executionMode;
             const isFocused = optionsFocus === "execution-mode" && isSelected;
 
             return (
-              <box key={option.mode} flexDirection="column">
+              <box
+                key={option.mode}
+                flexDirection="column"
+                backgroundColor={isSelected ? OPTIONS_ACTIVE_BACKGROUND : undefined}
+                paddingX={1}
+                paddingY={0}
+              >
                 <box flexDirection="row">
                   <text fg={isFocused ? TUI_COLORS.accent.key : TUI_COLORS.text.dim}>
-                    {isFocused ? "▶" : " "}
+                    {isFocused ? "▶ " : "  "}
+                  </text>
+                  <text fg={isSelected ? TUI_COLORS.status.success : TUI_COLORS.text.dim}>
+                    {isSelected ? "◉" : "◎"}
                   </text>
                   <text fg={isSelected ? TUI_COLORS.text.primary : TUI_COLORS.text.secondary}>
                     {" "}
                     {option.label}
                   </text>
                 </box>
-                <text fg={TUI_COLORS.text.dim} paddingLeft={2}>
-                  {option.description}
-                </text>
               </box>
             );
           })}
@@ -879,36 +970,88 @@ export function ReviewModeOverlay({
     );
   }
 
-  function renderOptions() {
+  function renderPreviewField(
+    label: string,
+    value: string,
+    color: string = TUI_COLORS.text.secondary
+  ) {
     return (
-      <box flexDirection="column" gap={1}>
-        <text fg={TUI_COLORS.text.muted}>
-          How many review iterations at most? (default {initialMaxIterations})
-        </text>
-        <input
-          ref={maxIterationsInputRef}
-          focused={optionsFocus === "max-iterations"}
-          value={maxIterationsDraft}
-          placeholder={String(initialMaxIterations)}
-          width={12}
-          backgroundColor="#101425"
-          focusedBackgroundColor="#101425"
-          onInput={(next) => {
-            if (next === "" || /^\d+$/.test(next)) {
-              setMaxIterationsDraft(next);
-              setError(null);
-              return;
-            }
-            const input = maxIterationsInputRef.current;
-            if (input) {
-              input.value = maxIterationsDraft;
-            }
-          }}
-        />
-        {renderExecutionModeOptions()}
+      <text fg={color} wrapMode="none">
+        <span fg={TUI_COLORS.text.dim}>
+          <strong>{label}:</strong>
+        </span>{" "}
+        {value}
+      </text>
+    );
+  }
+
+  function renderConfigurationPane() {
+    return (
+      <box
+        border
+        title="Configuration"
+        titleAlignment="left"
+        borderColor={TUI_COLORS.ui.border}
+        backgroundColor={OPTIONS_SECTION_BACKGROUND}
+        padding={0}
+        flexDirection="column"
+        gap={0}
+        width={configurationPaneWidth}
+        flexGrow={isWideOptionsLayout ? 0 : 1}
+      >
+        <box
+          backgroundColor={
+            optionsFocus === "max-iterations" ? OPTIONS_ACTIVE_BACKGROUND : undefined
+          }
+          paddingX={1}
+          paddingY={0}
+          flexDirection="column"
+          gap={0}
+        >
+          <text fg={TUI_COLORS.text.dim}>
+            <strong>Iterations</strong>
+          </text>
+          <input
+            ref={maxIterationsInputRef}
+            focused={optionsFocus === "max-iterations"}
+            value={maxIterationsDraft}
+            placeholder={String(initialMaxIterations)}
+            width={12}
+            backgroundColor={OPTIONS_SECTION_BACKGROUND}
+            focusedBackgroundColor={OPTIONS_SECTION_BACKGROUND}
+            onChange={handleMaxIterationsInput}
+            onInput={handleMaxIterationsInput}
+          />
+        </box>
+
+        <box
+          backgroundColor={
+            optionsFocus === "execution-mode" ? OPTIONS_ACTIVE_BACKGROUND : undefined
+          }
+          paddingX={1}
+          paddingY={0}
+          flexDirection="column"
+          gap={0}
+        >
+          <text fg={TUI_COLORS.text.dim}>
+            <strong>Execution</strong>
+          </text>
+          {renderExecutionModeOptions()}
+        </box>
+
         {executionMode === "auto-priority" && (
-          <box flexDirection="column">
-            <text fg={TUI_COLORS.text.muted}>Priority filter (Space toggles):</text>
+          <box
+            backgroundColor={
+              optionsFocus === "priority-list" ? OPTIONS_ACTIVE_BACKGROUND : undefined
+            }
+            paddingX={1}
+            paddingY={0}
+            flexDirection="column"
+            gap={0}
+          >
+            <text fg={TUI_COLORS.text.dim}>
+              <strong>Priority filter</strong>
+            </text>
             <box flexDirection="column">
               {PRIORITIES.map((priority, index) => {
                 const isSelected = selectedPriorities.includes(priority);
@@ -916,7 +1059,11 @@ export function ReviewModeOverlay({
                   optionsFocus === "priority-list" && priorityCursorIndex === index;
 
                 return (
-                  <box key={priority} paddingLeft={1}>
+                  <box
+                    key={priority}
+                    backgroundColor={isHighlighted ? OPTIONS_SECTION_BACKGROUND : undefined}
+                    paddingLeft={1}
+                  >
                     <text fg={isHighlighted ? TUI_COLORS.text.primary : TUI_COLORS.text.secondary}>
                       <span fg={isHighlighted ? TUI_COLORS.accent.key : TUI_COLORS.text.dim}>
                         {isHighlighted ? "▶ " : "  "}
@@ -930,26 +1077,72 @@ export function ReviewModeOverlay({
             <text fg={TUI_COLORS.text.muted}>Space toggles.</text>
           </box>
         )}
-        {showCustomInstructions && (
-          <>
-            <text fg={TUI_COLORS.text.muted}>Custom review instructions (optional).</text>
+
+        <box
+          backgroundColor={
+            optionsFocus === "custom-instructions" ? OPTIONS_ACTIVE_BACKGROUND : undefined
+          }
+          paddingX={1}
+          paddingY={0}
+          flexDirection="column"
+          gap={0}
+        >
+          <text fg={TUI_COLORS.text.dim}>
+            <strong>Custom instructions</strong>
+          </text>
+          {renderCustomInstructionsHelper()}
+          {showCustomInstructions && (
             <textarea
               ref={customInstructionsRef}
               focused={optionsFocus === "custom-instructions"}
               initialValue={customInstructionsDraft}
               placeholder={CUSTOM_INSTRUCTIONS_PLACEHOLDER}
-              width={68}
-              height={7}
+              width={textareaWidth}
+              height={isWideOptionsLayout ? 5 : 4}
               wrapMode="word"
-              backgroundColor="#101425"
-              focusedBackgroundColor="#101425"
+              backgroundColor={OPTIONS_SECTION_BACKGROUND}
+              focusedBackgroundColor={OPTIONS_SECTION_BACKGROUND}
               onContentChange={() => {
                 syncCustomInstructionsDraft();
               }}
             />
-          </>
+          )}
+        </box>
+      </box>
+    );
+  }
+
+  function renderPreviewPane() {
+    return (
+      <box
+        border
+        title="Run Preview"
+        titleAlignment="left"
+        borderColor={TUI_COLORS.ui.border}
+        backgroundColor={OPTIONS_SECTION_BACKGROUND}
+        padding={0}
+        flexDirection="column"
+        gap={0}
+        width={previewPaneWidth}
+        flexGrow={1}
+      >
+        {renderPreviewField("Target", targetSummary)}
+        {renderPreviewField("Execution", executionSummary)}
+        {executionMode === "auto-priority" &&
+          renderPreviewField(
+            "Priority filter",
+            selectedPriorityList ?? "Required",
+            selectedPriorityList ? TUI_COLORS.text.secondary : TUI_COLORS.status.warning
+          )}
+        {renderPreviewField("Max iterations", maxIterationsDraft.trim() || "Required")}
+        {renderPreviewField(
+          "Custom instructions",
+          customInstructionsStatus,
+          customInstructionsStatus === "Set" ? TUI_COLORS.status.success : TUI_COLORS.text.muted
         )}
-        {error && <text fg={TUI_COLORS.status.error}>{error}</text>}
+        <text fg={TUI_COLORS.text.dim}>
+          <strong>Command preview</strong>
+        </text>
         <box
           border
           borderColor={TUI_COLORS.ui.border}
@@ -961,22 +1154,25 @@ export function ReviewModeOverlay({
             {commandPreview}
           </text>
         </box>
-        {renderCustomInstructionsHelper()}
-        {!showCustomInstructions && (
-          <text>
-            <span fg={TUI_COLORS.accent.key}>[Tab]</span>
-            <span fg={TUI_COLORS.text.muted}> Next field </span>
-            <span fg={TUI_COLORS.text.dim}> </span>
-            <span fg={TUI_COLORS.accent.key}>[Enter]</span>
-            <span fg={TUI_COLORS.text.muted}> Start review </span>
-          </text>
-        )}
+      </box>
+    );
+  }
+
+  function renderOptions() {
+    return (
+      <box flexDirection="column" gap={0}>
+        <box flexDirection={isWideOptionsLayout ? "row" : "column"} gap={0} alignItems="stretch">
+          {renderConfigurationPane()}
+          {renderPreviewPane()}
+        </box>
+        <text fg={optionsStatusColor}>{optionsStatusMessage}</text>
       </box>
     );
   }
 
   const isPickerStep = step === "branch-picker" || step === "commit-picker";
-  const overlayWidth = step === "commit-picker" ? 90 : 74;
+  const overlayWidth =
+    step === "options" ? optionsOverlayWidth : step === "commit-picker" ? 90 : 74;
 
   return (
     <box
@@ -993,7 +1189,7 @@ export function ReviewModeOverlay({
         borderStyle="double"
         title={
           step === "options"
-            ? "Options"
+            ? "Review Run"
             : step === "branch-picker"
               ? REVIEW_MODE_META.base.title
               : step === "commit-picker"
@@ -1001,7 +1197,9 @@ export function ReviewModeOverlay({
                 : "Review Mode"
         }
         titleAlignment="left"
-        padding={isPickerStep ? LIST_PICKER_PADDING : 2}
+        padding={isPickerStep ? LIST_PICKER_PADDING : step === "options" ? 0 : 2}
+        paddingX={step === "options" ? 1 : undefined}
+        paddingY={step === "options" ? 0 : undefined}
         width={overlayWidth}
         height={isPickerStep ? pickerOverlayHeight : "auto"}
         backgroundColor="#1a1a2e"
