@@ -1,6 +1,6 @@
 import { basename } from "node:path";
 import { useKeyboard, useRenderer } from "@opentui/react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { resolveDashboardKeyAction } from "@/lib/tui/dashboard/dashboard-keyboard";
 import { TUI_COLORS } from "@/lib/tui/shared/colors";
 import { SelectionCopyToastBoundary } from "@/lib/tui/shared/SelectionCopyToastBoundary";
@@ -48,23 +48,32 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
   const pendingFixTarget = getPendingFixTarget(state.lastSessionStats, state.storedFindings);
   const canFixPendingSession = pendingFixTarget !== null;
 
-  useEffect(() => {
-    if (state.currentSession) {
+  const [prevCurrentSessionId, setPrevCurrentSessionId] = useState<string | null>(
+    state.currentSession?.sessionId ?? null
+  );
+  const currentSessionId = state.currentSession?.sessionId ?? null;
+  if (currentSessionId !== prevCurrentSessionId) {
+    setPrevCurrentSessionId(currentSessionId);
+    if (currentSessionId !== null) {
       clearRunStartState();
       setShowReviewModeOverlay(false);
       setShowFixFindings(false);
     }
+  }
 
+  const [prevProjectSessionsCount, setPrevProjectSessionsCount] = useState(
+    state.projectSessions.length
+  );
+  if (state.projectSessions.length !== prevProjectSessionsCount) {
+    setPrevProjectSessionsCount(state.projectSessions.length);
     if (state.projectSessions.length <= 1) {
       setShowStopPicker(false);
     }
-  }, [clearRunStartState, state.currentSession, state.projectSessions.length]);
+  }
 
-  useEffect(() => {
-    if (!canFixPendingSession && showFixFindings) {
-      setShowFixFindings(false);
-    }
-  }, [canFixPendingSession, showFixFindings]);
+  if (showFixFindings && !canFixPendingSession) {
+    setShowFixFindings(false);
+  }
 
   const shutdown = useCallback(
     async (after?: () => Promise<void>, exitCode: number = 0) => {
