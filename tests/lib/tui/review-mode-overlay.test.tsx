@@ -100,8 +100,10 @@ describe("ReviewModeOverlay", () => {
       space: " ",
       tab: "\t",
       q: "q",
+      h: "h",
       j: "j",
       k: "k",
+      l: "l",
     };
     const sequence = options.shift && name === "tab" ? "\x1B[Z" : (sequenceMap[name] ?? name);
 
@@ -602,6 +604,76 @@ describe("ReviewModeOverlay", () => {
     expect(frame).toContain("rr run --uncommitted --max 5 --auto --priority P0,P1");
   });
 
+  test("wraps long command previews instead of clipping trailing arguments", async () => {
+    const setup = await renderOverlay({}, { width: 82, height: 26 });
+
+    await emitKey(setup, "return");
+    await emitKey(setup, "c");
+    await act(async () => {
+      await setup.mockInput.typeText("check security");
+      await setup.renderOnce();
+    });
+    await emitKey(setup, "escape");
+    await emitKey(setup, "tab");
+    await emitKey(setup, "down");
+    await emitKey(setup, "down");
+    await emitKey(setup, "space");
+    await emitKey(setup, "right");
+    await emitKey(setup, "space");
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    const frame = setup.captureCharFrame();
+    const start = findTextLocation(frame, "rr run --uncommitted");
+    const tail = findTextLocation(frame, "priority P0,P1");
+
+    expect(frame).toContain("<custom instructions>");
+    expect(frame).toContain("priority P0,P1");
+    expect(tail.y).toBeGreaterThan(start.y);
+  });
+
+  test("supports h j k and l aliases in the options step", async () => {
+    const setup = await renderOverlay({}, { width: 120, height: 30 });
+
+    await emitKey(setup, "return");
+    await emitKey(setup, "j");
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    let frame = setup.captureCharFrame();
+    expect(frame).toContain("Max iterations: 4");
+
+    await emitKey(setup, "k");
+    await emitKey(setup, "tab");
+    await emitKey(setup, "j");
+    await emitKey(setup, "j");
+    await emitKey(setup, "l");
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    frame = setup.captureCharFrame();
+    expect(frame).toContain("◇ P0 ▶ ◇ P1");
+
+    await emitKey(setup, "h");
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    frame = setup.captureCharFrame();
+    expect(frame).toContain("▶ ◇ P0");
+
+    await emitKey(setup, "k");
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    frame = setup.captureCharFrame();
+    expect(frame).toContain("◉ Auto-fix all");
+  });
+
   test("uses left and right to move the inline priority cursor while up changes execution mode", async () => {
     const setup = await renderOverlay({}, { width: 120, height: 30 });
 
@@ -771,6 +843,28 @@ describe("ReviewModeOverlay", () => {
     expect(submitted).toEqual([["--base", "main", "check migrations", "--max", "5"]]);
   });
 
+  test("supports j and k navigation in the branch picker", async () => {
+    mockGitBranches({
+      currentBranch: "new-review-flow",
+      branches: ["main", "release"],
+    });
+
+    const submitted: string[][] = [];
+    const setup = await renderOverlay({
+      defaultReview: { type: "base", branch: "main" },
+      onSubmit: (args) => {
+        submitted.push(args);
+      },
+    });
+
+    await emitKey(setup, "return");
+    await emitKey(setup, "j");
+    await emitKey(setup, "return");
+    await emitKey(setup, "return");
+
+    expect(submitted).toEqual([["--base", "release", "--max", "5"]]);
+  });
+
   test("submits commit review with custom instructions from options", async () => {
     mockGitCommits([
       {
@@ -799,6 +893,35 @@ describe("ReviewModeOverlay", () => {
     await emitKey(setup, "return");
 
     expect(submitted).toEqual([["--commit", "abc1234", "check logging", "--max", "5"]]);
+  });
+
+  test("supports j and k navigation in the commit picker", async () => {
+    mockGitCommits([
+      {
+        shortSha: "abc1234",
+        subject: "fix: tighten review mode selection",
+      },
+      {
+        shortSha: "def5678",
+        subject: "feat: add overlay navigation coverage",
+      },
+    ]);
+
+    const submitted: string[][] = [];
+    const setup = await renderOverlay({
+      onSubmit: (args) => {
+        submitted.push(args);
+      },
+    });
+
+    await emitKey(setup, "down");
+    await emitKey(setup, "down");
+    await emitKey(setup, "return");
+    await emitKey(setup, "j");
+    await emitKey(setup, "return");
+    await emitKey(setup, "return");
+
+    expect(submitted).toEqual([["--commit", "def5678", "--max", "5"]]);
   });
 
   test("closes the picker when q is pressed", async () => {

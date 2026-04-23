@@ -121,6 +121,22 @@ function clampPriorityCursorIndex(index: number): number {
   return Math.min(PRIORITIES.length - 1, Math.max(0, index));
 }
 
+function isUpNavigationKey(keyName: string): boolean {
+  return keyName === "up" || keyName === "k";
+}
+
+function isDownNavigationKey(keyName: string): boolean {
+  return keyName === "down" || keyName === "j";
+}
+
+function isLeftNavigationKey(keyName: string): boolean {
+  return keyName === "left" || keyName === "h";
+}
+
+function isRightNavigationKey(keyName: string): boolean {
+  return keyName === "right" || keyName === "l";
+}
+
 function getReviewTargetSummary(pendingArgs: string[] | null): string {
   if (!pendingArgs || pendingArgs.length === 0) {
     return "Unknown";
@@ -479,6 +495,17 @@ export function ReviewModeOverlay({
     setError(null);
   }
 
+  function adjustMaxIterations(direction: 1 | -1) {
+    const current = parseInt(maxIterationsDraft, 10);
+    const base = Number.isFinite(current)
+      ? current
+      : direction > 0
+        ? initialMaxIterations - 1
+        : initialMaxIterations + 1;
+    setMaxIterationsDraft(String(clampMaxIterations(base + direction)));
+    setError(null);
+  }
+
   function toggleSelectedPriority() {
     const priority = PRIORITIES[priorityCursorIndex] ?? PRIORITIES[0];
     if (!priority) {
@@ -533,42 +560,36 @@ export function ReviewModeOverlay({
       }
 
       if (optionsFocus === "max-iterations") {
-        if (key.name === "up") {
-          const current = parseInt(maxIterationsDraft, 10);
-          const base = Number.isFinite(current) ? current : initialMaxIterations - 1;
-          setMaxIterationsDraft(String(clampMaxIterations(base + 1)));
-          setError(null);
+        if (isUpNavigationKey(key.name)) {
+          adjustMaxIterations(1);
           return;
         }
 
-        if (key.name === "down") {
-          const current = parseInt(maxIterationsDraft, 10);
-          const base = Number.isFinite(current) ? current : initialMaxIterations + 1;
-          setMaxIterationsDraft(String(clampMaxIterations(base - 1)));
-          setError(null);
+        if (isDownNavigationKey(key.name)) {
+          adjustMaxIterations(-1);
           return;
         }
       }
 
       if (optionsFocus === "execution-mode") {
-        if (key.name === "up") {
+        if (isUpNavigationKey(key.name)) {
           setExecutionMode((current) => cycleExecutionMode(current, -1));
           setError(null);
           return;
         }
 
-        if (key.name === "down") {
+        if (isDownNavigationKey(key.name)) {
           setExecutionMode((current) => cycleExecutionMode(current, 1));
           setError(null);
           return;
         }
 
-        if (executionMode === "auto-priority" && key.name === "left") {
+        if (executionMode === "auto-priority" && isLeftNavigationKey(key.name)) {
           movePriorityCursor(-1);
           return;
         }
 
-        if (executionMode === "auto-priority" && key.name === "right") {
+        if (executionMode === "auto-priority" && isRightNavigationKey(key.name)) {
           movePriorityCursor(1);
           return;
         }
@@ -940,6 +961,20 @@ export function ReviewModeOverlay({
             width={12}
             onChange={handleMaxIterationsInput}
             onInput={handleMaxIterationsInput}
+            onKeyDown={(key) => {
+              if (isUpNavigationKey(key.name)) {
+                key.preventDefault();
+                key.stopPropagation();
+                adjustMaxIterations(1);
+                return;
+              }
+
+              if (isDownNavigationKey(key.name)) {
+                key.preventDefault();
+                key.stopPropagation();
+                adjustMaxIterations(-1);
+              }
+            }}
           />
         </box>
 
@@ -1040,7 +1075,7 @@ export function ReviewModeOverlay({
           paddingY={0}
           backgroundColor="#0d1220"
         >
-          <text fg={TUI_COLORS.text.primary} wrapMode="none">
+          <text fg={TUI_COLORS.text.primary} wrapMode="word">
             {commandPreview}
           </text>
         </box>
