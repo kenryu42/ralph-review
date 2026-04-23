@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useMemo, useRef } from "react";
 import { formatReviewType } from "@/lib/format";
 import type {
   FindingFixResult,
@@ -190,21 +190,17 @@ export function SessionDetailView({
     null
   );
 
-  useEffect(() => {
-    if (liveReviewSummary) {
-      lastLiveReviewSummaryRef.current = {
-        iteration: sessionIteration,
-        summary: liveReviewSummary,
-      };
-      return;
-    }
-    if (
-      lastLiveReviewSummaryRef.current &&
-      lastLiveReviewSummaryRef.current.iteration !== sessionIteration
-    ) {
-      lastLiveReviewSummaryRef.current = null;
-    }
-  }, [sessionIteration, liveReviewSummary]);
+  if (liveReviewSummary) {
+    lastLiveReviewSummaryRef.current = {
+      iteration: sessionIteration,
+      summary: liveReviewSummary,
+    };
+  } else if (
+    lastLiveReviewSummaryRef.current &&
+    lastLiveReviewSummaryRef.current.iteration !== sessionIteration
+  ) {
+    lastLiveReviewSummaryRef.current = null;
+  }
 
   const iteration = sessionIteration;
   const statusDisplay = getStatusDisplay(
