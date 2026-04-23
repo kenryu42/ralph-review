@@ -124,7 +124,7 @@ function createReviewParse(value: ReviewSummary): StructuredParseResult<ReviewSu
   return {
     ok: true,
     value,
-    source: "legacy-direct",
+    source: "framed-raw",
     usedRepair: false,
     failureReason: null,
   };
@@ -181,7 +181,7 @@ function createDependencies(state: HarnessState): RunReviewCycleDeps {
     },
     createFixerSummaryRetryReminder: () => "retry fixer",
     createTargetedReviewPrompt: () => {
-      throw new Error("legacy reviewer prompt should not be used during review");
+      throw new Error("alternate reviewer prompt should not be used during review");
     },
     createReviewerSummaryRetryReminder: () => "retry reviewer",
     AGENTS: {

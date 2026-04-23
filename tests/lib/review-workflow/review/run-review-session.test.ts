@@ -121,7 +121,7 @@ function createDependencies(overrides: {
       (() => ({
         ok: true,
         value: emptySummary,
-        source: "legacy-direct",
+        source: "framed-raw",
         usedRepair: false,
         failureReason: null,
       })),
@@ -216,7 +216,7 @@ describe("review-workflow/review/runReviewSession", () => {
       parseReviewSummaryOutput: () => ({
         ok: true,
         value: createReviewSummary([createReviewFinding()]),
-        source: "legacy-direct",
+        source: "framed-raw",
         usedRepair: false,
         failureReason: null,
       }),
@@ -298,7 +298,7 @@ describe("review-workflow/review/runReviewSession", () => {
       parseReviewSummaryOutput: () => ({
         ok: true,
         value: createReviewSummary([createReviewFinding()]),
-        source: "legacy-direct",
+        source: "framed-raw",
         usedRepair: false,
         failureReason: null,
       }),
