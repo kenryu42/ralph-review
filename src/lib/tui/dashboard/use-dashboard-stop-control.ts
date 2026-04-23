@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import type { ActiveSession, SessionState } from "@/lib/session-state";
 import { stopActiveSession } from "@/lib/stop-session";
 import {
@@ -8,6 +8,7 @@ import {
   shouldClearStoppingSessionState,
 } from "@/lib/tui/dashboard/dashboard-stop-state";
 import { getErrorMessage } from "@/lib/tui/shared/error-message";
+import { useMountEffect } from "@/lib/tui/shared/use-mount-effect";
 import { stopSelectedDashboardSession } from "./dashboard-stop";
 
 interface DashboardStopControlOptions {
@@ -26,43 +27,32 @@ export function useDashboardStopControl({
   setShowStopPicker,
   onError,
 }: DashboardStopControlOptions): DashboardStopControl {
-  const [isStoppingRun, setIsStoppingRun] = useState(false);
   const [stoppingSession, setStoppingSession] = useState<StoppingSessionState | null>(null);
+  const settleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useEffect(() => {
-    if (!stoppingSession) {
-      return;
-    }
+  const clearSettleTimer = useMemo(
+    () => () => {
+      if (settleTimerRef.current !== null) {
+        clearTimeout(settleTimerRef.current);
+        settleTimerRef.current = null;
+      }
+    },
+    []
+  );
 
-    if (
-      shouldClearStoppingSessionState({
-        marker: stoppingSession,
-        currentSession,
-      })
-    ) {
-      setStoppingSession(null);
-      setIsStoppingRun(false);
-      return;
-    }
+  if (
+    stoppingSession &&
+    shouldClearStoppingSessionState({ marker: stoppingSession, currentSession })
+  ) {
+    clearSettleTimer();
+    setStoppingSession(null);
+  }
 
-    if (stoppingSession.phase !== "settling" || stoppingSession.expiresAt === undefined) {
-      return;
-    }
-
-    const timeoutMs = Math.max(0, stoppingSession.expiresAt - Date.now());
-    const timeout = setTimeout(() => {
-      setStoppingSession(null);
-      setIsStoppingRun(false);
-    }, timeoutMs);
-
-    return () => {
-      clearTimeout(timeout);
-    };
-  }, [currentSession, stoppingSession]);
+  useMountEffect(() => () => clearSettleTimer());
 
   const stopSelectedSession = useCallback(
     async (session: ActiveSession) => {
-      setIsStoppingRun(true);
+      clearSettleTimer();
       setStoppingSession(createStoppingSessionState(session));
 
       try {
@@ -71,24 +61,31 @@ export function useDashboardStopControl({
           stopActiveSession,
         });
 
-        setStoppingSession((current) => {
-          if (!current || current.sessionId !== session.sessionId) {
-            return current;
-          }
+        const settled = settleStoppingSessionState(createStoppingSessionState(session));
+        setStoppingSession((current) =>
+          current && current.sessionId === session.sessionId ? settled : current
+        );
 
-          return settleStoppingSessionState(current);
-        });
+        const delay = Math.max(0, (settled.expiresAt ?? Date.now()) - Date.now());
+        settleTimerRef.current = setTimeout(() => {
+          settleTimerRef.current = null;
+          setStoppingSession((current) =>
+            current && current.sessionId === session.sessionId && current.phase === "settling"
+              ? null
+              : current
+          );
+        }, delay);
       } catch (error) {
+        clearSettleTimer();
         setStoppingSession(null);
-        setIsStoppingRun(false);
         onError(getErrorMessage(error));
       }
     },
-    [onError, setShowStopPicker]
+    [clearSettleTimer, onError, setShowStopPicker]
   );
 
   return {
-    isStoppingRun,
+    isStoppingRun: stoppingSession !== null,
     stopSelectedSession,
   };
 }
