@@ -329,7 +329,7 @@ describe("ReviewModeOverlay", () => {
     expect(frame).toContain("Configuration");
     expect(frame).toContain("Run Preview");
     expect(frame).toContain("rr run --uncommitted --max 5");
-    expect(frame).toContain("[Tab] moves focus  [Enter] starts the review");
+    expect(frame).toContain("[Tab] moves focus [Enter] starts review");
     expect(frame).not.toContain("Set an upper bound for review/fix cycles in this run.");
     expect(frame).toContain("╔═Review Run");
     expect(frame).toContain("│ Iterations");
@@ -368,7 +368,7 @@ describe("ReviewModeOverlay", () => {
     });
 
     const frame = setup.captureCharFrame();
-    expect(frame).toContain("[Tab] moves focus  [Enter] starts the review");
+    expect(frame).toContain("[Tab] moves focus [Enter] starts review");
     expect(frame).not.toContain("Esc");
     expect(frame).not.toContain("C opens instructions");
   });

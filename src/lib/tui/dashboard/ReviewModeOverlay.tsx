@@ -445,7 +445,6 @@ export function ReviewModeOverlay({
   const targetSummary = getReviewTargetSummary(pendingArgs);
   const executionSummary = getExecutionSummary(executionMode, selectedPriorityList);
   const customInstructionsStatus = customInstructionsDraft.trim().length > 0 ? "Set" : "Not set";
-  const optionsStatusMessage = error ?? "[Tab] moves focus  [Enter] starts the review";
   const optionsStatusColor = error ? TUI_COLORS.status.error : TUI_COLORS.text.muted;
   const optionsOverlayWidth = isWideOptionsLayout
     ? Math.min(OPTIONS_WIDE_OVERLAY_WIDTH, Math.max(96, terminalWidth - 4))
@@ -1014,10 +1013,7 @@ export function ReviewModeOverlay({
 
         {executionMode === "auto-priority" && (
           <box paddingX={1} paddingY={0} flexDirection="column" gap={0}>
-            <text fg={TUI_COLORS.text.dim}>
-              <strong>Priority filter</strong>
-            </text>
-            <box flexDirection="column">
+            <box flexDirection="row" paddingLeft={2}>
               {PRIORITIES.map((priority, index) => {
                 const isSelected = selectedPriorities.includes(priority);
                 const isHighlighted =
@@ -1035,9 +1031,11 @@ export function ReviewModeOverlay({
                 );
               })}
             </box>
-            <text fg={TUI_COLORS.text.muted}>
-              Press <span fg={TUI_COLORS.accent.key}>[space]</span> to toggle
-            </text>
+            <box paddingLeft={5}>
+              <text fg={TUI_COLORS.text.muted}>
+                <span fg={TUI_COLORS.accent.key}>[Space]</span> to toggle
+              </text>
+            </box>
           </box>
         )}
 
@@ -1117,7 +1115,16 @@ export function ReviewModeOverlay({
           {renderConfigurationPane()}
           {renderPreviewPane()}
         </box>
-        <text fg={optionsStatusColor}>{optionsStatusMessage}</text>
+        <text fg={optionsStatusColor}>
+          {error ?? (
+            <>
+              <span fg={TUI_COLORS.accent.key}>[Tab]</span>
+              <span fg={TUI_COLORS.text.muted}> moves focus </span>
+              <span fg={TUI_COLORS.accent.key}>[Enter]</span>
+              <span fg={TUI_COLORS.text.muted}> starts review</span>
+            </>
+          )}
+        </text>
       </box>
     );
   }
