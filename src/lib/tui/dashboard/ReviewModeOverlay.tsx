@@ -1,9 +1,11 @@
 import type { InputRenderable, TextareaRenderable } from "@opentui/core";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { formatPriorityList, parsePriorityList } from "@/lib/priority-list";
+import { formatPriorityList } from "@/lib/priority-list";
+import { PriorityText } from "@/lib/tui/sessions/priority-text";
 import { TUI_COLORS } from "@/lib/tui/shared/colors";
-import type { DefaultReview } from "@/lib/types";
+import type { DefaultReview, Priority } from "@/lib/types";
+import { VALID_PRIORITIES as PRIORITIES } from "@/lib/types/domain";
 
 export type ReviewModeSelection = "uncommitted" | "base" | "commit";
 
@@ -33,7 +35,6 @@ const MIN_MAX_ITERATIONS = 1;
 const MAX_MAX_ITERATIONS = 999;
 const CUSTOM_INSTRUCTIONS_PLACEHOLDER =
   "Focus on security boundaries, migrations, and error handling...";
-const PRIORITY_LIST_PLACEHOLDER = "P0,P1";
 
 interface ReviewModeOverlayProps {
   defaultReview?: DefaultReview;
@@ -110,6 +111,25 @@ function getInitialReviewMode(defaultReview?: DefaultReview): ReviewModeSelectio
     return "base";
   }
   return "uncommitted";
+}
+
+function sortSelectedPriorities(selectedPriorities: Priority[]): Priority[] {
+  return PRIORITIES.filter((priority) => selectedPriorities.includes(priority));
+}
+
+function clampPriorityCursorIndex(index: number): number {
+  return Math.min(PRIORITIES.length - 1, Math.max(0, index));
+}
+
+function renderPrioritySelectionRow(priority: Priority, isSelected: boolean) {
+  return (
+    <>
+      <span fg={isSelected ? TUI_COLORS.status.success : TUI_COLORS.text.dim}>
+        {isSelected ? "◈" : "◇"}{" "}
+      </span>
+      <PriorityText priority={priority} />
+    </>
+  );
 }
 
 export function buildReviewRunArgs(mode: ReviewModeSelection, value?: string): string[] {
@@ -278,14 +298,23 @@ export function ReviewModeOverlay({
     String(initialMaxIterations)
   );
   const [executionMode, setExecutionMode] = useState<ReviewExecutionMode>("review-only");
-  const [priorityDraft, setPriorityDraft] = useState("");
-  const [priorityEdited, setPriorityEdited] = useState(false);
+  const [selectedPriorities, setSelectedPriorities] = useState<Priority[]>([]);
+  const [priorityCursorIndex, setPriorityCursorIndex] = useState(0);
   const [customInstructionsDraft, setCustomInstructionsDraft] = useState("");
   const [showCustomInstructions, setShowCustomInstructions] = useState(false);
   const [optionsFocus, setOptionsFocus] = useState<OptionsFocusTarget>("max-iterations");
-  const priorityInputRef = useRef<InputRenderable>(null);
+  const selectedPrioritiesRef = useRef<Priority[]>([]);
+  const priorityCursorIndexRef = useRef(0);
   const customInstructionsRef = useRef<TextareaRenderable>(null);
   const maxIterationsInputRef = useRef<InputRenderable>(null);
+
+  useEffect(() => {
+    selectedPrioritiesRef.current = selectedPriorities;
+  }, [selectedPriorities]);
+
+  useEffect(() => {
+    priorityCursorIndexRef.current = priorityCursorIndex;
+  }, [priorityCursorIndex]);
 
   const branchPickerData = useMemo(() => {
     const branchData = getGitBranches(projectPath);
@@ -331,13 +360,6 @@ export function ReviewModeOverlay({
     }
 
     if (executionMode === "auto-priority" && optionsFocus === "priority-list") {
-      const input = priorityInputRef.current;
-      if (!input) {
-        return;
-      }
-
-      input.focus();
-      input.selectAll();
       return;
     }
 
@@ -431,6 +453,47 @@ export function ReviewModeOverlay({
         }
       }
 
+      if (optionsFocus === "priority-list") {
+        if (key.name === "up" || key.name === "k") {
+          setPriorityCursorIndex((current) => {
+            const next = clampPriorityCursorIndex(current - 1);
+            priorityCursorIndexRef.current = next;
+            return next;
+          });
+          setError(null);
+          return;
+        }
+
+        if (key.name === "down" || key.name === "j") {
+          setPriorityCursorIndex((current) => {
+            const next = clampPriorityCursorIndex(current + 1);
+            priorityCursorIndexRef.current = next;
+            return next;
+          });
+          setError(null);
+          return;
+        }
+
+        if (key.name === "space") {
+          const priority = PRIORITIES[priorityCursorIndexRef.current] ?? PRIORITIES[0];
+          if (!priority) {
+            return;
+          }
+
+          setSelectedPriorities((current) => {
+            const next = sortSelectedPriorities(
+              current.includes(priority)
+                ? current.filter((value) => value !== priority)
+                : [...current, priority]
+            );
+            selectedPrioritiesRef.current = next;
+            return next;
+          });
+          setError(null);
+          return;
+        }
+      }
+
       if (key.name === "enter" || key.name === "return") {
         submitWithOptions();
       }
@@ -512,8 +575,10 @@ export function ReviewModeOverlay({
     setPreviousStep(step);
     setMaxIterationsDraft(String(initialMaxIterations));
     setExecutionMode("review-only");
-    setPriorityDraft("");
-    setPriorityEdited(false);
+    setSelectedPriorities([]);
+    selectedPrioritiesRef.current = [];
+    setPriorityCursorIndex(0);
+    priorityCursorIndexRef.current = 0;
     setShowCustomInstructions(false);
     setOptionsFocus("max-iterations");
     setError(null);
@@ -538,20 +603,16 @@ export function ReviewModeOverlay({
 
     let priorityList: string | undefined;
     if (executionMode === "auto-priority") {
-      const normalizedPriorityDraft =
-        !priorityEdited && priorityDraft.trim() === PRIORITY_LIST_PLACEHOLDER ? "" : priorityDraft;
+      const currentSelectedPriorityList = formatPriorityList(
+        sortSelectedPriorities(selectedPrioritiesRef.current)
+      );
 
-      if (normalizedPriorityDraft.trim().length === 0) {
-        setError("Priority list is required for auto-fix priorities.");
+      if (currentSelectedPriorityList.length === 0) {
+        setError("Select at least one priority for auto-fix priorities.");
         return;
       }
 
-      try {
-        priorityList = formatPriorityList(parsePriorityList(normalizedPriorityDraft));
-      } catch (priorityError) {
-        setError(priorityError instanceof Error ? priorityError.message : String(priorityError));
-        return;
-      }
+      priorityList = currentSelectedPriorityList;
     }
 
     const customInstructions = syncCustomInstructionsDraft();
@@ -799,25 +860,28 @@ export function ReviewModeOverlay({
         />
         {renderExecutionModeOptions()}
         {executionMode === "auto-priority" && (
-          <>
-            <text fg={TUI_COLORS.text.muted}>Priority list for auto-fix (CSV).</text>
-            <input
-              ref={priorityInputRef}
-              focused={optionsFocus === "priority-list"}
-              value={priorityDraft}
-              placeholder={PRIORITY_LIST_PLACEHOLDER}
-              width={24}
-              backgroundColor="#101425"
-              focusedBackgroundColor="#101425"
-              onInput={(next) => {
-                setPriorityDraft(next);
-                if (optionsFocus === "priority-list") {
-                  setPriorityEdited(true);
-                }
-                setError(null);
-              }}
-            />
-          </>
+          <box flexDirection="column">
+            <text fg={TUI_COLORS.text.muted}>Priority filter (Space toggles):</text>
+            <box flexDirection="column">
+              {PRIORITIES.map((priority, index) => {
+                const isSelected = selectedPriorities.includes(priority);
+                const isHighlighted =
+                  optionsFocus === "priority-list" && priorityCursorIndex === index;
+
+                return (
+                  <box key={priority} paddingLeft={1}>
+                    <text fg={isHighlighted ? TUI_COLORS.text.primary : TUI_COLORS.text.secondary}>
+                      <span fg={isHighlighted ? TUI_COLORS.accent.key : TUI_COLORS.text.dim}>
+                        {isHighlighted ? "▶ " : "  "}
+                      </span>
+                      {renderPrioritySelectionRow(priority, isSelected)}
+                    </text>
+                  </box>
+                );
+              })}
+            </box>
+            <text fg={TUI_COLORS.text.muted}>Space toggles.</text>
+          </box>
         )}
         {showCustomInstructions && (
           <>

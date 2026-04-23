@@ -69,33 +69,41 @@ describe("ReviewModeOverlay", () => {
     return testSetup;
   }
 
-  async function emitKey(setup: Awaited<ReturnType<typeof testRender>>, name: string) {
+  async function emitKey(
+    setup: Awaited<ReturnType<typeof testRender>>,
+    name: string,
+    options: {
+      shift?: boolean;
+    } = {}
+  ) {
     const sequenceMap: Record<string, string> = {
       down: "\x1B[B",
       up: "\x1B[A",
       escape: "\x1B",
       return: "\r",
+      space: " ",
       tab: "\t",
       q: "q",
       j: "j",
       k: "k",
     };
+    const sequence = options.shift && name === "tab" ? "\x1B[Z" : (sequenceMap[name] ?? name);
 
     await act(async () => {
       setup.renderer.keyInput.emit(
         "keypress",
         new KeyEvent({
           name,
-          sequence: sequenceMap[name] ?? name,
+          sequence,
           ctrl: false,
-          shift: false,
+          shift: options.shift ?? false,
           meta: false,
           option: false,
           eventType: "press",
           repeated: false,
           source: "raw",
           number: false,
-          raw: sequenceMap[name] ?? name,
+          raw: sequence,
         })
       );
       await setup.renderOnce();
@@ -349,7 +357,7 @@ describe("ReviewModeOverlay", () => {
     expect(submitted).toEqual([["--uncommitted", "--max", "5", "--auto"]]);
   });
 
-  test("submits auto-fix priorities with normalized csv values", async () => {
+  test("submits auto-fix priorities with ordered priority values", async () => {
     const submitted: string[][] = [];
     const setup = await renderOverlay({
       onSubmit: (args) => {
@@ -362,13 +370,79 @@ describe("ReviewModeOverlay", () => {
     await emitKey(setup, "down");
     await emitKey(setup, "down");
     await emitKey(setup, "tab");
-    await act(async () => {
-      await setup.mockInput.typeText("p1,p0");
-      await setup.renderOnce();
-    });
+    await emitKey(setup, "space");
+    await emitKey(setup, "down");
+    await emitKey(setup, "space");
     await emitKey(setup, "return");
 
     expect(submitted).toEqual([["--uncommitted", "--max", "5", "--auto", "--priority", "P0,P1"]]);
+  });
+
+  test("renders a priority selector list instead of a free-text input", async () => {
+    const setup = await renderOverlay({}, { width: 120, height: 30 });
+
+    await emitKey(setup, "return");
+    await emitKey(setup, "tab");
+    await emitKey(setup, "down");
+    await emitKey(setup, "down");
+    await emitKey(setup, "tab");
+
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("Priority filter");
+    expect(frame).toContain("◇ P0");
+    expect(frame).toContain("◇ P1");
+    expect(frame).toContain("◇ P2");
+    expect(frame).toContain("◇ P3");
+    expect(frame).toContain("Space toggles.");
+    expect(frame).not.toContain("P0,P1");
+  });
+
+  test("does not toggle priorities when enter is pressed", async () => {
+    const submitted: string[][] = [];
+    const setup = await renderOverlay(
+      {
+        onSubmit: (args) => {
+          submitted.push(args);
+        },
+      },
+      { width: 120, height: 30 }
+    );
+
+    await emitKey(setup, "return");
+    await emitKey(setup, "tab");
+    await emitKey(setup, "down");
+    await emitKey(setup, "down");
+    await emitKey(setup, "tab");
+    await emitKey(setup, "return");
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    const frame = setup.captureCharFrame();
+    expect(submitted).toEqual([]);
+    expect(frame).toContain("◇ P0");
+    expect(frame).toContain("◇ P1");
+    expect(frame).toContain("Select at least one priority");
+  });
+
+  test("cycles backwards with shift tab in the options step", async () => {
+    const submitted: string[][] = [];
+    const setup = await renderOverlay(
+      {
+        onSubmit: (args) => {
+          submitted.push(args);
+        },
+      },
+      { width: 120, height: 30 }
+    );
+
+    await emitKey(setup, "return");
+    await emitKey(setup, "tab");
+    await emitKey(setup, "tab", { shift: true });
+    await emitKey(setup, "down");
+    await emitKey(setup, "return");
+
+    expect(submitted).toEqual([["--uncommitted", "--max", "4"]]);
   });
 
   test("omits blank custom instructions from uncommitted review submission", async () => {
