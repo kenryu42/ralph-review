@@ -64,7 +64,7 @@ function unwrapJsonCodeFence(candidate: string): string {
   return match[1].trim();
 }
 
-export function extractJsonBlock(output: string): string | null {
+function extractJsonBlock(output: string): string | null {
   const match = output.match(/```json\s*\n([\s\S]*?)\n```/i);
   if (!match?.[1]) {
     return null;
@@ -366,14 +366,4 @@ export function parseFixSummaryOutput(
     },
     isFixSummary
   );
-}
-
-export function parseFixSummaryCandidate(candidate: string): StructuredParseResult<FixSummary> {
-  return parseFixSummaryOutput(candidate, candidate);
-}
-
-export function parseReviewSummaryCandidate(
-  candidate: string
-): StructuredParseResult<ReviewSummary> {
-  return parseReviewSummaryOutput(candidate, candidate);
 }

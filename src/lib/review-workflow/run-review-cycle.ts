@@ -25,13 +25,7 @@ import {
   runReviewSession,
 } from "@/lib/review-workflow/review/run-review-session";
 import { updateSessionState } from "@/lib/session";
-import {
-  extractJsonBlock as extractJsonBlockFromOutput,
-  parseFixSummaryCandidate,
-  parseFixSummaryOutput,
-  parseReviewSummaryCandidate,
-  parseReviewSummaryOutput,
-} from "@/lib/structured-output";
+import { parseFixSummaryOutput, parseReviewSummaryOutput } from "@/lib/structured-output";
 import type {
   AgentRole,
   Config,
@@ -103,25 +97,11 @@ export function formatAgentFailureWarning(
   return warning;
 }
 
-export function extractJsonBlock(output: string): string | null {
-  return extractJsonBlockFromOutput(output);
-}
-
 export function extractFixSummaryFromOutput(
   resultText: string | null,
   rawOutput: string
 ): FixSummary | null {
   const parsed = parseFixSummaryOutput(resultText, rawOutput);
-  return parsed.ok ? parsed.value : null;
-}
-
-export function parseFixSummary(jsonString: string): FixSummary | null {
-  const parsed = parseFixSummaryCandidate(jsonString);
-  return parsed.ok ? parsed.value : null;
-}
-
-export function parseReviewSummary(jsonString: string): ReviewSummary | null {
-  const parsed = parseReviewSummaryCandidate(jsonString);
   return parsed.ok ? parsed.value : null;
 }
 
