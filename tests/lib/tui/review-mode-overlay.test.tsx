@@ -91,6 +91,8 @@ describe("ReviewModeOverlay", () => {
     const sequenceMap: Record<string, string> = {
       down: "\x1B[B",
       up: "\x1B[A",
+      left: "\x1B[D",
+      right: "\x1B[C",
       escape: "\x1B",
       return: "\r",
       space: " ",
@@ -443,30 +445,34 @@ describe("ReviewModeOverlay", () => {
     await emitKey(setup, "tab");
     await emitKey(setup, "down");
     await emitKey(setup, "down");
-    await emitKey(setup, "tab");
     await emitKey(setup, "space");
-    await emitKey(setup, "down");
+    await emitKey(setup, "right");
     await emitKey(setup, "space");
     await emitKey(setup, "return");
 
     expect(submitted).toEqual([["--uncommitted", "--max", "5", "--auto", "--priority", "P0,P1"]]);
   });
 
-  test("renders a priority selector list instead of a free-text input", async () => {
+  test("makes the priority row interactive without an extra tab stop", async () => {
     const setup = await renderOverlay({}, { width: 120, height: 30 });
 
     await emitKey(setup, "return");
     await emitKey(setup, "tab");
     await emitKey(setup, "down");
     await emitKey(setup, "down");
-    await emitKey(setup, "tab");
+    await act(async () => {
+      await setup.renderOnce();
+    });
 
     const frame = setup.captureCharFrame();
     expect(frame).toContain("Priority filter");
+    expect(frame).toContain("◉ Auto-fix priorities [Space] to select");
+    expect(frame).toContain("▶ ◇ P0");
     expect(frame).toContain("◇ P0");
     expect(frame).toContain("◇ P1");
     expect(frame).toContain("◇ P2");
     expect(frame).toContain("◇ P3");
+    expect(frame).toContain("[Space] to select");
     expect(frame).not.toContain("P0,P1");
   });
 
@@ -485,7 +491,6 @@ describe("ReviewModeOverlay", () => {
     await emitKey(setup, "tab");
     await emitKey(setup, "down");
     await emitKey(setup, "down");
-    await emitKey(setup, "tab");
     await emitKey(setup, "return");
     await act(async () => {
       await setup.renderOnce();
@@ -525,9 +530,8 @@ describe("ReviewModeOverlay", () => {
     await emitKey(setup, "tab");
     await emitKey(setup, "down");
     await emitKey(setup, "down");
-    await emitKey(setup, "tab");
     await emitKey(setup, "space");
-    await emitKey(setup, "down");
+    await emitKey(setup, "right");
     await emitKey(setup, "space");
     await act(async () => {
       await setup.renderOnce();
@@ -535,6 +539,55 @@ describe("ReviewModeOverlay", () => {
 
     const frame = setup.captureCharFrame();
     expect(frame).toContain("rr run --uncommitted --max 5 --auto --priority P0,P1");
+  });
+
+  test("uses left and right to move the inline priority cursor while up changes execution mode", async () => {
+    const setup = await renderOverlay({}, { width: 120, height: 30 });
+
+    await emitKey(setup, "return");
+    await emitKey(setup, "tab");
+    await emitKey(setup, "down");
+    await emitKey(setup, "down");
+    await emitKey(setup, "right");
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    let frame = setup.captureCharFrame();
+    expect(frame).toContain("◇ P0 ▶ ◇ P1");
+    expect(frame).toContain("[Space] to select");
+
+    await emitKey(setup, "up");
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    frame = setup.captureCharFrame();
+    expect(frame).not.toContain("[Space] to select");
+    expect(frame).toContain("◉ Auto-fix all");
+  });
+
+  test("renders the toggle helper on the auto-fix priorities line only while active", async () => {
+    const setup = await renderOverlay({}, { width: 120, height: 30 });
+
+    await emitKey(setup, "return");
+    await emitKey(setup, "tab");
+    await emitKey(setup, "down");
+    await emitKey(setup, "down");
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    let frame = setup.captureCharFrame();
+    expect(frame).toContain("◉ Auto-fix priorities [Space] to select");
+
+    await emitKey(setup, "up");
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    frame = setup.captureCharFrame();
+    expect(frame).not.toContain("[Space] to select");
   });
 
   test("shows a placeholder token for custom instructions in the preview", async () => {

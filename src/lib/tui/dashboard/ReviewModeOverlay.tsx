@@ -12,11 +12,7 @@ export type ReviewModeSelection = "uncommitted" | "base" | "commit";
 type ReviewModeInputMode = Exclude<ReviewModeSelection, "uncommitted">;
 type ReviewModeStep = "picker" | "branch-picker" | "commit-picker" | "options";
 type ReviewExecutionMode = "review-only" | "auto-all" | "auto-priority";
-type OptionsFocusTarget =
-  | "max-iterations"
-  | "execution-mode"
-  | "priority-list"
-  | "custom-instructions";
+type OptionsFocusTarget = "max-iterations" | "execution-mode" | "custom-instructions";
 
 interface ReviewModeOption {
   label: string;
@@ -336,15 +332,8 @@ function cycleExecutionMode(current: ReviewExecutionMode, direction: 1 | -1): Re
   return REVIEW_EXECUTION_OPTIONS[nextIndex]?.mode ?? current;
 }
 
-function getOptionsFocusOrder(
-  executionMode: ReviewExecutionMode,
-  showCustomInstructions: boolean
-): OptionsFocusTarget[] {
+function getOptionsFocusOrder(showCustomInstructions: boolean): OptionsFocusTarget[] {
   const focusOrder: OptionsFocusTarget[] = ["max-iterations", "execution-mode"];
-
-  if (executionMode === "auto-priority") {
-    focusOrder.push("priority-list");
-  }
 
   if (showCustomInstructions) {
     focusOrder.push("custom-instructions");
@@ -474,10 +463,6 @@ export function ReviewModeOverlay({
       return;
     }
 
-    if (executionMode === "auto-priority" && optionsFocus === "priority-list") {
-      return;
-    }
-
     if (optionsFocus === "execution-mode") {
       return;
     }
@@ -489,23 +474,50 @@ export function ReviewModeOverlay({
 
     input.focus();
     input.selectAll();
-  }, [executionMode, optionsFocus, showCustomInstructions, step]);
+  }, [optionsFocus, showCustomInstructions, step]);
 
   useEffect(() => {
     if (step !== "options") {
       return;
     }
 
-    const focusOrder = getOptionsFocusOrder(executionMode, showCustomInstructions);
+    const focusOrder = getOptionsFocusOrder(showCustomInstructions);
     if (!focusOrder.includes(optionsFocus)) {
       setOptionsFocus("execution-mode");
     }
-  }, [executionMode, optionsFocus, showCustomInstructions, step]);
+  }, [optionsFocus, showCustomInstructions, step]);
+
+  function movePriorityCursor(direction: 1 | -1) {
+    setPriorityCursorIndex((current) => {
+      const next = clampPriorityCursorIndex(current + direction);
+      priorityCursorIndexRef.current = next;
+      return next;
+    });
+    setError(null);
+  }
+
+  function toggleSelectedPriority() {
+    const priority = PRIORITIES[priorityCursorIndexRef.current] ?? PRIORITIES[0];
+    if (!priority) {
+      return;
+    }
+
+    setSelectedPriorities((current) => {
+      const next = sortSelectedPriorities(
+        current.includes(priority)
+          ? current.filter((value) => value !== priority)
+          : [...current, priority]
+      );
+      selectedPrioritiesRef.current = next;
+      return next;
+    });
+    setError(null);
+  }
 
   useKeyboard((key) => {
     if (step === "options") {
       if (key.name === "tab") {
-        const focusOrder = getOptionsFocusOrder(executionMode, showCustomInstructions);
+        const focusOrder = getOptionsFocusOrder(showCustomInstructions);
         const currentIndex = focusOrder.indexOf(optionsFocus);
         const direction = key.shift ? -1 : 1;
         const nextIndex = (currentIndex + direction + focusOrder.length) % focusOrder.length;
@@ -566,45 +578,19 @@ export function ReviewModeOverlay({
           setError(null);
           return;
         }
-      }
 
-      if (optionsFocus === "priority-list") {
-        if (key.name === "up" || key.name === "k") {
-          setPriorityCursorIndex((current) => {
-            const next = clampPriorityCursorIndex(current - 1);
-            priorityCursorIndexRef.current = next;
-            return next;
-          });
-          setError(null);
+        if (executionMode === "auto-priority" && key.name === "left") {
+          movePriorityCursor(-1);
           return;
         }
 
-        if (key.name === "down" || key.name === "j") {
-          setPriorityCursorIndex((current) => {
-            const next = clampPriorityCursorIndex(current + 1);
-            priorityCursorIndexRef.current = next;
-            return next;
-          });
-          setError(null);
+        if (executionMode === "auto-priority" && key.name === "right") {
+          movePriorityCursor(1);
           return;
         }
 
-        if (key.name === "space") {
-          const priority = PRIORITIES[priorityCursorIndexRef.current] ?? PRIORITIES[0];
-          if (!priority) {
-            return;
-          }
-
-          setSelectedPriorities((current) => {
-            const next = sortSelectedPriorities(
-              current.includes(priority)
-                ? current.filter((value) => value !== priority)
-                : [...current, priority]
-            );
-            selectedPrioritiesRef.current = next;
-            return next;
-          });
-          setError(null);
+        if (executionMode === "auto-priority" && key.name === "space") {
+          toggleSelectedPriority();
           return;
         }
       }
@@ -932,18 +918,24 @@ export function ReviewModeOverlay({
   }
 
   function renderExecutionModeOptions() {
+    const isInlinePriorityControlActive =
+      optionsFocus === "execution-mode" && executionMode === "auto-priority";
+
     return (
       <box flexDirection="column" gap={0}>
         <box flexDirection="column">
           {REVIEW_EXECUTION_OPTIONS.map((option) => {
             const isSelected = option.mode === executionMode;
             const isFocused = optionsFocus === "execution-mode" && isSelected;
+            const showInlinePriorityHelper =
+              isInlinePriorityControlActive && option.mode === "auto-priority";
+            const showFocusMarker = isFocused && option.mode !== "auto-priority";
 
             return (
               <box key={option.mode} flexDirection="column" paddingX={1} paddingY={0}>
                 <box flexDirection="row">
-                  <text fg={isFocused ? TUI_COLORS.accent.key : TUI_COLORS.text.dim}>
-                    {isFocused ? "▶ " : "  "}
+                  <text fg={showFocusMarker ? TUI_COLORS.accent.key : TUI_COLORS.text.dim}>
+                    {showFocusMarker ? "▶ " : "  "}
                   </text>
                   <text fg={isSelected ? TUI_COLORS.status.success : TUI_COLORS.text.dim}>
                     {isSelected ? "◉" : "◎"}
@@ -951,6 +943,13 @@ export function ReviewModeOverlay({
                   <text fg={isSelected ? TUI_COLORS.text.primary : TUI_COLORS.text.secondary}>
                     {" "}
                     {option.label}
+                    {showInlinePriorityHelper && (
+                      <>
+                        {" "}
+                        <span fg={TUI_COLORS.accent.key}>[Space]</span>
+                        <span fg={TUI_COLORS.text.muted}> to select</span>
+                      </>
+                    )}
                   </text>
                 </box>
               </box>
@@ -1017,7 +1016,9 @@ export function ReviewModeOverlay({
               {PRIORITIES.map((priority, index) => {
                 const isSelected = selectedPriorities.includes(priority);
                 const isHighlighted =
-                  optionsFocus === "priority-list" && priorityCursorIndex === index;
+                  optionsFocus === "execution-mode" &&
+                  executionMode === "auto-priority" &&
+                  priorityCursorIndex === index;
 
                 return (
                   <box key={priority} paddingLeft={1}>
@@ -1030,11 +1031,6 @@ export function ReviewModeOverlay({
                   </box>
                 );
               })}
-            </box>
-            <box paddingLeft={5}>
-              <text fg={TUI_COLORS.text.muted}>
-                <span fg={TUI_COLORS.accent.key}>[Space]</span> to toggle
-              </text>
             </box>
           </box>
         )}
