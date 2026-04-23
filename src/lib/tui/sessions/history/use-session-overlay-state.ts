@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import type { LogSession } from "@/lib/logger";
 import { computeSessionStats, deleteSessionFiles, listLogSessions } from "@/lib/logger";
 import { listAllActiveSessions } from "@/lib/session-state";
 import { getErrorMessage } from "@/lib/tui/shared/error-message";
+import { useMountEffect } from "@/lib/tui/shared/use-mount-effect";
 import type { SessionStats } from "@/lib/types";
 
 interface DeleteSelectionResult {
@@ -26,7 +27,7 @@ export interface SessionOverlayState {
 
 export function useSessionOverlayState(): SessionOverlayState {
   const [sessions, setSessions] = useState<LogSession[]>([]);
-  const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const [selectedPath, setSelectedPathState] = useState<string | null>(null);
   const [selectedStats, setSelectedStats] = useState<SessionStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [sessionsError, setSessionsError] = useState<string | null>(null);
@@ -35,51 +36,19 @@ export function useSessionOverlayState(): SessionOverlayState {
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
+  const mountedRef = useRef(true);
+  const selectedPathRef = useRef<string | null>(selectedPath);
   const statsRequestIdRef = useRef(0);
 
-  useEffect(() => {
-    let cancelled = false;
+  selectedPathRef.current = selectedPath;
 
-    void (async () => {
-      try {
-        setIsLoading(true);
-        setSessionsError(null);
-        const loadedSessions = await listLogSessions();
-        if (cancelled) {
-          return;
-        }
-        setSessions(loadedSessions);
-        setSelectedPath((current) => {
-          if (current && loadedSessions.some((session) => session.path === current)) {
-            return current;
-          }
-          return loadedSessions[0]?.path ?? null;
-        });
-      } catch (error) {
-        if (cancelled) {
-          return;
-        }
-        setSessions([]);
-        setSelectedPath(null);
-        setSessionsError(getErrorMessage(error));
-      } finally {
-        if (!cancelled) {
-          setIsLoading(false);
-        }
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    const session = selectedPath
-      ? (sessions.find((entry) => entry.path === selectedPath) ?? null)
-      : null;
+  const loadStatsForSession = useCallback(async (session: LogSession | null) => {
     const requestId = statsRequestIdRef.current + 1;
     statsRequestIdRef.current = requestId;
+
+    if (!mountedRef.current) {
+      return;
+    }
 
     if (!session) {
       setSelectedStats(null);
@@ -92,26 +61,77 @@ export function useSessionOverlayState(): SessionOverlayState {
     setSelectedStats(null);
     setStatsError(null);
 
-    void computeSessionStats(session)
-      .then((stats) => {
-        if (statsRequestIdRef.current !== requestId) {
-          return;
-        }
-        setSelectedStats(stats);
-      })
-      .catch((error) => {
-        if (statsRequestIdRef.current !== requestId) {
-          return;
-        }
-        setStatsError(getErrorMessage(error));
-      })
-      .finally(() => {
-        if (statsRequestIdRef.current !== requestId) {
-          return;
-        }
+    try {
+      const stats = await computeSessionStats(session);
+      if (!mountedRef.current || statsRequestIdRef.current !== requestId) {
+        return;
+      }
+      setSelectedStats(stats);
+    } catch (error) {
+      if (!mountedRef.current || statsRequestIdRef.current !== requestId) {
+        return;
+      }
+      setStatsError(getErrorMessage(error));
+    } finally {
+      if (mountedRef.current && statsRequestIdRef.current === requestId) {
         setStatsLoading(false);
-      });
-  }, [sessions, selectedPath]);
+      }
+    }
+  }, []);
+
+  const loadSessions = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      setSessionsError(null);
+
+      const loadedSessions = await listLogSessions();
+      if (!mountedRef.current) {
+        return;
+      }
+
+      setSessions(loadedSessions);
+      const nextSelectedSession =
+        (selectedPathRef.current
+          ? loadedSessions.find((session) => session.path === selectedPathRef.current)
+          : null) ??
+        loadedSessions[0] ??
+        null;
+
+      setSelectedPathState(nextSelectedSession?.path ?? null);
+      void loadStatsForSession(nextSelectedSession);
+    } catch (error) {
+      if (!mountedRef.current) {
+        return;
+      }
+
+      setSessions([]);
+      setSelectedPathState(null);
+      void loadStatsForSession(null);
+      setSessionsError(getErrorMessage(error));
+    } finally {
+      if (mountedRef.current) {
+        setIsLoading(false);
+      }
+    }
+  }, [loadStatsForSession]);
+
+  useMountEffect(() => {
+    void loadSessions();
+
+    return () => {
+      mountedRef.current = false;
+      statsRequestIdRef.current += 1;
+    };
+  });
+
+  const setSelectedPath = useCallback(
+    (path: string | null) => {
+      setSelectedPathState(path);
+      const session = path ? (sessions.find((entry) => entry.path === path) ?? null) : null;
+      void loadStatsForSession(session);
+    },
+    [loadStatsForSession, sessions]
+  );
 
   const clearDeleteError = useCallback(() => {
     setDeleteError(null);
@@ -144,10 +164,8 @@ export function useSessionOverlayState(): SessionOverlayState {
           : (remainingSessions[0] ?? null);
 
       setSessions(remainingSessions);
-      setSelectedPath(nextSelectedSession?.path ?? null);
-      setSelectedStats(null);
-      setStatsLoading(false);
-      setStatsError(null);
+      setSelectedPathState(nextSelectedSession?.path ?? null);
+      void loadStatsForSession(nextSelectedSession);
 
       return { deleted: true };
     } catch (error) {
@@ -156,7 +174,7 @@ export function useSessionOverlayState(): SessionOverlayState {
     } finally {
       setIsDeleting(false);
     }
-  }, [isDeleting, selectedPath, sessions]);
+  }, [isDeleting, loadStatsForSession, selectedPath, sessions]);
 
   return {
     sessions,
