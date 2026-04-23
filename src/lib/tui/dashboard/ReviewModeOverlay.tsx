@@ -87,8 +87,6 @@ const OPTIONS_WIDE_MIN_WIDTH = 96;
 const OPTIONS_WIDE_MIN_HEIGHT = 28;
 const OPTIONS_WIDE_OVERLAY_WIDTH = 118;
 const OPTIONS_COMPACT_OVERLAY_WIDTH = 90;
-const OPTIONS_SECTION_BACKGROUND = "#101425";
-const OPTIONS_ACTIVE_BACKGROUND = "#1f2940";
 
 interface ReviewModeMeta {
   title: string;
@@ -946,7 +944,6 @@ export function ReviewModeOverlay({
               <box
                 key={option.mode}
                 flexDirection="column"
-                backgroundColor={isSelected ? OPTIONS_ACTIVE_BACKGROUND : undefined}
                 paddingX={1}
                 paddingY={0}
               >
@@ -992,7 +989,6 @@ export function ReviewModeOverlay({
         title="Configuration"
         titleAlignment="left"
         borderColor={TUI_COLORS.ui.border}
-        backgroundColor={OPTIONS_SECTION_BACKGROUND}
         padding={0}
         flexDirection="column"
         gap={0}
@@ -1000,9 +996,6 @@ export function ReviewModeOverlay({
         flexGrow={isWideOptionsLayout ? 0 : 1}
       >
         <box
-          backgroundColor={
-            optionsFocus === "max-iterations" ? OPTIONS_ACTIVE_BACKGROUND : undefined
-          }
           paddingX={1}
           paddingY={0}
           flexDirection="column"
@@ -1017,17 +1010,12 @@ export function ReviewModeOverlay({
             value={maxIterationsDraft}
             placeholder={String(initialMaxIterations)}
             width={12}
-            backgroundColor={OPTIONS_SECTION_BACKGROUND}
-            focusedBackgroundColor={OPTIONS_SECTION_BACKGROUND}
             onChange={handleMaxIterationsInput}
             onInput={handleMaxIterationsInput}
           />
         </box>
 
         <box
-          backgroundColor={
-            optionsFocus === "execution-mode" ? OPTIONS_ACTIVE_BACKGROUND : undefined
-          }
           paddingX={1}
           paddingY={0}
           flexDirection="column"
@@ -1041,9 +1029,6 @@ export function ReviewModeOverlay({
 
         {executionMode === "auto-priority" && (
           <box
-            backgroundColor={
-              optionsFocus === "priority-list" ? OPTIONS_ACTIVE_BACKGROUND : undefined
-            }
             paddingX={1}
             paddingY={0}
             flexDirection="column"
@@ -1061,7 +1046,6 @@ export function ReviewModeOverlay({
                 return (
                   <box
                     key={priority}
-                    backgroundColor={isHighlighted ? OPTIONS_SECTION_BACKGROUND : undefined}
                     paddingLeft={1}
                   >
                     <text fg={isHighlighted ? TUI_COLORS.text.primary : TUI_COLORS.text.secondary}>
@@ -1079,9 +1063,6 @@ export function ReviewModeOverlay({
         )}
 
         <box
-          backgroundColor={
-            optionsFocus === "custom-instructions" ? OPTIONS_ACTIVE_BACKGROUND : undefined
-          }
           paddingX={1}
           paddingY={0}
           flexDirection="column"
@@ -1100,8 +1081,6 @@ export function ReviewModeOverlay({
               width={textareaWidth}
               height={isWideOptionsLayout ? 5 : 4}
               wrapMode="word"
-              backgroundColor={OPTIONS_SECTION_BACKGROUND}
-              focusedBackgroundColor={OPTIONS_SECTION_BACKGROUND}
               onContentChange={() => {
                 syncCustomInstructionsDraft();
               }}
@@ -1119,7 +1098,6 @@ export function ReviewModeOverlay({
         title="Run Preview"
         titleAlignment="left"
         borderColor={TUI_COLORS.ui.border}
-        backgroundColor={OPTIONS_SECTION_BACKGROUND}
         padding={0}
         flexDirection="column"
         gap={0}
