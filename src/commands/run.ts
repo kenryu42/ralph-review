@@ -562,7 +562,12 @@ export async function runForeground(
       }
     );
 
-    if (autoFixRequested && cycleResult.reviewOutcome === "findings-pending" && sessionId) {
+    if (
+      autoFixRequested &&
+      cycleResult.reviewOutcome === "findings-pending" &&
+      cycleResult.finalStatus === "completed" &&
+      sessionId
+    ) {
       if (autoFixPriorities && !hasAutoFixPriorityMatches(cycleResult, autoFixPriorities)) {
         runtime.prompt.note(
           `No persisted findings matched priorities ${formatPriorityList(autoFixPriorities)}. Findings remain pending.`,

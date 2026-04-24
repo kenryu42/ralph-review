@@ -1636,6 +1636,30 @@ describe("run command", () => {
       expect(harness.updateSessionStateCalls[1]?.updates.reviewOutcome).toBe("fixed-selected");
     });
 
+    test("does not run remediation automatically when review ends interrupted with pending findings", async () => {
+      const harness = createRunHarness({
+        env: {
+          RR_SESSION_ID: "session-123",
+        },
+        foregroundValues: {
+          auto: true,
+        },
+        runReviewCycleResult: createCycleResult({
+          success: false,
+          finalStatus: "interrupted",
+          sessionStatus: "interrupted",
+          reviewOutcome: "findings-pending",
+          reason: "Interrupted by signal",
+          artifact: createFindingsArtifact(),
+        }),
+      });
+
+      await runForeground(["--auto"], harness.overrides);
+
+      expect(harness.runFixSessionCalls).toEqual([]);
+      expect(harness.updateSessionStateCalls[1]?.updates.reviewOutcome).toBe("findings-pending");
+    });
+
     test("passes auto-fix priority filters into remediation", async () => {
       const harness = createRunHarness({
         env: {
