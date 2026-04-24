@@ -187,6 +187,7 @@ function formatSelectedFindings(findings: StoredFinding[]): string {
 
 export interface BatchFixerPromptOptions {
   baselineCommitSha: string;
+  remediationStartCommitSha: string;
   mutableWorkspacePath: string;
   selectedFindings: StoredFinding[];
 }
@@ -204,7 +205,8 @@ Verify the selected findings against the real code in \`${options.mutableWorkspa
 - Do not broaden a finding into cleanup, refactoring, or unrelated work.
 - Do not hunt for new issues outside the selected findings.
 - The baseline at commit \`${options.baselineCommitSha}\` is the source of truth for what was selected.
-- Your working tree was checked out from that baseline before remediation started.
+- Your working tree was checked out from commit \`${options.remediationStartCommitSha}\` before remediation started.
+- If the working tree starts after the selection baseline, preserve existing retained fixes unless a selected finding directly requires changing them.
 
 ## Selected findings
 ${formatSelectedFindings(options.selectedFindings)}

@@ -137,6 +137,8 @@ export async function runBatchFixPhase(
   try {
     const prompt = deps.createBatchFixerPrompt({
       baselineCommitSha: options.artifact.baselineCommitSha,
+      remediationStartCommitSha:
+        options.worktree.remediationStartCommitSha ?? options.artifact.baselineCommitSha,
       mutableWorkspacePath: options.worktree.agentProjectPath,
       selectedFindings: options.selection.selectedFindings,
     });

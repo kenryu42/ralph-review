@@ -29,6 +29,7 @@ export interface FixSessionResult {
   unresolvedSelectedFindings: StoredFinding[];
   unselectedFindings: StoredFinding[];
   handoffStatus?: HandoffStatus;
+  handoffId?: string;
   handoffUpdatedAt?: number;
   commitSha?: string;
   retainedWorktree?: RetainedSessionWorktree;

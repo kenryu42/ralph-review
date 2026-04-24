@@ -116,6 +116,7 @@ export interface CycleResult {
   reviewOutcome?: ReviewOutcome;
   terminalReview?: ReviewSummary;
   handoffStatus?: HandoffStatus;
+  handoffId?: string;
   handoffUpdatedAt?: number;
   commitSha?: string;
   retainedWorktree?: RetainedSessionWorktree;
@@ -235,6 +236,7 @@ function createSessionEndEntry(
     sessionStatus: result?.sessionStatus,
     reviewOutcome: result?.reviewOutcome,
     handoffStatus: result?.handoffStatus,
+    handoffId: result?.handoffId,
     handoffUpdatedAt: result?.handoffUpdatedAt,
     commitSha: result?.commitSha,
     mergeReady: result?.retainedWorktree?.mergeReady,

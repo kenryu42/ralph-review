@@ -11,6 +11,7 @@ import { appendLog } from "@/lib/logging";
 import {
   appendFixResults,
   loadFindingsArtifactBySessionId,
+  updateRetainedWorktree,
   updateSelection,
   validateArtifactBaseline,
 } from "@/lib/review-workflow/findings/artifact";
@@ -49,6 +50,7 @@ export interface RunFixSessionDependencies {
     options: Parameters<typeof runBatchFixPhase>[0]
   ) => Promise<Awaited<ReturnType<typeof runBatchFixPhase>>>;
   appendFixResults: typeof appendFixResults;
+  updateRetainedWorktree: typeof updateRetainedWorktree;
   finalizeResult: typeof finalizeResult;
   finalizeSessionWorktree: typeof finalizeSessionWorktree;
   discardSessionWorktree: typeof discardSessionWorktree;
@@ -81,6 +83,7 @@ const DEFAULT_RUN_FIX_SESSION_DEPENDENCIES: RunFixSessionDependencies = {
   promptForSelection: defaultPromptForSelection,
   runBatchFixPhase,
   appendFixResults,
+  updateRetainedWorktree,
   finalizeResult,
   finalizeSessionWorktree,
   discardSessionWorktree,
@@ -255,6 +258,7 @@ export async function runFixSession(
         selectedFindingIds: result.selection.selectedFindingIds,
         reviewOutcome: result.reviewOutcome,
         handoffStatus: result.handoffStatus,
+        handoffId: result.handoffId,
         handoffUpdatedAt: result.handoffUpdatedAt,
         commitSha: result.commitSha,
       });
@@ -278,6 +282,7 @@ export async function runFixSession(
         selectedFindingIds: result.selection.selectedFindingIds,
         reviewOutcome: result.reviewOutcome,
         handoffStatus: result.handoffStatus,
+        handoffId: result.handoffId,
         handoffUpdatedAt: result.handoffUpdatedAt,
         commitSha: result.commitSha,
       });
@@ -324,24 +329,33 @@ export async function runFixSession(
         selectedFindingIds: result.selection.selectedFindingIds,
         reviewOutcome: result.reviewOutcome,
         handoffStatus: result.handoffStatus,
+        handoffId: result.handoffId,
         handoffUpdatedAt: result.handoffUpdatedAt,
         commitSha: result.commitSha,
       });
       return result;
     }
 
-    await deps.validateArtifactBaseline(artifactWithSelection);
+    const validatedBaseline = await deps.validateArtifactBaseline(artifactWithSelection);
+    const fixStartCommitSha =
+      artifactWithSelection.retainedWorktree !== undefined
+        ? artifactWithSelection.retainedWorktree.commitSha
+        : validatedBaseline.baselineCommitSha;
+    if (!fixStartCommitSha) {
+      throw new Error("Retained remediation commit is missing");
+    }
 
     worktree = deps.createSessionWorktreeAt(
       artifact.projectPath,
       `${artifact.sessionId}-fix`,
-      artifact.baselineCommitSha
+      fixStartCommitSha
     );
     worktree.baselineCommitSha = artifact.baselineCommitSha;
     worktree.baselineRef = artifact.baselineRef;
     worktree.sourceBaselineCommitSha = artifact.sourceBaselineCommitSha;
     worktree.sourceBaselineRef = artifact.sourceBaselineRef;
     worktree.sourceBaselineFingerprint = artifact.sourceBaselineFingerprint;
+    worktree.remediationStartCommitSha = fixStartCommitSha;
     await emitProgress(options.onProgress, {
       currentPhase: "selection",
       phase: "selection",
@@ -388,16 +402,37 @@ export async function runFixSession(
     if (result.reviewOutcome === "incomplete") {
       try {
         retainedWorktree = deps.finalizeSessionWorktree(worktree) ?? undefined;
-        if (retainedWorktree) {
-          shouldDiscardWorktree = false;
-          result = {
-            ...result,
-            retainedWorktree,
-          };
-        }
       } catch {
         retainedWorktree = undefined;
       }
+
+      if (retainedWorktree) {
+        const artifactWithRetainedWorktree = await deps.updateRetainedWorktree(
+          CONFIG_DIR,
+          artifact.projectPath,
+          artifact.sessionId,
+          retainedWorktree
+        );
+        artifactForResult = artifactWithRetainedWorktree;
+        shouldDiscardWorktree = false;
+        result = {
+          ...result,
+          artifact: artifactWithRetainedWorktree,
+          retainedWorktree,
+        };
+      }
+    } else if (artifactWithFixResults.retainedWorktree) {
+      const artifactWithoutRetainedWorktree = await deps.updateRetainedWorktree(
+        CONFIG_DIR,
+        artifact.projectPath,
+        artifact.sessionId,
+        undefined
+      );
+      artifactForResult = artifactWithoutRetainedWorktree;
+      result = {
+        ...result,
+        artifact: artifactWithoutRetainedWorktree,
+      };
     }
 
     await emitProgress(options.onProgress, {
@@ -408,6 +443,7 @@ export async function runFixSession(
       selectedFindingIds: result.selection.selectedFindingIds,
       reviewOutcome: result.reviewOutcome,
       handoffStatus: result.handoffStatus,
+      handoffId: result.handoffId,
       handoffUpdatedAt: result.handoffUpdatedAt,
       commitSha: result.commitSha,
       worktreeProjectPath: result.retainedWorktree?.worktreeProjectPath,
@@ -447,6 +483,7 @@ export async function runFixSession(
       selectedFindingIds: result.selection.selectedFindingIds,
       reviewOutcome: result.reviewOutcome,
       handoffStatus: result.handoffStatus,
+      handoffId: result.handoffId,
       handoffUpdatedAt: result.handoffUpdatedAt,
       commitSha: result.commitSha,
       worktreeProjectPath: retainedWorktree?.worktreeProjectPath,
@@ -468,6 +505,7 @@ export async function runFixSession(
           sessionStatus: result.sessionStatus,
           reviewOutcome: result.reviewOutcome,
           handoffStatus: result.handoffStatus,
+          handoffId: result.handoffId,
           handoffUpdatedAt: result.handoffUpdatedAt,
           mergeReady: result.retainedWorktree?.mergeReady,
           commitSha: result.commitSha,
