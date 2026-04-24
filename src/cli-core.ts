@@ -175,19 +175,6 @@ export const COMMANDS: CommandDef[] = [
     examples: ["rr apply", "rr apply --session session-123"],
   },
   {
-    name: "discard",
-    description: "Discard a pending review handoff",
-    options: [
-      {
-        name: "session",
-        alias: "s",
-        type: "string",
-        description: "Discard a specific pending handoff in the current project",
-      },
-    ],
-    examples: ["rr discard", "rr discard --session session-123"],
-  },
-  {
     name: "list",
     aliases: ["ls"],
     description: "List active review sessions",
@@ -243,6 +230,11 @@ export const COMMANDS: CommandDef[] = [
         description: "Delete the prunable session artifacts instead of listing them",
       },
       {
+        name: "discard",
+        type: "boolean",
+        description: "Discard a pending review handoff in the current project",
+      },
+      {
         name: "session",
         alias: "s",
         type: "string",
@@ -268,6 +260,8 @@ export const COMMANDS: CommandDef[] = [
     examples: [
       "rr prune",
       "rr prune --apply",
+      "rr prune --discard",
+      "rr prune --discard --session session-123",
       "rr prune --session session-123 --force --apply",
       "rr prune --older-than 14d",
     ],
