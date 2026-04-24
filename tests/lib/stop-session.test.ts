@@ -186,6 +186,51 @@ describe("stopActiveSession", () => {
     expect(steps.at(-1)).toBe("remove");
   });
 
+  test("waits the full grace period when review_iteration progress already exists", async () => {
+    const session = createActiveSession({
+      sessionPath: "/tmp/session-123.jsonl",
+    });
+    const steps: string[] = [];
+
+    await stopActiveSession(session, {
+      updateSessionState: async () => true,
+      sendInterrupt: async (sessionName) => {
+        steps.push(`interrupt:${sessionName}`);
+      },
+      readLog: async () => [
+        {
+          type: "review_iteration",
+          timestamp: Date.now(),
+          iteration: 1,
+          phase: "review",
+          sessionStatus: "running",
+          findings: [],
+          netNewFindingIds: [],
+        },
+      ],
+      readSessionState: async (): Promise<SessionState> => session,
+      sessionExists: async () => true,
+      sleep: async (ms) => {
+        steps.push(`sleep:${ms}`);
+      },
+      killSession: async (sessionName) => {
+        steps.push(`kill:${sessionName}`);
+      },
+      resolveSourceRepoPath: () => null,
+      removeSessionState: async () => {
+        steps.push("remove");
+        return true;
+      },
+    });
+
+    expect(steps[0]).toBe(`interrupt:${session.sessionName}`);
+    expect(steps.filter((step) => step === `sleep:${STOP_SESSION_POLL_INTERVAL_MS}`)).toHaveLength(
+      Math.ceil(STOP_SESSION_GRACE_PERIOD_MS / STOP_SESSION_POLL_INTERVAL_MS)
+    );
+    expect(steps).toContain(`kill:${session.sessionName}`);
+    expect(steps.at(-1)).toBe("remove");
+  });
+
   test("deletes session log artifacts after stopping when no iteration entry was ever recorded", async () => {
     const sessionPath = "/tmp/session-123.jsonl";
     const session = createActiveSession({
@@ -238,6 +283,50 @@ describe("stopActiveSession", () => {
               phase: "reviewer",
               message: "Interrupted by user",
             },
+          },
+        ];
+      },
+      readSessionState: async (): Promise<SessionState> => ({
+        ...session,
+        state: "interrupted",
+      }),
+      sessionExists: async () => false,
+      killSession: async () => {},
+      resolveSourceRepoPath: () => null,
+      deleteSessionFiles: async (sessionPath) => {
+        deletedSessionPaths.push(sessionPath);
+      },
+      removeSessionState: async () => true,
+    });
+
+    expect(deletedSessionPaths).toEqual([]);
+  });
+
+  test("keeps session log artifacts when a review_iteration entry is recorded during shutdown", async () => {
+    const session = createActiveSession({
+      sessionPath: "/tmp/session-123.jsonl",
+    });
+    const deletedSessionPaths: string[] = [];
+    let readLogCallCount = 0;
+
+    await stopActiveSession(session, {
+      updateSessionState: async () => true,
+      sendInterrupt: async () => {},
+      readLog: async () => {
+        readLogCallCount += 1;
+        if (readLogCallCount === 1) {
+          return [];
+        }
+
+        return [
+          {
+            type: "review_iteration",
+            timestamp: Date.now(),
+            iteration: 1,
+            phase: "review",
+            sessionStatus: "running",
+            findings: [],
+            netNewFindingIds: [],
           },
         ];
       },

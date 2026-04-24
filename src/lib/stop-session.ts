@@ -125,12 +125,17 @@ function hasSuccessfulReviewIteration(entries: LogEntry[]): boolean {
   return entries.some((entry) => entry.type === "iteration" && entry.fixes !== undefined);
 }
 
+function hasRecordedReviewProgress(entries: LogEntry[]): boolean {
+  return entries.some((entry) => entry.type === "review_iteration");
+}
+
 function hasRecordedIteration(entries: LogEntry[]): boolean {
-  return entries.some((entry) => entry.type === "iteration");
+  return entries.some((entry) => entry.type === "iteration" || entry.type === "review_iteration");
 }
 
 interface SessionIterationState {
   hasRecordedIteration: boolean;
+  hasRecordedReviewProgress: boolean;
   hasSuccessfulReviewIteration: boolean;
 }
 
@@ -146,6 +151,7 @@ async function resolveSessionIterationState(
     const entries = await deps.readLog(session.sessionPath);
     return {
       hasRecordedIteration: hasRecordedIteration(entries),
+      hasRecordedReviewProgress: hasRecordedReviewProgress(entries),
       hasSuccessfulReviewIteration: hasSuccessfulReviewIteration(entries),
     };
   } catch {
@@ -200,7 +206,8 @@ export async function stopActiveSession(
   const stopDeps = { ...DEFAULT_STOP_ACTIVE_SESSION_DEPS, ...deps };
   const initialIterationState = await resolveSessionIterationState(session, stopDeps);
   const gracePeriodMs =
-    initialIterationState?.hasSuccessfulReviewIteration === false
+    initialIterationState?.hasSuccessfulReviewIteration === false &&
+    initialIterationState?.hasRecordedReviewProgress === false
       ? STOP_SESSION_NO_SUCCESSFUL_ITERATION_GRACE_PERIOD_MS
       : STOP_SESSION_GRACE_PERIOD_MS;
 
