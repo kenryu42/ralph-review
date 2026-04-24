@@ -127,7 +127,7 @@ async function resolveStoppedSessionHandoff(
     }
 
     return {
-      handoffStatus: "pending-apply",
+      handoffStatus: pendingHandoff.state,
       commitSha: pendingHandoff.commitSha,
     };
   } catch {

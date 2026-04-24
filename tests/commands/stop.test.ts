@@ -585,6 +585,42 @@ describe("runStop", () => {
     );
   });
 
+  test("prints apply-conflict guidance from pending handoff metadata when stats are unavailable", async () => {
+    const cwd = process.cwd();
+    const sessionPath = `${cwd}/.ralph-review/logs/session-apply-conflicted-fallback.jsonl`;
+    const result = await runStopWithHarness([], {
+      fastTimeout: true,
+      activeSessions: [
+        createActiveSession({
+          sessionId: "current-session-id",
+          sessionName: "rr-current-session",
+          projectPath: cwd,
+          sessionPath,
+        }),
+      ],
+      computeSessionStats: async () => {
+        throw new Error("session stats unavailable");
+      },
+      readPendingHandoff: async () =>
+        createPendingHandoff({
+          sessionId: "current-session-id",
+          projectPath: cwd,
+          commitSha: "commit-sha-5",
+          state: "apply-conflicted",
+          applyStartedAt: 2,
+          applyStartFingerprint: "fp-apply-start",
+        }),
+    });
+
+    expect(result.computeSessionStatsCalls).toEqual([sessionPath]);
+    expect(result.readPendingHandoffCalls).toEqual([
+      { projectPath: cwd, sessionId: "current-session-id" },
+    ]);
+    expect(result.messages).toContain(
+      "Handoff:\nReviewed fixes hit conflicts during apply.\nCommit: commit-sha-5\nResolve or abort the Git conflict. Ralph will reconcile the handoff automatically on a later command."
+    );
+  });
+
   test("prints project-qualified handoff commands for pending fixes when stopping all sessions", async () => {
     const otherProject = "/repo/other";
     const result = await runStopWithHarness(["--all"], {
