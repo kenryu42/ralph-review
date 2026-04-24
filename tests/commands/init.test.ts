@@ -16,6 +16,7 @@ import {
   selectAutoReasoning,
   validateAgentSelection,
 } from "@/commands/init";
+import { registerCodexReasoningOptions } from "@/lib/agents/models";
 import { CONFIG_PATH } from "@/lib/config";
 import type { AgentCapabilitiesMap } from "@/lib/diagnostics";
 import type { ConfigOverride } from "@/lib/types";
@@ -33,8 +34,8 @@ function createCapabilities(overrides: CapabilityOverrides = {}): AgentCapabilit
       agent: "codex",
       command: "codex",
       installed: true,
-      modelCatalogSource: "static",
-      models: [{ model: "gpt-5.3-codex" }],
+      modelCatalogSource: "dynamic",
+      models: [{ model: "gpt-5.3-codex", label: "gpt-5.3-codex" }],
       probeWarnings: [],
       ...overrides.codex,
     },
@@ -670,7 +671,19 @@ describe("init command", () => {
     });
 
     test("defaults reasoning to high when supported", () => {
+      registerCodexReasoningOptions({
+        "gpt-5.3-codex": ["low", "medium", "high", "xhigh"],
+      });
+
       expect(selectAutoReasoning("codex", "gpt-5.3-codex")).toBe("high");
+    });
+
+    test("uses first parsed codex reasoning level when high is unsupported", () => {
+      registerCodexReasoningOptions({
+        "gpt-5.4-mini": ["low", "medium"],
+      });
+
+      expect(selectAutoReasoning("codex", "gpt-5.4-mini")).toBe("low");
     });
 
     test("returns undefined reasoning when unsupported", () => {
@@ -710,12 +723,19 @@ describe("init command", () => {
         pi: false,
       } satisfies Record<AgentType, boolean>;
 
-      const result = await buildAutoInitInput(availability);
+      const result = await buildAutoInitInput(availability, {
+        fetchCodexModels: async () => ({
+          models: [{ value: "gpt-5.4", label: "GPT-5.4" }],
+          reasoningByModel: { "gpt-5.4": ["low", "medium", "high", "xhigh"] },
+        }),
+      });
 
       expect(result.input.reviewerAgent).toBe("codex");
       expect(result.input.reviewerModel).toBe("gpt-5.4");
+      expect(result.input.reviewerReasoning).toBe("high");
       expect(result.input.fixerAgent).toBe("codex");
       expect(result.input.fixerModel).toBe("gpt-5.4");
+      expect(result.input.fixerReasoning).toBe("high");
       expect(result.input.defaultReviewType).toBe("uncommitted");
       expect(result.input.soundNotificationsEnabled).toBe(true);
       expect(result.input.maxIterations).toBeGreaterThan(0);

@@ -5,7 +5,6 @@ import { isAgentAvailable } from "@/lib/agents";
 import {
   agentOptions,
   claudeModelOptions,
-  codexModelOptions,
   geminiModelOptions,
   getAgentDisplayName,
   getReasoningOptions,
@@ -82,6 +81,10 @@ export interface AutoModelCandidate {
 }
 
 export interface AutoSelectionDependencies {
+  fetchCodexModels?: () => Promise<{
+    models: { value: string; label: string }[];
+    reasoningByModel: Record<string, ReasoningLevel[]>;
+  }>;
   fetchDroidModels?: () => Promise<{ value: string; label: string }[]>;
   fetchOpencodeModels?: () => Promise<{ value: string; label: string }[]>;
   fetchPiModels?: () => Promise<{ provider: string; model: string }[]>;
@@ -304,11 +307,10 @@ const MODEL_PRIORITY_MATCHERS: Record<ConfiguredRole, readonly ((model: string) 
 };
 
 const modelOptionsMap: Record<
-  Exclude<AgentType, "droid" | "opencode" | "pi">,
+  Exclude<AgentType, "codex" | "droid" | "opencode" | "pi">,
   readonly ModelOption[]
 > = {
   claude: claudeModelOptions,
-  codex: codexModelOptions,
   gemini: geminiModelOptions,
 };
 
@@ -470,9 +472,9 @@ async function promptForModel(
   availability: AgentAvailability
 ): Promise<ModelSelection> {
   const staticOptions =
-    agent === "droid" || agent === "opencode" || agent === "pi"
+    agent === "codex" || agent === "droid" || agent === "opencode" || agent === "pi"
       ? undefined
-      : modelOptionsMap[agent as keyof typeof modelOptionsMap];
+      : modelOptionsMap[agent];
 
   if (staticOptions) {
     const model = await runtime.prompt.select({
@@ -484,7 +486,7 @@ async function promptForModel(
   }
 
   let capability = capabilitiesByAgent[agent];
-  if (agent === "droid" || agent === "opencode" || agent === "pi") {
+  if (agent === "codex" || agent === "droid" || agent === "opencode" || agent === "pi") {
     const needsProbe = !capability || capability.models.length === 0;
     if (needsProbe) {
       const spinner = runtime.prompt.spinner();
@@ -519,7 +521,7 @@ async function promptForModel(
     runtime.exit(1);
   }
 
-  if (agent === "droid" || agent === "opencode") {
+  if (agent === "codex" || agent === "droid" || agent === "opencode") {
     const model = await runtime.prompt.select({
       message: `Select ${role} model`,
       options: capability.models.map((entry) => ({
@@ -675,6 +677,7 @@ export async function reviewAutoModelCandidates(
     (await reviewAgentCapabilities({
       availabilityOverride: availability,
       deps: {
+        fetchCodexModels: deps.fetchCodexModels,
         fetchDroidModels: deps.fetchDroidModels,
         fetchOpencodeModels: deps.fetchOpencodeModels,
         fetchPiModels: deps.fetchPiModels,

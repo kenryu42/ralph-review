@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { AGENTS } from "@/lib/agents";
+import { registerCodexReasoningOptions } from "@/lib/agents/models";
 import type { AgentConfig } from "@/lib/types";
 
 describe("agents", () => {
@@ -118,10 +119,14 @@ describe("agents", () => {
     });
 
     test("uses configured reasoning level when valid", () => {
+      registerCodexReasoningOptions({
+        "gpt-5.4": ["low", "medium", "high", "xhigh"],
+      });
+
       const args = AGENTS.codex.config.buildArgs(
         "reviewer",
         reviewerPrompt,
-        undefined,
+        "gpt-5.4",
         undefined,
         undefined,
         "xhigh"
@@ -130,17 +135,34 @@ describe("agents", () => {
       expect(args).toContain("model_reasoning_effort=xhigh");
     });
 
-    test("falls back to high thinking when config value is invalid", () => {
+    test("falls back to high thinking when config value is unsupported for discovered model", () => {
+      registerCodexReasoningOptions({
+        "gpt-5.4-mini": ["low", "medium"],
+      });
+
       const args = AGENTS.codex.config.buildArgs(
         "reviewer",
         reviewerPrompt,
+        "gpt-5.4-mini",
         undefined,
+        undefined,
+        "xhigh"
+      );
+      expect(args).toContain("--config");
+      expect(args).toContain("model_reasoning_effort=high");
+    });
+
+    test("passes through valid reasoning level when model metadata is unavailable", () => {
+      const args = AGENTS.codex.config.buildArgs(
+        "reviewer",
+        reviewerPrompt,
+        "unknown-codex-model",
         undefined,
         undefined,
         "max"
       );
       expect(args).toContain("--config");
-      expect(args).toContain("model_reasoning_effort=high");
+      expect(args).toContain("model_reasoning_effort=max");
     });
   });
 

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   clearCapabilityReviewCache,
+  parseCodexDebugModelsOutput,
   parseDroidExecHelpOutput,
   parsePiListModelsOutput,
   reviewAgentCapabilities,
@@ -49,6 +50,39 @@ function createDynamicAvailability() {
   } as const;
 }
 
+function createCodexDebugModelsOutput(): string {
+  return JSON.stringify({
+    models: [
+      {
+        slug: "gpt-5.4",
+        display_name: "GPT-5.4",
+        supported_reasoning_levels: [
+          { effort: "low" },
+          { effort: "medium" },
+          { effort: "high" },
+          { effort: "xhigh" },
+          { effort: "invalid" },
+        ],
+      },
+      {
+        slug: "codex-auto-review",
+        display_name: "Codex Auto Review",
+        supported_reasoning_levels: [{ effort: "high" }],
+      },
+      {
+        slug: "gpt-5.4",
+        display_name: "Duplicate",
+        supported_reasoning_levels: [{ effort: "low" }],
+      },
+      {
+        slug: "gpt-5.4-mini",
+        display_name: " ",
+        supported_reasoning_levels: [{ effort: "medium" }],
+      },
+    ],
+  });
+}
+
 describe("diagnostics capabilities", () => {
   beforeEach(() => {
     originalSpawn = Bun.spawn;
@@ -94,8 +128,22 @@ describe("diagnostics capabilities", () => {
     expect(capabilities.opencode.probeWarnings.length).toBeGreaterThan(0);
   });
 
-  test("uses static catalog for codex and dynamic probe for droid", async () => {
+  test("uses dynamic probes for codex and droid", async () => {
+    let codexProbeCalls = 0;
+    let droidProbeCalls = 0;
     Bun.spawn = ((args) => {
+      const command = Array.isArray(args) ? args[0] : args.cmd[0];
+      if (command === "codex") {
+        codexProbeCalls += 1;
+        expect(args).toEqual(["codex", "debug", "models"]);
+        return createMockProcess(
+          createTextStream(createCodexDebugModelsOutput()),
+          createTextStream(""),
+          0
+        );
+      }
+
+      droidProbeCalls += 1;
       expect(args).toEqual(["droid", "exec", "--help"]);
       return createMockProcess(
         createTextStream(
@@ -127,8 +175,13 @@ describe("diagnostics capabilities", () => {
       },
     });
 
-    expect(capabilities.codex.modelCatalogSource).toBe("static");
-    expect(capabilities.codex.models.some((entry) => entry.model === "gpt-5.4")).toBe(true);
+    expect(codexProbeCalls).toBe(1);
+    expect(droidProbeCalls).toBe(1);
+    expect(capabilities.codex.modelCatalogSource).toBe("dynamic");
+    expect(capabilities.codex.models).toEqual([
+      { model: "gpt-5.4", label: "GPT-5.4" },
+      { model: "gpt-5.4-mini", label: "gpt-5.4-mini" },
+    ]);
     expect(capabilities.droid.modelCatalogSource).toBe("dynamic");
     expect(capabilities.droid.models).toEqual([
       { model: "gpt-5.4", label: "GPT-5.4" },
@@ -408,13 +461,21 @@ describe("diagnostics capabilities", () => {
   });
 
   test("skips dynamic probes when probeAgents excludes opencode and pi", async () => {
+    let codexProbeCalls = 0;
     let opencodeProbeCalls = 0;
     let piProbeCalls = 0;
 
     const capabilities = await reviewAgentCapabilities({
-      availabilityOverride: createDynamicAvailability(),
+      availabilityOverride: {
+        ...createDynamicAvailability(),
+        codex: true,
+      },
       probeAgents: ["codex"],
       deps: {
+        fetchCodexModels: async () => {
+          codexProbeCalls += 1;
+          return { models: [{ value: "gpt-5.4", label: "GPT-5.4" }], reasoningByModel: {} };
+        },
         fetchOpencodeModels: async () => {
           opencodeProbeCalls += 1;
           return [{ value: "unused", label: "unused" }];
@@ -426,8 +487,10 @@ describe("diagnostics capabilities", () => {
       },
     });
 
+    expect(codexProbeCalls).toBe(1);
     expect(opencodeProbeCalls).toBe(0);
     expect(piProbeCalls).toBe(0);
+    expect(capabilities.codex.modelCatalogSource).toBe("dynamic");
     expect(capabilities.opencode.modelCatalogSource).toBe("none");
     expect(capabilities.opencode.models).toEqual([]);
     expect(capabilities.opencode.probeWarnings).toEqual([]);
@@ -436,20 +499,121 @@ describe("diagnostics capabilities", () => {
     expect(capabilities.pi.probeWarnings).toEqual([]);
   });
 
+  test("skips codex probe when probeAgents excludes codex", async () => {
+    let codexProbeCalls = 0;
+
+    const capabilities = await reviewAgentCapabilities({
+      availabilityOverride: {
+        ...createDynamicAvailability(),
+        codex: true,
+        opencode: false,
+        pi: false,
+      },
+      probeAgents: ["droid"],
+      deps: {
+        fetchCodexModels: async () => {
+          codexProbeCalls += 1;
+          return { models: [{ value: "unused", label: "unused" }], reasoningByModel: {} };
+        },
+      },
+    });
+
+    expect(codexProbeCalls).toBe(0);
+    expect(capabilities.codex.modelCatalogSource).toBe("none");
+    expect(capabilities.codex.models).toEqual([]);
+    expect(capabilities.codex.probeWarnings).toEqual([]);
+  });
+
   test("uses Bun.which when availability override is omitted", async () => {
     let whichCalls = 0;
     Bun.which = ((command) => {
       whichCalls += 1;
       return command === "codex" ? "/usr/local/bin/codex" : null;
     }) as typeof Bun.which;
+    Bun.spawn = ((args) => {
+      expect(args).toEqual(["codex", "debug", "models"]);
+      return createMockProcess(createTextStream(""), createTextStream("failed"), 2);
+    }) as typeof Bun.spawn;
 
     const capabilities = await reviewAgentCapabilities();
 
     expect(whichCalls).toBeGreaterThan(0);
     expect(capabilities.codex.installed).toBe(true);
-    expect(capabilities.codex.modelCatalogSource).toBe("static");
+    expect(capabilities.codex.modelCatalogSource).toBe("none");
     expect(capabilities.opencode.installed).toBe(false);
     expect(capabilities.pi.installed).toBe(false);
+  });
+
+  test("returns warning when codex probe exits non-zero", async () => {
+    Bun.spawn = ((args) => {
+      expect(args).toEqual(["codex", "debug", "models"]);
+      return createMockProcess(createTextStream(""), createTextStream("failed"), 2);
+    }) as typeof Bun.spawn;
+
+    const capabilities = await reviewAgentCapabilities({
+      availabilityOverride: {
+        codex: true,
+        claude: false,
+        droid: false,
+        gemini: false,
+        opencode: false,
+        pi: false,
+      },
+    });
+
+    expect(capabilities.codex.modelCatalogSource).toBe("none");
+    expect(capabilities.codex.models).toEqual([]);
+    expect(capabilities.codex.probeWarnings[0]).toContain("failed");
+  });
+
+  test("warns when codex debug models returns no usable models", async () => {
+    Bun.spawn = ((args) => {
+      expect(args).toEqual(["codex", "debug", "models"]);
+      return createMockProcess(
+        createTextStream(JSON.stringify({ models: [{ slug: "codex-auto-review" }] })),
+        createTextStream(""),
+        0
+      );
+    }) as typeof Bun.spawn;
+
+    const capabilities = await reviewAgentCapabilities({
+      availabilityOverride: {
+        codex: true,
+        claude: false,
+        droid: false,
+        gemini: false,
+        opencode: false,
+        pi: false,
+      },
+    });
+
+    expect(capabilities.codex.modelCatalogSource).toBe("none");
+    expect(capabilities.codex.models).toEqual([]);
+    expect(capabilities.codex.probeWarnings).toEqual([
+      "No models were returned by `codex debug models`.",
+    ]);
+  });
+
+  test("parses codex debug models output and supported reasoning levels", () => {
+    const parsed = parseCodexDebugModelsOutput(createCodexDebugModelsOutput());
+
+    expect(parsed.models).toEqual([
+      { value: "gpt-5.4", label: "GPT-5.4" },
+      { value: "gpt-5.4-mini", label: "gpt-5.4-mini" },
+    ]);
+    expect(parsed.reasoningByModel).toEqual({
+      "gpt-5.4": ["low", "medium", "high", "xhigh"],
+      "gpt-5.4-mini": ["medium"],
+    });
+  });
+
+  test("rejects invalid codex debug models output", () => {
+    expect(() => parseCodexDebugModelsOutput("{")).toThrow(
+      "Invalid JSON from `codex debug models`."
+    );
+    expect(() => parseCodexDebugModelsOutput(JSON.stringify({ models: {} }))).toThrow(
+      "`codex debug models` output did not include a models array."
+    );
   });
 
   test("parses pi model listings and ignores invalid and duplicate rows", () => {

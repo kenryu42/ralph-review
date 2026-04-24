@@ -11,7 +11,7 @@ describe("getAgentDisplayInfo", () => {
 
     expect(info).toEqual({
       agentName: "Codex",
-      modelName: "GPT-5.2 Codex",
+      modelName: "gpt-5.2-codex",
       reasoning: "high",
     });
   });

@@ -1,7 +1,7 @@
 import {
   claudeModelOptions,
-  codexModelOptions,
   geminiModelOptions,
+  registerCodexReasoningOptions,
   registerDroidReasoningOptions,
 } from "@/lib/agents/models";
 import { AGENTS } from "@/lib/agents/registry";
@@ -9,6 +9,10 @@ import { type AgentType, isReasoningLevel, type ReasoningLevel } from "@/lib/typ
 import type { AgentCapabilitiesMap, AgentCapability, AgentModelInfo } from "./types";
 
 export interface CapabilityReviewDependencies {
+  fetchCodexModels?: () => Promise<{
+    models: { value: string; label: string }[];
+    reasoningByModel: Record<string, ReasoningLevel[]>;
+  }>;
   fetchDroidModels?: () => Promise<{ value: string; label: string }[]>;
   fetchOpencodeModels?: () => Promise<{ value: string; label: string }[]>;
   fetchPiModels?: () => Promise<{ provider: string; model: string }[]>;
@@ -25,11 +29,10 @@ export interface CapabilityReviewOptions {
 const AGENT_ORDER: readonly AgentType[] = ["codex", "claude", "opencode", "droid", "gemini", "pi"];
 
 const STATIC_MODELS: Record<
-  Exclude<AgentType, "droid" | "opencode" | "pi">,
+  Exclude<AgentType, "codex" | "droid" | "opencode" | "pi">,
   readonly { value: string }[]
 > = {
   claude: claudeModelOptions,
-  codex: codexModelOptions,
   gemini: geminiModelOptions,
 };
 
@@ -39,8 +42,75 @@ function getAgentCommand(agent: AgentType): string {
   return AGENTS[agent].config.command;
 }
 
-function toStaticModels(agent: Exclude<AgentType, "droid" | "opencode" | "pi">): AgentModelInfo[] {
+function toStaticModels(
+  agent: Exclude<AgentType, "codex" | "droid" | "opencode" | "pi">
+): AgentModelInfo[] {
   return STATIC_MODELS[agent].map((entry) => ({ model: entry.value }));
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function parseCodexSupportedReasoningLevels(value: unknown): ReasoningLevel[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((entry) => {
+      if (!isRecord(entry)) {
+        return null;
+      }
+      return entry.effort;
+    })
+    .filter((effort): effort is ReasoningLevel => isReasoningLevel(effort));
+}
+
+export function parseCodexDebugModelsOutput(output: string): {
+  models: { value: string; label: string }[];
+  reasoningByModel: Record<string, ReasoningLevel[]>;
+} {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(output);
+  } catch {
+    throw new Error("Invalid JSON from `codex debug models`.");
+  }
+
+  if (!isRecord(parsed) || !Array.isArray(parsed.models)) {
+    throw new Error("`codex debug models` output did not include a models array.");
+  }
+
+  const models: { value: string; label: string }[] = [];
+  const reasoningByModel: Record<string, ReasoningLevel[]> = {};
+  const seen = new Set<string>();
+
+  for (const entry of parsed.models) {
+    if (!isRecord(entry) || typeof entry.slug !== "string") {
+      continue;
+    }
+
+    const slug = entry.slug.trim();
+    if (!slug || slug === "codex-auto-review" || seen.has(slug)) {
+      continue;
+    }
+
+    seen.add(slug);
+    const displayName =
+      typeof entry.display_name === "string" && entry.display_name.trim()
+        ? entry.display_name.trim()
+        : slug;
+    const reasoningLevels = parseCodexSupportedReasoningLevels(entry.supported_reasoning_levels);
+
+    models.push({ value: slug, label: displayName });
+    reasoningByModel[slug] = reasoningLevels;
+  }
+
+  return {
+    models,
+    reasoningByModel,
+  };
 }
 
 function parseOpencodeModelsOutput(output: string): { value: string; label: string }[] {
@@ -275,6 +345,18 @@ async function fetchOpencodeModels(): Promise<{ value: string; label: string }[]
   return parseOpencodeModelsOutput(stdout);
 }
 
+async function fetchCodexModels(): Promise<{
+  models: { value: string; label: string }[];
+  reasoningByModel: Record<string, ReasoningLevel[]>;
+}> {
+  const { stdout, stderr, exitCode } = await runProbe(["codex", "debug", "models"]);
+  if (exitCode !== 0) {
+    throw new Error(stderr.trim() || `codex debug models exited with code ${exitCode}`);
+  }
+
+  return parseCodexDebugModelsOutput(stdout);
+}
+
 async function fetchDroidModels(): Promise<{ value: string; label: string }[]> {
   const { stdout, stderr, exitCode } = await runProbe(["droid", "exec", "--help"]);
   if (exitCode !== 0) {
@@ -307,12 +389,36 @@ function createUninstalledCapability(agent: AgentType): AgentCapability {
 }
 
 async function reviewDynamicCapability(
-  agent: Extract<AgentType, "droid" | "opencode" | "pi">,
+  agent: Extract<AgentType, "codex" | "droid" | "opencode" | "pi">,
   deps: CapabilityReviewDependencies
 ): Promise<AgentCapability> {
   const command = getAgentCommand(agent);
 
   try {
+    if (agent === "codex") {
+      const parsed = await (deps.fetchCodexModels ?? fetchCodexModels)();
+      registerCodexReasoningOptions(parsed.reasoningByModel);
+      if (parsed.models.length === 0) {
+        return {
+          agent,
+          command,
+          installed: true,
+          modelCatalogSource: "none",
+          models: [],
+          probeWarnings: ["No models were returned by `codex debug models`."],
+        };
+      }
+
+      return {
+        agent,
+        command,
+        installed: true,
+        modelCatalogSource: "dynamic",
+        models: parsed.models.map((entry) => ({ model: entry.value, label: entry.label })),
+        probeWarnings: [],
+      };
+    }
+
     if (agent === "opencode") {
       const models = await (deps.fetchOpencodeModels ?? fetchOpencodeModels)();
       return {
@@ -371,7 +477,7 @@ async function reviewDynamicCapability(
 }
 
 function reviewStaticCapability(
-  agent: Exclude<AgentType, "droid" | "opencode" | "pi">
+  agent: Exclude<AgentType, "codex" | "droid" | "opencode" | "pi">
 ): AgentCapability {
   return {
     agent,
@@ -384,7 +490,7 @@ function reviewStaticCapability(
 }
 
 function createDynamicProbeSkippedCapability(
-  agent: Extract<AgentType, "droid" | "opencode" | "pi">
+  agent: Extract<AgentType, "codex" | "droid" | "opencode" | "pi">
 ): AgentCapability {
   return {
     agent,
@@ -417,7 +523,8 @@ export async function reviewAgentCapabilities(
       continue;
     }
 
-    const isDynamic = agent === "droid" || agent === "opencode" || agent === "pi";
+    const isDynamic =
+      agent === "codex" || agent === "droid" || agent === "opencode" || agent === "pi";
     const probeMode = isDynamic
       ? probeAgents && !probeAgents.has(agent)
         ? "skip"

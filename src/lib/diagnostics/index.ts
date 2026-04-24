@@ -1,5 +1,6 @@
 export {
   clearCapabilityReviewCache,
+  parseCodexDebugModelsOutput,
   parseDroidExecHelpOutput,
   parsePiListModelsOutput,
   reviewAgentCapabilities,

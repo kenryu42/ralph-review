@@ -16,15 +16,6 @@ export const claudeModelOptions = [
   { value: "haiku", label: "Claude Haiku 4.5" },
 ] as const;
 
-export const codexModelOptions = [
-  { value: "gpt-5.4", label: "GPT-5.4" },
-  { value: "gpt-5.3-codex", label: "GPT-5.3 Codex" },
-  { value: "gpt-5.2-codex", label: "GPT-5.2 Codex" },
-  { value: "gpt-5.2", label: "GPT-5.2" },
-  { value: "gpt-5.1-codex-max", label: "GPT-5.1 Codex Max" },
-  { value: "gpt-5.1-codex-mini", label: "GPT-5.1 Codex Mini" },
-] as const;
-
 export const geminiModelOptions = [
   { value: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro" },
   { value: "gemini-3-flash-preview", label: "Gemini 3 Flash" },
@@ -34,6 +25,8 @@ export const geminiModelOptions = [
 ] as const;
 
 const commonReasoningLevels: readonly ReasoningLevel[] = ["low", "medium", "high", "xhigh"];
+
+const codexReasoningLevelsByModel: Record<string, readonly ReasoningLevel[]> = {};
 
 const droidReasoningLevelsByModel: Record<string, readonly ReasoningLevel[]> = {
   "gpt-5.1": ["low", "medium", "high"],
@@ -54,6 +47,19 @@ const droidReasoningLevelsByModel: Record<string, readonly ReasoningLevel[]> = {
   "gemini-3-flash-preview": ["low", "medium", "high"],
 };
 
+export function registerCodexReasoningOptions(
+  reasoningByModel: Record<string, readonly ReasoningLevel[]>
+): void {
+  for (const [model, levels] of Object.entries(reasoningByModel)) {
+    codexReasoningLevelsByModel[model] = [...levels];
+  }
+}
+
+export function getCodexReasoningOptions(model: string): ReasoningLevel[] {
+  const levels = codexReasoningLevelsByModel[model];
+  return levels ? [...levels] : [];
+}
+
 export function registerDroidReasoningOptions(
   reasoningByModel: Record<string, readonly ReasoningLevel[]>
 ): void {
@@ -70,6 +76,8 @@ export function getDroidReasoningOptions(model: string): ReasoningLevel[] {
 export function getReasoningOptions(agent: AgentType, model?: string): ReasoningLevel[] {
   switch (agent) {
     case "codex":
+      return model ? getCodexReasoningOptions(model) : [];
+
     case "opencode":
     case "pi":
       return [...commonReasoningLevels];
@@ -102,7 +110,7 @@ export function getAgentDisplayName(agent: AgentType): string {
 
 const modelOptionsMap: Record<AgentType, readonly { value: string; label: string }[] | null> = {
   claude: claudeModelOptions,
-  codex: codexModelOptions,
+  codex: null,
   droid: null,
   gemini: geminiModelOptions,
   opencode: null,

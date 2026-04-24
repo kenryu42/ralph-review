@@ -1,21 +1,22 @@
 import { describe, expect, test } from "bun:test";
 import {
-  codexModelOptions,
+  getCodexReasoningOptions,
   getDroidReasoningOptions,
   getReasoningOptions,
+  registerCodexReasoningOptions,
   registerDroidReasoningOptions,
   supportsReasoning,
 } from "@/lib/agents/models";
 
 describe("agent model metadata", () => {
   describe("getReasoningOptions", () => {
-    test("returns shared options for codex, opencode, and pi", () => {
-      expect(getReasoningOptions("codex", "gpt-5.2-codex")).toEqual([
-        "low",
-        "medium",
-        "high",
-        "xhigh",
-      ]);
+    test("returns registered codex options and shared options for opencode and pi", () => {
+      registerCodexReasoningOptions({
+        "gpt-5.4": ["low", "medium", "high", "xhigh"],
+      });
+
+      expect(getReasoningOptions("codex", "gpt-5.4")).toEqual(["low", "medium", "high", "xhigh"]);
+      expect(getReasoningOptions("codex", "unknown-model")).toEqual([]);
       expect(getReasoningOptions("opencode", "any-model")).toEqual([
         "low",
         "medium",
@@ -55,7 +56,11 @@ describe("agent model metadata", () => {
 
   describe("supportsReasoning", () => {
     test("returns true when options exist", () => {
-      expect(supportsReasoning("codex", "gpt-5.2-codex")).toBe(true);
+      registerCodexReasoningOptions({
+        "gpt-5.4-mini": ["medium"],
+      });
+
+      expect(supportsReasoning("codex", "gpt-5.4-mini")).toBe(true);
       expect(supportsReasoning("droid", "gpt-5.2-codex")).toBe(true);
       expect(supportsReasoning("pi", "model")).toBe(true);
       expect(supportsReasoning("claude", "sonnet")).toBe(true);
@@ -64,6 +69,21 @@ describe("agent model metadata", () => {
     test("returns false for unsupported selections", () => {
       expect(supportsReasoning("droid", "glm-4.7")).toBe(false);
       expect(supportsReasoning("gemini", "gemini-3-pro-preview")).toBe(false);
+      expect(supportsReasoning("codex", "unknown-model")).toBe(false);
+    });
+  });
+
+  describe("getCodexReasoningOptions", () => {
+    test("uses reasoning levels parsed from codex debug models", () => {
+      registerCodexReasoningOptions({
+        "new-codex-model": ["low", "high"],
+      });
+
+      expect(getCodexReasoningOptions("new-codex-model")).toEqual(["low", "high"]);
+    });
+
+    test("returns empty array for unknown codex models", () => {
+      expect(getCodexReasoningOptions("missing-codex-model")).toEqual([]);
     });
   });
 
@@ -83,12 +103,6 @@ describe("agent model metadata", () => {
 
     test("returns empty array for unsupported droid models", () => {
       expect(getDroidReasoningOptions("kimi-k2.5")).toEqual([]);
-    });
-  });
-
-  describe("codex model catalog", () => {
-    test("includes gpt-5.4 in the static codex model list", () => {
-      expect(codexModelOptions).toContainEqual({ value: "gpt-5.4", label: "GPT-5.4" });
     });
   });
 });

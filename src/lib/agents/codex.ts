@@ -10,6 +10,7 @@ import {
   type ReviewOptions,
 } from "@/lib/types";
 import { createLineFormatter, defaultBuildEnv, parseJsonlEvent } from "./core";
+import { getReasoningOptions } from "./models";
 import type {
   CodexAgentMessageItem,
   CodexCommandExecutionItem,
@@ -18,18 +19,31 @@ import type {
 } from "./types";
 
 const defaultCodexReasoningEffort = "high";
-const codexReasoningOptions = new Set(["low", "medium", "high", "xhigh"]);
 const CODEX_SESSION_LOOKBACK_DAYS = 3;
 
-function resolveCodexReasoningEffort(reasoning?: string): string {
-  if (isReasoningLevel(reasoning) && codexReasoningOptions.has(reasoning)) {
+function resolveCodexReasoningEffort(model?: string, reasoning?: string): string {
+  if (!isReasoningLevel(reasoning)) {
+    return defaultCodexReasoningEffort;
+  }
+
+  if (!model) {
     return reasoning;
   }
+
+  const supportedReasoningOptions = getReasoningOptions("codex", model);
+  if (supportedReasoningOptions.length === 0 || supportedReasoningOptions.includes(reasoning)) {
+    return reasoning;
+  }
+
   return defaultCodexReasoningEffort;
 }
 
-function withReasoningEffort(args: string[], reasoning?: string): string[] {
-  return [...args, "--config", `model_reasoning_effort=${resolveCodexReasoningEffort(reasoning)}`];
+function withReasoningEffort(args: string[], model?: string, reasoning?: string): string[] {
+  return [
+    ...args,
+    "--config",
+    `model_reasoning_effort=${resolveCodexReasoningEffort(model, reasoning)}`,
+  ];
 }
 
 function withModel(args: string[], model?: string): string[] {
@@ -55,11 +69,11 @@ export const codexConfig: AgentConfig = {
     reasoning?: string
   ): string[] => {
     if (role !== "reviewer") {
-      const args = withReasoningEffort(["exec", "--full-auto"], reasoning);
+      const args = withReasoningEffort(["exec", "--full-auto"], model, reasoning);
       return prompt ? withModel([...args, prompt], model) : withModel(args, model);
     }
 
-    const baseReviewArgs = withReasoningEffort(["exec", "review", "--json"], reasoning);
+    const baseReviewArgs = withReasoningEffort(["exec", "review", "--json"], model, reasoning);
     return withModel([...baseReviewArgs, requireReviewerPrompt(prompt)], model);
   },
   buildEnv: defaultBuildEnv,
