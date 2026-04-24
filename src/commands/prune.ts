@@ -2,11 +2,12 @@ import { readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import * as p from "@clack/prompts";
 import { getCommandDef } from "@/cli";
+import { resolvePendingHandoffSelection } from "@/commands/handoff-selection";
 import { parseCommand } from "@/lib/cli-parser";
 import { CONFIG_DIR } from "@/lib/config";
 import { deleteSessionRefs } from "@/lib/git";
-import { listProjectPendingHandoffs } from "@/lib/handoff";
-import { getProjectStorageDir, getProjectWorktreesDir } from "@/lib/logging";
+import { discardPendingHandoff, listProjectPendingHandoffs } from "@/lib/handoff";
+import { appendLog, getProjectStorageDir, getProjectWorktreesDir } from "@/lib/logging";
 
 type SessionRef = {
   kind: "baseline" | "source" | "final";
@@ -25,6 +26,7 @@ type StoredArtifactSummary = {
 
 interface ParsedPruneOptions {
   apply: boolean;
+  discard: boolean;
   sessionId?: string;
   olderThanMs?: number;
   allProjects: boolean;
@@ -49,11 +51,20 @@ export interface PruneCommandDeps {
   storageRoot: string;
   now: () => number;
   listProjectPendingHandoffs: typeof listProjectPendingHandoffs;
+  discardPendingHandoff: typeof discardPendingHandoff;
+  appendLog: typeof appendLog;
   logInfo: (message: string) => void;
+  logStep: (message: string) => void;
   logSuccess: (message: string) => void;
   logWarn: (message: string) => void;
   logError: (message: string) => void;
   exit: (code: number) => void;
+  isTTY: () => boolean;
+  select: (input: {
+    message: string;
+    options: Array<{ value: string; label: string; hint: string }>;
+  }) => Promise<unknown>;
+  isCancel: (value: unknown) => boolean;
 }
 
 const DEFAULT_PRUNE_DEPS: PruneCommandDeps = {
@@ -63,11 +74,17 @@ const DEFAULT_PRUNE_DEPS: PruneCommandDeps = {
   storageRoot: CONFIG_DIR,
   now: () => Date.now(),
   listProjectPendingHandoffs,
+  discardPendingHandoff,
+  appendLog,
   logInfo: (message: string) => p.log.info(message),
+  logStep: (message: string) => p.log.step(message),
   logSuccess: (message: string) => p.log.success(message),
   logWarn: (message: string) => p.log.warn(message),
   logError: (message: string) => p.log.error(message),
   exit: (code: number) => process.exit(code),
+  isTTY: () => process.stdout.isTTY === true,
+  select: (input) => p.select(input),
+  isCancel: (value) => p.isCancel(value),
 };
 
 function parseOlderThan(value: string): number {
@@ -91,6 +108,7 @@ function parsePruneOptions(args: string[], deps: PruneCommandDeps): ParsedPruneO
   const parsed = deps.parseCommand(commandDef, args);
   return {
     apply: parsed.values.apply === true,
+    discard: parsed.values.discard === true,
     sessionId: typeof parsed.values.session === "string" ? parsed.values.session : undefined,
     olderThanMs:
       typeof parsed.values["older-than"] === "string"
@@ -99,6 +117,64 @@ function parsePruneOptions(args: string[], deps: PruneCommandDeps): ParsedPruneO
     allProjects: parsed.values["all-projects"] === true,
     force: parsed.values.force === true,
   };
+}
+
+function rejectInvalidDiscardOptions(options: ParsedPruneOptions, deps: PruneCommandDeps): boolean {
+  if (!options.discard) {
+    return false;
+  }
+
+  if (options.apply || options.force || options.olderThanMs !== undefined || options.allProjects) {
+    deps.logError(
+      "--discard can only be combined with --session. Remove cleanup options and try again."
+    );
+    deps.exit(1);
+    return true;
+  }
+
+  return false;
+}
+
+async function runDiscardMode(options: ParsedPruneOptions, deps: PruneCommandDeps): Promise<void> {
+  const projectPath = deps.cwd();
+  const handoffs = await deps.listProjectPendingHandoffs(deps.storageRoot, projectPath);
+
+  if (handoffs.length === 0) {
+    deps.logInfo("No pending review handoffs for current working directory.");
+    return;
+  }
+
+  const selection = await resolvePendingHandoffSelection({
+    handoffs,
+    selector: options.sessionId,
+    action: "discard",
+    isTTY: deps.isTTY(),
+    select: deps.select,
+    isCancel: deps.isCancel,
+  });
+
+  if (!selection.handoff) {
+    if (selection.error) {
+      deps.logError(selection.error);
+      deps.exit(1);
+    }
+    return;
+  }
+
+  deps.logStep(`Discarding handoff: ${selection.handoff.handoffId}`);
+  const artifact = await deps.discardPendingHandoff(
+    deps.storageRoot,
+    projectPath,
+    selection.handoff.handoffId
+  );
+  await deps.appendLog(artifact.logPath, {
+    type: "handoff",
+    timestamp: deps.now(),
+    handoffId: artifact.handoffId,
+    handoffStatus: "discarded",
+    commitSha: artifact.commitSha,
+  });
+  deps.logSuccess("Review handoff discarded.");
 }
 
 async function readStoredArtifacts(
@@ -426,6 +502,15 @@ export async function runPrune(
 ): Promise<void> {
   const pruneDeps = { ...DEFAULT_PRUNE_DEPS, ...deps };
   const options = parsePruneOptions(args, pruneDeps);
+  if (rejectInvalidDiscardOptions(options, pruneDeps)) {
+    return;
+  }
+
+  if (options.discard) {
+    await runDiscardMode(options, pruneDeps);
+    return;
+  }
+
   const projectPaths = await collectProjectPaths(
     pruneDeps.storageRoot,
     pruneDeps.cwd(),

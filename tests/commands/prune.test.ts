@@ -11,6 +11,7 @@ import {
   saveFindingsArtifact,
 } from "@/lib/review-workflow/findings/artifact";
 import type { FindingsArtifact, StoredFinding } from "@/lib/review-workflow/findings/types";
+import type { LogEntry, PendingHandoffArtifact } from "@/lib/types";
 
 function runGitIn(repoPath: string, args: string[]): void {
   const result = Bun.spawnSync(["git", ...args], {
@@ -88,6 +89,27 @@ async function saveFindingsArtifactWithUpdatedAt(
 
 async function listPendingFromStorage(): Promise<[]> {
   return [];
+}
+
+function createPendingHandoff(
+  repoPath: string,
+  overrides: Partial<PendingHandoffArtifact> = {}
+): PendingHandoffArtifact {
+  return {
+    handoffId: overrides.handoffId ?? overrides.sessionId ?? "session-id",
+    sessionId: overrides.sessionId ?? "session-id",
+    projectPath: repoPath,
+    sourceRepoPath: repoPath,
+    logPath: join(repoPath, ".ralph-review", "logs", "session.jsonl"),
+    hiddenRef: "refs/ralph-review/sessions/session-id/final",
+    patchPath: join(repoPath, ".ralph-review", "handoffs", "session-id.patch"),
+    sourceBaselineFingerprint: "fingerprint-1",
+    commitSha: "commit-sha-1",
+    state: "pending-apply",
+    createdAt: 1,
+    updatedAt: 1,
+    ...overrides,
+  };
 }
 
 describe("prune command", () => {
@@ -326,5 +348,336 @@ describe("prune command", () => {
     expect(await Bun.file(artifactPath).exists()).toBe(false);
     expect(successes.at(-1)).toContain("Pruned 1 review session");
     await rm(nonGitProjectPath, { recursive: true, force: true });
+  });
+
+  describe("discard mode", () => {
+    test("prints info when there are no pending handoffs", async () => {
+      const infos: string[] = [];
+      const discardCalls: Array<{ projectPath: string; handoffId: string }> = [];
+
+      await runPrune(["--discard"], {
+        getCommandDef,
+        parseCommand,
+        cwd: () => repoPath,
+        storageRoot,
+        listProjectPendingHandoffs: listPendingFromStorage,
+        discardPendingHandoff: async (_storageRoot, projectPath, handoffId) => {
+          discardCalls.push({ projectPath, handoffId });
+          throw new Error("discardPendingHandoff should not be called");
+        },
+        appendLog: async () => {},
+        logInfo: (message) => infos.push(message),
+        logSuccess: () => {},
+        logWarn: () => {},
+        logError: () => {},
+        logStep: () => {},
+        exit: () => {},
+        isTTY: () => true,
+        now: () => 1_800_000_000_000,
+      });
+
+      expect(infos).toEqual(["No pending review handoffs for current working directory."]);
+      expect(discardCalls).toEqual([]);
+    });
+
+    test("discards the selected pending handoff", async () => {
+      const handoff = createPendingHandoff(repoPath);
+      const discardCalls: Array<{ projectPath: string; handoffId: string }> = [];
+      const appendCalls: Array<{ logPath: string; entry: LogEntry }> = [];
+      const steps: string[] = [];
+      const successes: string[] = [];
+
+      await runPrune(["--discard"], {
+        getCommandDef,
+        parseCommand,
+        cwd: () => repoPath,
+        storageRoot,
+        listProjectPendingHandoffs: async () => [handoff],
+        discardPendingHandoff: async (_storageRoot, projectPath, handoffId) => {
+          discardCalls.push({ projectPath, handoffId });
+          return handoff;
+        },
+        appendLog: async (logPath, entry) => {
+          appendCalls.push({ logPath, entry });
+        },
+        logInfo: () => {},
+        logSuccess: (message) => successes.push(message),
+        logWarn: () => {},
+        logError: () => {},
+        logStep: (message) => steps.push(message),
+        exit: () => {},
+        isTTY: () => true,
+        now: () => 1_800_000_000_000,
+      });
+
+      expect(discardCalls).toEqual([{ projectPath: repoPath, handoffId: "session-id" }]);
+      expect(steps).toEqual(["Discarding handoff: session-id"]);
+      expect(successes).toEqual(["Review handoff discarded."]);
+      expect(appendCalls).toHaveLength(1);
+      expect(appendCalls[0]?.logPath).toBe(handoff.logPath);
+      expect(appendCalls[0]?.entry).toMatchObject({
+        type: "handoff",
+        timestamp: 1_800_000_000_000,
+        handoffId: "session-id",
+        handoffStatus: "discarded",
+        commitSha: "commit-sha-1",
+      });
+    });
+
+    test("accepts a unique session id prefix", async () => {
+      const handoffs = [
+        createPendingHandoff(repoPath, { handoffId: "handoff-a", sessionId: "session-alpha" }),
+        createPendingHandoff(repoPath, { handoffId: "handoff-b", sessionId: "session-beta" }),
+      ];
+      const discardCalls: Array<{ projectPath: string; handoffId: string }> = [];
+
+      await runPrune(["--discard", "--session", "session-a"], {
+        getCommandDef,
+        parseCommand,
+        cwd: () => repoPath,
+        storageRoot,
+        listProjectPendingHandoffs: async () => handoffs,
+        discardPendingHandoff: async (_storageRoot, projectPath, handoffId) => {
+          discardCalls.push({ projectPath, handoffId });
+          const matched = handoffs.find((handoff) => handoff.handoffId === handoffId);
+          if (!matched) {
+            throw new Error(`Unknown handoff ${handoffId}`);
+          }
+          return matched;
+        },
+        appendLog: async () => {},
+        logInfo: () => {},
+        logSuccess: () => {},
+        logWarn: () => {},
+        logError: () => {},
+        logStep: () => {},
+        exit: () => {},
+        isTTY: () => false,
+        now: () => 1_800_000_000_000,
+      });
+
+      expect(discardCalls).toEqual([{ projectPath: repoPath, handoffId: "handoff-a" }]);
+    });
+
+    test("errors when the session selector is blank", async () => {
+      const errors: string[] = [];
+      const exits: number[] = [];
+
+      await runPrune(["--discard", "--session", "   "], {
+        getCommandDef,
+        parseCommand,
+        cwd: () => repoPath,
+        storageRoot,
+        listProjectPendingHandoffs: async () => [createPendingHandoff(repoPath)],
+        logInfo: () => {},
+        logSuccess: () => {},
+        logWarn: () => {},
+        logError: (message) => errors.push(message),
+        logStep: () => {},
+        exit: (code) => exits.push(code),
+        isTTY: () => true,
+        now: () => 1_800_000_000_000,
+      });
+
+      expect(errors).toEqual(["Session selector cannot be empty."]);
+      expect(exits).toEqual([1]);
+    });
+
+    test("errors when the session selector does not match any pending handoff", async () => {
+      const errors: string[] = [];
+      const exits: number[] = [];
+
+      await runPrune(["--discard", "--session", "session-z"], {
+        getCommandDef,
+        parseCommand,
+        cwd: () => repoPath,
+        storageRoot,
+        listProjectPendingHandoffs: async () => [
+          createPendingHandoff(repoPath, { sessionId: "session-alpha" }),
+        ],
+        logInfo: () => {},
+        logSuccess: () => {},
+        logWarn: () => {},
+        logError: (message) => errors.push(message),
+        logStep: () => {},
+        exit: (code) => exits.push(code),
+        isTTY: () => true,
+        now: () => 1_800_000_000_000,
+      });
+
+      expect(errors).toEqual([
+        'No pending review handoff matches "session-z" in the current project.',
+      ]);
+      expect(exits).toEqual([1]);
+    });
+
+    test("errors when the session selector matches multiple prefixes", async () => {
+      const errors: string[] = [];
+      const exits: number[] = [];
+
+      await runPrune(["--discard", "--session", "session-a"], {
+        getCommandDef,
+        parseCommand,
+        cwd: () => repoPath,
+        storageRoot,
+        listProjectPendingHandoffs: async () => [
+          createPendingHandoff(repoPath, { sessionId: "session-alpha" }),
+          createPendingHandoff(repoPath, { sessionId: "session-atom" }),
+        ],
+        logInfo: () => {},
+        logSuccess: () => {},
+        logWarn: () => {},
+        logError: (message) => errors.push(message),
+        logStep: () => {},
+        exit: (code) => exits.push(code),
+        isTTY: () => true,
+        now: () => 1_800_000_000_000,
+      });
+
+      expect(errors).toEqual([
+        'Session selector "session-a" is ambiguous for the current project.',
+      ]);
+      expect(exits).toEqual([1]);
+    });
+
+    test("prompts when multiple pending handoffs exist in an interactive terminal", async () => {
+      const handoffs = [
+        createPendingHandoff(repoPath, { handoffId: "handoff-alpha", sessionId: "session-alpha" }),
+        createPendingHandoff(repoPath, { handoffId: "handoff-beta", sessionId: "session-beta" }),
+      ];
+      const selectMessages: string[] = [];
+      const discardCalls: Array<{ projectPath: string; handoffId: string }> = [];
+
+      await runPrune(["--discard"], {
+        getCommandDef,
+        parseCommand,
+        cwd: () => repoPath,
+        storageRoot,
+        listProjectPendingHandoffs: async () => handoffs,
+        discardPendingHandoff: async (_storageRoot, projectPath, handoffId) => {
+          discardCalls.push({ projectPath, handoffId });
+          const matched = handoffs.find((handoff) => handoff.handoffId === handoffId);
+          if (!matched) {
+            throw new Error(`Unknown handoff ${handoffId}`);
+          }
+          return matched;
+        },
+        appendLog: async () => {},
+        logInfo: () => {},
+        logSuccess: () => {},
+        logWarn: () => {},
+        logError: () => {},
+        logStep: () => {},
+        exit: () => {},
+        isTTY: () => true,
+        select: async (input) => {
+          selectMessages.push(input.message);
+          return "handoff-beta";
+        },
+        isCancel: () => false,
+        now: () => 1_800_000_000_000,
+      });
+
+      expect(selectMessages).toEqual(["Choose a review handoff to discard"]);
+      expect(discardCalls).toEqual([{ projectPath: repoPath, handoffId: "handoff-beta" }]);
+    });
+
+    test("returns without discarding when interactive selection is cancelled", async () => {
+      const discardCalls: Array<{ projectPath: string; handoffId: string }> = [];
+      const successes: string[] = [];
+
+      await runPrune(["--discard"], {
+        getCommandDef,
+        parseCommand,
+        cwd: () => repoPath,
+        storageRoot,
+        listProjectPendingHandoffs: async () => [
+          createPendingHandoff(repoPath, { handoffId: "handoff-alpha" }),
+          createPendingHandoff(repoPath, { handoffId: "handoff-beta" }),
+        ],
+        discardPendingHandoff: async (_storageRoot, projectPath, handoffId) => {
+          discardCalls.push({ projectPath, handoffId });
+          return createPendingHandoff(repoPath);
+        },
+        appendLog: async () => {},
+        logInfo: () => {},
+        logSuccess: (message) => successes.push(message),
+        logWarn: () => {},
+        logError: () => {},
+        logStep: () => {},
+        exit: () => {},
+        isTTY: () => true,
+        select: async () => "__CANCEL__",
+        isCancel: (value) => value === "__CANCEL__",
+        now: () => 1_800_000_000_000,
+      });
+
+      expect(discardCalls).toEqual([]);
+      expect(successes).toEqual([]);
+    });
+
+    test("errors when multiple pending handoffs exist in a non-interactive terminal", async () => {
+      const errors: string[] = [];
+      const exits: number[] = [];
+
+      await runPrune(["--discard"], {
+        getCommandDef,
+        parseCommand,
+        cwd: () => repoPath,
+        storageRoot,
+        listProjectPendingHandoffs: async () => [
+          createPendingHandoff(repoPath, { handoffId: "handoff-alpha" }),
+          createPendingHandoff(repoPath, { handoffId: "handoff-beta" }),
+        ],
+        logInfo: () => {},
+        logSuccess: () => {},
+        logWarn: () => {},
+        logError: (message) => errors.push(message),
+        logStep: () => {},
+        exit: (code) => exits.push(code),
+        isTTY: () => false,
+        now: () => 1_800_000_000_000,
+      });
+
+      expect(errors).toEqual([
+        "Multiple pending review handoffs exist for this project. Re-run with --session <id|name>.",
+      ]);
+      expect(exits).toEqual([1]);
+    });
+
+    test("rejects cleanup options in discard mode", async () => {
+      const scenarios = [
+        ["--discard", "--apply"],
+        ["--discard", "--force"],
+        ["--discard", "--older-than", "14d"],
+        ["--discard", "--all-projects"],
+      ];
+
+      for (const args of scenarios) {
+        const errors: string[] = [];
+        const exits: number[] = [];
+
+        await runPrune(args, {
+          getCommandDef,
+          parseCommand,
+          cwd: () => repoPath,
+          storageRoot,
+          listProjectPendingHandoffs: listPendingFromStorage,
+          logInfo: () => {},
+          logSuccess: () => {},
+          logWarn: () => {},
+          logError: (message) => errors.push(message),
+          logStep: () => {},
+          exit: (code) => exits.push(code),
+          isTTY: () => true,
+          now: () => 1_800_000_000_000,
+        });
+
+        expect(errors).toEqual([
+          "--discard can only be combined with --session. Remove cleanup options and try again.",
+        ]);
+        expect(exits).toEqual([1]);
+      }
+    });
   });
 });
