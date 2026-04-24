@@ -16,7 +16,7 @@ import {
   selectAutoReasoning,
   validateAgentSelection,
 } from "@/commands/init";
-import { registerCodexReasoningOptions } from "@/lib/agents/models";
+import { registerCodexReasoningOptions, registerDroidReasoningOptions } from "@/lib/agents/models";
 import { CONFIG_PATH } from "@/lib/config";
 import type { AgentCapabilitiesMap } from "@/lib/diagnostics";
 import type { ConfigOverride } from "@/lib/types";
@@ -1353,6 +1353,10 @@ describe("init command", () => {
     });
 
     test("uses discovered droid model labels in custom mode", async () => {
+      registerDroidReasoningOptions({
+        "gpt-5.2-codex": ["low", "medium", "high", "xhigh"],
+      });
+
       const harness = createInitHarness({
         availability: createAvailability({ droid: true }),
         capabilities: createCapabilities({

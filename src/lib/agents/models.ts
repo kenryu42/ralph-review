@@ -27,25 +27,7 @@ export const geminiModelOptions = [
 const commonReasoningLevels: readonly ReasoningLevel[] = ["low", "medium", "high", "xhigh"];
 
 const codexReasoningLevelsByModel: Record<string, readonly ReasoningLevel[]> = {};
-
-const droidReasoningLevelsByModel: Record<string, readonly ReasoningLevel[]> = {
-  "gpt-5.1": ["low", "medium", "high"],
-  "gpt-5.1-codex": ["low", "medium", "high"],
-  "gpt-5.1-codex-max": ["low", "medium", "high", "xhigh"],
-  "gpt-5.2": ["low", "medium", "high", "xhigh"],
-  "gpt-5.2-codex": ["low", "medium", "high", "xhigh"],
-  "gpt-5.3-codex": ["low", "medium", "high", "xhigh"],
-  "gpt-5.4": ["low", "medium", "high", "xhigh"],
-  "claude-sonnet-4-5-20250929": ["low", "medium", "high"],
-  "claude-sonnet-4-6": ["low", "medium", "high"],
-  "claude-opus-4-5-20251101": ["low", "medium", "high"],
-  "claude-haiku-4-5-20251001": ["low", "medium", "high"],
-  "claude-opus-4-6": ["low", "medium", "high", "max"],
-  "claude-opus-4-6-fast": ["low", "medium", "high", "max"],
-  "gemini-3-pro-preview": ["low", "medium", "high"],
-  "gemini-3.1-pro-preview": ["low", "medium", "high"],
-  "gemini-3-flash-preview": ["low", "medium", "high"],
-};
+const droidReasoningLevelsByModel: Record<string, readonly ReasoningLevel[]> = {};
 
 export function registerCodexReasoningOptions(
   reasoningByModel: Record<string, readonly ReasoningLevel[]>

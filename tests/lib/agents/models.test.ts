@@ -26,14 +26,13 @@ describe("agent model metadata", () => {
       expect(getReasoningOptions("pi", "any-model")).toEqual(["low", "medium", "high", "xhigh"]);
     });
 
-    test("returns model-specific options for droid", () => {
-      expect(getReasoningOptions("droid", "gpt-5.1")).toEqual(["low", "medium", "high"]);
-      expect(getReasoningOptions("droid", "gpt-5.1-codex-max")).toEqual([
-        "low",
-        "medium",
-        "high",
-        "xhigh",
-      ]);
+    test("returns registered options for droid", () => {
+      registerDroidReasoningOptions({
+        "gpt-5.4": ["low", "medium", "high", "xhigh"],
+      });
+
+      expect(getReasoningOptions("droid", "gpt-5.4")).toEqual(["low", "medium", "high", "xhigh"]);
+      expect(getReasoningOptions("droid", "gpt-5.1")).toEqual([]);
       expect(getReasoningOptions("droid", "glm-4.7")).toEqual([]);
       expect(getReasoningOptions("droid", "unknown-model")).toEqual([]);
     });
@@ -47,6 +46,10 @@ describe("agent model metadata", () => {
     });
 
     test("never includes banned levels", () => {
+      registerDroidReasoningOptions({
+        "gemini-3-flash-preview": ["low", "medium", "high"],
+      });
+
       const droidLevels = getReasoningOptions("droid", "gemini-3-flash-preview");
       expect(droidLevels).not.toContain("off");
       expect(droidLevels).not.toContain("none");
@@ -61,7 +64,7 @@ describe("agent model metadata", () => {
       });
 
       expect(supportsReasoning("codex", "gpt-5.4-mini")).toBe(true);
-      expect(supportsReasoning("droid", "gpt-5.2-codex")).toBe(true);
+      expect(supportsReasoning("droid", "gpt-5.1")).toBe(false);
       expect(supportsReasoning("pi", "model")).toBe(true);
       expect(supportsReasoning("claude", "sonnet")).toBe(true);
     });
@@ -96,9 +99,9 @@ describe("agent model metadata", () => {
       expect(getDroidReasoningOptions("new-droid-model")).toEqual(["low", "medium", "high"]);
     });
 
-    test("includes xhigh for models that support it", () => {
-      const levels = getDroidReasoningOptions("gpt-5.1-codex-max");
-      expect(levels).toContain("xhigh");
+    test("does not use hardcoded fallback levels", () => {
+      const levels = getDroidReasoningOptions("gpt-5.1");
+      expect(levels).toEqual([]);
     });
 
     test("returns empty array for unsupported droid models", () => {

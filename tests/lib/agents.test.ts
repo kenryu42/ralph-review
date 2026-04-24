@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { AGENTS } from "@/lib/agents";
-import { registerCodexReasoningOptions } from "@/lib/agents/models";
+import { registerCodexReasoningOptions, registerDroidReasoningOptions } from "@/lib/agents/models";
 import type { AgentConfig } from "@/lib/types";
 
 describe("agents", () => {
@@ -231,7 +231,7 @@ describe("agents", () => {
       expect(args[0]).toBe("exec");
       expect(args).toContain("--model");
       expect(args).toContain("gpt-5.2-codex");
-      expect(args).toContain("--reasoning-effort");
+      expect(args).not.toContain("--reasoning-effort");
       expect(args).toContain("/review current changes");
     });
 
@@ -250,10 +250,14 @@ describe("agents", () => {
     });
 
     test("uses configured reasoning level for supported model", () => {
+      registerDroidReasoningOptions({
+        "registered-droid-model": ["low", "medium", "high", "xhigh"],
+      });
+
       const args = AGENTS.droid.config.buildArgs(
         "reviewer",
         "review",
-        "gpt-5.2-codex",
+        "registered-droid-model",
         undefined,
         undefined,
         "xhigh"
