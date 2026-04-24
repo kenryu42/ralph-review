@@ -185,7 +185,7 @@ describe("diagnostics capabilities", () => {
     expect(capabilities.droid.modelCatalogSource).toBe("dynamic");
     expect(capabilities.droid.models).toEqual([
       { model: "gpt-5.4", label: "GPT-5.4" },
-      { model: "claude-opus-4-7", label: "Claude Opus 4.7 (default)" },
+      { model: "claude-opus-4-7", label: "Claude Opus 4.7" },
     ]);
   });
 
@@ -442,21 +442,27 @@ describe("diagnostics capabilities", () => {
         "  gpt-5.4                      GPT-5.4",
         "  gpt-5.4                      GPT-5.4 Duplicate",
         "  glm-4.7                      Droid Core (GLM-4.7) [Deprecated]",
+        "  gpt-5.1-codex-max            GPT-5.1-Codex-Max [Deprecated]",
         "",
         "Model details:",
         "  - Claude Opus 4.7: supports reasoning: Yes; supported: [off, low, medium, high, xhigh, max]; default: high",
         "  - GPT-5.4: supports reasoning: Yes; supported: [low, medium, high, xhigh]; default: medium",
+        "  - Droid Core (GLM-4.7) [Deprecated]: supports reasoning: No; supported: [none]; default: none",
+        "  - GPT-5.1-Codex-Max [Deprecated]: supports reasoning: Yes; supported: [low, medium, high, xhigh]; default: medium",
       ].join("\n")
     );
 
     expect(parsed.models).toEqual([
-      { value: "claude-opus-4-7", label: "Claude Opus 4.7 (default)" },
+      { value: "claude-opus-4-7", label: "Claude Opus 4.7" },
       { value: "gpt-5.4", label: "GPT-5.4" },
       { value: "glm-4.7", label: "Droid Core (GLM-4.7) [Deprecated]" },
+      { value: "gpt-5.1-codex-max", label: "GPT-5.1-Codex-Max [Deprecated]" },
     ]);
     expect(parsed.reasoningByModel).toEqual({
       "claude-opus-4-7": ["low", "medium", "high", "xhigh", "max"],
       "gpt-5.4": ["low", "medium", "high", "xhigh"],
+      "glm-4.7": [],
+      "gpt-5.1-codex-max": ["low", "medium", "high", "xhigh"],
     });
   });
 

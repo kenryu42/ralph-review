@@ -208,7 +208,7 @@ function parseDroidModelLine(line: string): { value: string; label: string } | n
     return null;
   }
 
-  return { value: value.trim(), label };
+  return { value: value.trim(), label: stripDroidDefaultMarker(label) };
 }
 
 function parseSupportedReasoningLevels(line: string): ReasoningLevel[] {
@@ -231,10 +231,13 @@ function parseSupportedReasoningLevels(line: string): ReasoningLevel[] {
 }
 
 function normalizeDroidModelLabel(label: string): string {
-  return label
+  return stripDroidDefaultMarker(label)
     .replace(/\s+\[Deprecated\]$/i, "")
-    .replace(/\s+\(default\)$/i, "")
     .trim();
+}
+
+function stripDroidDefaultMarker(label: string): string {
+  return label.replace(/\s+\(default\)$/i, "").trim();
 }
 
 export function parseDroidExecHelpOutput(output: string): {
@@ -288,7 +291,7 @@ export function parseDroidExecHelpOutput(output: string): {
         continue;
       }
 
-      const model = modelNamesByLabel.get(modelLabel);
+      const model = modelNamesByLabel.get(normalizeDroidModelLabel(modelLabel));
       if (!model) {
         continue;
       }
