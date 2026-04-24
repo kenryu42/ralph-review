@@ -802,6 +802,16 @@ describe("run command", () => {
       expect(new Set(getDynamicProbeAgents(config))).toEqual(new Set(["opencode"]));
     });
 
+    test("includes droid so reasoning metadata is loaded before runs", () => {
+      const config = createConfig();
+      config.reviewer = {
+        agent: "droid",
+        model: "gpt-5.4",
+      };
+
+      expect(getDynamicProbeAgents(config)).toEqual(["droid"]);
+    });
+
     test("returns empty when only static agents are configured", () => {
       expect(getDynamicProbeAgents(createConfig())).toEqual([]);
     });

@@ -172,7 +172,7 @@ export function getDynamicProbeAgents(config: Config | null): AgentType[] {
 
   for (const entry of settings) {
     const agent = entry?.agent;
-    if (agent === "opencode" || agent === "pi") {
+    if (agent === "droid" || agent === "opencode" || agent === "pi") {
       probeAgents.add(agent);
     }
   }
