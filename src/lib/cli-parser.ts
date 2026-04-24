@@ -381,7 +381,7 @@ export function formatMainHelp(commands: CommandDef[], version: string): string 
   ];
 
   lines.push(
-    `${theme.accent("ralph-review")} v${theme.muted(version)} - ${theme.info("Ralph Wiggum Code Review Orchestrator")}`
+    `${theme.accent("ralph-review")} v${theme.muted(version)} - ${theme.info("Code Review Orchestrator")}`
   );
   lines.push("");
   lines.push(`${theme.heading("USAGE:")}`);
