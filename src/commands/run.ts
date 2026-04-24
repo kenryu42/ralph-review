@@ -627,7 +627,7 @@ export async function runForeground(
         ? `Apply: rr apply --session ${cycleResult.handoffId}`
         : undefined,
       discardCommand: cycleResult.handoffId
-        ? `Discard: rr discard --session ${cycleResult.handoffId}`
+        ? `Discard: rr prune --discard --session ${cycleResult.handoffId}`
         : undefined,
     });
     if (handoffNote) {

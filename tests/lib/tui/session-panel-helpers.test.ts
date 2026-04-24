@@ -548,7 +548,7 @@ describe("SessionPanel helpers", () => {
     test("returns manual commands only for pending handoffs", () => {
       expect(formatHandoffCommands("session-123", "pending-apply")).toEqual([
         "rr apply --session session-123",
-        "rr discard --session session-123",
+        "rr prune --discard --session session-123",
       ]);
       expect(formatHandoffCommands("session-123", "applied-auto")).toEqual([]);
       expect(formatHandoffCommands("session-123", "apply-conflicted")).toEqual([]);

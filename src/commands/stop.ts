@@ -147,7 +147,10 @@ function formatProjectScopedCommand(
   handoffId: string,
   action: "apply" | "discard"
 ): string {
-  const baseCommand = `rr ${action} --session ${handoffId}`;
+  const baseCommand =
+    action === "discard"
+      ? `rr prune --discard --session ${handoffId}`
+      : `rr apply --session ${handoffId}`;
   if (session.projectPath === currentProjectPath) {
     return baseCommand;
   }

@@ -1828,7 +1828,7 @@ describe("run command", () => {
           "Reviewed fixes are ready to apply.\n" +
           "Commit: retained-commit-sha\n" +
           "Apply: rr apply --session session-123-handoff-1\n" +
-          "Discard: rr discard --session session-123-handoff-1",
+          "Discard: rr prune --discard --session session-123-handoff-1",
       });
       expect(harness.updateSessionStateCalls[1]?.updates.handoffStatus).toBe("pending-apply");
       expect(harness.updateSessionStateCalls[1]?.updates.handoffId).toBe("session-123-handoff-1");

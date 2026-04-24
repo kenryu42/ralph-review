@@ -118,7 +118,7 @@ export function formatHandoffCommands(
     return [];
   }
 
-  return [`rr apply --session ${handoffId}`, `rr discard --session ${handoffId}`];
+  return [`rr apply --session ${handoffId}`, `rr prune --discard --session ${handoffId}`];
 }
 
 export function extractFixesFromStats(stats: SessionStats): FixEntry[] {

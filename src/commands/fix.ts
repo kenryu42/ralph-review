@@ -528,7 +528,7 @@ export async function runFixForeground(
       commitSha: result.commitSha,
       applyCommand: result.handoffId ? `Apply: rr apply --session ${result.handoffId}` : undefined,
       discardCommand: result.handoffId
-        ? `Discard: rr discard --session ${result.handoffId}`
+        ? `Discard: rr prune --discard --session ${result.handoffId}`
         : undefined,
     });
     if (handoffNote) {

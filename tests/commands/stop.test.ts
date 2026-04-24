@@ -558,7 +558,7 @@ describe("runStop", () => {
       { projectPath: cwd, sessionId: "current-session-id" },
     ]);
     expect(result.messages).toContain(
-      "Handoff:\nReviewed fixes are ready to apply.\nCommit: commit-sha-2\nApply: rr apply --session current-session-id\nDiscard: rr discard --session current-session-id"
+      "Handoff:\nReviewed fixes are ready to apply.\nCommit: commit-sha-2\nApply: rr apply --session current-session-id\nDiscard: rr prune --discard --session current-session-id"
     );
   });
 
@@ -650,7 +650,7 @@ describe("runStop", () => {
     });
 
     expect(result.messages).toContain(
-      "Handoff:\nReviewed fixes are ready to apply.\nCommit: commit-sha-3\nApply: cd /repo/other && rr apply --session session-a\nDiscard: cd /repo/other && rr discard --session session-a"
+      "Handoff:\nReviewed fixes are ready to apply.\nCommit: commit-sha-3\nApply: cd /repo/other && rr apply --session session-a\nDiscard: cd /repo/other && rr prune --discard --session session-a"
     );
   });
 
