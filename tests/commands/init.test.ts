@@ -51,8 +51,8 @@ function createCapabilities(overrides: CapabilityOverrides = {}): AgentCapabilit
       agent: "droid",
       command: "droid",
       installed: true,
-      modelCatalogSource: "static",
-      models: [{ model: "gpt-5.2-codex" }],
+      modelCatalogSource: "dynamic",
+      models: [{ model: "gpt-5.2-codex", label: "GPT-5.2-Codex" }],
       probeWarnings: [],
       ...overrides.droid,
     },
@@ -157,6 +157,7 @@ function createInitHarness(options: InitHarnessOptions = {}) {
   const spinnerStarts: string[] = [];
   const spinnerStops: string[] = [];
   const selectCalls: string[] = [];
+  const selectOptionsByMessage = new Map<string, unknown[]>();
   const textCalls: Array<{
     message: string;
     defaultValue?: string;
@@ -213,6 +214,7 @@ function createInitHarness(options: InitHarnessOptions = {}) {
       isCancel: (value) => value === CANCEL,
       select: async (input) => {
         selectCalls.push(input.message);
+        selectOptionsByMessage.set(input.message, [...input.options]);
         if (input.message === "Choose config scope") {
           if (selectQueue[0] === "local" || selectQueue[0] === "global") {
             return next(selectQueue, `select(${input.message})`);
@@ -352,6 +354,7 @@ function createInitHarness(options: InitHarnessOptions = {}) {
     spinnerStarts,
     spinnerStops,
     selectCalls,
+    selectOptionsByMessage,
     textCalls,
     reviewCalls,
     savedConfigs,
@@ -1327,6 +1330,27 @@ describe("init command", () => {
       expect(harness.savedConfigs).toHaveLength(1);
       expect(harness.savedConfigs[0]?.reviewer.reasoning).toBeUndefined();
       expect(harness.savedConfigs[0]?.fixer.reasoning).toBeUndefined();
+    });
+
+    test("uses discovered droid model labels in custom mode", async () => {
+      const harness = createInitHarness({
+        availability: createAvailability({ droid: true }),
+        capabilities: createCapabilities({
+          droid: {
+            models: [{ model: "gpt-5.2-codex", label: "GPT-5.2-Codex from Droid" }],
+          },
+        }),
+        selectResponses: ["custom", "droid", "gpt-5.2-codex", "high", CANCEL],
+      });
+
+      await expect(runInitWithRuntime(harness.overrides)).rejects.toThrow("forced-exit:0");
+
+      const modelSelect = harness.selectOptionsByMessage.get("Select reviewer model");
+      expect(modelSelect).toContainEqual({
+        value: "gpt-5.2-codex",
+        label: "GPT-5.2-Codex from Droid",
+      });
+      expect(harness.cancels).toContain("Setup cancelled.");
     });
 
     test("probes opencode models in custom mode and handles cancel", async () => {

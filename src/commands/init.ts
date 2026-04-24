@@ -6,7 +6,6 @@ import {
   agentOptions,
   claudeModelOptions,
   codexModelOptions,
-  droidModelOptions,
   geminiModelOptions,
   getAgentDisplayName,
   getReasoningOptions,
@@ -83,6 +82,7 @@ export interface AutoModelCandidate {
 }
 
 export interface AutoSelectionDependencies {
+  fetchDroidModels?: () => Promise<{ value: string; label: string }[]>;
   fetchOpencodeModels?: () => Promise<{ value: string; label: string }[]>;
   fetchPiModels?: () => Promise<{ provider: string; model: string }[]>;
   capabilitiesByAgent?: AgentCapabilitiesMap;
@@ -303,10 +303,12 @@ const MODEL_PRIORITY_MATCHERS: Record<ConfiguredRole, readonly ((model: string) 
   ],
 };
 
-const modelOptionsMap: Record<Exclude<AgentType, "opencode" | "pi">, readonly ModelOption[]> = {
+const modelOptionsMap: Record<
+  Exclude<AgentType, "droid" | "opencode" | "pi">,
+  readonly ModelOption[]
+> = {
   claude: claudeModelOptions,
   codex: codexModelOptions,
-  droid: droidModelOptions,
   gemini: geminiModelOptions,
 };
 
@@ -468,7 +470,7 @@ async function promptForModel(
   availability: AgentAvailability
 ): Promise<ModelSelection> {
   const staticOptions =
-    agent === "opencode" || agent === "pi"
+    agent === "droid" || agent === "opencode" || agent === "pi"
       ? undefined
       : modelOptionsMap[agent as keyof typeof modelOptionsMap];
 
@@ -482,7 +484,7 @@ async function promptForModel(
   }
 
   let capability = capabilitiesByAgent[agent];
-  if (agent === "opencode" || agent === "pi") {
+  if (agent === "droid" || agent === "opencode" || agent === "pi") {
     const needsProbe = !capability || capability.models.length === 0;
     if (needsProbe) {
       const spinner = runtime.prompt.spinner();
@@ -517,12 +519,12 @@ async function promptForModel(
     runtime.exit(1);
   }
 
-  if (agent === "opencode") {
+  if (agent === "droid" || agent === "opencode") {
     const model = await runtime.prompt.select({
       message: `Select ${role} model`,
       options: capability.models.map((entry) => ({
         value: entry.model,
-        label: entry.model,
+        label: entry.label ?? entry.model,
       })),
     });
     handleCancel(runtime, model);
@@ -673,6 +675,7 @@ export async function reviewAutoModelCandidates(
     (await reviewAgentCapabilities({
       availabilityOverride: availability,
       deps: {
+        fetchDroidModels: deps.fetchDroidModels,
         fetchOpencodeModels: deps.fetchOpencodeModels,
         fetchPiModels: deps.fetchPiModels,
       },

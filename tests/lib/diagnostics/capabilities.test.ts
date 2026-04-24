@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   clearCapabilityReviewCache,
+  parseDroidExecHelpOutput,
   parsePiListModelsOutput,
   reviewAgentCapabilities,
 } from "@/lib/diagnostics";
@@ -93,7 +94,28 @@ describe("diagnostics capabilities", () => {
     expect(capabilities.opencode.probeWarnings.length).toBeGreaterThan(0);
   });
 
-  test("falls back to static catalogs for codex and droid", async () => {
+  test("uses static catalog for codex and dynamic probe for droid", async () => {
+    Bun.spawn = ((args) => {
+      expect(args).toEqual(["droid", "exec", "--help"]);
+      return createMockProcess(
+        createTextStream(
+          [
+            "Usage: droid exec [options] [prompt]",
+            "",
+            "Available Models:",
+            "  gpt-5.4                      GPT-5.4",
+            "  claude-opus-4-7              Claude Opus 4.7 (default)",
+            "",
+            "Model details:",
+            "  - GPT-5.4: supports reasoning: Yes; supported: [low, medium, high, xhigh]; default: medium",
+            "  - Claude Opus 4.7: supports reasoning: Yes; supported: [off, low, medium, high, xhigh, max]; default: high",
+          ].join("\n")
+        ),
+        createTextStream(""),
+        0
+      );
+    }) as typeof Bun.spawn;
+
     const capabilities = await reviewAgentCapabilities({
       availabilityOverride: {
         codex: true,
@@ -107,8 +129,11 @@ describe("diagnostics capabilities", () => {
 
     expect(capabilities.codex.modelCatalogSource).toBe("static");
     expect(capabilities.codex.models.some((entry) => entry.model === "gpt-5.4")).toBe(true);
-    expect(capabilities.droid.modelCatalogSource).toBe("static");
-    expect(capabilities.droid.models.some((entry) => entry.model === "gpt-5.4")).toBe(true);
+    expect(capabilities.droid.modelCatalogSource).toBe("dynamic");
+    expect(capabilities.droid.models).toEqual([
+      { model: "gpt-5.4", label: "GPT-5.4" },
+      { model: "claude-opus-4-7", label: "Claude Opus 4.7 (default)" },
+    ]);
   });
 
   test("reuses in-memory cache between calls", async () => {
@@ -224,6 +249,56 @@ describe("diagnostics capabilities", () => {
     }
   });
 
+  test("returns fallback message when droid probe exits non-zero without stderr", async () => {
+    Bun.spawn = ((args) => {
+      expect(args).toEqual(["droid", "exec", "--help"]);
+      return createMockProcess(createTextStream(""), createTextStream("   "), 3);
+    }) as typeof Bun.spawn;
+
+    const capabilities = await reviewAgentCapabilities({
+      availabilityOverride: {
+        codex: false,
+        claude: false,
+        droid: true,
+        gemini: false,
+        opencode: false,
+        pi: false,
+      },
+    });
+
+    expect(capabilities.droid.modelCatalogSource).toBe("none");
+    expect(capabilities.droid.models).toEqual([]);
+    expect(capabilities.droid.probeWarnings[0]).toContain("droid exec --help exited with code 3");
+  });
+
+  test("warns when droid help returns no parseable models", async () => {
+    Bun.spawn = ((args) => {
+      expect(args).toEqual(["droid", "exec", "--help"]);
+      return createMockProcess(
+        createTextStream("Usage: droid exec [options] [prompt]\n\nModel details:\n"),
+        createTextStream(""),
+        0
+      );
+    }) as typeof Bun.spawn;
+
+    const capabilities = await reviewAgentCapabilities({
+      availabilityOverride: {
+        codex: false,
+        claude: false,
+        droid: true,
+        gemini: false,
+        opencode: false,
+        pi: false,
+      },
+    });
+
+    expect(capabilities.droid.modelCatalogSource).toBe("none");
+    expect(capabilities.droid.models).toEqual([]);
+    expect(capabilities.droid.probeWarnings).toEqual([
+      "No models were returned by `droid exec --help`.",
+    ]);
+  });
+
   test("returns fallback message when pi probe exits non-zero without stderr", async () => {
     Bun.spawn = ((args) => {
       expect(args).toEqual(["pi", "--list-models"]);
@@ -302,6 +377,34 @@ describe("diagnostics capabilities", () => {
       { provider: "proxx", model: "openai/gpt-5.4" },
     ]);
     expect(capabilities.pi.probeWarnings).toEqual([]);
+  });
+
+  test("parses droid help model listing and ignores model detail rows", () => {
+    const parsed = parseDroidExecHelpOutput(
+      [
+        "Usage: droid exec [options] [prompt]",
+        "",
+        "Available Models:",
+        "  claude-opus-4-7              Claude Opus 4.7 (default)",
+        "  gpt-5.4                      GPT-5.4",
+        "  gpt-5.4                      GPT-5.4 Duplicate",
+        "  glm-4.7                      Droid Core (GLM-4.7) [Deprecated]",
+        "",
+        "Model details:",
+        "  - Claude Opus 4.7: supports reasoning: Yes; supported: [off, low, medium, high, xhigh, max]; default: high",
+        "  - GPT-5.4: supports reasoning: Yes; supported: [low, medium, high, xhigh]; default: medium",
+      ].join("\n")
+    );
+
+    expect(parsed.models).toEqual([
+      { value: "claude-opus-4-7", label: "Claude Opus 4.7 (default)" },
+      { value: "gpt-5.4", label: "GPT-5.4" },
+      { value: "glm-4.7", label: "Droid Core (GLM-4.7) [Deprecated]" },
+    ]);
+    expect(parsed.reasoningByModel).toEqual({
+      "claude-opus-4-7": ["low", "medium", "high", "xhigh", "max"],
+      "gpt-5.4": ["low", "medium", "high", "xhigh"],
+    });
   });
 
   test("skips dynamic probes when probeAgents excludes opencode and pi", async () => {

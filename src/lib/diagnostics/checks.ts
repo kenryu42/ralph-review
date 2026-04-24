@@ -433,11 +433,16 @@ export async function runDiagnostics(
         capability.modelCatalogSource === "none" &&
         settings.model &&
         capability.probeWarnings.length > 0 &&
-        (settings.agent === "opencode" || settings.agent === "pi")
+        (settings.agent === "droid" || settings.agent === "opencode" || settings.agent === "pi")
       ) {
         const configuredModel =
           settings.agent === "pi" ? `${settings.provider}/${settings.model}` : settings.model;
-        const probeCommand = settings.agent === "opencode" ? "opencode models" : "pi --list-models";
+        const probeCommand =
+          settings.agent === "droid"
+            ? "droid exec --help"
+            : settings.agent === "opencode"
+              ? "opencode models"
+              : "pi --list-models";
         const id = `config-${role}-model-unverified`;
         items.push({
           id,

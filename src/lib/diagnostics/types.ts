@@ -8,6 +8,7 @@ export type ModelCatalogSource = "dynamic" | "static" | "none";
 export interface AgentModelInfo {
   model: string;
   provider?: string;
+  label?: string;
 }
 
 export interface AgentCapability {

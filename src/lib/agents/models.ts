@@ -25,29 +25,6 @@ export const codexModelOptions = [
   { value: "gpt-5.1-codex-mini", label: "GPT-5.1 Codex Mini" },
 ] as const;
 
-export const droidModelOptions = [
-  { value: "claude-opus-4-5-20251101", label: "Claude Opus 4.5" },
-  { value: "claude-opus-4-6", label: "Claude Opus 4.6 (default)" },
-  { value: "claude-opus-4-6-fast", label: "Claude Opus 4.6 Fast Mode" },
-  { value: "claude-sonnet-4-5-20250929", label: "Claude Sonnet 4.5" },
-  { value: "claude-sonnet-4-6", label: "Claude Sonnet 4.6" },
-  { value: "claude-haiku-4-5-20251001", label: "Claude Haiku 4.5" },
-  { value: "gpt-5.1", label: "GPT-5.1" },
-  { value: "gpt-5.1-codex", label: "GPT-5.1-Codex" },
-  { value: "gpt-5.1-codex-max", label: "GPT-5.1-Codex-Max" },
-  { value: "gpt-5.2", label: "GPT-5.2" },
-  { value: "gpt-5.2-codex", label: "GPT-5.2-Codex" },
-  { value: "gpt-5.3-codex", label: "GPT-5.3-Codex" },
-  { value: "gpt-5.4", label: "GPT-5.4" },
-  { value: "gemini-3-pro-preview", label: "Gemini 3 Pro" },
-  { value: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro" },
-  { value: "gemini-3-flash-preview", label: "Gemini 3 Flash" },
-  { value: "glm-4.7", label: "Droid Core (GLM-4.7)" },
-  { value: "glm-5", label: "Droid Core (GLM-5)" },
-  { value: "kimi-k2.5", label: "Droid Core (Kimi K2.5)" },
-  { value: "minimax-m2.5", label: "Droid Core (MiniMax M2.5)" },
-] as const;
-
 export const geminiModelOptions = [
   { value: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro" },
   { value: "gemini-3-flash-preview", label: "Gemini 3 Flash" },
@@ -76,6 +53,14 @@ const droidReasoningLevelsByModel: Record<string, readonly ReasoningLevel[]> = {
   "gemini-3.1-pro-preview": ["low", "medium", "high"],
   "gemini-3-flash-preview": ["low", "medium", "high"],
 };
+
+export function registerDroidReasoningOptions(
+  reasoningByModel: Record<string, readonly ReasoningLevel[]>
+): void {
+  for (const [model, levels] of Object.entries(reasoningByModel)) {
+    droidReasoningLevelsByModel[model] = [...levels];
+  }
+}
 
 export function getDroidReasoningOptions(model: string): ReasoningLevel[] {
   const levels = droidReasoningLevelsByModel[model];
@@ -118,7 +103,7 @@ export function getAgentDisplayName(agent: AgentType): string {
 const modelOptionsMap: Record<AgentType, readonly { value: string; label: string }[] | null> = {
   claude: claudeModelOptions,
   codex: codexModelOptions,
-  droid: droidModelOptions,
+  droid: null,
   gemini: geminiModelOptions,
   opencode: null,
   pi: null,

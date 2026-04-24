@@ -1,5 +1,6 @@
 export {
   clearCapabilityReviewCache,
+  parseDroidExecHelpOutput,
   parsePiListModelsOutput,
   reviewAgentCapabilities,
 } from "./capabilities";

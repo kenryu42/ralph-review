@@ -1,14 +1,15 @@
 import {
   claudeModelOptions,
   codexModelOptions,
-  droidModelOptions,
   geminiModelOptions,
+  registerDroidReasoningOptions,
 } from "@/lib/agents/models";
 import { AGENTS } from "@/lib/agents/registry";
-import type { AgentType } from "@/lib/types";
+import { type AgentType, isReasoningLevel, type ReasoningLevel } from "@/lib/types";
 import type { AgentCapabilitiesMap, AgentCapability, AgentModelInfo } from "./types";
 
 export interface CapabilityReviewDependencies {
+  fetchDroidModels?: () => Promise<{ value: string; label: string }[]>;
   fetchOpencodeModels?: () => Promise<{ value: string; label: string }[]>;
   fetchPiModels?: () => Promise<{ provider: string; model: string }[]>;
 }
@@ -23,10 +24,12 @@ export interface CapabilityReviewOptions {
 
 const AGENT_ORDER: readonly AgentType[] = ["codex", "claude", "opencode", "droid", "gemini", "pi"];
 
-const STATIC_MODELS: Record<Exclude<AgentType, "opencode" | "pi">, readonly { value: string }[]> = {
+const STATIC_MODELS: Record<
+  Exclude<AgentType, "droid" | "opencode" | "pi">,
+  readonly { value: string }[]
+> = {
   claude: claudeModelOptions,
   codex: codexModelOptions,
-  droid: droidModelOptions,
   gemini: geminiModelOptions,
 };
 
@@ -36,7 +39,7 @@ function getAgentCommand(agent: AgentType): string {
   return AGENTS[agent].config.command;
 }
 
-function toStaticModels(agent: Exclude<AgentType, "opencode" | "pi">): AgentModelInfo[] {
+function toStaticModels(agent: Exclude<AgentType, "droid" | "opencode" | "pi">): AgentModelInfo[] {
   return STATIC_MODELS[agent].map((entry) => ({ model: entry.value }));
 }
 
@@ -103,6 +106,133 @@ export function parsePiListModelsOutput(output: string): { provider: string; mod
   return dedupePiModels(models);
 }
 
+function dedupeModelOptions(
+  models: { value: string; label: string }[]
+): { value: string; label: string }[] {
+  const deduped: { value: string; label: string }[] = [];
+  const seen = new Set<string>();
+
+  for (const entry of models) {
+    if (seen.has(entry.value)) {
+      continue;
+    }
+    seen.add(entry.value);
+    deduped.push(entry);
+  }
+
+  return deduped;
+}
+
+function isDroidModelLine(line: string): boolean {
+  return /^\S+\s{2,}\S/.test(line);
+}
+
+function parseDroidModelLine(line: string): { value: string; label: string } | null {
+  if (!isDroidModelLine(line)) {
+    return null;
+  }
+
+  const [value, ...labelParts] = line.split(/\s{2,}/);
+  const label = labelParts.join(" ").trim();
+  if (!value || !label) {
+    return null;
+  }
+
+  return { value: value.trim(), label };
+}
+
+function parseSupportedReasoningLevels(line: string): ReasoningLevel[] {
+  const supportedMatch = line.match(/supported:\s*\[([^\]]*)\]/i);
+  if (!supportedMatch) {
+    return [];
+  }
+
+  const supportedLevels = supportedMatch[1];
+  if (!supportedLevels) {
+    return [];
+  }
+
+  return supportedLevels
+    .split(",")
+    .map((level) => level.trim())
+    .filter((level): level is ReasoningLevel => {
+      return level !== "off" && level !== "none" && level !== "minimal" && isReasoningLevel(level);
+    });
+}
+
+function normalizeDroidModelLabel(label: string): string {
+  return label
+    .replace(/\s+\[Deprecated\]$/i, "")
+    .replace(/\s+\(default\)$/i, "")
+    .trim();
+}
+
+export function parseDroidExecHelpOutput(output: string): {
+  models: { value: string; label: string }[];
+  reasoningByModel: Record<string, ReasoningLevel[]>;
+} {
+  const lines = output.split("\n");
+  const models: { value: string; label: string }[] = [];
+  const modelNamesByLabel = new Map<string, string>();
+  const reasoningByModel: Record<string, ReasoningLevel[]> = {};
+
+  let inAvailableModels = false;
+  let inModelDetails = false;
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (/^Available Models:\s*$/i.test(line)) {
+      inAvailableModels = true;
+      inModelDetails = false;
+      continue;
+    }
+    if (/^Model details:\s*$/i.test(line)) {
+      inAvailableModels = false;
+      inModelDetails = true;
+      continue;
+    }
+
+    if (inAvailableModels) {
+      if (!line) {
+        continue;
+      }
+
+      const model = parseDroidModelLine(line);
+      if (!model) {
+        continue;
+      }
+
+      models.push(model);
+      modelNamesByLabel.set(normalizeDroidModelLabel(model.label), model.value);
+      continue;
+    }
+
+    if (inModelDetails) {
+      const detailMatch = line.match(/^-\s+(.+?):\s+supports reasoning:/i);
+      if (!detailMatch) {
+        continue;
+      }
+
+      const modelLabel = detailMatch[1];
+      if (!modelLabel) {
+        continue;
+      }
+
+      const model = modelNamesByLabel.get(modelLabel);
+      if (!model) {
+        continue;
+      }
+
+      reasoningByModel[model] = parseSupportedReasoningLevels(line);
+    }
+  }
+
+  return {
+    models: dedupeModelOptions(models),
+    reasoningByModel,
+  };
+}
+
 async function runProbe(
   args: string[],
   timeoutMs: number = 8000
@@ -145,6 +275,17 @@ async function fetchOpencodeModels(): Promise<{ value: string; label: string }[]
   return parseOpencodeModelsOutput(stdout);
 }
 
+async function fetchDroidModels(): Promise<{ value: string; label: string }[]> {
+  const { stdout, stderr, exitCode } = await runProbe(["droid", "exec", "--help"]);
+  if (exitCode !== 0) {
+    throw new Error(stderr.trim() || `droid exec --help exited with code ${exitCode}`);
+  }
+
+  const parsed = parseDroidExecHelpOutput(stdout);
+  registerDroidReasoningOptions(parsed.reasoningByModel);
+  return parsed.models;
+}
+
 async function fetchPiModels(): Promise<{ provider: string; model: string }[]> {
   const { stdout, stderr, exitCode } = await runProbe(["pi", "--list-models"]);
   if (exitCode !== 0) {
@@ -166,7 +307,7 @@ function createUninstalledCapability(agent: AgentType): AgentCapability {
 }
 
 async function reviewDynamicCapability(
-  agent: Extract<AgentType, "opencode" | "pi">,
+  agent: Extract<AgentType, "droid" | "opencode" | "pi">,
   deps: CapabilityReviewDependencies
 ): Promise<AgentCapability> {
   const command = getAgentCommand(agent);
@@ -181,6 +322,29 @@ async function reviewDynamicCapability(
         modelCatalogSource: "dynamic",
         models: models.map((entry) => ({ model: entry.value })),
         probeWarnings: models.length === 0 ? ["No models were returned by `opencode models`."] : [],
+      };
+    }
+
+    if (agent === "droid") {
+      const models = await (deps.fetchDroidModels ?? fetchDroidModels)();
+      if (models.length === 0) {
+        return {
+          agent,
+          command,
+          installed: true,
+          modelCatalogSource: "none",
+          models: [],
+          probeWarnings: ["No models were returned by `droid exec --help`."],
+        };
+      }
+
+      return {
+        agent,
+        command,
+        installed: true,
+        modelCatalogSource: "dynamic",
+        models: models.map((entry) => ({ model: entry.value, label: entry.label })),
+        probeWarnings: [],
       };
     }
 
@@ -206,7 +370,9 @@ async function reviewDynamicCapability(
   }
 }
 
-function reviewStaticCapability(agent: Exclude<AgentType, "opencode" | "pi">): AgentCapability {
+function reviewStaticCapability(
+  agent: Exclude<AgentType, "droid" | "opencode" | "pi">
+): AgentCapability {
   return {
     agent,
     command: getAgentCommand(agent),
@@ -218,7 +384,7 @@ function reviewStaticCapability(agent: Exclude<AgentType, "opencode" | "pi">): A
 }
 
 function createDynamicProbeSkippedCapability(
-  agent: Extract<AgentType, "opencode" | "pi">
+  agent: Extract<AgentType, "droid" | "opencode" | "pi">
 ): AgentCapability {
   return {
     agent,
@@ -251,7 +417,7 @@ export async function reviewAgentCapabilities(
       continue;
     }
 
-    const isDynamic = agent === "opencode" || agent === "pi";
+    const isDynamic = agent === "droid" || agent === "opencode" || agent === "pi";
     const probeMode = isDynamic
       ? probeAgents && !probeAgents.has(agent)
         ? "skip"

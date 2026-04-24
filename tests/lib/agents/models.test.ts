@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import {
   codexModelOptions,
-  droidModelOptions,
   getDroidReasoningOptions,
   getReasoningOptions,
+  registerDroidReasoningOptions,
   supportsReasoning,
 } from "@/lib/agents/models";
 
@@ -68,6 +68,14 @@ describe("agent model metadata", () => {
   });
 
   describe("getDroidReasoningOptions", () => {
+    test("uses reasoning levels parsed from droid help", () => {
+      registerDroidReasoningOptions({
+        "new-droid-model": ["low", "medium", "high"],
+      });
+
+      expect(getDroidReasoningOptions("new-droid-model")).toEqual(["low", "medium", "high"]);
+    });
+
     test("includes xhigh for models that support it", () => {
       const levels = getDroidReasoningOptions("gpt-5.1-codex-max");
       expect(levels).toContain("xhigh");
@@ -81,33 +89,6 @@ describe("agent model metadata", () => {
   describe("codex model catalog", () => {
     test("includes gpt-5.4 in the static codex model list", () => {
       expect(codexModelOptions).toContainEqual({ value: "gpt-5.4", label: "GPT-5.4" });
-    });
-  });
-
-  describe("droid model catalog", () => {
-    test("matches the expected static droid model list", () => {
-      expect(droidModelOptions).toEqual([
-        { value: "claude-opus-4-5-20251101", label: "Claude Opus 4.5" },
-        { value: "claude-opus-4-6", label: "Claude Opus 4.6 (default)" },
-        { value: "claude-opus-4-6-fast", label: "Claude Opus 4.6 Fast Mode" },
-        { value: "claude-sonnet-4-5-20250929", label: "Claude Sonnet 4.5" },
-        { value: "claude-sonnet-4-6", label: "Claude Sonnet 4.6" },
-        { value: "claude-haiku-4-5-20251001", label: "Claude Haiku 4.5" },
-        { value: "gpt-5.1", label: "GPT-5.1" },
-        { value: "gpt-5.1-codex", label: "GPT-5.1-Codex" },
-        { value: "gpt-5.1-codex-max", label: "GPT-5.1-Codex-Max" },
-        { value: "gpt-5.2", label: "GPT-5.2" },
-        { value: "gpt-5.2-codex", label: "GPT-5.2-Codex" },
-        { value: "gpt-5.3-codex", label: "GPT-5.3-Codex" },
-        { value: "gpt-5.4", label: "GPT-5.4" },
-        { value: "gemini-3-pro-preview", label: "Gemini 3 Pro" },
-        { value: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro" },
-        { value: "gemini-3-flash-preview", label: "Gemini 3 Flash" },
-        { value: "glm-4.7", label: "Droid Core (GLM-4.7)" },
-        { value: "glm-5", label: "Droid Core (GLM-5)" },
-        { value: "kimi-k2.5", label: "Droid Core (Kimi K2.5)" },
-        { value: "minimax-m2.5", label: "Droid Core (MiniMax M2.5)" },
-      ]);
     });
   });
 });
