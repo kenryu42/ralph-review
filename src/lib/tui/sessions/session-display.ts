@@ -111,14 +111,14 @@ export function formatHandoffSummary(
 }
 
 export function formatHandoffCommands(
-  sessionId: string | undefined,
+  handoffId: string | undefined,
   handoffStatus: HandoffStatus | undefined
 ): string[] {
-  if (!sessionId || handoffStatus !== "pending-apply") {
+  if (!handoffId || handoffStatus !== "pending-apply") {
     return [];
   }
 
-  return [`rr apply --session ${sessionId}`, `rr discard --session ${sessionId}`];
+  return [`rr apply --session ${handoffId}`, `rr discard --session ${handoffId}`];
 }
 
 export function extractFixesFromStats(stats: SessionStats): FixEntry[] {

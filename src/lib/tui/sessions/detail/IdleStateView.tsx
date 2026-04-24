@@ -46,7 +46,7 @@ function getLastRunHandoffDisplay(stats: SessionStats): {
   }
 
   if (stats.handoffStatus === "pending-apply") {
-    const [applyCommand] = formatHandoffCommands(stats.sessionId, stats.handoffStatus);
+    const [applyCommand] = formatHandoffCommands(stats.handoffId, stats.handoffStatus);
     return {
       summary: applyCommand ? null : "pending apply.",
       applyCommand: applyCommand ?? null,
