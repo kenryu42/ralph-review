@@ -592,7 +592,7 @@ export function ReviewModeOverlay({
       }
 
       if (optionsFocus === "force-max-iterations") {
-        if (key.name === "space" || key.name === "enter" || key.name === "return") {
+        if (key.name === "space") {
           toggleForceMaxIterations();
           return;
         }
@@ -1162,6 +1162,8 @@ export function ReviewModeOverlay({
                 <>
                   <span fg={TUI_COLORS.accent.key}>[Space]</span>
                   <span fg={TUI_COLORS.text.muted}> toggles force </span>
+                  <span fg={TUI_COLORS.accent.key}>{reviewStartKeyLabel}</span>
+                  <span fg={TUI_COLORS.text.muted}> starts review</span>
                 </>
               ) : (
                 <>

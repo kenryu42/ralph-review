@@ -528,7 +528,6 @@ describe("ReviewModeOverlay", () => {
     await emitKey(setup, "return");
     await emitKey(setup, "tab");
     await emitKey(setup, "space");
-    await emitKey(setup, "tab");
     await emitKey(setup, "return");
 
     expect(submitted).toEqual([["--uncommitted", "--max", "5", "--force"]]);
@@ -556,6 +555,7 @@ describe("ReviewModeOverlay", () => {
     frame = setup.captureCharFrame();
     expect(frame).toContain("Force max iterations: Enabled");
     expect(frame).toContain("rr run --uncommitted --max 5 --force");
+    expect(frame).toContain("[Tab] moves focus [Space] toggles force [Enter] starts review");
   });
 
   test("resets force max iterations when re-entering options", async () => {
