@@ -92,6 +92,7 @@ async function writeArchivedHandoff(
     metadataPath,
     JSON.stringify(
       {
+        handoffId: sessionId,
         sessionId,
         projectPath: repoPath,
         sourceRepoPath: repoPath,
@@ -123,6 +124,7 @@ async function listArchivedFromStorage(
   projectPath: string
 ): Promise<
   Array<{
+    handoffId: string;
     sessionId: string;
     projectPath: string;
     sourceRepoPath: string;
@@ -138,6 +140,7 @@ async function listArchivedFromStorage(
   }>
 > {
   type ArchivedRecord = {
+    handoffId: string;
     sessionId: string;
     projectPath: string;
     sourceRepoPath: string;

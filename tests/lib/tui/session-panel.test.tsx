@@ -410,6 +410,7 @@ describe("DetailPane", () => {
       lastSessionStats: createLastSessionStats({
         handoffStatus: "pending-apply",
         sessionId: "session-123",
+        handoffId: "session-123-handoff-1",
       }),
     });
 
@@ -426,7 +427,7 @@ describe("DetailPane", () => {
     expect(frame).toContain("Avoid stale review summary after restart");
     expect(frame).toContain("Stop leaking tmux pane handles on refresh");
     expect(frame).toContain("Handoff:");
-    expect(frame).toContain("rr apply --session session-123");
+    expect(frame).toContain("rr apply --session session-123-handoff-1");
   });
 
   test("renders auto-applied handoff status without apply command", async () => {

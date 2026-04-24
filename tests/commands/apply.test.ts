@@ -29,6 +29,7 @@ function createPendingHandoff(
 ): PendingHandoffArtifact {
   const projectPath = process.cwd();
   return {
+    handoffId: overrides.handoffId ?? overrides.sessionId ?? "session-id",
     sessionId: "session-id",
     projectPath,
     sourceRepoPath: projectPath,
@@ -87,7 +88,7 @@ async function runApplyWithHarness(
         throw options.applyError;
       }
 
-      const matched = handoffs.find((handoff) => handoff.sessionId === sessionId);
+      const matched = handoffs.find((handoff) => handoff.handoffId === sessionId);
       if (!matched) {
         throw new Error(`Unknown handoff ${sessionId}`);
       }

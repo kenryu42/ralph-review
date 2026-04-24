@@ -87,8 +87,13 @@ describe("review-workflow/remediation/runBatchFixPhase", () => {
         worktree: createWorktree(),
       },
       {
-        createBatchFixerPrompt: ({ baselineCommitSha, selectedFindings }) => {
+        createBatchFixerPrompt: ({
+          baselineCommitSha,
+          remediationStartCommitSha,
+          selectedFindings,
+        }) => {
           expect(baselineCommitSha).toBe("baseline-sha-123");
+          expect(remediationStartCommitSha).toBe("baseline-sha-123");
           expect(selectedFindings.map((finding) => finding.id)).toEqual(["F001", "F002"]);
           return "BATCH_FIX_PROMPT";
         },

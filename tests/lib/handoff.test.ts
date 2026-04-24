@@ -94,10 +94,11 @@ describe("handoff", () => {
   async function createPendingDivergedHandoff(
     sessionId: string,
     mutateRepoAfterStart?: () => Promise<void>
-  ): Promise<void> {
+  ): Promise<string> {
     await writeFile(join(repoPath, "app.txt"), "draft\n");
 
     const worktree = createSessionWorktree(repoPath, sessionId, storageRoot);
+    let handoffId = "";
     try {
       await writeFile(join(worktree.worktreeProjectPath, "app.txt"), "fixed draft\n");
       runGitIn(repoPath, ["add", "app.txt"]);
@@ -113,9 +114,12 @@ describe("handoff", () => {
       });
 
       expect(handoff?.handoffStatus).toBe("pending-apply");
+      handoffId = handoff?.handoffId ?? "";
     } finally {
       discardSessionWorktree(worktree);
     }
+
+    return handoffId;
   }
 
   test("returns an empty list when the handoff directory does not exist yet", async () => {
@@ -153,6 +157,57 @@ describe("handoff", () => {
     }
   });
 
+  test("archives repeated auto-applied handoffs for the same review session separately", async () => {
+    await writeFile(join(repoPath, "app.txt"), "draft one\n");
+
+    const firstWorktree = createSessionWorktree(repoPath, "session-archive-repeat", storageRoot);
+    try {
+      await writeFile(join(firstWorktree.worktreeProjectPath, "app.txt"), "fixed one\n");
+
+      const handoff = await createOrAutoApplyHandoff(storageRoot, {
+        sessionId: "session-archive-repeat",
+        projectPath: repoPath,
+        logPath: join(repoPath, ".ralph-review", "logs", "session-archive-repeat.jsonl"),
+        worktree: firstWorktree,
+      });
+
+      expect(handoff?.handoffStatus).toBe("applied-auto");
+    } finally {
+      discardSessionWorktree(firstWorktree);
+    }
+
+    await Bun.sleep(2);
+    await writeFile(join(repoPath, "app.txt"), "draft two\n");
+
+    const secondWorktree = createSessionWorktree(repoPath, "session-archive-repeat", storageRoot);
+    try {
+      await writeFile(join(secondWorktree.worktreeProjectPath, "app.txt"), "fixed two\n");
+
+      const handoff = await createOrAutoApplyHandoff(storageRoot, {
+        sessionId: "session-archive-repeat",
+        projectPath: repoPath,
+        logPath: join(repoPath, ".ralph-review", "logs", "session-archive-repeat.jsonl"),
+        worktree: secondWorktree,
+      });
+
+      expect(handoff?.handoffStatus).toBe("applied-auto");
+    } finally {
+      discardSessionWorktree(secondWorktree);
+    }
+
+    const archived = await listProjectArchivedHandoffs(storageRoot, repoPath);
+    expect(archived).toHaveLength(2);
+    expect(new Set(archived.map((artifact) => artifact.handoffId)).size).toBe(2);
+    expect(archived.map((artifact) => artifact.sessionId)).toEqual([
+      "session-archive-repeat",
+      "session-archive-repeat",
+    ]);
+    expect(new Set(archived.map((artifact) => artifact.patchPath)).size).toBe(2);
+    for (const artifact of archived) {
+      expect(await Bun.file(artifact.patchPath).exists()).toBe(true);
+    }
+  });
+
   test("keeps a pending handoff when auto-apply is disabled", async () => {
     await writeFile(join(repoPath, "app.txt"), "draft\n");
 
@@ -177,6 +232,56 @@ describe("handoff", () => {
       expect(await listProjectArchivedHandoffs(storageRoot, repoPath)).toEqual([]);
     } finally {
       discardSessionWorktree(worktree);
+    }
+  });
+
+  test("stores repeated handoffs for the same review session without overwriting", async () => {
+    await writeFile(join(repoPath, "app.txt"), "draft\n");
+
+    const firstWorktree = createSessionWorktree(repoPath, "session-repeat", storageRoot);
+    try {
+      await writeFile(join(firstWorktree.worktreeProjectPath, "app.txt"), "fixed first\n");
+
+      const handoff = await createOrAutoApplyHandoff(storageRoot, {
+        sessionId: "session-repeat",
+        projectPath: repoPath,
+        logPath: join(repoPath, ".ralph-review", "logs", "session-repeat.jsonl"),
+        worktree: firstWorktree,
+        autoApply: false,
+      });
+
+      expect(handoff?.handoffId).toStartWith("session-repeat-handoff-");
+    } finally {
+      discardSessionWorktree(firstWorktree);
+    }
+
+    const secondWorktree = createSessionWorktree(repoPath, "session-repeat", storageRoot);
+    try {
+      await writeFile(join(secondWorktree.worktreeProjectPath, "app.txt"), "fixed second\n");
+
+      const handoff = await createOrAutoApplyHandoff(storageRoot, {
+        sessionId: "session-repeat",
+        projectPath: repoPath,
+        logPath: join(repoPath, ".ralph-review", "logs", "session-repeat.jsonl"),
+        worktree: secondWorktree,
+        autoApply: false,
+      });
+
+      expect(handoff?.handoffId).toStartWith("session-repeat-handoff-");
+    } finally {
+      discardSessionWorktree(secondWorktree);
+    }
+
+    const pending = await listProjectPendingHandoffs(storageRoot, repoPath);
+    expect(pending).toHaveLength(2);
+    expect(new Set(pending.map((artifact) => artifact.handoffId)).size).toBe(2);
+    expect(pending.map((artifact) => artifact.sessionId)).toEqual([
+      "session-repeat",
+      "session-repeat",
+    ]);
+    expect(new Set(pending.map((artifact) => artifact.patchPath)).size).toBe(2);
+    for (const artifact of pending) {
+      expect(await Bun.file(artifact.patchPath).exists()).toBe(true);
     }
   });
 
@@ -298,26 +403,28 @@ describe("handoff", () => {
   test("applies a pending handoff when the repo matches the captured fingerprint", async () => {
     await writeFile(join(repoPath, "app.txt"), "draft\n");
     const worktree = createSessionWorktree(repoPath, "session-manual", storageRoot);
+    let handoffId = "";
 
     try {
       await writeFile(join(worktree.worktreeProjectPath, "app.txt"), "fixed draft\n");
       await writeFile(join(repoPath, "app.txt"), "user changed after start\n");
 
-      await createOrAutoApplyHandoff(storageRoot, {
+      const handoff = await createOrAutoApplyHandoff(storageRoot, {
         sessionId: "session-manual",
         projectPath: repoPath,
         logPath: join(repoPath, ".ralph-review", "logs", "session-manual.jsonl"),
         worktree,
       });
+      handoffId = handoff?.handoffId ?? "";
     } finally {
       discardSessionWorktree(worktree);
     }
 
     await writeFile(join(repoPath, "app.txt"), "draft\n");
-    const applied = await applyPendingHandoff(storageRoot, repoPath, "session-manual");
+    const applied = await applyPendingHandoff(storageRoot, repoPath, handoffId);
     expect(applied.sessionId).toBe("session-manual");
     expect(await Bun.file(join(repoPath, "app.txt")).text()).toBe("fixed draft\n");
-    expect(await readPendingHandoff(storageRoot, repoPath, "session-manual")).toBeNull();
+    expect(await readPendingHandoff(storageRoot, repoPath, handoffId)).toBeNull();
     const archived = await listProjectArchivedHandoffs(storageRoot, repoPath);
     expect(archived).toHaveLength(1);
     expect(archived[0]?.sessionId).toBe("session-manual");
@@ -325,17 +432,17 @@ describe("handoff", () => {
   });
 
   test("applies a pending handoff when the repo has diverged cleanly", async () => {
-    await createPendingDivergedHandoff("session-diverged-clean", async () => {
+    const handoffId = await createPendingDivergedHandoff("session-diverged-clean", async () => {
       await writeFile(join(repoPath, "other.txt"), "other change\n");
       runGitIn(repoPath, ["add", "other.txt"]);
       runGitIn(repoPath, ["commit", "-m", "other change"]);
     });
 
-    const applied = await applyPendingHandoff(storageRoot, repoPath, "session-diverged-clean");
+    const applied = await applyPendingHandoff(storageRoot, repoPath, handoffId);
 
     expect(applied.sessionId).toBe("session-diverged-clean");
     expect(await Bun.file(join(repoPath, "app.txt")).text()).toBe("fixed draft\n");
-    expect(await readPendingHandoff(storageRoot, repoPath, "session-diverged-clean")).toBeNull();
+    expect(await readPendingHandoff(storageRoot, repoPath, handoffId)).toBeNull();
     const archived = await listProjectArchivedHandoffs(storageRoot, repoPath);
     expect(archived).toHaveLength(1);
     expect(archived[0]?.sessionId).toBe("session-diverged-clean");
@@ -343,29 +450,29 @@ describe("handoff", () => {
   });
 
   test("rejects apply when the repo has uncommitted changes on a divergent handoff", async () => {
-    await createPendingDivergedHandoff("session-diverged-dirty");
+    const handoffId = await createPendingDivergedHandoff("session-diverged-dirty");
     await writeFile(join(repoPath, "notes.txt"), "dirty working tree\n");
 
-    await expect(
-      applyPendingHandoff(storageRoot, repoPath, "session-diverged-dirty")
-    ).rejects.toThrow("requires a clean working tree");
+    await expect(applyPendingHandoff(storageRoot, repoPath, handoffId)).rejects.toThrow(
+      "requires a clean working tree"
+    );
 
-    const pending = await readPendingHandoff(storageRoot, repoPath, "session-diverged-dirty");
+    const pending = await readPendingHandoff(storageRoot, repoPath, handoffId);
     expect(pending?.state).toBe("pending-apply");
   });
 
   test("persists an apply-conflicted handoff when apply hits conflicts", async () => {
-    await createPendingDivergedHandoff("session-diverged-conflict", async () => {
+    const handoffId = await createPendingDivergedHandoff("session-diverged-conflict", async () => {
       await writeFile(join(repoPath, "app.txt"), "user changed after start\n");
       runGitIn(repoPath, ["add", "app.txt"]);
       runGitIn(repoPath, ["commit", "-m", "user change"]);
     });
 
-    await expect(
-      applyPendingHandoff(storageRoot, repoPath, "session-diverged-conflict")
-    ).rejects.toThrow("Resolve or abort the Git conflict");
+    await expect(applyPendingHandoff(storageRoot, repoPath, handoffId)).rejects.toThrow(
+      "Resolve or abort the Git conflict"
+    );
 
-    const pending = await readPendingHandoff(storageRoot, repoPath, "session-diverged-conflict");
+    const pending = await readPendingHandoff(storageRoot, repoPath, handoffId);
     expect(pending?.state).toBe("apply-conflicted");
     if (pending?.state === "apply-conflicted") {
       expect(pending.applyStartFingerprint).toBeString();
@@ -376,20 +483,20 @@ describe("handoff", () => {
   });
 
   test("auto-archives an apply-conflicted handoff after manual conflict resolution", async () => {
-    await createPendingDivergedHandoff("session-diverged-resolved", async () => {
+    const handoffId = await createPendingDivergedHandoff("session-diverged-resolved", async () => {
       await writeFile(join(repoPath, "app.txt"), "user changed after start\n");
       runGitIn(repoPath, ["add", "app.txt"]);
       runGitIn(repoPath, ["commit", "-m", "user change"]);
     });
 
-    await expect(
-      applyPendingHandoff(storageRoot, repoPath, "session-diverged-resolved")
-    ).rejects.toThrow("Resolve or abort the Git conflict");
+    await expect(applyPendingHandoff(storageRoot, repoPath, handoffId)).rejects.toThrow(
+      "Resolve or abort the Git conflict"
+    );
 
     await writeFile(join(repoPath, "app.txt"), "resolved draft\n");
     runGitIn(repoPath, ["add", "app.txt"]);
 
-    const pending = await readPendingHandoff(storageRoot, repoPath, "session-diverged-resolved");
+    const pending = await readPendingHandoff(storageRoot, repoPath, handoffId);
     expect(pending).toBeNull();
 
     const archived = await listProjectArchivedHandoffs(storageRoot, repoPath);
@@ -399,19 +506,19 @@ describe("handoff", () => {
   });
 
   test("restores an apply-conflicted handoff to pending after the user aborts the conflict", async () => {
-    await createPendingDivergedHandoff("session-diverged-aborted", async () => {
+    const handoffId = await createPendingDivergedHandoff("session-diverged-aborted", async () => {
       await writeFile(join(repoPath, "app.txt"), "user changed after start\n");
       runGitIn(repoPath, ["add", "app.txt"]);
       runGitIn(repoPath, ["commit", "-m", "user change"]);
     });
 
-    await expect(
-      applyPendingHandoff(storageRoot, repoPath, "session-diverged-aborted")
-    ).rejects.toThrow("Resolve or abort the Git conflict");
+    await expect(applyPendingHandoff(storageRoot, repoPath, handoffId)).rejects.toThrow(
+      "Resolve or abort the Git conflict"
+    );
 
     runGitIn(repoPath, ["reset", "--hard", "HEAD"]);
 
-    const pending = await readPendingHandoff(storageRoot, repoPath, "session-diverged-aborted");
+    const pending = await readPendingHandoff(storageRoot, repoPath, handoffId);
     expect(pending?.state).toBe("pending-apply");
     expect(await listProjectArchivedHandoffs(storageRoot, repoPath)).toEqual([]);
   });
@@ -419,25 +526,27 @@ describe("handoff", () => {
   test("discards a pending handoff without changing the source repo", async () => {
     await writeFile(join(repoPath, "app.txt"), "draft\n");
     const worktree = createSessionWorktree(repoPath, "session-discard", storageRoot);
+    let handoffId = "";
 
     try {
       await writeFile(join(worktree.worktreeProjectPath, "app.txt"), "fixed draft\n");
       await writeFile(join(repoPath, "app.txt"), "user changed after start\n");
 
-      await createOrAutoApplyHandoff(storageRoot, {
+      const handoff = await createOrAutoApplyHandoff(storageRoot, {
         sessionId: "session-discard",
         projectPath: repoPath,
         logPath: join(repoPath, ".ralph-review", "logs", "session-discard.jsonl"),
         worktree,
       });
+      handoffId = handoff?.handoffId ?? "";
     } finally {
       discardSessionWorktree(worktree);
     }
 
-    const discarded = await discardPendingHandoff(storageRoot, repoPath, "session-discard");
+    const discarded = await discardPendingHandoff(storageRoot, repoPath, handoffId);
     expect(discarded.sessionId).toBe("session-discard");
     expect(await Bun.file(join(repoPath, "app.txt")).text()).toBe("user changed after start\n");
-    expect(await readPendingHandoff(storageRoot, repoPath, "session-discard")).toBeNull();
+    expect(await readPendingHandoff(storageRoot, repoPath, handoffId)).toBeNull();
     expect(await listProjectArchivedHandoffs(storageRoot, repoPath)).toEqual([]);
   });
 
@@ -445,6 +554,7 @@ describe("handoff", () => {
     await writeFile(join(repoPath, "app.txt"), "draft\n");
 
     const worktree = createSessionWorktree(repoPath, "session-replay", storageRoot);
+    let handoffId = "";
     try {
       await writeFile(join(worktree.worktreeProjectPath, "app.txt"), "fixed draft\n");
 
@@ -456,23 +566,24 @@ describe("handoff", () => {
       });
 
       expect(handoff?.handoffStatus).toBe("applied-auto");
+      handoffId = handoff?.handoffId ?? "";
     } finally {
       discardSessionWorktree(worktree);
     }
 
-    await expect(reapplyArchivedHandoff(storageRoot, repoPath, "session-replay")).rejects.toThrow(
-      'Archived review handoff "session-replay" cannot be reapplied because the current repository state does not match its source baseline.'
+    await expect(reapplyArchivedHandoff(storageRoot, repoPath, handoffId)).rejects.toThrow(
+      `Archived review handoff "${handoffId}" cannot be reapplied because the current repository state does not match its source baseline.`
     );
 
-    const reverted = await revertArchivedHandoff(storageRoot, repoPath, "session-replay");
+    const reverted = await revertArchivedHandoff(storageRoot, repoPath, handoffId);
     expect(reverted.sessionId).toBe("session-replay");
     expect(await Bun.file(join(repoPath, "app.txt")).text()).toBe("draft\n");
 
-    await expect(revertArchivedHandoff(storageRoot, repoPath, "session-replay")).rejects.toThrow(
-      'Archived review handoff "session-replay" cannot be reverted because the current repository state does not match its applied baseline.'
+    await expect(revertArchivedHandoff(storageRoot, repoPath, handoffId)).rejects.toThrow(
+      `Archived review handoff "${handoffId}" cannot be reverted because the current repository state does not match its applied baseline.`
     );
 
-    const reapplied = await reapplyArchivedHandoff(storageRoot, repoPath, "session-replay");
+    const reapplied = await reapplyArchivedHandoff(storageRoot, repoPath, handoffId);
     expect(reapplied.sessionId).toBe("session-replay");
     expect(await Bun.file(join(repoPath, "app.txt")).text()).toBe("fixed draft\n");
   });
@@ -514,11 +625,12 @@ describe("handoff", () => {
   test("creates final handoff ref only after patch creation succeeds", async () => {
     await writeFile(join(repoPath, "app.txt"), "draft\n");
     const sessionId = "session-patch-failure";
+    const handoffId = `${sessionId}-handoff-fixed`;
     const worktree = createSessionWorktree(repoPath, sessionId, storageRoot);
     const patchPath = join(
       getProjectStorageDir(storageRoot, repoPath),
       "handoffs",
-      `${sessionId}.patch`
+      `${handoffId}.patch`
     );
     await mkdir(patchPath, { recursive: true });
 
@@ -528,6 +640,7 @@ describe("handoff", () => {
       await expect(
         createOrAutoApplyHandoff(storageRoot, {
           sessionId,
+          handoffId,
           projectPath: repoPath,
           logPath: join(repoPath, ".ralph-review", "logs", `${sessionId}.jsonl`),
           worktree,
@@ -538,7 +651,7 @@ describe("handoff", () => {
       discardSessionWorktree(worktree);
     }
 
-    expect(gitRefExists(repoPath, `refs/ralph-review/sessions/${sessionId}/final`)).toBe(false);
+    expect(gitRefExists(repoPath, `refs/ralph-review/sessions/${handoffId}/final`)).toBe(false);
     expect(gitRefExists(repoPath, `refs/heads/${worktree.retainedBranch}`)).toBe(false);
   });
 });

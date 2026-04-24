@@ -36,6 +36,7 @@ function createArchivedHandoff(
 ): ArchivedAppliedHandoffArtifact {
   const projectPath = process.cwd();
   return {
+    handoffId: overrides.handoffId ?? overrides.sessionId ?? "session-id",
     sessionId: "session-id",
     projectPath,
     sourceRepoPath: projectPath,
@@ -114,7 +115,7 @@ async function runRevertWithHarness(
         throw options.revertError;
       }
 
-      const matched = handoffs.find((handoff) => handoff.sessionId === sessionId);
+      const matched = handoffs.find((handoff) => handoff.handoffId === sessionId);
       if (!matched) {
         throw new Error(`Unknown archived handoff ${sessionId}`);
       }

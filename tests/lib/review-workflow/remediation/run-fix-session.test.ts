@@ -77,6 +77,8 @@ function createDependencies(
     finalizeSessionWorktreeResult?: RetainedSessionWorktree | null;
     discardedWorktrees?: string[];
     finalizedWorktrees?: string[];
+    createdWorktreeStartPoints?: string[];
+    retainedWorktreeUpdates?: Array<RetainedSessionWorktree | undefined>;
   } = {}
 ): RunFixSessionDependencies {
   const artifact = state.artifact ?? createArtifact();
@@ -106,7 +108,7 @@ function createDependencies(
     createSessionWorktreeAt: (projectPath, worktreeId, baselineCommitSha) => {
       expect(projectPath).toBe(artifact.projectPath);
       expect(worktreeId).toBe(`${artifact.sessionId}-fix`);
-      expect(baselineCommitSha).toBe(artifact.baselineCommitSha);
+      state.createdWorktreeStartPoints?.push(baselineCommitSha);
       return worktree;
     },
     updateSelection: async (_storageRoot, projectPath, sessionId, selectedFindingIds) => {
@@ -135,6 +137,15 @@ function createDependencies(
       ...artifact,
       fixResults,
     }),
+    updateRetainedWorktree: async (_storageRoot, projectPath, sessionId, retainedWorktree) => {
+      expect(projectPath).toBe(artifact.projectPath);
+      expect(sessionId).toBe(artifact.sessionId);
+      state.retainedWorktreeUpdates?.push(retainedWorktree);
+      return {
+        ...artifact,
+        retainedWorktree,
+      };
+    },
     finalizeResult: async ({ artifact: finalizedArtifact, selection, fixResults }) => ({
       phase: "complete" as const,
       sessionStatus: "completed" as const,
@@ -392,5 +403,134 @@ describe("review-workflow/remediation/runFixSession", () => {
     });
     expect(finalizedWorktrees).toEqual(["/tmp/worktree"]);
     expect(discardedWorktrees).toEqual([]);
+  });
+
+  test("persists the retained worktree metadata when remediation is incomplete", async () => {
+    const retainedWorktreeUpdates: Array<RetainedSessionWorktree | undefined> = [];
+
+    const result = await runFixSession(
+      createConfig(),
+      {
+        sessionId: "session-123",
+        selector: {
+          ids: ["F001"],
+        },
+        isTTY: false,
+      },
+      createDependencies({
+        batchFixResults: [
+          {
+            findingId: "F001",
+            status: "unresolved",
+            summary: "Could not prove a safe remediation.",
+          },
+        ],
+        retainedWorktreeUpdates,
+      })
+    );
+
+    expect(result.reviewOutcome).toBe("incomplete");
+    expect(retainedWorktreeUpdates).toEqual([
+      {
+        worktreeProjectPath: "/tmp/worktree",
+        worktreeBranch: "rr-worktree-session-123",
+        mergeReady: true,
+        commitSha: "retained-commit-sha",
+      },
+    ]);
+  });
+
+  test("starts follow-up remediation from the retained partial-fix commit", async () => {
+    const createdWorktreeStartPoints: string[] = [];
+    const artifact = {
+      ...createArtifact(),
+      retainedWorktree: {
+        worktreeProjectPath: "/tmp/retained-worktree",
+        worktreeBranch: "rr-worktree-session-123",
+        mergeReady: true,
+        commitSha: "retained-commit-sha",
+      },
+    };
+
+    const result = await runFixSession(
+      createConfig(),
+      {
+        sessionId: "session-123",
+        selector: {
+          ids: ["F001"],
+        },
+        isTTY: false,
+      },
+      createDependencies({
+        artifact,
+        createdWorktreeStartPoints,
+      })
+    );
+
+    expect(result.reviewOutcome).toBe("fixed-selected");
+    expect(createdWorktreeStartPoints).toEqual(["retained-commit-sha"]);
+  });
+
+  test("fails instead of falling back to baseline when retained metadata has no commit", async () => {
+    const createdWorktreeStartPoints: string[] = [];
+    const artifact = {
+      ...createArtifact(),
+      retainedWorktree: {
+        worktreeProjectPath: "/tmp/retained-worktree",
+        worktreeBranch: "rr-worktree-session-123",
+        mergeReady: true,
+      },
+    };
+
+    const result = await runFixSession(
+      createConfig(),
+      {
+        sessionId: "session-123",
+        selector: {
+          ids: ["F001"],
+        },
+        isTTY: false,
+      },
+      createDependencies({
+        artifact,
+        createdWorktreeStartPoints,
+        validateError: new Error("Retained remediation commit is missing"),
+      })
+    );
+
+    expect(result.sessionStatus).toBe("failed");
+    expect(result.reason).toContain("Retained remediation commit is missing");
+    expect(createdWorktreeStartPoints).toEqual([]);
+  });
+
+  test("clears retained worktree metadata after a resumed remediation succeeds", async () => {
+    const retainedWorktreeUpdates: Array<RetainedSessionWorktree | undefined> = [];
+    const artifact = {
+      ...createArtifact(),
+      retainedWorktree: {
+        worktreeProjectPath: "/tmp/retained-worktree",
+        worktreeBranch: "rr-worktree-session-123",
+        mergeReady: true,
+        commitSha: "retained-commit-sha",
+      },
+    };
+
+    const result = await runFixSession(
+      createConfig(),
+      {
+        sessionId: "session-123",
+        selector: {
+          ids: ["F001"],
+        },
+        isTTY: false,
+      },
+      createDependencies({
+        artifact,
+        retainedWorktreeUpdates,
+      })
+    );
+
+    expect(result.reviewOutcome).toBe("fixed-selected");
+    expect(retainedWorktreeUpdates).toEqual([undefined]);
   });
 });

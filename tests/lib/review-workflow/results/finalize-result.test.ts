@@ -84,6 +84,7 @@ describe("review-workflow/results/finalizeResult", () => {
         createOrAutoApplyHandoff: async () => {
           calls.push("handoff");
           return {
+            handoffId: "session-123-handoff-1",
             handoffStatus: "pending-apply",
             commitSha: "commit-123",
             handoffUpdatedAt: 123,
@@ -99,6 +100,7 @@ describe("review-workflow/results/finalizeResult", () => {
     expect(result.unresolvedSelectedFindings).toEqual([]);
     expect(result.unselectedFindings.map((finding) => finding.id)).toEqual(["F002"]);
     expect(result.handoffStatus).toBe("pending-apply");
+    expect(result.handoffId).toBe("session-123-handoff-1");
     expect(calls).toEqual(["handoff", "log"]);
   });
 

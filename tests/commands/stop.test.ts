@@ -94,6 +94,7 @@ function createPendingHandoff(
 ): PendingHandoffArtifact {
   const projectPath = process.cwd();
   return {
+    handoffId: overrides.handoffId ?? overrides.sessionId ?? "session-id",
     sessionId: "session-id",
     projectPath,
     sourceRepoPath: projectPath,
@@ -215,13 +216,16 @@ async function runStopWithHarness(
 
   mock.module("@/lib/handoff", () => ({
     ...actualHandoff,
-    readPendingHandoff: async (
-      _storageRoot: string | undefined,
-      projectPath: string,
-      sessionId: string
-    ) => {
-      readPendingHandoffCalls.push({ projectPath, sessionId });
-      return await readPendingHandoff(projectPath, sessionId);
+    listProjectPendingHandoffs: async (_storageRoot: string | undefined, projectPath: string) => {
+      const projectHandoffs: PendingHandoffArtifact[] = [];
+      for (const session of activeSessions.filter((entry) => entry.projectPath === projectPath)) {
+        readPendingHandoffCalls.push({ projectPath, sessionId: session.sessionId });
+        const handoff = await readPendingHandoff(projectPath, session.sessionId);
+        if (handoff) {
+          projectHandoffs.push(handoff);
+        }
+      }
+      return projectHandoffs;
     },
   }));
 

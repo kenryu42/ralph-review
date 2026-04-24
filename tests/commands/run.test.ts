@@ -1814,6 +1814,7 @@ describe("run command", () => {
         runReviewCycleResult: createCycleResult({
           reviewOutcome: "incomplete",
           handoffStatus: "pending-apply",
+          handoffId: "session-123-handoff-1",
           commitSha: "retained-commit-sha",
           handoffUpdatedAt: 1_700_000_000_000,
         }),
@@ -1826,10 +1827,11 @@ describe("run command", () => {
         message:
           "Reviewed fixes are ready to apply.\n" +
           "Commit: retained-commit-sha\n" +
-          "Apply: rr apply --session session-123\n" +
-          "Discard: rr discard --session session-123",
+          "Apply: rr apply --session session-123-handoff-1\n" +
+          "Discard: rr discard --session session-123-handoff-1",
       });
       expect(harness.updateSessionStateCalls[1]?.updates.handoffStatus).toBe("pending-apply");
+      expect(harness.updateSessionStateCalls[1]?.updates.handoffId).toBe("session-123-handoff-1");
       expect(harness.updateSessionStateCalls[1]?.updates.commitSha).toBe("retained-commit-sha");
     });
 
