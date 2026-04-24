@@ -12,7 +12,11 @@ export type ReviewModeSelection = "uncommitted" | "base" | "commit";
 type ReviewModeInputMode = Exclude<ReviewModeSelection, "uncommitted">;
 type ReviewModeStep = "picker" | "branch-picker" | "commit-picker" | "options";
 type ReviewExecutionMode = "review-only" | "auto-all" | "auto-priority";
-type OptionsFocusTarget = "max-iterations" | "execution-mode" | "custom-instructions";
+type OptionsFocusTarget =
+  | "max-iterations"
+  | "force-max-iterations"
+  | "execution-mode"
+  | "custom-instructions";
 
 interface ReviewModeOption {
   label: string;
@@ -180,6 +184,7 @@ const PREVIEW_CUSTOM_INSTRUCTIONS_TOKEN = "<custom instructions>";
 function buildReviewCommandPreview(options: {
   pendingArgs: string[] | null;
   maxIterationsDraft: string;
+  forceMaxIterations: boolean;
   executionMode: ReviewExecutionMode;
   selectedPriorityList: string | null;
   customInstructionsDraft: string;
@@ -196,6 +201,10 @@ function buildReviewCommandPreview(options: {
   const maxIterations =
     options.maxIterationsDraft.trim().length > 0 ? options.maxIterationsDraft.trim() : "<max>";
   parts.push("--max", maxIterations);
+
+  if (options.forceMaxIterations) {
+    parts.push("--force");
+  }
 
   if (options.executionMode !== "review-only") {
     parts.push("--auto");
@@ -349,7 +358,11 @@ function cycleExecutionMode(current: ReviewExecutionMode, direction: 1 | -1): Re
 }
 
 function getOptionsFocusOrder(showCustomInstructions: boolean): OptionsFocusTarget[] {
-  const focusOrder: OptionsFocusTarget[] = ["max-iterations", "execution-mode"];
+  const focusOrder: OptionsFocusTarget[] = [
+    "max-iterations",
+    "force-max-iterations",
+    "execution-mode",
+  ];
 
   if (showCustomInstructions) {
     focusOrder.push("custom-instructions");
@@ -377,6 +390,7 @@ export function ReviewModeOverlay({
   const [maxIterationsDraft, setMaxIterationsDraft] = useState<string>(
     String(initialMaxIterations)
   );
+  const [forceMaxIterations, setForceMaxIterations] = useState(false);
   const [executionMode, setExecutionMode] = useState<ReviewExecutionMode>("review-only");
   const [selectedPriorities, setSelectedPriorities] = useState<Priority[]>([]);
   const [priorityCursorIndex, setPriorityCursorIndex] = useState(0);
@@ -442,6 +456,7 @@ export function ReviewModeOverlay({
   const commandPreview = buildReviewCommandPreview({
     pendingArgs,
     maxIterationsDraft,
+    forceMaxIterations,
     executionMode,
     selectedPriorityList,
     customInstructionsDraft,
@@ -522,6 +537,11 @@ export function ReviewModeOverlay({
     setError(null);
   }
 
+  function toggleForceMaxIterations() {
+    setForceMaxIterations((current) => !current);
+    setError(null);
+  }
+
   useKeyboard((key) => {
     if (step === "options") {
       if (key.name === "tab") {
@@ -567,6 +587,13 @@ export function ReviewModeOverlay({
 
         if (isDownNavigationKey(key.name)) {
           adjustMaxIterations(-1);
+          return;
+        }
+      }
+
+      if (optionsFocus === "force-max-iterations") {
+        if (key.name === "space" || key.name === "enter" || key.name === "return") {
+          toggleForceMaxIterations();
           return;
         }
       }
@@ -680,6 +707,7 @@ export function ReviewModeOverlay({
     setPendingArgs(args);
     setPreviousStep(step);
     setMaxIterationsDraft(String(initialMaxIterations));
+    setForceMaxIterations(false);
     setExecutionMode("review-only");
     setSelectedPriorities([]);
     setPriorityCursorIndex(0);
@@ -724,6 +752,10 @@ export function ReviewModeOverlay({
       customInstructions.trim().length > 0
         ? [...pendingArgs, customInstructions, "--max", String(parsed)]
         : [...pendingArgs, "--max", String(parsed)];
+
+    if (forceMaxIterations) {
+      nextArgs.push("--force");
+    }
 
     if (executionMode !== "review-only") {
       nextArgs.push("--auto");
@@ -937,6 +969,8 @@ export function ReviewModeOverlay({
   }
 
   function renderConfigurationPane() {
+    const isForceFocused = optionsFocus === "force-max-iterations";
+
     return (
       <box
         border
@@ -976,6 +1010,19 @@ export function ReviewModeOverlay({
               }
             }}
           />
+          <box flexDirection="row" marginTop={1}>
+            <text fg={isForceFocused ? TUI_COLORS.accent.key : TUI_COLORS.text.dim}>
+              {" "}
+              {isForceFocused ? "▶ " : "  "}
+            </text>
+            <text fg={forceMaxIterations ? TUI_COLORS.status.success : TUI_COLORS.text.dim}>
+              {forceMaxIterations ? "◉" : "◎"}
+            </text>
+            <text fg={forceMaxIterations ? TUI_COLORS.text.primary : TUI_COLORS.text.secondary}>
+              {" "}
+              Force max iterations
+            </text>
+          </box>
         </box>
 
         <box marginTop={1} paddingX={1} paddingY={0} flexDirection="column" gap={0}>
@@ -1061,6 +1108,11 @@ export function ReviewModeOverlay({
           )}
         {renderPreviewField("Max iterations", maxIterationsDraft.trim() || "Required")}
         {renderPreviewField(
+          "Force max iterations",
+          forceMaxIterations ? "Enabled" : "Disabled",
+          forceMaxIterations ? TUI_COLORS.status.success : TUI_COLORS.text.muted
+        )}
+        {renderPreviewField(
           "Custom instructions",
           customInstructionsStatus,
           customInstructionsStatus === "Set" ? TUI_COLORS.status.success : TUI_COLORS.text.muted
@@ -1086,6 +1138,7 @@ export function ReviewModeOverlay({
   function renderOptions() {
     const isInlinePriorityControlActive =
       optionsFocus === "execution-mode" && executionMode === "auto-priority";
+    const isForceControlActive = optionsFocus === "force-max-iterations";
     const reviewStartKeyLabel = isCustomInstructionsFocused ? "[Shift+Enter]" : "[Enter]";
 
     return (
@@ -1105,8 +1158,17 @@ export function ReviewModeOverlay({
                   <span fg={TUI_COLORS.text.muted}> to select </span>
                 </>
               )}
-              <span fg={TUI_COLORS.accent.key}>{reviewStartKeyLabel}</span>
-              <span fg={TUI_COLORS.text.muted}> starts review</span>
+              {isForceControlActive ? (
+                <>
+                  <span fg={TUI_COLORS.accent.key}>[Space]</span>
+                  <span fg={TUI_COLORS.text.muted}> toggles force </span>
+                </>
+              ) : (
+                <>
+                  <span fg={TUI_COLORS.accent.key}>{reviewStartKeyLabel}</span>
+                  <span fg={TUI_COLORS.text.muted}> starts review</span>
+                </>
+              )}
             </>
           )}
         </text>

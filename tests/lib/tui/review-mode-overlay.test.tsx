@@ -489,6 +489,7 @@ describe("ReviewModeOverlay", () => {
 
     await emitKey(setup, "return");
     await emitKey(setup, "tab");
+    await emitKey(setup, "tab");
     await emitKey(setup, "down");
     await emitKey(setup, "return");
 
@@ -505,6 +506,7 @@ describe("ReviewModeOverlay", () => {
 
     await emitKey(setup, "return");
     await emitKey(setup, "tab");
+    await emitKey(setup, "tab");
     await emitKey(setup, "down");
     await emitKey(setup, "down");
     await emitKey(setup, "space");
@@ -515,10 +517,102 @@ describe("ReviewModeOverlay", () => {
     expect(submitted).toEqual([["--uncommitted", "--max", "5", "--auto", "--priority", "P0,P1"]]);
   });
 
+  test("submits force max iterations when the force option is enabled", async () => {
+    const submitted: string[][] = [];
+    const setup = await renderOverlay({
+      onSubmit: (args) => {
+        submitted.push(args);
+      },
+    });
+
+    await emitKey(setup, "return");
+    await emitKey(setup, "tab");
+    await emitKey(setup, "space");
+    await emitKey(setup, "tab");
+    await emitKey(setup, "return");
+
+    expect(submitted).toEqual([["--uncommitted", "--max", "5", "--force"]]);
+  });
+
+  test("shows force in the preview only when enabled", async () => {
+    const setup = await renderOverlay({}, { width: 120, height: 30 });
+
+    await emitKey(setup, "return");
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    let frame = setup.captureCharFrame();
+    expect(frame).toContain("Force max iterations: Disabled");
+    expect(frame).toContain("rr run --uncommitted --max 5");
+    expect(frame).not.toContain("--force");
+
+    await emitKey(setup, "tab");
+    await emitKey(setup, "space");
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    frame = setup.captureCharFrame();
+    expect(frame).toContain("Force max iterations: Enabled");
+    expect(frame).toContain("rr run --uncommitted --max 5 --force");
+  });
+
+  test("resets force max iterations when re-entering options", async () => {
+    const submitted: string[][] = [];
+    const setup = await renderOverlay({
+      onSubmit: (args) => {
+        submitted.push(args);
+      },
+    });
+
+    await emitKey(setup, "return");
+    await emitKey(setup, "tab");
+    await emitKey(setup, "space");
+    await emitKey(setup, "escape");
+    await emitKey(setup, "return");
+    await act(async () => {
+      await setup.renderOnce();
+    });
+
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("Force max iterations: Disabled");
+    expect(frame).not.toContain("--force");
+
+    await emitKey(setup, "return");
+
+    expect(submitted).toEqual([["--uncommitted", "--max", "5"]]);
+  });
+
+  test("submits force before auto-fix priority options", async () => {
+    const submitted: string[][] = [];
+    const setup = await renderOverlay({
+      onSubmit: (args) => {
+        submitted.push(args);
+      },
+    });
+
+    await emitKey(setup, "return");
+    await emitKey(setup, "tab");
+    await emitKey(setup, "space");
+    await emitKey(setup, "tab");
+    await emitKey(setup, "down");
+    await emitKey(setup, "down");
+    await emitKey(setup, "space");
+    await emitKey(setup, "right");
+    await emitKey(setup, "space");
+    await emitKey(setup, "return");
+
+    expect(submitted).toEqual([
+      ["--uncommitted", "--max", "5", "--force", "--auto", "--priority", "P0,P1"],
+    ]);
+  });
+
   test("makes the priority row interactive without an extra tab stop", async () => {
     const setup = await renderOverlay({}, { width: 120, height: 30 });
 
     await emitKey(setup, "return");
+    await emitKey(setup, "tab");
     await emitKey(setup, "tab");
     await emitKey(setup, "down");
     await emitKey(setup, "down");
@@ -551,6 +645,7 @@ describe("ReviewModeOverlay", () => {
     );
 
     await emitKey(setup, "return");
+    await emitKey(setup, "tab");
     await emitKey(setup, "tab");
     await emitKey(setup, "down");
     await emitKey(setup, "down");
@@ -591,6 +686,7 @@ describe("ReviewModeOverlay", () => {
 
     await emitKey(setup, "return");
     await emitKey(setup, "tab");
+    await emitKey(setup, "tab");
     await emitKey(setup, "down");
     await emitKey(setup, "down");
     await emitKey(setup, "space");
@@ -614,6 +710,7 @@ describe("ReviewModeOverlay", () => {
       await setup.renderOnce();
     });
     await emitKey(setup, "escape");
+    await emitKey(setup, "tab");
     await emitKey(setup, "tab");
     await emitKey(setup, "down");
     await emitKey(setup, "down");
@@ -647,6 +744,7 @@ describe("ReviewModeOverlay", () => {
 
     await emitKey(setup, "k");
     await emitKey(setup, "tab");
+    await emitKey(setup, "tab");
     await emitKey(setup, "j");
     await emitKey(setup, "j");
     await emitKey(setup, "l");
@@ -679,6 +777,7 @@ describe("ReviewModeOverlay", () => {
 
     await emitKey(setup, "return");
     await emitKey(setup, "tab");
+    await emitKey(setup, "tab");
     await emitKey(setup, "down");
     await emitKey(setup, "down");
     await emitKey(setup, "right");
@@ -705,6 +804,7 @@ describe("ReviewModeOverlay", () => {
     const setup = await renderOverlay({}, { width: 120, height: 30 });
 
     await emitKey(setup, "return");
+    await emitKey(setup, "tab");
     await emitKey(setup, "tab");
     await emitKey(setup, "down");
     await emitKey(setup, "down");
