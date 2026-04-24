@@ -7,6 +7,7 @@ import type {
   DiagnosticItem,
   DiagnosticsReport,
 } from "@/lib/diagnostics/types";
+import { theme } from "@/terminal/theme";
 
 interface DoctorRuntime {
   runDiagnostics: (context: "doctor") => Promise<DiagnosticsReport>;
@@ -43,38 +44,54 @@ const CATEGORY_ORDER: readonly DiagnosticCategory[] = [
 ];
 
 const CATEGORY_LABELS: Record<DiagnosticCategory, string> = {
-  environment: "🌍 Environment",
-  agents: "🤖 Agents",
-  config: "⚙️ Config",
-  git: "🌿 Git",
-  tmux: "🧵 tmux",
+  environment: "Environment",
+  agents: "Coding Agents",
+  config: "Config",
+  git: "Git",
+  tmux: "Tmux",
 };
 
 // alphabetically ordered list of agents
 const AGENT_ORDER = ["claude", "codex", "droid", "gemini", "opencode", "pi"] as const;
 const MAX_FIX_PASSES = 3;
 
-function getSeverityIcon(item: DiagnosticItem): string {
-  switch (item.severity) {
+function formatSectionTitle(title: string): string {
+  return theme.heading(title);
+}
+
+function getSeverityLabel(severity: DiagnosticItem["severity"]): string {
+  switch (severity) {
     case "ok":
-      return "✅";
+      return theme.success("OK");
     case "warning":
-      return "⚠️";
+      return theme.warn("WARN");
     case "error":
-      return "❌";
+      return theme.error("ERROR");
   }
 }
 
+function formatRemediationStep(step: string): string {
+  const commandMatch = /^(Run: |Then run: )(.+)$/.exec(step);
+  if (!commandMatch) {
+    return step;
+  }
+
+  const prefix = commandMatch[1] ?? "";
+  const command = commandMatch[2] ?? "";
+  return `${prefix}${theme.command(command)}`;
+}
+
 function formatDoctorItem(item: DiagnosticItem): string {
-  const fixTag = item.severity !== "ok" && isFixable(item.id) ? " 🔧" : "";
-  const lines = [`${getSeverityIcon(item)} ${item.summary}${fixTag}`];
+  const fixTag =
+    item.severity !== "ok" && isFixable(item.id) ? ` ${theme.option("[fixable]")}` : "";
+  const lines = [`${getSeverityLabel(item.severity)} ${item.summary}${fixTag}`];
 
   if (item.details) {
-    lines.push(`  ${item.details}`);
+    lines.push(`  ${theme.muted(item.details)}`);
   }
 
   for (const step of item.remediation) {
-    lines.push(`  → ${step}`);
+    lines.push(`  -> ${formatRemediationStep(step)}`);
   }
 
   return lines.join("\n");
@@ -166,9 +183,9 @@ function renderAgentsSection(items: DiagnosticItem[], note: DoctorRuntime["note"
     }
 
     if (entry.installed) {
-      lines.push(`✅ ${agent}`);
+      lines.push(`${theme.success("OK")} ${agent}`);
     } else {
-      lines.push(`🔳 ${agent}`);
+      lines.push(`${theme.muted("MISSING")} ${agent}`);
     }
   }
 
@@ -177,11 +194,15 @@ function renderAgentsSection(items: DiagnosticItem[], note: DoctorRuntime["note"
     if (lines.length > 0) {
       lines.push("");
     }
-    lines.push(countItem.summary);
+    lines.push(
+      countItem.severity === "ok"
+        ? theme.muted(countItem.summary)
+        : `${getSeverityLabel(countItem.severity)} ${countItem.summary}`
+    );
 
     if (countItem.severity === "error") {
       for (const remediation of countItem.remediation) {
-        lines.push(`→ ${remediation}`);
+        lines.push(`-> ${formatRemediationStep(remediation)}`);
       }
     }
   }
@@ -205,7 +226,7 @@ function renderAgentsSection(items: DiagnosticItem[], note: DoctorRuntime["note"
     }
   }
 
-  note(lines.join("\n"), CATEGORY_LABELS.agents);
+  note(lines.join("\n"), formatSectionTitle(CATEGORY_LABELS.agents));
 }
 
 function renderDoctorReport(report: DiagnosticsReport, note: DoctorRuntime["note"]): void {
@@ -221,7 +242,7 @@ function renderDoctorReport(report: DiagnosticsReport, note: DoctorRuntime["note
     }
 
     const sectionBody = items.map((item) => formatDoctorItem(item)).join("\n\n");
-    note(sectionBody, CATEGORY_LABELS[category]);
+    note(sectionBody, formatSectionTitle(CATEGORY_LABELS[category]));
   }
 
   const errors = report.items.filter((item) => item.severity === "error").length;
@@ -229,13 +250,13 @@ function renderDoctorReport(report: DiagnosticsReport, note: DoctorRuntime["note
   if (errors > 0 || warnings > 0) {
     const summaryLines: string[] = [];
     if (errors > 0) {
-      summaryLines.push(`❌ Errors: ${errors}`);
+      summaryLines.push(`${theme.error("ERROR")} Errors: ${errors}`);
     }
     if (warnings > 0) {
-      summaryLines.push(`⚠️ Warnings: ${warnings}`);
+      summaryLines.push(`${theme.warn("WARN")} Warnings: ${warnings}`);
     }
 
-    note(summaryLines.join("\n"), "📊 Summary");
+    note(summaryLines.join("\n"), formatSectionTitle("Summary"));
   }
 }
 
@@ -314,7 +335,7 @@ export async function runDoctor(
 
         runtime.note(
           `Post-fix diagnostic results (pass ${pass}/${MAX_FIX_PASSES}):`,
-          "🔧 Re-diagnosis"
+          formatSectionTitle("Re-diagnosis")
         );
         renderDoctorReport(report, runtime.note);
 
@@ -340,8 +361,10 @@ export async function runDoctor(
       if (report.hasErrors) {
         const actions = collectNextActions(report, allFixResults);
         if (actions.length > 0) {
-          const lines = actions.map((action, index) => `${index + 1}. ${action}`);
-          runtime.note(lines.join("\n"), "🧭 Next actions");
+          const lines = actions.map(
+            (action, index) => `${index + 1}. ${formatRemediationStep(action)}`
+          );
+          runtime.note(lines.join("\n"), formatSectionTitle("Next actions"));
         }
       }
     } else {

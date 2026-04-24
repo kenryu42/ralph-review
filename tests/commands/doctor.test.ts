@@ -3,6 +3,7 @@ import * as p from "@clack/prompts";
 import { runDoctor } from "@/commands/doctor";
 import type { FixResult } from "@/lib/diagnostics/remediation";
 import type { DiagnosticItem, DiagnosticsReport } from "@/lib/diagnostics/types";
+import { stripAnsi, theme } from "@/terminal/theme";
 import { createCapabilities } from "../helpers/diagnostics";
 
 function createReport(items: DiagnosticItem[]): DiagnosticsReport {
@@ -70,6 +71,22 @@ function createRuntime(report: DiagnosticsReport) {
       },
     },
   };
+}
+
+function expectNoDoctorEmoji(value: string | undefined): void {
+  expect(value).toBeDefined();
+  expect(value).not.toContain("🌍");
+  expect(value).not.toContain("🤖");
+  expect(value).not.toContain("⚙️");
+  expect(value).not.toContain("🌿");
+  expect(value).not.toContain("🧵");
+  expect(value).not.toContain("✅");
+  expect(value).not.toContain("🔳");
+  expect(value).not.toContain("⚠️");
+  expect(value).not.toContain("❌");
+  expect(value).not.toContain("🔧");
+  expect(value).not.toContain("📊");
+  expect(value).not.toContain("🧭");
 }
 
 describe("doctor command", () => {
@@ -152,8 +169,10 @@ describe("doctor command", () => {
 
     await runDoctor([], runtime.overrides);
 
-    const configNote = runtime.notes.find((entry) => entry.title === "⚙️ Config");
+    const configNote = runtime.notes.find((entry) => stripAnsi(entry.title) === "Config");
     expect(configNote?.body).toContain("Expected .ralph-review/config.json in the project root.");
+    expectNoDoctorEmoji(configNote?.title);
+    expectNoDoctorEmoji(configNote?.body);
   });
 
   test("uses structured context metadata to render agent installation status", async () => {
@@ -195,9 +214,13 @@ describe("doctor command", () => {
 
     await runDoctor([], runtime.overrides);
 
-    const agentsNote = runtime.notes.find((entry) => entry.title === "🤖 Agents");
-    expect(agentsNote?.body).toContain("✅ codex");
-    expect(agentsNote?.body).toContain("🔳 claude");
+    const agentsNote = runtime.notes.find((entry) => stripAnsi(entry.title) === "Coding Agents");
+    expect(stripAnsi(agentsNote?.body ?? "")).toContain("OK codex");
+    expect(stripAnsi(agentsNote?.body ?? "")).toContain("MISSING claude");
+    expect(agentsNote?.body).toContain(theme.success("OK"));
+    expect(agentsNote?.body).toContain(theme.muted("MISSING"));
+    expectNoDoctorEmoji(agentsNote?.title);
+    expectNoDoctorEmoji(agentsNote?.body);
   });
 
   test("renders remediation steps when installed agent count is an error", async () => {
@@ -227,9 +250,10 @@ describe("doctor command", () => {
 
     await runDoctor([], runtime.overrides);
 
-    const agentsNote = runtime.notes.find((entry) => entry.title === "🤖 Agents");
-    expect(agentsNote?.body).toContain("→ Run: brew install codex");
-    expect(agentsNote?.body).toContain("→ Then run: rr doctor --fix");
+    const agentsNote = runtime.notes.find((entry) => stripAnsi(entry.title) === "Coding Agents");
+    expect(stripAnsi(agentsNote?.body ?? "")).toContain("-> Run: brew install codex");
+    expect(stripAnsi(agentsNote?.body ?? "")).toContain("-> Then run: rr doctor --fix");
+    expectNoDoctorEmoji(agentsNote?.body);
   });
 
   test("separates supplemental agent items after binary status entries", async () => {
@@ -259,8 +283,85 @@ describe("doctor command", () => {
 
     await runDoctor([], runtime.overrides);
 
-    const agentsNote = runtime.notes.find((entry) => entry.title === "🤖 Agents");
-    expect(agentsNote?.body).toContain("✅ codex\n\n⚠️ Model review probe returned warnings.");
+    const agentsNote = runtime.notes.find((entry) => stripAnsi(entry.title) === "Coding Agents");
+    expect(stripAnsi(agentsNote?.body ?? "")).toContain(
+      "OK codex\n\nWARN Model review probe returned warnings."
+    );
+    expect(agentsNote?.body).toContain(theme.warn("WARN"));
+    expectNoDoctorEmoji(agentsNote?.body);
+  });
+
+  test("renders all section titles and status markers without emoji", async () => {
+    const report = createReport([
+      {
+        id: "environment-bun",
+        category: "environment",
+        title: "Bun runtime",
+        severity: "ok",
+        summary: "Bun is installed.",
+        remediation: [],
+      },
+      {
+        id: "agent-codex-binary",
+        category: "agents",
+        title: "codex binary",
+        severity: "ok",
+        summary: "Command 'codex' is installed.",
+        remediation: [],
+        context: {
+          agent: "codex",
+          installed: true,
+        },
+      },
+      {
+        id: "config-missing",
+        category: "config",
+        title: "Configuration file",
+        severity: "error",
+        summary: "Configuration file was not found.",
+        remediation: ["Run: rr init", "Then run: rr doctor --fix"],
+      },
+      {
+        id: "git-dirty",
+        category: "git",
+        title: "Git state",
+        severity: "warning",
+        summary: "Working tree has uncommitted changes.",
+        remediation: ["Run: git status"],
+      },
+      {
+        id: "tmux-installed",
+        category: "tmux",
+        title: "tmux availability",
+        severity: "ok",
+        summary: "tmux is installed.",
+        remediation: [],
+      },
+    ]);
+    const runtime = createRuntime(report);
+
+    await runDoctor([], runtime.overrides);
+
+    expect(runtime.notes.map((entry) => stripAnsi(entry.title))).toEqual([
+      "Environment",
+      "Coding Agents",
+      "Config",
+      "Git",
+      "Tmux",
+      "Summary",
+    ]);
+    for (const note of runtime.notes) {
+      expectNoDoctorEmoji(note.title);
+      expectNoDoctorEmoji(note.body);
+    }
+    expect(stripAnsi(runtime.notes.map((entry) => entry.body).join("\n"))).toContain(
+      "ERROR Configuration file was not found. [fixable]"
+    );
+    expect(stripAnsi(runtime.notes.map((entry) => entry.body).join("\n"))).toContain(
+      "WARN Working tree has uncommitted changes."
+    );
+    expect(stripAnsi(runtime.notes.at(-1)?.body ?? "")).toContain("Errors: 1");
+    expect(stripAnsi(runtime.notes.at(-1)?.body ?? "")).toContain("Warnings: 1");
   });
 
   test("stops spinner even when runDiagnostics throws", async () => {
@@ -393,6 +494,11 @@ describe("doctor --fix", () => {
     expect(diagnosticsRunCount).toBe(3);
     expect(runtime.steps).toContain("Remediation pass 1/3");
     expect(runtime.steps).toContain("Remediation pass 2/3");
+    expect(runtime.notes.some((note) => stripAnsi(note.title) === "Re-diagnosis")).toBe(true);
+    for (const note of runtime.notes) {
+      expectNoDoctorEmoji(note.title);
+      expectNoDoctorEmoji(note.body);
+    }
     expect(runtime.successes).toContain("Doctor completed. Environment is ready.");
   });
 
@@ -429,7 +535,7 @@ describe("doctor --fix", () => {
     expect(runtime.infos.some((line) => line.includes("No remediation progress detected"))).toBe(
       true
     );
-    expect(runtime.notes.some((n) => n.title === "🧭 Next actions")).toBe(true);
+    expect(runtime.notes.some((n) => stripAnsi(n.title) === "Next actions")).toBe(true);
     expect(runtime.exits).toEqual([1]);
   });
 
@@ -626,7 +732,7 @@ describe("doctor --fix", () => {
     expect(runtime.exits).toEqual([1]);
   });
 
-  test("shows wrench icon for known fixable IDs even when item.fixable is false", async () => {
+  test("shows fixable marker for known fixable IDs even when item.fixable is false", async () => {
     const report = createReport([
       {
         id: "config-missing",
@@ -642,7 +748,9 @@ describe("doctor --fix", () => {
 
     await runDoctor([], runtime.overrides);
 
-    const configNote = runtime.notes.find((n) => n.title === "⚙️ Config");
-    expect(configNote?.body).toContain("🔧");
+    const configNote = runtime.notes.find((n) => stripAnsi(n.title) === "Config");
+    expect(stripAnsi(configNote?.body ?? "")).toContain("[fixable]");
+    expect(configNote?.body).toContain(theme.option("[fixable]"));
+    expectNoDoctorEmoji(configNote?.body);
   });
 });
