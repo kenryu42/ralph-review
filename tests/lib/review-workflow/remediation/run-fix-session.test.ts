@@ -505,6 +505,7 @@ describe("review-workflow/remediation/runFixSession", () => {
 
   test("clears retained worktree metadata after a resumed remediation succeeds", async () => {
     const retainedWorktreeUpdates: Array<RetainedSessionWorktree | undefined> = [];
+    const discardedWorktrees: string[] = [];
     const artifact = {
       ...createArtifact(),
       retainedWorktree: {
@@ -526,11 +527,13 @@ describe("review-workflow/remediation/runFixSession", () => {
       },
       createDependencies({
         artifact,
+        discardedWorktrees,
         retainedWorktreeUpdates,
       })
     );
 
     expect(result.reviewOutcome).toBe("fixed-selected");
     expect(retainedWorktreeUpdates).toEqual([undefined]);
+    expect(discardedWorktrees).toEqual(["/tmp/retained-worktree", "/tmp/worktree"]);
   });
 });

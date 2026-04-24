@@ -110,6 +110,19 @@ function buildResult(overrides: Partial<FixSessionResult>): FixSessionResult {
   };
 }
 
+function buildRetainedCleanupWorktree(
+  sourceWorktree: GitSessionWorktree,
+  retainedWorktree: RetainedSessionWorktree
+): GitSessionWorktree {
+  return {
+    ...sourceWorktree,
+    worktreeProjectPath: retainedWorktree.worktreeProjectPath,
+    agentProjectPath: retainedWorktree.worktreeProjectPath,
+    retainedBranch: retainedWorktree.worktreeBranch,
+    preserveBranchOnDiscard: false,
+  };
+}
+
 function resolveSelectionMode(selector: FixSessionSelector | undefined): {
   mode: "all" | "priority" | "id" | "interactive";
   count: number;
@@ -422,6 +435,9 @@ export async function runFixSession(
         };
       }
     } else if (artifactWithFixResults.retainedWorktree) {
+      deps.discardSessionWorktree(
+        buildRetainedCleanupWorktree(worktree, artifactWithFixResults.retainedWorktree)
+      );
       const artifactWithoutRetainedWorktree = await deps.updateRetainedWorktree(
         CONFIG_DIR,
         artifact.projectPath,
