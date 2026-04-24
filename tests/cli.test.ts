@@ -153,12 +153,19 @@ describe("cli", () => {
       expect(optionNames).toContain("id");
     });
 
-    test("prune command exposes discard mode", () => {
+    test("prune command exposes dry-run, yes, and discard modes", () => {
       const pruneCmd = COMMANDS.find((c) => c.name === "prune");
       expect(pruneCmd).toBeDefined();
       const optionNames = pruneCmd?.options?.map((o) => o.name) ?? [];
+      expect(optionNames).not.toContain("apply");
+      expect(optionNames).toContain("dry-run");
+      expect(optionNames).toContain("yes");
       expect(optionNames).toContain("discard");
       expect(optionNames).toContain("session");
+      expect(pruneCmd?.options?.find((option) => option.name === "yes")?.alias).toBe("y");
+      expect(pruneCmd?.examples).toContain("rr prune");
+      expect(pruneCmd?.examples).toContain("rr prune --dry-run");
+      expect(pruneCmd?.examples).toContain("rr prune -y");
       expect(pruneCmd?.examples).toContain("rr prune --discard");
       expect(pruneCmd?.examples).toContain("rr prune --discard --session session-123");
     });

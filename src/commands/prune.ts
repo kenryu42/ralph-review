@@ -25,12 +25,13 @@ type StoredArtifactSummary = {
 };
 
 interface ParsedPruneOptions {
-  apply: boolean;
+  dryRun: boolean;
   discard: boolean;
   sessionId?: string;
   olderThanMs?: number;
   allProjects: boolean;
   force: boolean;
+  yes: boolean;
 }
 
 interface PruneCandidate {
@@ -64,6 +65,7 @@ export interface PruneCommandDeps {
     message: string;
     options: Array<{ value: string; label: string; hint: string }>;
   }) => Promise<unknown>;
+  confirm: (input: { message: string }) => Promise<unknown>;
   isCancel: (value: unknown) => boolean;
 }
 
@@ -84,6 +86,7 @@ const DEFAULT_PRUNE_DEPS: PruneCommandDeps = {
   exit: (code: number) => process.exit(code),
   isTTY: () => process.stdout.isTTY === true,
   select: (input) => p.select(input),
+  confirm: (input) => p.confirm(input),
   isCancel: (value) => p.isCancel(value),
 };
 
@@ -107,7 +110,7 @@ function parsePruneOptions(args: string[], deps: PruneCommandDeps): ParsedPruneO
 
   const parsed = deps.parseCommand(commandDef, args);
   return {
-    apply: parsed.values.apply === true,
+    dryRun: parsed.values["dry-run"] === true,
     discard: parsed.values.discard === true,
     sessionId: typeof parsed.values.session === "string" ? parsed.values.session : undefined,
     olderThanMs:
@@ -116,7 +119,18 @@ function parsePruneOptions(args: string[], deps: PruneCommandDeps): ParsedPruneO
         : undefined,
     allProjects: parsed.values["all-projects"] === true,
     force: parsed.values.force === true,
+    yes: parsed.values.yes === true,
   };
+}
+
+function rejectInvalidPruneOptions(options: ParsedPruneOptions, deps: PruneCommandDeps): boolean {
+  if (options.dryRun && options.yes) {
+    deps.logError("Cannot combine --dry-run and --yes. Choose one mode and try again.");
+    deps.exit(1);
+    return true;
+  }
+
+  return false;
 }
 
 function rejectInvalidDiscardOptions(options: ParsedPruneOptions, deps: PruneCommandDeps): boolean {
@@ -124,7 +138,13 @@ function rejectInvalidDiscardOptions(options: ParsedPruneOptions, deps: PruneCom
     return false;
   }
 
-  if (options.apply || options.force || options.olderThanMs !== undefined || options.allProjects) {
+  if (
+    options.dryRun ||
+    options.yes ||
+    options.force ||
+    options.olderThanMs !== undefined ||
+    options.allProjects
+  ) {
     deps.logError(
       "--discard can only be combined with --session. Remove cleanup options and try again."
     );
@@ -382,6 +402,79 @@ function pickTimestamp(candidate: {
   return candidate.artifact?.updatedAt ?? 0;
 }
 
+function pluralize(count: number, singular: string): string {
+  return `${count} ${singular}${count === 1 ? "" : "s"}`;
+}
+
+function formatRelativeAge(timestampMs: number, now: number): string {
+  if (timestampMs <= 0) {
+    return "updated unknown";
+  }
+
+  const elapsedMs = Math.max(0, now - timestampMs);
+  const elapsedMinutes = Math.floor(elapsedMs / 60_000);
+  if (elapsedMinutes < 60) {
+    return `updated ${pluralize(elapsedMinutes, "minute")} ago`;
+  }
+
+  const elapsedHours = Math.floor(elapsedMinutes / 60);
+  if (elapsedHours < 48) {
+    return `updated ${pluralize(elapsedHours, "hour")} ago`;
+  }
+
+  const elapsedDays = Math.floor(elapsedHours / 24);
+  return `updated ${pluralize(elapsedDays, "day")} ago`;
+}
+
+function formatCandidateLine(
+  candidate: PruneCandidate,
+  currentProjectPath: string,
+  now: number
+): string {
+  const project = candidate.projectPath === currentProjectPath ? "" : ` ${candidate.projectPath}`;
+  return `  ${candidate.sessionId}${project} - ${candidate.reason} - ${formatRelativeAge(
+    candidate.timestampMs,
+    now
+  )}`;
+}
+
+function logPruneCandidateSummary(
+  candidates: PruneCandidate[],
+  currentProjectPath: string,
+  now: number,
+  deps: Pick<PruneCommandDeps, "logInfo">
+): void {
+  deps.logInfo(`Found ${pluralize(candidates.length, "prunable review session")}.`);
+
+  const currentProjectCandidates = candidates.filter(
+    (candidate) => candidate.projectPath === currentProjectPath
+  );
+  const otherProjectCandidates = candidates.filter(
+    (candidate) => candidate.projectPath !== currentProjectPath
+  );
+
+  if (currentProjectCandidates.length > 0) {
+    deps.logInfo("Current project:");
+    for (const candidate of currentProjectCandidates) {
+      deps.logInfo(formatCandidateLine(candidate, currentProjectPath, now));
+    }
+  }
+
+  if (otherProjectCandidates.length > 0) {
+    deps.logInfo("Other projects:");
+    for (const candidate of otherProjectCandidates) {
+      deps.logInfo(formatCandidateLine(candidate, currentProjectPath, now));
+    }
+  }
+}
+
+function formatNoCandidatesMessage(options: ParsedPruneOptions): string {
+  const scope = options.allProjects ? "across stored projects" : "for the current project";
+  const ageFilter = options.olderThanMs === undefined ? "" : ` matching the --older-than filter`;
+
+  return `No prunable review sessions found ${scope}${ageFilter}.`;
+}
+
 async function collectPruneCandidatesForProject(
   storageRoot: string,
   projectPath: string,
@@ -460,40 +553,74 @@ async function collectPruneCandidatesForProject(
   return candidates.sort((left, right) => left.sessionId.localeCompare(right.sessionId));
 }
 
-async function removePath(path: string | undefined): Promise<void> {
+async function removePath(path: string | undefined): Promise<string | null> {
   if (!path) {
-    return;
+    return null;
   }
 
-  await Bun.file(path)
-    .delete()
-    .catch(() => {});
+  const file = Bun.file(path);
+  if (!(await file.exists())) {
+    return null;
+  }
+
+  try {
+    await file.delete();
+    return null;
+  } catch (error) {
+    return `Failed to delete ${path}: ${error}`;
+  }
 }
 
 async function removeSessionWorktreeDir(
   storageRoot: string,
   projectPath: string,
   sessionId: string
-): Promise<void> {
+): Promise<string[]> {
   const worktreesDir = getProjectWorktreesDir(storageRoot, projectPath);
   const entries = await readdir(worktreesDir).catch(() => []);
+  const errors: string[] = [];
   for (const entry of entries) {
     if (!entry.startsWith(sessionId)) {
       continue;
     }
-    await rm(join(worktreesDir, entry), { recursive: true, force: true });
+    const worktreePath = join(worktreesDir, entry);
+    try {
+      await rm(worktreePath, { recursive: true, force: true });
+    } catch (error) {
+      errors.push(`Failed to delete ${worktreePath}: ${error}`);
+    }
   }
+
+  return errors;
 }
 
-async function applyCandidate(candidate: PruneCandidate, storageRoot: string): Promise<void> {
-  await removeSessionWorktreeDir(storageRoot, candidate.projectPath, candidate.sessionId);
+async function pruneCandidate(candidate: PruneCandidate, storageRoot: string): Promise<string[]> {
+  const errors = await removeSessionWorktreeDir(
+    storageRoot,
+    candidate.projectPath,
+    candidate.sessionId
+  );
+
   if (isGitRepository(candidate.projectPath)) {
-    deleteSessionRefs(candidate.projectPath, candidate.sessionId);
+    try {
+      deleteSessionRefs(candidate.projectPath, candidate.sessionId);
+    } catch (error) {
+      errors.push(`${error}`);
+    }
   }
-  await removePath(candidate.pendingMetadataPath);
-  await removePath(candidate.pendingPatchPath);
-  await removePath(candidate.artifactPath);
-  await removePath(candidate.logPath);
+
+  for (const pathError of await Promise.all([
+    removePath(candidate.pendingMetadataPath),
+    removePath(candidate.pendingPatchPath),
+    removePath(candidate.artifactPath),
+    removePath(candidate.logPath),
+  ])) {
+    if (pathError) {
+      errors.push(pathError);
+    }
+  }
+
+  return errors;
 }
 
 export async function runPrune(
@@ -502,6 +629,9 @@ export async function runPrune(
 ): Promise<void> {
   const pruneDeps = { ...DEFAULT_PRUNE_DEPS, ...deps };
   const options = parsePruneOptions(args, pruneDeps);
+  if (rejectInvalidPruneOptions(options, pruneDeps)) {
+    return;
+  }
   if (rejectInvalidDiscardOptions(options, pruneDeps)) {
     return;
   }
@@ -511,9 +641,10 @@ export async function runPrune(
     return;
   }
 
+  const currentProjectPath = pruneDeps.cwd();
   const projectPaths = await collectProjectPaths(
     pruneDeps.storageRoot,
-    pruneDeps.cwd(),
+    currentProjectPath,
     options.allProjects
   );
   const now = pruneDeps.now();
@@ -539,21 +670,54 @@ export async function runPrune(
   }
 
   if (candidates.length === 0) {
-    pruneDeps.logInfo("No prunable review sessions found.");
+    pruneDeps.logInfo(formatNoCandidatesMessage(options));
     return;
   }
 
-  if (!options.apply) {
-    for (const candidate of candidates) {
-      pruneDeps.logInfo(
-        `Would prune ${candidate.sessionId} in ${candidate.projectPath}: ${candidate.reason}`
+  if (options.dryRun) {
+    logPruneCandidateSummary(candidates, currentProjectPath, now, pruneDeps);
+    pruneDeps.logInfo("Run rr prune to delete these artifacts.");
+    return;
+  }
+
+  if (!options.yes) {
+    if (!pruneDeps.isTTY()) {
+      pruneDeps.logError(
+        "Cannot prune without confirmation in a non-interactive terminal. Re-run with --yes to delete or --dry-run to preview."
       );
+      pruneDeps.exit(1);
+      return;
     }
-    return;
+
+    logPruneCandidateSummary(candidates, currentProjectPath, now, pruneDeps);
+    pruneDeps.logInfo(`This will delete ${pluralize(candidates.length, "artifact set")}.`);
+    const confirmed = await pruneDeps.confirm({
+      message: `Delete ${pluralize(candidates.length, "prunable review session artifact set")}?`,
+    });
+
+    if (pruneDeps.isCancel(confirmed) || confirmed !== true) {
+      pruneDeps.logInfo("Prune cancelled. No artifacts were deleted.");
+      return;
+    }
   }
 
+  const failures: Array<{ candidate: PruneCandidate; errors: string[] }> = [];
   for (const candidate of candidates) {
-    await applyCandidate(candidate, pruneDeps.storageRoot);
+    const errors = await pruneCandidate(candidate, pruneDeps.storageRoot);
+    if (errors.length > 0) {
+      failures.push({ candidate, errors });
+    }
+  }
+
+  if (failures.length > 0) {
+    pruneDeps.logError(
+      `Failed to prune ${pluralize(failures.length, "review session")} out of ${candidates.length}.`
+    );
+    for (const failure of failures) {
+      pruneDeps.logError(`  ${failure.candidate.sessionId}: ${failure.errors.join("; ")}`);
+    }
+    pruneDeps.exit(1);
+    return;
   }
 
   pruneDeps.logSuccess(`Pruned ${candidates.length} review session(s).`);

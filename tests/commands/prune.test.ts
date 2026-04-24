@@ -138,7 +138,7 @@ describe("prune command", () => {
     await saveFindingsArtifact(storageRoot, artifact);
     await Bun.write(artifact.logPath, "session log\n", { createPath: true });
 
-    await runPrune([], {
+    await runPrune(["--dry-run"], {
       getCommandDef,
       parseCommand,
       cwd: () => repoPath,
@@ -152,7 +152,9 @@ describe("prune command", () => {
       now: () => 1_800_000_000_000,
     });
 
+    expect(infos).toContain("Found 1 prunable review session.");
     expect(infos.some((message) => message.includes(sessionId))).toBe(true);
+    expect(infos.at(-1)).toBe("Run rr prune to delete these artifacts.");
     expect(await Bun.file(getFindingsArtifactPath(storageRoot, repoPath, sessionId)).exists()).toBe(
       true
     );
@@ -160,8 +162,9 @@ describe("prune command", () => {
     expect(successes).toEqual([]);
   });
 
-  test("apply removes prunable session files and refs", async () => {
+  test("bare prune removes prunable session files and refs after TTY confirmation", async () => {
     const sessionId = "session-applied";
+    const confirms: string[] = [];
     const successes: string[] = [];
     const artifact = createArtifact(repoPath, sessionId, "2026-01-01T00:00:00.000Z");
     await saveFindingsArtifact(storageRoot, artifact);
@@ -169,7 +172,7 @@ describe("prune command", () => {
     runGitIn(repoPath, ["update-ref", artifact.baselineRef, "HEAD"]);
     runGitIn(repoPath, ["update-ref", "refs/ralph-review/sessions/session-applied/final", "HEAD"]);
 
-    await runPrune(["--apply"], {
+    await runPrune([], {
       getCommandDef,
       parseCommand,
       cwd: () => repoPath,
@@ -180,6 +183,11 @@ describe("prune command", () => {
       logWarn: () => {},
       logError: () => {},
       exit: () => {},
+      isTTY: () => true,
+      confirm: async (input) => {
+        confirms.push(input.message);
+        return true;
+      },
       now: () => 1_800_000_000_000,
     });
 
@@ -195,7 +203,133 @@ describe("prune command", () => {
         "refs/ralph-review/sessions/session-applied/final",
       ])
     ).not.toBe(0);
+    expect(confirms).toEqual(["Delete 1 prunable review session artifact set?"]);
     expect(successes.at(-1)).toContain("Pruned 1 review session");
+  });
+
+  test("bare prune requires --yes or --dry-run in non-interactive terminals", async () => {
+    const sessionId = "session-applied";
+    const artifact = createArtifact(repoPath, sessionId, "2026-01-01T00:00:00.000Z");
+    const errors: string[] = [];
+    const exits: number[] = [];
+    await saveFindingsArtifact(storageRoot, artifact);
+
+    await runPrune([], {
+      getCommandDef,
+      parseCommand,
+      cwd: () => repoPath,
+      storageRoot,
+      listProjectPendingHandoffs: listPendingFromStorage,
+      logInfo: () => {},
+      logSuccess: () => {},
+      logWarn: () => {},
+      logError: (message) => errors.push(message),
+      exit: (code) => exits.push(code),
+      isTTY: () => false,
+      now: () => 1_800_000_000_000,
+    });
+
+    expect(await Bun.file(getFindingsArtifactPath(storageRoot, repoPath, sessionId)).exists()).toBe(
+      true
+    );
+    expect(errors).toEqual([
+      "Cannot prune without confirmation in a non-interactive terminal. Re-run with --yes to delete or --dry-run to preview.",
+    ]);
+    expect(exits).toEqual([1]);
+  });
+
+  test("yes removes prunable sessions without prompting", async () => {
+    const sessionId = "session-applied";
+    const artifact = createArtifact(repoPath, sessionId, "2026-01-01T00:00:00.000Z");
+    const successes: string[] = [];
+    const confirms: string[] = [];
+    await saveFindingsArtifact(storageRoot, artifact);
+
+    await runPrune(["--yes"], {
+      getCommandDef,
+      parseCommand,
+      cwd: () => repoPath,
+      storageRoot,
+      listProjectPendingHandoffs: listPendingFromStorage,
+      logInfo: () => {},
+      logSuccess: (message) => successes.push(message),
+      logWarn: () => {},
+      logError: () => {},
+      exit: () => {},
+      isTTY: () => true,
+      confirm: async (input) => {
+        confirms.push(input.message);
+        return true;
+      },
+      now: () => 1_800_000_000_000,
+    });
+
+    expect(await Bun.file(getFindingsArtifactPath(storageRoot, repoPath, sessionId)).exists()).toBe(
+      false
+    );
+    expect(confirms).toEqual([]);
+    expect(successes.at(-1)).toContain("Pruned 1 review session");
+  });
+
+  test("short yes alias removes prunable sessions without prompting", async () => {
+    const sessionId = "session-applied";
+    const artifact = createArtifact(repoPath, sessionId, "2026-01-01T00:00:00.000Z");
+    const successes: string[] = [];
+    const confirms: string[] = [];
+    await saveFindingsArtifact(storageRoot, artifact);
+
+    await runPrune(["-y"], {
+      getCommandDef,
+      parseCommand,
+      cwd: () => repoPath,
+      storageRoot,
+      listProjectPendingHandoffs: listPendingFromStorage,
+      logInfo: () => {},
+      logSuccess: (message) => successes.push(message),
+      logWarn: () => {},
+      logError: () => {},
+      exit: () => {},
+      isTTY: () => true,
+      confirm: async (input) => {
+        confirms.push(input.message);
+        return true;
+      },
+      now: () => 1_800_000_000_000,
+    });
+
+    expect(await Bun.file(getFindingsArtifactPath(storageRoot, repoPath, sessionId)).exists()).toBe(
+      false
+    );
+    expect(confirms).toEqual([]);
+    expect(successes.at(-1)).toContain("Pruned 1 review session");
+  });
+
+  test("declining confirmation cancels prune without deleting files", async () => {
+    const sessionId = "session-applied";
+    const artifact = createArtifact(repoPath, sessionId, "2026-01-01T00:00:00.000Z");
+    const infos: string[] = [];
+    await saveFindingsArtifact(storageRoot, artifact);
+
+    await runPrune([], {
+      getCommandDef,
+      parseCommand,
+      cwd: () => repoPath,
+      storageRoot,
+      listProjectPendingHandoffs: listPendingFromStorage,
+      logInfo: (message) => infos.push(message),
+      logSuccess: () => {},
+      logWarn: () => {},
+      logError: () => {},
+      exit: () => {},
+      isTTY: () => true,
+      confirm: async () => false,
+      now: () => 1_800_000_000_000,
+    });
+
+    expect(await Bun.file(getFindingsArtifactPath(storageRoot, repoPath, sessionId)).exists()).toBe(
+      true
+    );
+    expect(infos.at(-1)).toBe("Prune cancelled. No artifacts were deleted.");
   });
 
   test("older-than filters the prunable set", async () => {
@@ -213,7 +347,7 @@ describe("prune command", () => {
     );
 
     const infos: string[] = [];
-    await runPrune(["--older-than", "14d"], {
+    await runPrune(["--older-than", "14d", "--dry-run"], {
       getCommandDef,
       parseCommand,
       cwd: () => repoPath,
@@ -231,13 +365,13 @@ describe("prune command", () => {
     expect(infos.some((message) => message.includes(newSessionId))).toBe(false);
   });
 
-  test("force session apply removes the targeted session", async () => {
+  test("force session prune removes the targeted session", async () => {
     const sessionId = "session-force";
     const artifact = createArtifact(repoPath, sessionId, "2026-01-01T00:00:00.000Z");
     await saveFindingsArtifact(storageRoot, artifact);
     await Bun.write(artifact.logPath, "session log\n", { createPath: true });
 
-    await runPrune(["--session", sessionId, "--force", "--apply"], {
+    await runPrune(["--session", sessionId, "--force", "--yes"], {
       getCommandDef,
       parseCommand,
       cwd: () => repoPath,
@@ -257,7 +391,7 @@ describe("prune command", () => {
     expect(await Bun.file(artifact.logPath).exists()).toBe(false);
   });
 
-  test("force session apply prunes orphaned worktree-only sessions", async () => {
+  test("force session prune removes orphaned worktree-only sessions", async () => {
     const sessionId = "session-orphan";
     const worktreesDir = getProjectWorktreesDir(storageRoot, repoPath);
     const worktreeEntry = `${sessionId}-1700000000000-deadbeef`;
@@ -268,7 +402,7 @@ describe("prune command", () => {
     const exits: number[] = [];
     const successes: string[] = [];
 
-    await runPrune(["--session", sessionId, "--force", "--apply"], {
+    await runPrune(["--session", sessionId, "--force", "--yes"], {
       getCommandDef,
       parseCommand,
       cwd: () => repoPath,
@@ -302,7 +436,7 @@ describe("prune command", () => {
     const infos: string[] = [];
     const successes: string[] = [];
     await expect(
-      runPrune(["--all-projects"], {
+      runPrune(["--all-projects", "--dry-run"], {
         getCommandDef,
         parseCommand,
         cwd: () => repoPath,
@@ -321,7 +455,7 @@ describe("prune command", () => {
     expect(successes).toEqual([]);
   });
 
-  test("apply continues cleanup when a recorded project path is no longer a git repository", async () => {
+  test("prune continues cleanup when a recorded project path is no longer a git repository", async () => {
     const nonGitProjectPath = await mkdtemp(join(tmpdir(), "ralph-prune-nongit-project-"));
     const sessionId = "session-non-git";
     const artifact = createArtifact(nonGitProjectPath, sessionId, "2026-01-01T00:00:00.000Z");
@@ -330,7 +464,7 @@ describe("prune command", () => {
 
     const successes: string[] = [];
     await expect(
-      runPrune(["--all-projects", "--apply"], {
+      runPrune(["--all-projects", "--yes"], {
         getCommandDef,
         parseCommand,
         cwd: () => repoPath,
@@ -351,6 +485,32 @@ describe("prune command", () => {
   });
 
   describe("discard mode", () => {
+    test("rejects conflicting dry-run and yes options", async () => {
+      const errors: string[] = [];
+      const exits: number[] = [];
+
+      await runPrune(["--dry-run", "--yes"], {
+        getCommandDef,
+        parseCommand,
+        cwd: () => repoPath,
+        storageRoot,
+        listProjectPendingHandoffs: listPendingFromStorage,
+        logInfo: () => {},
+        logSuccess: () => {},
+        logWarn: () => {},
+        logError: (message) => errors.push(message),
+        logStep: () => {},
+        exit: (code) => exits.push(code),
+        isTTY: () => true,
+        now: () => 1_800_000_000_000,
+      });
+
+      expect(errors).toEqual([
+        "Cannot combine --dry-run and --yes. Choose one mode and try again.",
+      ]);
+      expect(exits).toEqual([1]);
+    });
+
     test("prints info when there are no pending handoffs", async () => {
       const infos: string[] = [];
       const discardCalls: Array<{ projectPath: string; handoffId: string }> = [];
@@ -647,7 +807,8 @@ describe("prune command", () => {
 
     test("rejects cleanup options in discard mode", async () => {
       const scenarios = [
-        ["--discard", "--apply"],
+        ["--discard", "--dry-run"],
+        ["--discard", "--yes"],
         ["--discard", "--force"],
         ["--discard", "--older-than", "14d"],
         ["--discard", "--all-projects"],

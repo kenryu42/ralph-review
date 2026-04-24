@@ -225,9 +225,15 @@ export const COMMANDS: CommandDef[] = [
     description: "Prune orphaned review session artifacts",
     options: [
       {
-        name: "apply",
+        name: "dry-run",
         type: "boolean",
-        description: "Delete the prunable session artifacts instead of listing them",
+        description: "List prunable session artifacts without deleting them",
+      },
+      {
+        name: "yes",
+        alias: "y",
+        type: "boolean",
+        description: "Skip confirmation before deleting artifacts",
       },
       {
         name: "discard",
@@ -259,10 +265,11 @@ export const COMMANDS: CommandDef[] = [
     ],
     examples: [
       "rr prune",
-      "rr prune --apply",
+      "rr prune --dry-run",
+      "rr prune -y",
       "rr prune --discard",
       "rr prune --discard --session session-123",
-      "rr prune --session session-123 --force --apply",
+      "rr prune --session session-123 --force --yes",
       "rr prune --older-than 14d",
     ],
   },
