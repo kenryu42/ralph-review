@@ -4,7 +4,6 @@ import * as p from "@clack/prompts";
 import { getCommandDef, getVersion, parseArgs, printCommandHelp, printUsage } from "./cli-core";
 import { runApply } from "./commands/apply";
 import { runConfig } from "./commands/config";
-import { runDiscard } from "./commands/discard";
 import { runDoctor } from "./commands/doctor";
 import { runFix, runFixForeground } from "./commands/fix";
 import { runInit } from "./commands/init";
@@ -41,7 +40,6 @@ export interface CliDeps {
   runFix: typeof runFix;
   runFixForeground: typeof runFixForeground;
   runApply: typeof runApply;
-  runDiscard: typeof runDiscard;
   runForeground: typeof runForeground;
   runStatus: typeof runStatus;
   runStop: typeof runStop;
@@ -77,7 +75,6 @@ const DEFAULT_CLI_DEPS: CliDeps = {
   runFix,
   runFixForeground,
   runApply,
-  runDiscard,
   runForeground,
   runStatus,
   runStop,
@@ -188,10 +185,6 @@ export async function runCli(
 
       case "apply":
         await cliDeps.runApply(commandArgs);
-        break;
-
-      case "discard":
-        await cliDeps.runDiscard(commandArgs);
         break;
 
       case "_run-foreground":

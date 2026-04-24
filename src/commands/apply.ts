@@ -1,7 +1,7 @@
 import * as p from "@clack/prompts";
 import { getCommandDef } from "@/cli";
 import { resolvePendingHandoffSelection } from "@/commands/handoff-selection";
-import type { PendingHandoffCommandDeps } from "@/commands/pending-handoff-command";
+import type { CommandDef } from "@/lib/cli-parser";
 import { parseCommand } from "@/lib/cli-parser";
 import { applyPendingHandoff, listProjectPendingHandoffs } from "@/lib/handoff";
 import { appendLog } from "@/lib/logger";
@@ -10,7 +10,12 @@ interface ApplyOptions {
   session?: string;
 }
 
-type ApplyDeps = PendingHandoffCommandDeps;
+interface ApplyDeps {
+  getCommandDef: (name: string) => CommandDef | undefined;
+  logError: (message: string) => void;
+  exit: (code: number) => void;
+  isTTY: () => boolean;
+}
 
 const DEFAULT_APPLY_DEPS: ApplyDeps = {
   getCommandDef,
