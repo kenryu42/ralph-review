@@ -234,6 +234,7 @@ export interface GitSessionWorktree {
   sourceBaselineCommitSha?: string;
   sourceBaselineRef?: string;
   sourceBaselineFingerprint?: string;
+  remediationStartCommitSha?: string;
   finalCommitSha?: string;
   finalRef?: string;
   preserveBranchOnDiscard?: boolean;

@@ -1,7 +1,7 @@
 import * as p from "@clack/prompts";
 import { getCommandDef } from "@/cli";
 import { parseCommand } from "@/lib/cli-parser";
-import { readPendingHandoff } from "@/lib/handoff";
+import { listProjectPendingHandoffs } from "@/lib/handoff";
 import { formatHandoffNote } from "@/lib/handoff-note";
 import { computeSessionStats, getProjectName, type LogSession } from "@/lib/logger";
 import {
@@ -38,6 +38,7 @@ const DEFAULT_STOP_DEPS: StopDeps = {
 
 type ResolvedStopHandoff = {
   handoffStatus: Extract<HandoffStatus, "applied-auto" | "pending-apply" | "apply-conflicted">;
+  handoffId?: string;
   commitSha?: string;
 };
 
@@ -108,6 +109,7 @@ async function resolveStoppedSessionHandoff(
       ) {
         return {
           handoffStatus: stats.handoffStatus,
+          handoffId: stats.handoffId,
           commitSha: stats.commitSha,
         };
       }
@@ -117,17 +119,21 @@ async function resolveStoppedSessionHandoff(
   }
 
   try {
-    const pendingHandoff = await readPendingHandoff(
-      undefined,
-      session.projectPath,
-      session.sessionId
+    const pendingHandoffs = await listProjectPendingHandoffs(undefined, session.projectPath);
+    const matchingHandoffs = pendingHandoffs.filter(
+      (handoff) => handoff.sessionId === session.sessionId
     );
+    if (matchingHandoffs.length !== 1) {
+      return null;
+    }
+    const pendingHandoff = matchingHandoffs[0];
     if (!pendingHandoff) {
       return null;
     }
 
     return {
       handoffStatus: pendingHandoff.state,
+      handoffId: pendingHandoff.handoffId,
       commitSha: pendingHandoff.commitSha,
     };
   } catch {
@@ -138,9 +144,10 @@ async function resolveStoppedSessionHandoff(
 function formatProjectScopedCommand(
   currentProjectPath: string,
   session: ActiveSession,
+  handoffId: string,
   action: "apply" | "discard"
 ): string {
-  const baseCommand = `rr ${action} --session ${session.sessionId}`;
+  const baseCommand = `rr ${action} --session ${handoffId}`;
   if (session.projectPath === currentProjectPath) {
     return baseCommand;
   }
@@ -161,12 +168,17 @@ async function resolveStoppedSessionHandoffNote(
     handoffStatus: handoff.handoffStatus,
     commitSha: handoff.commitSha,
     applyCommand:
-      handoff.handoffStatus === "pending-apply"
-        ? `Apply: ${formatProjectScopedCommand(currentProjectPath, session, "apply")}`
+      handoff.handoffStatus === "pending-apply" && handoff.handoffId
+        ? `Apply: ${formatProjectScopedCommand(currentProjectPath, session, handoff.handoffId, "apply")}`
         : undefined,
     discardCommand:
-      handoff.handoffStatus === "pending-apply"
-        ? `Discard: ${formatProjectScopedCommand(currentProjectPath, session, "discard")}`
+      handoff.handoffStatus === "pending-apply" && handoff.handoffId
+        ? `Discard: ${formatProjectScopedCommand(
+            currentProjectPath,
+            session,
+            handoff.handoffId,
+            "discard"
+          )}`
         : undefined,
   });
 }

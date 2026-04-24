@@ -4,6 +4,7 @@ import type { ArchivedAppliedHandoffArtifact, PendingHandoffArtifact } from "@/l
 type HandoffAction = "apply" | "discard" | "revert" | "reapply";
 
 interface SelectableHandoff {
+  handoffId: string;
   sessionId: string;
   commitSha: string;
 }
@@ -47,19 +48,49 @@ function findHandoffBySelector<T extends SelectableHandoff>(
     return { handoff: null, error: "Session selector cannot be empty." };
   }
 
-  const exactMatches = handoffs.filter((handoff) => handoff.sessionId === normalizedSelector);
-  if (exactMatches.length === 1) {
-    return { handoff: exactMatches[0] ?? null };
+  const exactHandoffMatches = handoffs.filter(
+    (handoff) => handoff.handoffId === normalizedSelector
+  );
+  if (exactHandoffMatches.length === 1) {
+    return { handoff: exactHandoffMatches[0] ?? null };
   }
 
-  const prefixMatches = handoffs.filter((handoff) =>
+  const handoffPrefixMatches = handoffs.filter((handoff) =>
+    handoff.handoffId.startsWith(normalizedSelector)
+  );
+  if (handoffPrefixMatches.length === 1) {
+    return { handoff: handoffPrefixMatches[0] ?? null };
+  }
+
+  if (handoffPrefixMatches.length > 1) {
+    return {
+      handoff: null,
+      error: `Session selector "${normalizedSelector}" is ambiguous for the current project.`,
+    };
+  }
+
+  const exactSessionMatches = handoffs.filter(
+    (handoff) => handoff.sessionId === normalizedSelector
+  );
+  if (exactSessionMatches.length === 1) {
+    return { handoff: exactSessionMatches[0] ?? null };
+  }
+
+  if (exactSessionMatches.length > 1) {
+    return {
+      handoff: null,
+      error: `Session selector "${normalizedSelector}" is ambiguous for the current project.`,
+    };
+  }
+
+  const sessionPrefixMatches = handoffs.filter((handoff) =>
     handoff.sessionId.startsWith(normalizedSelector)
   );
-  if (prefixMatches.length === 1) {
-    return { handoff: prefixMatches[0] ?? null };
+  if (sessionPrefixMatches.length === 1) {
+    return { handoff: sessionPrefixMatches[0] ?? null };
   }
 
-  if (prefixMatches.length > 1) {
+  if (sessionPrefixMatches.length > 1) {
     return {
       handoff: null,
       error: `Session selector "${normalizedSelector}" is ambiguous for the current project.`,
@@ -121,8 +152,8 @@ async function resolveHandoffSelection<T extends SelectableHandoff>(options: {
   const selection = await select({
     message: buildPromptMessage(options.action),
     options: options.handoffs.map((handoff) => ({
-      value: handoff.sessionId,
-      label: handoff.sessionId,
+      value: handoff.handoffId,
+      label: `${handoff.sessionId} / ${handoff.handoffId}`,
       hint: handoff.commitSha.slice(0, 8),
     })),
   });
@@ -132,7 +163,7 @@ async function resolveHandoffSelection<T extends SelectableHandoff>(options: {
   }
 
   return {
-    handoff: options.handoffs.find((handoff) => handoff.sessionId === selection) ?? null,
+    handoff: options.handoffs.find((handoff) => handoff.handoffId === selection) ?? null,
   };
 }
 

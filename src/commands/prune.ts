@@ -155,20 +155,20 @@ async function readStoredArtifacts(
 function buildPendingMetadataPath(
   storageRoot: string,
   projectPath: string,
-  sessionId: string
+  handoffId: string
 ): string {
-  return join(getProjectStorageDir(storageRoot, projectPath), "handoffs", `${sessionId}.json`);
+  return join(getProjectStorageDir(storageRoot, projectPath), "handoffs", `${handoffId}.json`);
 }
 
 function buildArchivedMetadataPath(
   storageRoot: string,
   projectPath: string,
-  sessionId: string
+  handoffId: string
 ): string {
   return join(
     getProjectStorageDir(storageRoot, projectPath),
     "handoff-history",
-    `${sessionId}.json`
+    `${handoffId}.json`
   );
 }
 
@@ -347,7 +347,9 @@ async function collectPruneCandidatesForProject(
   const sessionIds = new Set<string>([
     ...artifactsById.keys(),
     ...pendingHandoffs.map((handoff) => handoff.sessionId),
+    ...pendingHandoffs.map((handoff) => handoff.handoffId),
     ...archivedHandoffs.map((handoff) => handoff.sessionId),
+    ...archivedHandoffs.map((handoff) => handoff.handoffId),
     ...refsBySession.keys(),
     ...worktreeSessionIds,
   ]);
@@ -360,8 +362,12 @@ async function collectPruneCandidatesForProject(
     }
 
     const artifact = artifactsById.get(sessionId);
-    const pending = pendingHandoffs.find((handoff) => handoff.sessionId === sessionId);
-    const archived = archivedHandoffs.find((handoff) => handoff.sessionId === sessionId);
+    const pending = pendingHandoffs.find(
+      (handoff) => handoff.sessionId === sessionId || handoff.handoffId === sessionId
+    );
+    const archived = archivedHandoffs.find(
+      (handoff) => handoff.sessionId === sessionId || handoff.handoffId === sessionId
+    );
     const refs = refsBySession.get(sessionId) ?? [];
     const activeWorktree = await hasSessionWorktree(storageRoot, projectPath, sessionId);
 
@@ -405,11 +411,11 @@ async function collectPruneCandidatesForProject(
       logPath: artifact?.logPath ?? pending?.logPath ?? archived?.logPath,
       keepArchivedHistory,
       pendingMetadataPath: pending
-        ? buildPendingMetadataPath(storageRoot, projectPath, sessionId)
+        ? buildPendingMetadataPath(storageRoot, projectPath, pending.handoffId)
         : undefined,
       pendingPatchPath: pending ? pending.patchPath : undefined,
       archivedMetadataPath: archived
-        ? buildArchivedMetadataPath(storageRoot, projectPath, sessionId)
+        ? buildArchivedMetadataPath(storageRoot, projectPath, archived.handoffId)
         : undefined,
       archivedPatchPath: archived ? archived.patchPath : undefined,
       refs,

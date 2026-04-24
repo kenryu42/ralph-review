@@ -32,10 +32,12 @@ interface CreateOrAutoApplyOptions {
   projectPath: string;
   logPath: string;
   worktree: GitSessionWorktree;
+  handoffId?: string;
   autoApply?: boolean;
 }
 
 export interface SessionHandoffResult {
+  handoffId: string;
   handoffStatus: Extract<HandoffStatus, "applied-auto" | "pending-apply">;
   commitSha: string;
   handoffUpdatedAt: number;
@@ -46,7 +48,7 @@ class PendingHandoffApplyConflictError extends Error {
 
   constructor(artifact: PendingHandoffArtifact) {
     super(
-      `Review handoff "${artifact.sessionId}" has conflicts during apply. Resolve or abort the Git conflict, then rerun any rr command to reconcile the handoff automatically.`
+      `Review handoff "${artifact.handoffId}" has conflicts during apply. Resolve or abort the Git conflict, then rerun any rr command to reconcile the handoff automatically.`
     );
     this.name = "PendingHandoffApplyConflictError";
     this.artifact = artifact;
@@ -56,6 +58,10 @@ class PendingHandoffApplyConflictError extends Error {
 const SNAPSHOT_MISMATCH_ERROR_MESSAGE =
   "Current repository state no longer matches the saved review baseline.";
 const MAX_ARCHIVED_HANDOFFS = 5;
+
+function createHandoffId(sessionId: string): string {
+  return `${sessionId}-handoff-${crypto.randomUUID()}`;
+}
 
 function isMissingPathError(error: unknown): error is NodeJS.ErrnoException {
   return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";
@@ -79,33 +85,33 @@ function getProjectHandoffHistoryDir(
 function getPendingHandoffMetadataPath(
   storageRoot: string = CONFIG_DIR,
   projectPath: string,
-  sessionId: string
+  handoffId: string
 ): string {
-  return join(getProjectHandoffsDir(storageRoot, projectPath), `${sessionId}.json`);
+  return join(getProjectHandoffsDir(storageRoot, projectPath), `${handoffId}.json`);
 }
 
 function getPendingHandoffPatchPath(
   storageRoot: string = CONFIG_DIR,
   projectPath: string,
-  sessionId: string
+  handoffId: string
 ): string {
-  return join(getProjectHandoffsDir(storageRoot, projectPath), `${sessionId}.patch`);
+  return join(getProjectHandoffsDir(storageRoot, projectPath), `${handoffId}.patch`);
 }
 
 function getArchivedHandoffMetadataPath(
   storageRoot: string = CONFIG_DIR,
   projectPath: string,
-  sessionId: string
+  handoffId: string
 ): string {
-  return join(getProjectHandoffHistoryDir(storageRoot, projectPath), `${sessionId}.json`);
+  return join(getProjectHandoffHistoryDir(storageRoot, projectPath), `${handoffId}.json`);
 }
 
 function getArchivedHandoffPatchPath(
   storageRoot: string = CONFIG_DIR,
   projectPath: string,
-  sessionId: string
+  handoffId: string
 ): string {
-  return join(getProjectHandoffHistoryDir(storageRoot, projectPath), `${sessionId}.patch`);
+  return join(getProjectHandoffHistoryDir(storageRoot, projectPath), `${handoffId}.patch`);
 }
 
 function normalizePendingHandoff(raw: unknown): PendingHandoffArtifact | null {
@@ -115,6 +121,7 @@ function normalizePendingHandoff(raw: unknown): PendingHandoffArtifact | null {
 
   const candidate = raw as Record<string, unknown>;
   const {
+    handoffId,
     sessionId,
     projectPath,
     sourceRepoPath,
@@ -130,6 +137,7 @@ function normalizePendingHandoff(raw: unknown): PendingHandoffArtifact | null {
     applyStartFingerprint,
   } = candidate;
   if (
+    typeof handoffId !== "string" ||
     typeof sessionId !== "string" ||
     typeof projectPath !== "string" ||
     typeof sourceRepoPath !== "string" ||
@@ -153,6 +161,7 @@ function normalizePendingHandoff(raw: unknown): PendingHandoffArtifact | null {
   }
 
   return {
+    handoffId,
     sessionId,
     projectPath,
     sourceRepoPath,
@@ -177,6 +186,7 @@ function normalizeArchivedHandoff(raw: unknown): ArchivedAppliedHandoffArtifact 
 
   const candidate = raw as Record<string, unknown>;
   const {
+    handoffId,
     sessionId,
     projectPath,
     sourceRepoPath,
@@ -191,6 +201,7 @@ function normalizeArchivedHandoff(raw: unknown): ArchivedAppliedHandoffArtifact 
     appliedAt,
   } = candidate;
   if (
+    typeof handoffId !== "string" ||
     typeof sessionId !== "string" ||
     typeof projectPath !== "string" ||
     typeof sourceRepoPath !== "string" ||
@@ -208,6 +219,7 @@ function normalizeArchivedHandoff(raw: unknown): ArchivedAppliedHandoffArtifact 
   }
 
   return {
+    handoffId,
     sessionId,
     projectPath,
     sourceRepoPath,
@@ -269,7 +281,7 @@ async function writePendingHandoff(
   artifact: PendingHandoffArtifact
 ): Promise<void> {
   await Bun.write(
-    getPendingHandoffMetadataPath(storageRoot, artifact.projectPath, artifact.sessionId),
+    getPendingHandoffMetadataPath(storageRoot, artifact.projectPath, artifact.handoffId),
     JSON.stringify(artifact, null, 2),
     {
       createPath: true,
@@ -284,6 +296,7 @@ async function appendHandoffStatusLog(
   await appendLog(artifact.logPath, {
     type: "handoff",
     timestamp: Date.now(),
+    handoffId: artifact.handoffId,
     handoffStatus,
     commitSha: artifact.commitSha,
   });
@@ -294,7 +307,7 @@ async function deletePendingHandoffFiles(
   artifact: PendingHandoffArtifact
 ): Promise<void> {
   await Bun.file(
-    getPendingHandoffMetadataPath(storageRoot, artifact.projectPath, artifact.sessionId)
+    getPendingHandoffMetadataPath(storageRoot, artifact.projectPath, artifact.handoffId)
   )
     .delete()
     .catch(() => {});
@@ -308,7 +321,7 @@ async function deleteArchivedHandoffFiles(
   artifact: ArchivedAppliedHandoffArtifact
 ): Promise<void> {
   await Bun.file(
-    getArchivedHandoffMetadataPath(storageRoot, artifact.projectPath, artifact.sessionId)
+    getArchivedHandoffMetadataPath(storageRoot, artifact.projectPath, artifact.handoffId)
   )
     .delete()
     .catch(() => {});
@@ -323,9 +336,13 @@ function buildArchivedMismatchError(
 ): Error {
   return new Error(
     action === "revert"
-      ? `Archived review handoff "${artifact.sessionId}" cannot be reverted because the current repository state does not match its applied baseline.`
-      : `Archived review handoff "${artifact.sessionId}" cannot be reapplied because the current repository state does not match its source baseline.`
+      ? `Archived review handoff "${artifact.handoffId}" cannot be reverted because the current repository state does not match its applied baseline.`
+      : `Archived review handoff "${artifact.handoffId}" cannot be reapplied because the current repository state does not match its source baseline.`
   );
+}
+
+function deleteHandoffRefs(artifact: Pick<PendingHandoffArtifact, "sourceRepoPath" | "handoffId">) {
+  deleteSessionRefs(artifact.sourceRepoPath, artifact.handoffId);
 }
 
 async function copyPatchToArchive(sourcePath: string, destinationPath: string): Promise<void> {
@@ -355,11 +372,12 @@ async function archiveAppliedHandoff(
   const archivedPatchPath = getArchivedHandoffPatchPath(
     storageRoot,
     artifact.projectPath,
-    artifact.sessionId
+    artifact.handoffId
   );
   await copyPatchToArchive(artifact.patchPath, archivedPatchPath);
 
   const archivedArtifact: ArchivedAppliedHandoffArtifact = {
+    handoffId: artifact.handoffId,
     sessionId: artifact.sessionId,
     projectPath: artifact.projectPath,
     sourceRepoPath: artifact.sourceRepoPath,
@@ -376,7 +394,7 @@ async function archiveAppliedHandoff(
   };
 
   await Bun.write(
-    getArchivedHandoffMetadataPath(storageRoot, artifact.projectPath, artifact.sessionId),
+    getArchivedHandoffMetadataPath(storageRoot, artifact.projectPath, artifact.handoffId),
     JSON.stringify(archivedArtifact, null, 2),
     {
       createPath: true,
@@ -388,6 +406,7 @@ async function archiveAppliedHandoff(
 
 function restorePendingApplyArtifact(artifact: PendingHandoffArtifact): PendingHandoffArtifact {
   return {
+    handoffId: artifact.handoffId,
     sessionId: artifact.sessionId,
     projectPath: artifact.projectPath,
     sourceRepoPath: artifact.sourceRepoPath,
@@ -425,7 +444,7 @@ async function reconcilePendingHandoffArtifact(
   await archiveAppliedHandoff(storageRoot, artifact, "manual", {
     appliedFingerprint: currentFingerprint,
   });
-  deleteSessionRefs(artifact.sourceRepoPath, artifact.sessionId);
+  deleteHandoffRefs(artifact);
   await deletePendingHandoffFiles(storageRoot, artifact);
   await appendHandoffStatusLog(artifact, "applied-manual");
   return null;
@@ -442,11 +461,11 @@ async function applyPendingHandoffWithDivergedRepo(
     hasUnmergedPaths(artifact.sourceRepoPath)
   ) {
     throw new Error(
-      `Review handoff "${artifact.sessionId}" requires a clean working tree before rr apply.`
+      `Review handoff "${artifact.handoffId}" requires a clean working tree before rr apply.`
     );
   }
 
-  const checkpoint = createCheckpoint(artifact.sourceRepoPath, `apply-${artifact.sessionId}`);
+  const checkpoint = createCheckpoint(artifact.sourceRepoPath, `apply-${artifact.handoffId}`);
 
   try {
     const applyResult = applyBinaryPatchWithThreeWay(artifact.sourceRepoPath, artifact.patchPath);
@@ -466,7 +485,7 @@ async function applyPendingHandoffWithDivergedRepo(
 
     unstageWorktreeChanges(artifact.sourceRepoPath);
     await archiveAppliedHandoff(storageRoot, artifact, appliedVia);
-    deleteSessionRefs(artifact.sourceRepoPath, artifact.sessionId);
+    deleteHandoffRefs(artifact);
     await deletePendingHandoffFiles(storageRoot, artifact);
     discardCheckpoint(artifact.sourceRepoPath, checkpoint);
     return artifact;
@@ -487,7 +506,7 @@ async function applyPendingHandoffArtifact(
 ): Promise<PendingHandoffArtifact> {
   if (artifact.state === "apply-conflicted") {
     throw new Error(
-      `Review handoff "${artifact.sessionId}" is waiting for Git conflicts to be resolved or aborted.`
+      `Review handoff "${artifact.handoffId}" is waiting for Git conflicts to be resolved or aborted.`
     );
   }
 
@@ -495,7 +514,7 @@ async function applyPendingHandoffArtifact(
   if (currentFingerprint === artifact.sourceBaselineFingerprint) {
     applyBinaryPatch(artifact.sourceRepoPath, artifact.patchPath);
     await archiveAppliedHandoff(storageRoot, artifact, appliedVia);
-    deleteSessionRefs(artifact.sourceRepoPath, artifact.sessionId);
+    deleteHandoffRefs(artifact);
     await deletePendingHandoffFiles(storageRoot, artifact);
     return artifact;
   }
@@ -536,8 +555,8 @@ async function applyArchivedHandoffArtifact(
   if (resultingFingerprint !== targetFingerprint) {
     throw new Error(
       action === "revert"
-        ? `Archived review handoff "${artifact.sessionId}" did not revert to the expected source baseline.`
-        : `Archived review handoff "${artifact.sessionId}" did not reapply to the expected applied baseline.`
+        ? `Archived review handoff "${artifact.handoffId}" did not revert to the expected source baseline.`
+        : `Archived review handoff "${artifact.handoffId}" did not reapply to the expected applied baseline.`
     );
   }
 
@@ -547,10 +566,10 @@ async function applyArchivedHandoffArtifact(
 async function readPendingHandoffArtifact(
   storageRoot: string = CONFIG_DIR,
   projectPath: string,
-  sessionId: string
+  handoffId: string
 ): Promise<PendingHandoffArtifact | null> {
   return await readArtifactFile(
-    getPendingHandoffMetadataPath(storageRoot, projectPath, sessionId),
+    getPendingHandoffMetadataPath(storageRoot, projectPath, handoffId),
     normalizePendingHandoff
   );
 }
@@ -558,9 +577,9 @@ async function readPendingHandoffArtifact(
 export async function readPendingHandoff(
   storageRoot: string = CONFIG_DIR,
   projectPath: string,
-  sessionId: string
+  handoffId: string
 ): Promise<PendingHandoffArtifact | null> {
-  const artifact = await readPendingHandoffArtifact(storageRoot, projectPath, sessionId);
+  const artifact = await readPendingHandoffArtifact(storageRoot, projectPath, handoffId);
   if (!artifact) {
     return null;
   }
@@ -571,10 +590,10 @@ export async function readPendingHandoff(
 async function readArchivedHandoff(
   storageRoot: string = CONFIG_DIR,
   projectPath: string,
-  sessionId: string
+  handoffId: string
 ): Promise<ArchivedAppliedHandoffArtifact | null> {
   return await readArtifactFile(
-    getArchivedHandoffMetadataPath(storageRoot, projectPath, sessionId),
+    getArchivedHandoffMetadataPath(storageRoot, projectPath, handoffId),
     normalizeArchivedHandoff
   );
 }
@@ -585,7 +604,7 @@ export async function listProjectPendingHandoffs(
 ): Promise<PendingHandoffArtifact[]> {
   return await listArtifacts(
     getProjectHandoffsDir(storageRoot, projectPath),
-    (sessionId) => readPendingHandoff(storageRoot, projectPath, sessionId),
+    (handoffId) => readPendingHandoff(storageRoot, projectPath, handoffId),
     (left, right) => right.updatedAt - left.updatedAt
   );
 }
@@ -596,7 +615,7 @@ export async function listProjectArchivedHandoffs(
 ): Promise<ArchivedAppliedHandoffArtifact[]> {
   return await listArtifacts(
     getProjectHandoffHistoryDir(storageRoot, projectPath),
-    (sessionId) => readArchivedHandoff(storageRoot, projectPath, sessionId),
+    (handoffId) => readArchivedHandoff(storageRoot, projectPath, handoffId),
     (left, right) => right.appliedAt - left.appliedAt
   );
 }
@@ -630,11 +649,11 @@ export async function listProjectReapplicableHandoffs(
 export async function applyPendingHandoff(
   storageRoot: string = CONFIG_DIR,
   projectPath: string,
-  sessionId: string
+  handoffId: string
 ): Promise<PendingHandoffArtifact> {
-  const artifact = await readPendingHandoff(storageRoot, projectPath, sessionId);
+  const artifact = await readPendingHandoff(storageRoot, projectPath, handoffId);
   if (!artifact) {
-    throw new Error(`Pending review handoff "${sessionId}" was not found.`);
+    throw new Error(`Pending review handoff "${handoffId}" was not found.`);
   }
 
   return await applyPendingHandoffArtifact(storageRoot, artifact, "manual");
@@ -643,12 +662,12 @@ export async function applyPendingHandoff(
 export async function revertArchivedHandoff(
   storageRoot: string = CONFIG_DIR,
   projectPath: string,
-  sessionId: string,
+  handoffId: string,
   expectedCurrentFingerprint?: string
 ): Promise<ArchivedAppliedHandoffArtifact> {
-  const artifact = await readArchivedHandoff(storageRoot, projectPath, sessionId);
+  const artifact = await readArchivedHandoff(storageRoot, projectPath, handoffId);
   if (!artifact) {
-    throw new Error(`Archived review handoff "${sessionId}" was not found.`);
+    throw new Error(`Archived review handoff "${handoffId}" was not found.`);
   }
 
   return await applyArchivedHandoffArtifact(artifact, "revert", expectedCurrentFingerprint);
@@ -657,12 +676,12 @@ export async function revertArchivedHandoff(
 export async function reapplyArchivedHandoff(
   storageRoot: string = CONFIG_DIR,
   projectPath: string,
-  sessionId: string,
+  handoffId: string,
   expectedCurrentFingerprint?: string
 ): Promise<ArchivedAppliedHandoffArtifact> {
-  const artifact = await readArchivedHandoff(storageRoot, projectPath, sessionId);
+  const artifact = await readArchivedHandoff(storageRoot, projectPath, handoffId);
   if (!artifact) {
-    throw new Error(`Archived review handoff "${sessionId}" was not found.`);
+    throw new Error(`Archived review handoff "${handoffId}" was not found.`);
   }
 
   return await applyArchivedHandoffArtifact(artifact, "reapply", expectedCurrentFingerprint);
@@ -671,20 +690,20 @@ export async function reapplyArchivedHandoff(
 export async function discardPendingHandoff(
   storageRoot: string = CONFIG_DIR,
   projectPath: string,
-  sessionId: string
+  handoffId: string
 ): Promise<PendingHandoffArtifact> {
-  const artifact = await readPendingHandoff(storageRoot, projectPath, sessionId);
+  const artifact = await readPendingHandoff(storageRoot, projectPath, handoffId);
   if (!artifact) {
-    throw new Error(`Pending review handoff "${sessionId}" was not found.`);
+    throw new Error(`Pending review handoff "${handoffId}" was not found.`);
   }
 
   if (artifact.state === "apply-conflicted") {
     throw new Error(
-      `Review handoff "${artifact.sessionId}" is waiting for Git conflicts to be resolved or aborted.`
+      `Review handoff "${artifact.handoffId}" is waiting for Git conflicts to be resolved or aborted.`
     );
   }
 
-  deleteSessionRefs(artifact.sourceRepoPath, artifact.sessionId);
+  deleteHandoffRefs(artifact);
   await deletePendingHandoffFiles(storageRoot, artifact);
   return artifact;
 }
@@ -699,7 +718,8 @@ export async function createOrAutoApplyHandoff(
   }
   options.worktree.preserveBranchOnDiscard = false;
 
-  const patchPath = getPendingHandoffPatchPath(storageRoot, options.projectPath, options.sessionId);
+  const handoffId = options.handoffId ?? createHandoffId(options.sessionId);
+  const patchPath = getPendingHandoffPatchPath(storageRoot, options.projectPath, handoffId);
   const sourceBaselineCommitSha = options.worktree.sourceBaselineCommitSha;
   const sourceBaselineFingerprint = options.worktree.sourceBaselineFingerprint;
   if (!sourceBaselineCommitSha) {
@@ -717,13 +737,14 @@ export async function createOrAutoApplyHandoff(
     patchPath
   );
 
-  const hiddenRef = buildHandoffRef(options.sessionId);
+  const hiddenRef = buildHandoffRef(handoffId);
   createHandoffRef(options.worktree.sourceRepoPath, hiddenRef, retained.commitSha);
   options.worktree.finalCommitSha = retained.commitSha;
   options.worktree.finalRef = hiddenRef;
 
   const handoffUpdatedAt = Date.now();
   const artifact: PendingHandoffArtifact = {
+    handoffId,
     sessionId: options.sessionId,
     projectPath: options.projectPath,
     sourceRepoPath: options.worktree.sourceRepoPath,
@@ -741,6 +762,7 @@ export async function createOrAutoApplyHandoff(
     try {
       await applyPendingHandoffArtifact(storageRoot, artifact, "auto");
       return {
+        handoffId,
         handoffStatus: "applied-auto",
         commitSha: artifact.commitSha,
         handoffUpdatedAt,
@@ -755,6 +777,7 @@ export async function createOrAutoApplyHandoff(
   await writePendingHandoff(storageRoot, artifact);
 
   return {
+    handoffId,
     handoffStatus: "pending-apply",
     commitSha: artifact.commitSha,
     handoffUpdatedAt,

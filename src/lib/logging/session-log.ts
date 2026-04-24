@@ -539,6 +539,7 @@ function applyEntryToSummary(
 
   if (entry.type === "handoff") {
     next.handoffStatus = entry.handoffStatus;
+    next.handoffId = entry.handoffId ?? next.handoffId;
     next.handoffUpdatedAt = entry.timestamp;
     if (entry.commitSha !== undefined) {
       next.commitSha = entry.commitSha;
@@ -557,6 +558,7 @@ function applyEntryToSummary(
   next.sessionStatus = entry.sessionStatus ?? next.sessionStatus;
   next.reviewOutcome = entry.reviewOutcome ?? next.reviewOutcome;
   next.handoffStatus = entry.handoffStatus ?? next.handoffStatus;
+  next.handoffId = entry.handoffId ?? next.handoffId;
   next.handoffUpdatedAt = entry.handoffUpdatedAt ?? next.handoffUpdatedAt;
   next.mergeReady = entry.mergeReady;
   next.commitSha = entry.commitSha ?? next.commitSha;
@@ -952,6 +954,7 @@ export async function computeSessionStats(session: LogSession): Promise<SessionS
     commitSha: summary?.commitSha,
     reviewOutcome: summary?.reviewOutcome,
     handoffStatus: summary?.handoffStatus,
+    handoffId: summary?.handoffId,
     handoffUpdatedAt: summary?.handoffUpdatedAt,
     status: summary?.status ?? deriveRunStatusFromEntries(entries, metrics),
     sessionStatus: summary?.sessionStatus,

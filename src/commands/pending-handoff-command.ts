@@ -23,7 +23,7 @@ interface RunPendingHandoffCommandOptions {
   successMessage: string;
   logStatus: Extract<HandoffStatus, "applied-manual" | "discarded">;
   deps: PendingHandoffCommandDeps;
-  execute: (projectPath: string, sessionId: string) => Promise<PendingHandoffArtifact>;
+  execute: (projectPath: string, handoffId: string) => Promise<PendingHandoffArtifact>;
 }
 
 const NO_PENDING_HANDOFFS_MESSAGE = "No pending review handoffs for current working directory.";
@@ -71,11 +71,12 @@ export async function runPendingHandoffCommand(
     return;
   }
 
-  p.log.step(`${options.progressLabel}: ${selection.handoff.sessionId}`);
-  const artifact = await options.execute(projectPath, selection.handoff.sessionId);
+  p.log.step(`${options.progressLabel}: ${selection.handoff.handoffId}`);
+  const artifact = await options.execute(projectPath, selection.handoff.handoffId);
   await appendLog(artifact.logPath, {
     type: "handoff",
     timestamp: Date.now(),
+    handoffId: artifact.handoffId,
     handoffStatus: options.logStatus,
     commitSha: artifact.commitSha,
   });

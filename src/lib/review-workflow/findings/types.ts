@@ -1,3 +1,4 @@
+import type { RetainedSessionWorktree } from "@/lib/git";
 import type { Priority } from "@/lib/types";
 
 export type FindingId = `F${string}`;
@@ -34,6 +35,7 @@ export interface FindingsArtifact {
   sourceBaselineFingerprint: string;
   finalRef?: string;
   finalCommitSha?: string;
+  retainedWorktree?: RetainedSessionWorktree;
   findings: StoredFinding[];
   selectedFindingIds: FindingId[];
   fixResults?: FindingFixResult[];

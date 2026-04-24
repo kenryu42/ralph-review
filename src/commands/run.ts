@@ -139,6 +139,7 @@ function mapFixSessionResult(baseResult: CycleResult, fixResult: FixSessionResul
     reviewOutcome: fixResult.reviewOutcome,
     retainedWorktree: fixResult.retainedWorktree,
     handoffStatus: fixResult.handoffStatus,
+    handoffId: fixResult.handoffId,
     handoffUpdatedAt: fixResult.handoffUpdatedAt,
     commitSha: fixResult.commitSha,
     artifact: fixResult.artifact ?? baseResult.artifact,
@@ -622,8 +623,12 @@ export async function runForeground(
     const handoffNote = formatHandoffNote({
       handoffStatus: cycleResult.handoffStatus,
       commitSha: cycleResult.commitSha,
-      applyCommand: sessionId ? `Apply: rr apply --session ${sessionId}` : undefined,
-      discardCommand: sessionId ? `Discard: rr discard --session ${sessionId}` : undefined,
+      applyCommand: cycleResult.handoffId
+        ? `Apply: rr apply --session ${cycleResult.handoffId}`
+        : undefined,
+      discardCommand: cycleResult.handoffId
+        ? `Discard: rr discard --session ${cycleResult.handoffId}`
+        : undefined,
     });
     if (handoffNote) {
       runtime.prompt.note(handoffNote, "Handoff");
@@ -661,6 +666,7 @@ export async function runForeground(
           artifactPath: cycleResult.artifactPath,
           reviewOutcome: cycleResult.reviewOutcome,
           handoffStatus: cycleResult.handoffStatus,
+          handoffId: cycleResult.handoffId,
           handoffUpdatedAt: cycleResult.handoffUpdatedAt,
           commitSha: cycleResult.commitSha,
         },
@@ -685,6 +691,7 @@ export async function runForeground(
         artifactPath: undefined,
         reviewOutcome: undefined,
         handoffStatus: undefined,
+        handoffId: undefined,
         handoffUpdatedAt: undefined,
         commitSha: undefined,
       });

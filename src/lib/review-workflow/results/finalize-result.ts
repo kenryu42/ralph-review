@@ -52,6 +52,7 @@ export async function finalizeResult(
   }
 
   let handoffStatus: FixSessionResult["handoffStatus"];
+  let handoffId: string | undefined;
   let handoffUpdatedAt: number | undefined;
   let commitSha: string | undefined;
 
@@ -64,6 +65,7 @@ export async function finalizeResult(
     });
 
     if (handoff) {
+      handoffId = handoff.handoffId;
       handoffStatus = handoff.handoffStatus;
       handoffUpdatedAt = handoff.handoffUpdatedAt;
       commitSha = handoff.commitSha;
@@ -71,6 +73,7 @@ export async function finalizeResult(
       await deps.appendLog(input.artifact.logPath, {
         type: "handoff",
         timestamp: handoff.handoffUpdatedAt,
+        handoffId: handoff.handoffId,
         handoffStatus: handoff.handoffStatus,
         commitSha: handoff.commitSha,
       });
@@ -88,6 +91,7 @@ export async function finalizeResult(
     unresolvedSelectedFindings,
     unselectedFindings,
     handoffStatus,
+    handoffId,
     handoffUpdatedAt,
     commitSha,
   };

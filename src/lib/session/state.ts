@@ -65,6 +65,7 @@ interface CreateSessionStateOptions {
   sessionStatus?: WorkflowSessionStatus;
   reviewOutcome?: ReviewOutcome;
   handoffStatus?: HandoffStatus;
+  handoffId?: string;
   handoffUpdatedAt?: number;
   commitSha?: string;
   artifactPath?: string;
@@ -97,6 +98,7 @@ export interface SessionState {
   sessionStatus?: WorkflowSessionStatus;
   reviewOutcome?: ReviewOutcome;
   handoffStatus?: HandoffStatus;
+  handoffId?: string;
   handoffUpdatedAt?: number;
   commitSha?: string;
   artifactPath?: string;
@@ -314,6 +316,7 @@ export async function createSessionState(
     sessionStatus: options.sessionStatus,
     reviewOutcome: options.reviewOutcome,
     handoffStatus: options.handoffStatus,
+    handoffId: options.handoffId,
     handoffUpdatedAt: options.handoffUpdatedAt,
     commitSha: options.commitSha,
     artifactPath: options.artifactPath,

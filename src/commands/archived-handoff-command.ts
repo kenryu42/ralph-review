@@ -27,7 +27,7 @@ interface RunArchivedHandoffCommandOptions {
   listMatchingHandoffs: (projectPath: string) => Promise<ArchivedHandoffMatchResult>;
   execute: (
     projectPath: string,
-    sessionId: string,
+    handoffId: string,
     expectedCurrentFingerprint?: string
   ) => Promise<ArchivedAppliedHandoffArtifact>;
 }
@@ -90,13 +90,13 @@ export async function runArchivedHandoffCommand(
     return;
   }
 
-  p.log.step(`${options.progressLabel}: ${selection.handoff.sessionId}`);
+  p.log.step(`${options.progressLabel}: ${selection.handoff.handoffId}`);
   const spinner = p.spinner();
   spinner.start(options.spinnerMessage);
   try {
     await options.execute(
       projectPath,
-      selection.handoff.sessionId,
+      selection.handoff.handoffId,
       parsed.session ? undefined : matching?.currentFingerprint
     );
   } catch (error) {

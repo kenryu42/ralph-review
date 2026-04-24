@@ -21,6 +21,7 @@ export interface SessionStats {
   commitSha?: string;
   reviewOutcome?: ReviewOutcome;
   handoffStatus?: HandoffStatus;
+  handoffId?: string;
   handoffUpdatedAt?: number;
   status: DerivedRunStatus;
   sessionStatus?: SessionStatus;

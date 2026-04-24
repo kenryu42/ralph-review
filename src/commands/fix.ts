@@ -526,11 +526,9 @@ export async function runFixForeground(
     const handoffNote = formatHandoffNote({
       handoffStatus: result.handoffStatus,
       commitSha: result.commitSha,
-      applyCommand: result.artifact
-        ? `Apply: rr apply --session ${result.artifact.sessionId}`
-        : undefined,
-      discardCommand: result.artifact
-        ? `Discard: rr discard --session ${result.artifact.sessionId}`
+      applyCommand: result.handoffId ? `Apply: rr apply --session ${result.handoffId}` : undefined,
+      discardCommand: result.handoffId
+        ? `Discard: rr discard --session ${result.handoffId}`
         : undefined,
     });
     if (handoffNote) {
@@ -562,6 +560,7 @@ export async function runFixForeground(
         worktreeCommitSha: result.retainedWorktree?.commitSha,
         reviewOutcome: result.reviewOutcome,
         handoffStatus: result.handoffStatus,
+        handoffId: result.handoffId,
         handoffUpdatedAt: result.handoffUpdatedAt,
         commitSha: result.commitSha,
         selectedFindingIds: result.selection.selectedFindingIds,
@@ -582,6 +581,7 @@ export async function runFixForeground(
         worktreeCommitSha: undefined,
         reviewOutcome: undefined,
         handoffStatus: undefined,
+        handoffId: undefined,
         handoffUpdatedAt: undefined,
         commitSha: undefined,
         selectedFindingIds: undefined,

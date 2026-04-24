@@ -6,6 +6,7 @@ export type HandoffStatus =
   | "discarded";
 
 export interface PendingHandoffArtifact {
+  handoffId: string;
   sessionId: string;
   projectPath: string;
   sourceRepoPath: string;
@@ -22,6 +23,7 @@ export interface PendingHandoffArtifact {
 }
 
 export interface ArchivedAppliedHandoffArtifact {
+  handoffId: string;
   sessionId: string;
   projectPath: string;
   sourceRepoPath: string;

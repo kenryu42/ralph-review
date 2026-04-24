@@ -51,6 +51,7 @@ export interface SessionEndEntry {
   sessionStatus?: SessionStatus;
   reviewOutcome?: ReviewOutcome;
   handoffStatus?: HandoffStatus;
+  handoffId?: string;
   handoffUpdatedAt?: number;
   mergeReady?: boolean;
   commitSha?: string;
@@ -62,6 +63,7 @@ export interface SessionEndEntry {
 export interface HandoffEntry {
   type: "handoff";
   timestamp: number;
+  handoffId?: string;
   handoffStatus: HandoffStatus;
   commitSha?: string;
 }
@@ -117,6 +119,7 @@ export interface SessionSummary {
   totalDuration?: number;
   reviewOutcome?: ReviewOutcome;
   handoffStatus?: HandoffStatus;
+  handoffId?: string;
   handoffUpdatedAt?: number;
   mergeReady?: boolean;
   commitSha?: string;

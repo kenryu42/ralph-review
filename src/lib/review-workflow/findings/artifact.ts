@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import type { RetainedSessionWorktree } from "@/lib/git";
 import { getProjectStorageDir } from "@/lib/logging";
 import type {
   FindingFixResult,
@@ -84,6 +85,23 @@ function isFixResultArray(value: unknown): value is FindingFixResult[] {
   });
 }
 
+function isRetainedSessionWorktree(value: unknown): value is RetainedSessionWorktree {
+  if (value === undefined) {
+    return true;
+  }
+
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  return (
+    typeof value.worktreeProjectPath === "string" &&
+    typeof value.worktreeBranch === "string" &&
+    typeof value.mergeReady === "boolean" &&
+    (value.commitSha === undefined || typeof value.commitSha === "string")
+  );
+}
+
 function isFindingsArtifact(value: unknown): value is FindingsArtifact {
   if (!isRecord(value)) {
     return false;
@@ -136,6 +154,10 @@ function isFindingsArtifact(value: unknown): value is FindingsArtifact {
   }
 
   if (value.finalCommitSha !== undefined && typeof value.finalCommitSha !== "string") {
+    return false;
+  }
+
+  if (!isRetainedSessionWorktree(value.retainedWorktree)) {
     return false;
   }
 
@@ -294,6 +316,19 @@ export async function appendFixResults(
   });
 }
 
+export async function updateRetainedWorktree(
+  storageRoot: string,
+  projectPath: string,
+  sessionId: string,
+  retainedWorktree: RetainedSessionWorktree | undefined
+): Promise<FindingsArtifact> {
+  const artifact = await loadRequiredArtifact(storageRoot, projectPath, sessionId);
+  return await saveFindingsArtifact(storageRoot, {
+    ...artifact,
+    retainedWorktree,
+  });
+}
+
 export async function validateArtifactBaseline(
   artifact: FindingsArtifact
 ): Promise<{ baselineCommitSha: string }> {
@@ -308,6 +343,27 @@ export async function validateArtifactBaseline(
 
   if (result.exitCode !== 0) {
     throw new Error(`Baseline commit ${artifact.baselineCommitSha} not found`);
+  }
+
+  if (artifact.retainedWorktree && !artifact.retainedWorktree.commitSha) {
+    throw new Error("Retained remediation commit is missing");
+  }
+
+  if (artifact.retainedWorktree?.commitSha) {
+    const retainedResult = Bun.spawnSync(
+      ["git", "cat-file", "-e", `${artifact.retainedWorktree.commitSha}^{commit}`],
+      {
+        cwd: artifact.projectPath,
+        stdout: "pipe",
+        stderr: "pipe",
+      }
+    );
+
+    if (retainedResult.exitCode !== 0) {
+      throw new Error(
+        `Retained remediation commit ${artifact.retainedWorktree.commitSha} not found`
+      );
+    }
   }
 
   return {

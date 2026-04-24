@@ -62,13 +62,14 @@ export async function runApply(args: string[], deps: Partial<ApplyDeps> = {}): P
     return;
   }
 
-  p.log.step(`Applying handoff: ${selection.handoff.sessionId}`);
+  p.log.step(`Applying handoff: ${selection.handoff.handoffId}`);
 
   try {
-    const artifact = await applyPendingHandoff(undefined, projectPath, selection.handoff.sessionId);
+    const artifact = await applyPendingHandoff(undefined, projectPath, selection.handoff.handoffId);
     await appendLog(artifact.logPath, {
       type: "handoff",
       timestamp: Date.now(),
+      handoffId: artifact.handoffId,
       handoffStatus: "applied-manual",
       commitSha: artifact.commitSha,
     });
