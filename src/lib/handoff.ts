@@ -3,11 +3,9 @@ import { CONFIG_DIR } from "@/lib/config";
 import type { GitSessionWorktree } from "@/lib/git";
 import {
   applyBinaryPatch,
-  applyBinaryPatchAsync,
   applyBinaryPatchWithThreeWay,
   buildHandoffRef,
   computeWorkingTreeFingerprint,
-  computeWorkingTreeFingerprintAsync,
   createBaselineToFinalPatch,
   createCheckpoint,
   createHandoffRef,
@@ -20,12 +18,9 @@ import {
   unstageWorktreeChanges,
 } from "@/lib/git";
 import { appendLog, getProjectStorageDir } from "@/lib/logger";
-import type {
-  ArchivedAppliedHandoffArtifact,
-  ArchivedHandoffMatchResult,
-  HandoffStatus,
-  PendingHandoffArtifact,
-} from "@/lib/types";
+import type { HandoffStatus, PendingHandoffArtifact } from "@/lib/types";
+
+type HandoffApplyMode = "auto" | "manual";
 
 interface CreateOrAutoApplyOptions {
   sessionId: string;
@@ -57,7 +52,6 @@ class PendingHandoffApplyConflictError extends Error {
 
 const SNAPSHOT_MISMATCH_ERROR_MESSAGE =
   "Current repository state no longer matches the saved review baseline.";
-const MAX_ARCHIVED_HANDOFFS = 5;
 
 function createHandoffId(sessionId: string): string {
   return `${sessionId}-handoff-${crypto.randomUUID()}`;
@@ -75,13 +69,6 @@ function getProjectHandoffsDir(storageRoot: string = CONFIG_DIR, projectPath: st
   return join(getProjectStorageDir(storageRoot, projectPath), "handoffs");
 }
 
-function getProjectHandoffHistoryDir(
-  storageRoot: string = CONFIG_DIR,
-  projectPath: string
-): string {
-  return join(getProjectStorageDir(storageRoot, projectPath), "handoff-history");
-}
-
 function getPendingHandoffMetadataPath(
   storageRoot: string = CONFIG_DIR,
   projectPath: string,
@@ -96,22 +83,6 @@ function getPendingHandoffPatchPath(
   handoffId: string
 ): string {
   return join(getProjectHandoffsDir(storageRoot, projectPath), `${handoffId}.patch`);
-}
-
-function getArchivedHandoffMetadataPath(
-  storageRoot: string = CONFIG_DIR,
-  projectPath: string,
-  handoffId: string
-): string {
-  return join(getProjectHandoffHistoryDir(storageRoot, projectPath), `${handoffId}.json`);
-}
-
-function getArchivedHandoffPatchPath(
-  storageRoot: string = CONFIG_DIR,
-  projectPath: string,
-  handoffId: string
-): string {
-  return join(getProjectHandoffHistoryDir(storageRoot, projectPath), `${handoffId}.patch`);
 }
 
 function normalizePendingHandoff(raw: unknown): PendingHandoffArtifact | null {
@@ -176,62 +147,6 @@ function normalizePendingHandoff(raw: unknown): PendingHandoffArtifact | null {
     applyStartedAt: typeof applyStartedAt === "number" ? applyStartedAt : undefined,
     applyStartFingerprint:
       typeof applyStartFingerprint === "string" ? applyStartFingerprint : undefined,
-  };
-}
-
-function normalizeArchivedHandoff(raw: unknown): ArchivedAppliedHandoffArtifact | null {
-  if (!raw || typeof raw !== "object") {
-    return null;
-  }
-
-  const candidate = raw as Record<string, unknown>;
-  const {
-    handoffId,
-    sessionId,
-    projectPath,
-    sourceRepoPath,
-    logPath,
-    patchPath,
-    sourceBaselineFingerprint,
-    appliedFingerprint,
-    commitSha,
-    appliedVia,
-    state,
-    createdAt,
-    appliedAt,
-  } = candidate;
-  if (
-    typeof handoffId !== "string" ||
-    typeof sessionId !== "string" ||
-    typeof projectPath !== "string" ||
-    typeof sourceRepoPath !== "string" ||
-    typeof logPath !== "string" ||
-    typeof patchPath !== "string" ||
-    typeof sourceBaselineFingerprint !== "string" ||
-    typeof appliedFingerprint !== "string" ||
-    typeof commitSha !== "string" ||
-    (appliedVia !== "auto" && appliedVia !== "manual") ||
-    state !== "archived-applied" ||
-    typeof createdAt !== "number" ||
-    typeof appliedAt !== "number"
-  ) {
-    return null;
-  }
-
-  return {
-    handoffId,
-    sessionId,
-    projectPath,
-    sourceRepoPath,
-    logPath,
-    patchPath,
-    sourceBaselineFingerprint,
-    appliedFingerprint,
-    commitSha,
-    appliedVia,
-    state,
-    createdAt,
-    appliedAt,
   };
 }
 
@@ -316,92 +231,8 @@ async function deletePendingHandoffFiles(
     .catch(() => {});
 }
 
-async function deleteArchivedHandoffFiles(
-  storageRoot: string,
-  artifact: ArchivedAppliedHandoffArtifact
-): Promise<void> {
-  await Bun.file(
-    getArchivedHandoffMetadataPath(storageRoot, artifact.projectPath, artifact.handoffId)
-  )
-    .delete()
-    .catch(() => {});
-  await Bun.file(artifact.patchPath)
-    .delete()
-    .catch(() => {});
-}
-
-function buildArchivedMismatchError(
-  artifact: ArchivedAppliedHandoffArtifact,
-  action: "revert" | "reapply"
-): Error {
-  return new Error(
-    action === "revert"
-      ? `Archived review handoff "${artifact.handoffId}" cannot be reverted because the current repository state does not match its applied baseline.`
-      : `Archived review handoff "${artifact.handoffId}" cannot be reapplied because the current repository state does not match its source baseline.`
-  );
-}
-
 function deleteHandoffRefs(artifact: Pick<PendingHandoffArtifact, "sourceRepoPath" | "handoffId">) {
   deleteSessionRefs(artifact.sourceRepoPath, artifact.handoffId);
-}
-
-async function copyPatchToArchive(sourcePath: string, destinationPath: string): Promise<void> {
-  await Bun.write(destinationPath, await Bun.file(sourcePath).arrayBuffer(), {
-    createPath: true,
-  });
-}
-
-async function pruneProjectArchivedHandoffs(
-  storageRoot: string,
-  projectPath: string
-): Promise<void> {
-  const archived = await listProjectArchivedHandoffs(storageRoot, projectPath);
-  for (const artifact of archived.slice(MAX_ARCHIVED_HANDOFFS)) {
-    await deleteArchivedHandoffFiles(storageRoot, artifact);
-  }
-}
-
-async function archiveAppliedHandoff(
-  storageRoot: string,
-  artifact: PendingHandoffArtifact,
-  appliedVia: ArchivedAppliedHandoffArtifact["appliedVia"],
-  options: {
-    appliedFingerprint?: string;
-  } = {}
-): Promise<ArchivedAppliedHandoffArtifact> {
-  const archivedPatchPath = getArchivedHandoffPatchPath(
-    storageRoot,
-    artifact.projectPath,
-    artifact.handoffId
-  );
-  await copyPatchToArchive(artifact.patchPath, archivedPatchPath);
-
-  const archivedArtifact: ArchivedAppliedHandoffArtifact = {
-    handoffId: artifact.handoffId,
-    sessionId: artifact.sessionId,
-    projectPath: artifact.projectPath,
-    sourceRepoPath: artifact.sourceRepoPath,
-    logPath: artifact.logPath,
-    patchPath: archivedPatchPath,
-    sourceBaselineFingerprint: artifact.sourceBaselineFingerprint,
-    appliedFingerprint:
-      options.appliedFingerprint ?? computeWorkingTreeFingerprint(artifact.sourceRepoPath),
-    commitSha: artifact.commitSha,
-    appliedVia,
-    state: "archived-applied",
-    createdAt: artifact.createdAt,
-    appliedAt: Date.now(),
-  };
-
-  await Bun.write(
-    getArchivedHandoffMetadataPath(storageRoot, artifact.projectPath, artifact.handoffId),
-    JSON.stringify(archivedArtifact, null, 2),
-    {
-      createPath: true,
-    }
-  );
-  await pruneProjectArchivedHandoffs(storageRoot, artifact.projectPath);
-  return archivedArtifact;
 }
 
 function restorePendingApplyArtifact(artifact: PendingHandoffArtifact): PendingHandoffArtifact {
@@ -441,9 +272,6 @@ async function reconcilePendingHandoffArtifact(
     return restored;
   }
 
-  await archiveAppliedHandoff(storageRoot, artifact, "manual", {
-    appliedFingerprint: currentFingerprint,
-  });
   deleteHandoffRefs(artifact);
   await deletePendingHandoffFiles(storageRoot, artifact);
   await appendHandoffStatusLog(artifact, "applied-manual");
@@ -453,7 +281,6 @@ async function reconcilePendingHandoffArtifact(
 async function applyPendingHandoffWithDivergedRepo(
   storageRoot: string,
   artifact: PendingHandoffArtifact,
-  appliedVia: ArchivedAppliedHandoffArtifact["appliedVia"],
   currentFingerprint: string
 ): Promise<PendingHandoffArtifact> {
   if (
@@ -484,7 +311,6 @@ async function applyPendingHandoffWithDivergedRepo(
     }
 
     unstageWorktreeChanges(artifact.sourceRepoPath);
-    await archiveAppliedHandoff(storageRoot, artifact, appliedVia);
     deleteHandoffRefs(artifact);
     await deletePendingHandoffFiles(storageRoot, artifact);
     discardCheckpoint(artifact.sourceRepoPath, checkpoint);
@@ -502,7 +328,7 @@ async function applyPendingHandoffWithDivergedRepo(
 async function applyPendingHandoffArtifact(
   storageRoot: string,
   artifact: PendingHandoffArtifact,
-  appliedVia: ArchivedAppliedHandoffArtifact["appliedVia"]
+  applyMode: HandoffApplyMode
 ): Promise<PendingHandoffArtifact> {
   if (artifact.state === "apply-conflicted") {
     throw new Error(
@@ -513,54 +339,16 @@ async function applyPendingHandoffArtifact(
   const currentFingerprint = computeWorkingTreeFingerprint(artifact.sourceRepoPath);
   if (currentFingerprint === artifact.sourceBaselineFingerprint) {
     applyBinaryPatch(artifact.sourceRepoPath, artifact.patchPath);
-    await archiveAppliedHandoff(storageRoot, artifact, appliedVia);
     deleteHandoffRefs(artifact);
     await deletePendingHandoffFiles(storageRoot, artifact);
     return artifact;
   }
 
-  if (appliedVia === "manual") {
-    return await applyPendingHandoffWithDivergedRepo(
-      storageRoot,
-      artifact,
-      appliedVia,
-      currentFingerprint
-    );
+  if (applyMode === "manual") {
+    return await applyPendingHandoffWithDivergedRepo(storageRoot, artifact, currentFingerprint);
   }
 
   throw new Error(SNAPSHOT_MISMATCH_ERROR_MESSAGE);
-}
-
-async function applyArchivedHandoffArtifact(
-  artifact: ArchivedAppliedHandoffArtifact,
-  action: "revert" | "reapply",
-  expectedCurrentFingerprint?: string
-): Promise<ArchivedAppliedHandoffArtifact> {
-  const currentFingerprint =
-    expectedCurrentFingerprint ??
-    (await computeWorkingTreeFingerprintAsync(artifact.sourceRepoPath));
-  const expectedFingerprint =
-    action === "revert" ? artifact.appliedFingerprint : artifact.sourceBaselineFingerprint;
-  if (currentFingerprint !== expectedFingerprint) {
-    throw buildArchivedMismatchError(artifact, action);
-  }
-
-  await applyBinaryPatchAsync(artifact.sourceRepoPath, artifact.patchPath, {
-    reverse: action === "revert",
-  });
-
-  const resultingFingerprint = await computeWorkingTreeFingerprintAsync(artifact.sourceRepoPath);
-  const targetFingerprint =
-    action === "revert" ? artifact.sourceBaselineFingerprint : artifact.appliedFingerprint;
-  if (resultingFingerprint !== targetFingerprint) {
-    throw new Error(
-      action === "revert"
-        ? `Archived review handoff "${artifact.handoffId}" did not revert to the expected source baseline.`
-        : `Archived review handoff "${artifact.handoffId}" did not reapply to the expected applied baseline.`
-    );
-  }
-
-  return artifact;
 }
 
 async function readPendingHandoffArtifact(
@@ -587,17 +375,6 @@ export async function readPendingHandoff(
   return await reconcilePendingHandoffArtifact(storageRoot, artifact);
 }
 
-async function readArchivedHandoff(
-  storageRoot: string = CONFIG_DIR,
-  projectPath: string,
-  handoffId: string
-): Promise<ArchivedAppliedHandoffArtifact | null> {
-  return await readArtifactFile(
-    getArchivedHandoffMetadataPath(storageRoot, projectPath, handoffId),
-    normalizeArchivedHandoff
-  );
-}
-
 export async function listProjectPendingHandoffs(
   storageRoot: string = CONFIG_DIR,
   projectPath: string
@@ -607,43 +384,6 @@ export async function listProjectPendingHandoffs(
     (handoffId) => readPendingHandoff(storageRoot, projectPath, handoffId),
     (left, right) => right.updatedAt - left.updatedAt
   );
-}
-
-export async function listProjectArchivedHandoffs(
-  storageRoot: string = CONFIG_DIR,
-  projectPath: string
-): Promise<ArchivedAppliedHandoffArtifact[]> {
-  return await listArtifacts(
-    getProjectHandoffHistoryDir(storageRoot, projectPath),
-    (handoffId) => readArchivedHandoff(storageRoot, projectPath, handoffId),
-    (left, right) => right.appliedAt - left.appliedAt
-  );
-}
-
-export async function listProjectRevertableHandoffs(
-  storageRoot: string = CONFIG_DIR,
-  projectPath: string
-): Promise<ArchivedHandoffMatchResult> {
-  const currentFingerprint = await computeWorkingTreeFingerprintAsync(projectPath);
-  const handoffs = await listProjectArchivedHandoffs(storageRoot, projectPath);
-  return {
-    currentFingerprint,
-    handoffs: handoffs.filter((artifact) => artifact.appliedFingerprint === currentFingerprint),
-  };
-}
-
-export async function listProjectReapplicableHandoffs(
-  storageRoot: string = CONFIG_DIR,
-  projectPath: string
-): Promise<ArchivedHandoffMatchResult> {
-  const currentFingerprint = await computeWorkingTreeFingerprintAsync(projectPath);
-  const handoffs = await listProjectArchivedHandoffs(storageRoot, projectPath);
-  return {
-    currentFingerprint,
-    handoffs: handoffs.filter(
-      (artifact) => artifact.sourceBaselineFingerprint === currentFingerprint
-    ),
-  };
 }
 
 export async function applyPendingHandoff(
@@ -657,34 +397,6 @@ export async function applyPendingHandoff(
   }
 
   return await applyPendingHandoffArtifact(storageRoot, artifact, "manual");
-}
-
-export async function revertArchivedHandoff(
-  storageRoot: string = CONFIG_DIR,
-  projectPath: string,
-  handoffId: string,
-  expectedCurrentFingerprint?: string
-): Promise<ArchivedAppliedHandoffArtifact> {
-  const artifact = await readArchivedHandoff(storageRoot, projectPath, handoffId);
-  if (!artifact) {
-    throw new Error(`Archived review handoff "${handoffId}" was not found.`);
-  }
-
-  return await applyArchivedHandoffArtifact(artifact, "revert", expectedCurrentFingerprint);
-}
-
-export async function reapplyArchivedHandoff(
-  storageRoot: string = CONFIG_DIR,
-  projectPath: string,
-  handoffId: string,
-  expectedCurrentFingerprint?: string
-): Promise<ArchivedAppliedHandoffArtifact> {
-  const artifact = await readArchivedHandoff(storageRoot, projectPath, handoffId);
-  if (!artifact) {
-    throw new Error(`Archived review handoff "${handoffId}" was not found.`);
-  }
-
-  return await applyArchivedHandoffArtifact(artifact, "reapply", expectedCurrentFingerprint);
 }
 
 export async function discardPendingHandoff(
@@ -784,4 +496,4 @@ export async function createOrAutoApplyHandoff(
   };
 }
 
-export type { ArchivedAppliedHandoffArtifact, PendingHandoffArtifact };
+export type { PendingHandoffArtifact };

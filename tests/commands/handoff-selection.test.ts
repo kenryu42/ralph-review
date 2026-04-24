@@ -1,9 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import {
-  resolveArchivedHandoffSelection,
-  resolvePendingHandoffSelection,
-} from "@/commands/handoff-selection";
-import type { ArchivedAppliedHandoffArtifact, PendingHandoffArtifact } from "@/lib/handoff";
+import { resolvePendingHandoffSelection } from "@/commands/handoff-selection";
+import type { PendingHandoffArtifact } from "@/lib/handoff";
 
 function createPendingHandoff(
   overrides: Partial<PendingHandoffArtifact> = {}
@@ -22,28 +19,6 @@ function createPendingHandoff(
     state: "pending-apply",
     createdAt: 1,
     updatedAt: 1,
-    ...overrides,
-  };
-}
-
-function createArchivedHandoff(
-  overrides: Partial<ArchivedAppliedHandoffArtifact> = {}
-): ArchivedAppliedHandoffArtifact {
-  const projectPath = process.cwd();
-  return {
-    handoffId: overrides.handoffId ?? overrides.sessionId ?? "session-id",
-    sessionId: "session-id",
-    projectPath,
-    sourceRepoPath: projectPath,
-    logPath: `${projectPath}/.ralph-review/logs/session.jsonl`,
-    patchPath: `${projectPath}/.ralph-review/handoff-history/session-id.patch`,
-    sourceBaselineFingerprint: "fingerprint-source-1",
-    appliedFingerprint: "fingerprint-applied-1",
-    commitSha: "commit-sha-1",
-    appliedVia: "auto",
-    state: "archived-applied",
-    createdAt: 1,
-    appliedAt: 2,
     ...overrides,
   };
 }
@@ -190,58 +165,6 @@ describe("resolvePendingHandoffSelection", () => {
 
     expect(result).toEqual({
       handoff: null,
-    });
-  });
-});
-
-describe("resolveArchivedHandoffSelection", () => {
-  test("returns an error when the archived session selector does not match", async () => {
-    const result = await resolveArchivedHandoffSelection({
-      handoffs: [createArchivedHandoff({ sessionId: "session-alpha" })],
-      selector: "session-z",
-      action: "reapply",
-      isTTY: true,
-    });
-
-    expect(result).toEqual({
-      handoff: null,
-      error: 'No archived review handoff matches "session-z" in the current project.',
-    });
-  });
-
-  test("prompts when multiple archived handoffs match in an interactive terminal", async () => {
-    const prompts: string[] = [];
-    const result = await resolveArchivedHandoffSelection({
-      handoffs: [
-        createArchivedHandoff({ sessionId: "session-alpha" }),
-        createArchivedHandoff({ sessionId: "session-beta" }),
-      ],
-      action: "revert",
-      isTTY: true,
-      select: async (input) => {
-        prompts.push(input.message);
-        return "session-beta";
-      },
-    });
-
-    expect(prompts).toEqual(["Choose a review handoff to revert"]);
-    expect(result.handoff?.sessionId).toBe("session-beta");
-  });
-
-  test("returns an error when multiple archived handoffs match in a non-interactive terminal", async () => {
-    const result = await resolveArchivedHandoffSelection({
-      handoffs: [
-        createArchivedHandoff({ sessionId: "session-alpha" }),
-        createArchivedHandoff({ sessionId: "session-beta" }),
-      ],
-      action: "reapply",
-      isTTY: false,
-    });
-
-    expect(result).toEqual({
-      handoff: null,
-      error:
-        "Multiple archived review handoffs match the current repository state. Re-run with --session <id|name>.",
     });
   });
 });

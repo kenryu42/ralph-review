@@ -44,28 +44,6 @@ function runCommand(
   };
 }
 
-async function runCommandAsync(
-  cwd: string,
-  command: string[]
-): Promise<{ exitCode: number; stdout: string; stderr: string }> {
-  const proc = Bun.spawn(command, {
-    cwd,
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  const [exitCode, stdout, stderr] = await Promise.all([
-    proc.exited,
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-  ]);
-
-  return {
-    exitCode,
-    stdout: stdout.trim(),
-    stderr: stderr.trim(),
-  };
-}
-
 function pruneEmptyDirectory(cwd: string, directoryPath: string): void {
   const probe = runCommand(cwd, [
     "find",
@@ -258,19 +236,6 @@ function assertGitOk(cwd: string, args: string[], context: string): string {
 
 function assertCommandOk(cwd: string, command: string[], context: string): string {
   const result = runCommand(cwd, command);
-  if (result.exitCode !== 0) {
-    const details = result.stderr || result.stdout || "unknown command error";
-    throw new Error(`${context}: ${command.join(" ")} failed: ${details}`);
-  }
-  return result.stdout;
-}
-
-async function assertCommandOkAsync(
-  cwd: string,
-  command: string[],
-  context: string
-): Promise<string> {
-  const result = await runCommandAsync(cwd, command);
   if (result.exitCode !== 0) {
     const details = result.stderr || result.stdout || "unknown command error";
     throw new Error(`${context}: ${command.join(" ")} failed: ${details}`);
@@ -746,10 +711,6 @@ export function createSessionWorktree(
   return worktree;
 }
 
-interface ApplyBinaryPatchOptions {
-  reverse?: boolean;
-}
-
 export function hasCleanWorktreeState(repoPath: string): boolean {
   const result = runGit(repoPath, ["status", "--porcelain"]);
   if (result.exitCode !== 0) {
@@ -772,43 +733,13 @@ export function hasUnmergedPaths(repoPath: string): boolean {
   return result.stdout.length > 0;
 }
 
-export function applyBinaryPatch(
-  repoPath: string,
-  patchPath: string,
-  options: ApplyBinaryPatchOptions = {}
-): void {
+export function applyBinaryPatch(repoPath: string, patchPath: string): void {
   const applyArgs = ["apply"];
-  if (options.reverse) {
-    applyArgs.push("--reverse");
-  }
   applyArgs.push("--check", "--binary", patchPath);
   assertGitOk(repoPath, applyArgs, "Failed to validate handoff patch");
   const writeArgs = ["apply"];
-  if (options.reverse) {
-    writeArgs.push("--reverse");
-  }
   writeArgs.push("--binary", patchPath);
   assertGitOk(repoPath, writeArgs, "Failed to apply handoff patch");
-}
-
-export async function applyBinaryPatchAsync(
-  repoPath: string,
-  patchPath: string,
-  options: ApplyBinaryPatchOptions = {}
-): Promise<void> {
-  const applyArgs = ["git", "apply"];
-  if (options.reverse) {
-    applyArgs.push("--reverse");
-  }
-  applyArgs.push("--check", "--binary", patchPath);
-  await assertCommandOkAsync(repoPath, applyArgs, "Failed to validate handoff patch");
-
-  const writeArgs = ["git", "apply"];
-  if (options.reverse) {
-    writeArgs.push("--reverse");
-  }
-  writeArgs.push("--binary", patchPath);
-  await assertCommandOkAsync(repoPath, writeArgs, "Failed to apply handoff patch");
 }
 
 export function applyBinaryPatchWithThreeWay(

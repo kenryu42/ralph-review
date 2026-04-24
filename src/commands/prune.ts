@@ -5,7 +5,7 @@ import { getCommandDef } from "@/cli";
 import { parseCommand } from "@/lib/cli-parser";
 import { CONFIG_DIR } from "@/lib/config";
 import { deleteSessionRefs } from "@/lib/git";
-import { listProjectArchivedHandoffs, listProjectPendingHandoffs } from "@/lib/handoff";
+import { listProjectPendingHandoffs } from "@/lib/handoff";
 import { getProjectStorageDir, getProjectWorktreesDir } from "@/lib/logging";
 
 type SessionRef = {
@@ -37,12 +37,8 @@ interface PruneCandidate {
   reason: string;
   artifactPath?: string;
   logPath?: string;
-  keepArchivedHistory: boolean;
   pendingMetadataPath?: string;
   pendingPatchPath?: string;
-  archivedMetadataPath?: string;
-  archivedPatchPath?: string;
-  refs: SessionRef[];
   timestampMs: number;
 }
 
@@ -53,7 +49,6 @@ export interface PruneCommandDeps {
   storageRoot: string;
   now: () => number;
   listProjectPendingHandoffs: typeof listProjectPendingHandoffs;
-  listProjectArchivedHandoffs: typeof listProjectArchivedHandoffs;
   logInfo: (message: string) => void;
   logSuccess: (message: string) => void;
   logWarn: (message: string) => void;
@@ -68,7 +63,6 @@ const DEFAULT_PRUNE_DEPS: PruneCommandDeps = {
   storageRoot: CONFIG_DIR,
   now: () => Date.now(),
   listProjectPendingHandoffs,
-  listProjectArchivedHandoffs,
   logInfo: (message: string) => p.log.info(message),
   logSuccess: (message: string) => p.log.success(message),
   logWarn: (message: string) => p.log.warn(message),
@@ -160,18 +154,6 @@ function buildPendingMetadataPath(
   return join(getProjectStorageDir(storageRoot, projectPath), "handoffs", `${handoffId}.json`);
 }
 
-function buildArchivedMetadataPath(
-  storageRoot: string,
-  projectPath: string,
-  handoffId: string
-): string {
-  return join(
-    getProjectStorageDir(storageRoot, projectPath),
-    "handoff-history",
-    `${handoffId}.json`
-  );
-}
-
 async function collectProjectPaths(
   storageRoot: string,
   currentProjectPath: string,
@@ -187,11 +169,9 @@ async function collectProjectPaths(
   for (const projectDir of projectDirs) {
     const findingsDir = join(storageRoot, projectDir, "findings");
     const handoffsDir = join(storageRoot, projectDir, "handoffs");
-    const historyDir = join(storageRoot, projectDir, "handoff-history");
     const jsonPaths = [
       ...(await readdir(findingsDir).catch(() => [])).map((entry) => join(findingsDir, entry)),
       ...(await readdir(handoffsDir).catch(() => [])).map((entry) => join(handoffsDir, entry)),
-      ...(await readdir(historyDir).catch(() => [])).map((entry) => join(historyDir, entry)),
     ].filter((path) => path.endsWith(".json"));
 
     for (const candidatePath of jsonPaths) {
@@ -318,14 +298,9 @@ async function listSessionIdsFromWorktrees(
 function pickTimestamp(candidate: {
   artifact?: StoredArtifactSummary;
   pendingUpdatedAt?: number;
-  archivedAppliedAt?: number;
 }): number {
   if (candidate.pendingUpdatedAt !== undefined) {
     return candidate.pendingUpdatedAt;
-  }
-
-  if (candidate.archivedAppliedAt !== undefined) {
-    return candidate.archivedAppliedAt;
   }
 
   return candidate.artifact?.updatedAt ?? 0;
@@ -336,11 +311,10 @@ async function collectPruneCandidatesForProject(
   projectPath: string,
   options: ParsedPruneOptions,
   now: number,
-  deps: Pick<PruneCommandDeps, "listProjectPendingHandoffs" | "listProjectArchivedHandoffs">
+  deps: Pick<PruneCommandDeps, "listProjectPendingHandoffs">
 ): Promise<PruneCandidate[]> {
   const artifactsById = await readStoredArtifacts(storageRoot, projectPath);
   const pendingHandoffs = await deps.listProjectPendingHandoffs(storageRoot, projectPath);
-  const archivedHandoffs = await deps.listProjectArchivedHandoffs(storageRoot, projectPath);
   const refsBySession = await listProjectSessionRefs(projectPath);
   const worktreeSessionIds = await listSessionIdsFromWorktrees(storageRoot, projectPath);
 
@@ -348,8 +322,6 @@ async function collectPruneCandidatesForProject(
     ...artifactsById.keys(),
     ...pendingHandoffs.map((handoff) => handoff.sessionId),
     ...pendingHandoffs.map((handoff) => handoff.handoffId),
-    ...archivedHandoffs.map((handoff) => handoff.sessionId),
-    ...archivedHandoffs.map((handoff) => handoff.handoffId),
     ...refsBySession.keys(),
     ...worktreeSessionIds,
   ]);
@@ -365,26 +337,19 @@ async function collectPruneCandidatesForProject(
     const pending = pendingHandoffs.find(
       (handoff) => handoff.sessionId === sessionId || handoff.handoffId === sessionId
     );
-    const archived = archivedHandoffs.find(
-      (handoff) => handoff.sessionId === sessionId || handoff.handoffId === sessionId
-    );
     const refs = refsBySession.get(sessionId) ?? [];
     const activeWorktree = await hasSessionWorktree(storageRoot, projectPath, sessionId);
 
     let reason: string | undefined;
-    let keepArchivedHistory = true;
 
     if (options.force && options.sessionId === sessionId) {
       reason = "forced session cleanup";
-      keepArchivedHistory = false;
     } else if (pending || activeWorktree) {
       continue;
     } else if (artifact?.baselineCommitSha) {
       const baselineExists = await baselineCommitExists(projectPath, artifact.baselineCommitSha);
       if (!baselineExists) {
         reason = "artifact baseline is missing";
-      } else if (archived) {
-        reason = "applied session artifacts";
       }
     } else if (refs.length > 0) {
       reason = "orphan session refs";
@@ -397,7 +362,6 @@ async function collectPruneCandidatesForProject(
     const timestampMs = pickTimestamp({
       artifact,
       pendingUpdatedAt: pending?.updatedAt,
-      archivedAppliedAt: archived?.appliedAt,
     });
     if (options.olderThanMs !== undefined && now - timestampMs < options.olderThanMs) {
       continue;
@@ -408,17 +372,11 @@ async function collectPruneCandidatesForProject(
       projectPath,
       reason,
       artifactPath: artifact?.artifactPath,
-      logPath: artifact?.logPath ?? pending?.logPath ?? archived?.logPath,
-      keepArchivedHistory,
+      logPath: artifact?.logPath ?? pending?.logPath,
       pendingMetadataPath: pending
         ? buildPendingMetadataPath(storageRoot, projectPath, pending.handoffId)
         : undefined,
       pendingPatchPath: pending ? pending.patchPath : undefined,
-      archivedMetadataPath: archived
-        ? buildArchivedMetadataPath(storageRoot, projectPath, archived.handoffId)
-        : undefined,
-      archivedPatchPath: archived ? archived.patchPath : undefined,
-      refs,
       timestampMs,
     });
   }
@@ -458,10 +416,6 @@ async function applyCandidate(candidate: PruneCandidate, storageRoot: string): P
   }
   await removePath(candidate.pendingMetadataPath);
   await removePath(candidate.pendingPatchPath);
-  if (!candidate.keepArchivedHistory) {
-    await removePath(candidate.archivedMetadataPath);
-    await removePath(candidate.archivedPatchPath);
-  }
   await removePath(candidate.artifactPath);
   await removePath(candidate.logPath);
 }

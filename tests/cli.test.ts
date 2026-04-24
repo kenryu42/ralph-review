@@ -63,13 +63,13 @@ describe("cli", () => {
       expect(usage).toContain("fix");
       expect(usage).toContain("apply");
       expect(usage).toContain("discard");
-      expect(usage).toContain("revert");
-      expect(usage).toContain("reapply");
       expect(usage).toContain("list");
       expect(usage).toContain("stop");
       expect(usage).toContain("log");
       expect(usage).toContain("doctor");
       expect(usage).toContain("update");
+      expect(usage).not.toContain("revert");
+      expect(usage).not.toContain("reapply");
     });
 
     test("excludes hidden commands from main help", () => {
@@ -107,8 +107,6 @@ describe("cli", () => {
       expect(names).toContain("fix");
       expect(names).toContain("apply");
       expect(names).toContain("discard");
-      expect(names).toContain("revert");
-      expect(names).toContain("reapply");
       expect(names).toContain("list");
       expect(names).toContain("stop");
       expect(names).toContain("log");
@@ -116,6 +114,8 @@ describe("cli", () => {
       expect(names).toContain("update");
       expect(names).toContain("_run-foreground");
       expect(names).toContain("_fix-foreground");
+      expect(names).not.toContain("revert");
+      expect(names).not.toContain("reapply");
     });
 
     test("run command has correct options", () => {

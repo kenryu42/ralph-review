@@ -74,107 +74,20 @@ function createArtifact(repoPath: string, sessionId: string, updatedAt: string):
   };
 }
 
-async function writeArchivedHandoff(
+async function saveFindingsArtifactWithUpdatedAt(
   storageRoot: string,
-  repoPath: string,
-  sessionId: string,
-  appliedAt: number
-): Promise<{ metadataPath: string; patchPath: string }> {
-  const projectStorageDir = getFindingsArtifactPath(storageRoot, repoPath, sessionId).replace(
-    /\/findings\/[^/]+$/u,
-    ""
-  );
-  const patchPath = join(projectStorageDir, "handoff-history", `${sessionId}.patch`);
-  const metadataPath = join(projectStorageDir, "handoff-history", `${sessionId}.json`);
-
-  await Bun.write(patchPath, "diff --git a/app.txt b/app.txt\n", { createPath: true });
+  artifact: FindingsArtifact,
+  updatedAt: number
+): Promise<void> {
+  const saved = await saveFindingsArtifact(storageRoot, artifact);
   await Bun.write(
-    metadataPath,
-    JSON.stringify(
-      {
-        handoffId: sessionId,
-        sessionId,
-        projectPath: repoPath,
-        sourceRepoPath: repoPath,
-        logPath: join(repoPath, ".ralph-review", "logs", `${sessionId}.jsonl`),
-        patchPath,
-        sourceBaselineFingerprint: "tracked-fingerprint-1",
-        appliedFingerprint: "tracked-fingerprint-2",
-        commitSha: "commit-sha-1",
-        appliedVia: "manual",
-        state: "archived-applied",
-        createdAt: appliedAt - 1_000,
-        appliedAt,
-      },
-      null,
-      2
-    ),
-    { createPath: true }
+    getFindingsArtifactPath(storageRoot, saved.projectPath, saved.sessionId),
+    JSON.stringify({ ...saved, updatedAt: new Date(updatedAt).toISOString() }, null, 2)
   );
-
-  return { metadataPath, patchPath };
 }
 
 async function listPendingFromStorage(): Promise<[]> {
   return [];
-}
-
-async function listArchivedFromStorage(
-  storageRoot: string | undefined,
-  projectPath: string
-): Promise<
-  Array<{
-    handoffId: string;
-    sessionId: string;
-    projectPath: string;
-    sourceRepoPath: string;
-    logPath: string;
-    patchPath: string;
-    sourceBaselineFingerprint: string;
-    appliedFingerprint: string;
-    commitSha: string;
-    appliedVia: "auto" | "manual";
-    state: "archived-applied";
-    createdAt: number;
-    appliedAt: number;
-  }>
-> {
-  type ArchivedRecord = {
-    handoffId: string;
-    sessionId: string;
-    projectPath: string;
-    sourceRepoPath: string;
-    logPath: string;
-    patchPath: string;
-    sourceBaselineFingerprint: string;
-    appliedFingerprint: string;
-    commitSha: string;
-    appliedVia: "auto" | "manual";
-    state: "archived-applied";
-    createdAt: number;
-    appliedAt: number;
-  };
-  const historyDir = getFindingsArtifactPath(storageRoot ?? "", projectPath, "placeholder").replace(
-    /\/findings\/[^/]+$/u,
-    "/handoff-history"
-  );
-  const entries = await readdir(historyDir).catch(() => []);
-  const artifacts: ArchivedRecord[] = [];
-
-  for (const entry of entries) {
-    if (!entry.endsWith(".json")) {
-      continue;
-    }
-
-    const candidate = await Bun.file(join(historyDir, entry))
-      .json()
-      .catch(() => null);
-    if (candidate && typeof candidate === "object") {
-      artifacts.push(candidate as ArchivedRecord);
-    }
-  }
-
-  return artifacts;
 }
 
 describe("prune command", () => {
@@ -195,18 +108,12 @@ describe("prune command", () => {
     await rm(repoPath, { recursive: true, force: true });
   });
 
-  test("dry-run lists prunable applied sessions without deleting files", async () => {
+  test("dry-run lists prunable sessions without deleting files", async () => {
     const sessionId = "session-applied";
     const infos: string[] = [];
     const successes: string[] = [];
     const artifact = createArtifact(repoPath, sessionId, "2026-01-01T00:00:00.000Z");
     await saveFindingsArtifact(storageRoot, artifact);
-    const archived = await writeArchivedHandoff(
-      storageRoot,
-      repoPath,
-      sessionId,
-      1_700_000_000_000
-    );
     await Bun.write(artifact.logPath, "session log\n", { createPath: true });
 
     await runPrune([], {
@@ -215,7 +122,6 @@ describe("prune command", () => {
       cwd: () => repoPath,
       storageRoot,
       listProjectPendingHandoffs: listPendingFromStorage,
-      listProjectArchivedHandoffs: listArchivedFromStorage,
       logInfo: (message) => infos.push(message),
       logSuccess: (message) => successes.push(message),
       logWarn: () => {},
@@ -228,22 +134,15 @@ describe("prune command", () => {
     expect(await Bun.file(getFindingsArtifactPath(storageRoot, repoPath, sessionId)).exists()).toBe(
       true
     );
-    expect(await Bun.file(archived.metadataPath).exists()).toBe(true);
     expect(await Bun.file(artifact.logPath).exists()).toBe(true);
     expect(successes).toEqual([]);
   });
 
-  test("apply removes prunable session files and refs but keeps archived history by default", async () => {
+  test("apply removes prunable session files and refs", async () => {
     const sessionId = "session-applied";
     const successes: string[] = [];
     const artifact = createArtifact(repoPath, sessionId, "2026-01-01T00:00:00.000Z");
     await saveFindingsArtifact(storageRoot, artifact);
-    const archived = await writeArchivedHandoff(
-      storageRoot,
-      repoPath,
-      sessionId,
-      1_700_000_000_000
-    );
     await Bun.write(artifact.logPath, "session log\n", { createPath: true });
     runGitIn(repoPath, ["update-ref", artifact.baselineRef, "HEAD"]);
     runGitIn(repoPath, ["update-ref", "refs/ralph-review/sessions/session-applied/final", "HEAD"]);
@@ -254,7 +153,6 @@ describe("prune command", () => {
       cwd: () => repoPath,
       storageRoot,
       listProjectPendingHandoffs: listPendingFromStorage,
-      listProjectArchivedHandoffs: listArchivedFromStorage,
       logInfo: () => {},
       logSuccess: (message) => successes.push(message),
       logWarn: () => {},
@@ -267,8 +165,6 @@ describe("prune command", () => {
       false
     );
     expect(await Bun.file(artifact.logPath).exists()).toBe(false);
-    expect(await Bun.file(archived.metadataPath).exists()).toBe(true);
-    expect(await Bun.file(archived.patchPath).exists()).toBe(true);
     expect(gitExitCode(repoPath, ["show-ref", "--verify", artifact.baselineRef])).not.toBe(0);
     expect(
       gitExitCode(repoPath, [
@@ -283,16 +179,16 @@ describe("prune command", () => {
   test("older-than filters the prunable set", async () => {
     const oldSessionId = "session-old";
     const newSessionId = "session-new";
-    await saveFindingsArtifact(
+    await saveFindingsArtifactWithUpdatedAt(
       storageRoot,
-      createArtifact(repoPath, oldSessionId, "2026-01-01T00:00:00.000Z")
+      createArtifact(repoPath, oldSessionId, "2026-01-01T00:00:00.000Z"),
+      1_700_000_000_000
     );
-    await saveFindingsArtifact(
+    await saveFindingsArtifactWithUpdatedAt(
       storageRoot,
-      createArtifact(repoPath, newSessionId, "2026-04-10T00:00:00.000Z")
+      createArtifact(repoPath, newSessionId, "2026-04-10T00:00:00.000Z"),
+      1_799_000_000_000
     );
-    await writeArchivedHandoff(storageRoot, repoPath, oldSessionId, 1_700_000_000_000);
-    await writeArchivedHandoff(storageRoot, repoPath, newSessionId, 1_799_000_000_000);
 
     const infos: string[] = [];
     await runPrune(["--older-than", "14d"], {
@@ -301,7 +197,6 @@ describe("prune command", () => {
       cwd: () => repoPath,
       storageRoot,
       listProjectPendingHandoffs: listPendingFromStorage,
-      listProjectArchivedHandoffs: listArchivedFromStorage,
       logInfo: (message) => infos.push(message),
       logSuccess: () => {},
       logWarn: () => {},
@@ -314,16 +209,10 @@ describe("prune command", () => {
     expect(infos.some((message) => message.includes(newSessionId))).toBe(false);
   });
 
-  test("force session apply removes archived history too", async () => {
+  test("force session apply removes the targeted session", async () => {
     const sessionId = "session-force";
     const artifact = createArtifact(repoPath, sessionId, "2026-01-01T00:00:00.000Z");
     await saveFindingsArtifact(storageRoot, artifact);
-    const archived = await writeArchivedHandoff(
-      storageRoot,
-      repoPath,
-      sessionId,
-      1_700_000_000_000
-    );
     await Bun.write(artifact.logPath, "session log\n", { createPath: true });
 
     await runPrune(["--session", sessionId, "--force", "--apply"], {
@@ -332,7 +221,6 @@ describe("prune command", () => {
       cwd: () => repoPath,
       storageRoot,
       listProjectPendingHandoffs: listPendingFromStorage,
-      listProjectArchivedHandoffs: listArchivedFromStorage,
       logInfo: () => {},
       logSuccess: () => {},
       logWarn: () => {},
@@ -345,8 +233,6 @@ describe("prune command", () => {
       false
     );
     expect(await Bun.file(artifact.logPath).exists()).toBe(false);
-    expect(await Bun.file(archived.metadataPath).exists()).toBe(false);
-    expect(await Bun.file(archived.patchPath).exists()).toBe(false);
   });
 
   test("force session apply prunes orphaned worktree-only sessions", async () => {
@@ -366,7 +252,6 @@ describe("prune command", () => {
       cwd: () => repoPath,
       storageRoot,
       listProjectPendingHandoffs: listPendingFromStorage,
-      listProjectArchivedHandoffs: listArchivedFromStorage,
       logInfo: () => {},
       logSuccess: (message) => successes.push(message),
       logWarn: () => {},
@@ -401,7 +286,6 @@ describe("prune command", () => {
         cwd: () => repoPath,
         storageRoot,
         listProjectPendingHandoffs: listPendingFromStorage,
-        listProjectArchivedHandoffs: listArchivedFromStorage,
         logInfo: (message) => infos.push(message),
         logSuccess: (message) => successes.push(message),
         logWarn: () => {},
@@ -430,7 +314,6 @@ describe("prune command", () => {
         cwd: () => repoPath,
         storageRoot,
         listProjectPendingHandoffs: listPendingFromStorage,
-        listProjectArchivedHandoffs: listArchivedFromStorage,
         logInfo: () => {},
         logSuccess: (message) => successes.push(message),
         logWarn: () => {},

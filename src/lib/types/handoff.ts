@@ -21,24 +21,3 @@ export interface PendingHandoffArtifact {
   applyStartedAt?: number;
   applyStartFingerprint?: string;
 }
-
-export interface ArchivedAppliedHandoffArtifact {
-  handoffId: string;
-  sessionId: string;
-  projectPath: string;
-  sourceRepoPath: string;
-  logPath: string;
-  patchPath: string;
-  sourceBaselineFingerprint: string;
-  appliedFingerprint: string;
-  commitSha: string;
-  appliedVia: "auto" | "manual";
-  state: "archived-applied";
-  createdAt: number;
-  appliedAt: number;
-}
-
-export interface ArchivedHandoffMatchResult {
-  currentFingerprint: string;
-  handoffs: ArchivedAppliedHandoffArtifact[];
-}

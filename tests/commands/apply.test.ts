@@ -69,15 +69,6 @@ async function runApplyWithHarness(
       listPendingCalls.push(projectPath);
       return handoffs.filter((handoff) => handoff.projectPath === projectPath);
     },
-    listProjectArchivedHandoffs: async () => [],
-    listProjectRevertableHandoffs: async () => ({
-      currentFingerprint: "current-fingerprint-1",
-      handoffs: [],
-    }),
-    listProjectReapplicableHandoffs: async () => ({
-      currentFingerprint: "current-fingerprint-1",
-      handoffs: [],
-    }),
     applyPendingHandoff: async (
       _storageRoot: string | undefined,
       projectPath: string,
@@ -97,12 +88,6 @@ async function runApplyWithHarness(
     },
     discardPendingHandoff: async () => {
       throw new Error("discardPendingHandoff should not be called in apply tests");
-    },
-    revertArchivedHandoff: async () => {
-      throw new Error("revertArchivedHandoff should not be called in apply tests");
-    },
-    reapplyArchivedHandoff: async () => {
-      throw new Error("reapplyArchivedHandoff should not be called in apply tests");
     },
   }));
 

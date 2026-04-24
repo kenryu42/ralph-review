@@ -1,7 +1,7 @@
 import * as p from "@clack/prompts";
-import type { ArchivedAppliedHandoffArtifact, PendingHandoffArtifact } from "@/lib/handoff";
+import type { PendingHandoffArtifact } from "@/lib/handoff";
 
-type HandoffAction = "apply" | "discard" | "revert" | "reapply";
+type HandoffAction = "apply" | "discard";
 
 interface SelectableHandoff {
   handoffId: string;
@@ -21,18 +21,6 @@ interface ResolvePendingHandoffSelectionOptions {
   isCancel?: (value: unknown) => boolean;
 }
 
-interface ResolveArchivedHandoffSelectionOptions {
-  handoffs: ArchivedAppliedHandoffArtifact[];
-  selector?: string;
-  action: Extract<HandoffAction, "revert" | "reapply">;
-  isTTY: boolean;
-  select?: (input: {
-    message: string;
-    options: Array<{ value: string; label: string; hint: string }>;
-  }) => Promise<unknown>;
-  isCancel?: (value: unknown) => boolean;
-}
-
 interface HandoffSelectionResult<T extends SelectableHandoff> {
   handoff: T | null;
   error?: string;
@@ -40,7 +28,6 @@ interface HandoffSelectionResult<T extends SelectableHandoff> {
 
 function findHandoffBySelector<T extends SelectableHandoff>(
   handoffs: T[],
-  kind: "pending" | "archived",
   selector: string
 ): HandoffSelectionResult<T> {
   const normalizedSelector = selector.trim();
@@ -99,10 +86,7 @@ function findHandoffBySelector<T extends SelectableHandoff>(
 
   return {
     handoff: null,
-    error:
-      kind === "pending"
-        ? `No pending review handoff matches "${normalizedSelector}" in the current project.`
-        : `No archived review handoff matches "${normalizedSelector}" in the current project.`,
+    error: `No pending review handoff matches "${normalizedSelector}" in the current project.`,
   };
 }
 
@@ -112,10 +96,6 @@ function buildPromptMessage(action: HandoffAction): string {
       return "Choose a review handoff to apply";
     case "discard":
       return "Choose a review handoff to discard";
-    case "revert":
-      return "Choose a review handoff to revert";
-    case "reapply":
-      return "Choose a review handoff to reapply";
   }
 }
 
@@ -124,7 +104,6 @@ async function resolveHandoffSelection<T extends SelectableHandoff>(options: {
   selector?: string;
   action: HandoffAction;
   isTTY: boolean;
-  kind: "pending" | "archived";
   multipleHandoffsMessage: string;
   select?: (input: {
     message: string;
@@ -133,7 +112,7 @@ async function resolveHandoffSelection<T extends SelectableHandoff>(options: {
   isCancel?: (value: unknown) => boolean;
 }): Promise<HandoffSelectionResult<T>> {
   if (options.selector) {
-    return findHandoffBySelector(options.handoffs, options.kind, options.selector);
+    return findHandoffBySelector(options.handoffs, options.selector);
   }
 
   if (options.handoffs.length <= 1) {
@@ -172,19 +151,7 @@ export async function resolvePendingHandoffSelection(
 ) {
   return await resolveHandoffSelection({
     ...options,
-    kind: "pending",
     multipleHandoffsMessage:
       "Multiple pending review handoffs exist for this project. Re-run with --session <id|name>.",
-  });
-}
-
-export async function resolveArchivedHandoffSelection(
-  options: ResolveArchivedHandoffSelectionOptions
-) {
-  return await resolveHandoffSelection({
-    ...options,
-    kind: "archived",
-    multipleHandoffsMessage:
-      "Multiple archived review handoffs match the current repository state. Re-run with --session <id|name>.",
   });
 }

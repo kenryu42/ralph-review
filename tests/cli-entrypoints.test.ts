@@ -94,12 +94,6 @@ function createCliHarness(overrides: Partial<CliDeps> = {}): CliHarness {
     runDiscard: async (argv) => {
       calls.push(`discard:${argv.join(",")}`);
     },
-    runRevert: async (argv) => {
-      calls.push(`revert:${argv.join(",")}`);
-    },
-    runReapply: async (argv) => {
-      calls.push(`reapply:${argv.join(",")}`);
-    },
     runForeground: async (argv) => {
       calls.push(`_run-foreground:${argv?.join(",") ?? ""}`);
     },
@@ -308,16 +302,6 @@ describe("cli entrypoints", () => {
         command: "discard",
         args: ["--session", "session-2"],
         expectedCall: "discard:--session,session-2",
-      },
-      {
-        command: "revert",
-        args: ["--session", "session-3"],
-        expectedCall: "revert:--session,session-3",
-      },
-      {
-        command: "reapply",
-        args: ["--session", "session-4"],
-        expectedCall: "reapply:--session,session-4",
       },
       { command: "_run-foreground", args: ["--max", "1"], expectedCall: "_run-foreground:--max,1" },
       { command: "stop", args: ["--all"], expectedCall: "stop:--all" },
