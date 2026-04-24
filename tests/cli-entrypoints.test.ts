@@ -91,9 +91,6 @@ function createCliHarness(overrides: Partial<CliDeps> = {}): CliHarness {
     runFixForeground: async (argv = []) => {
       calls.push(`_fix-foreground:${argv.join(",")}`);
     },
-    runDiscard: async (argv) => {
-      calls.push(`discard:${argv.join(",")}`);
-    },
     runForeground: async (argv) => {
       calls.push(`_run-foreground:${argv?.join(",") ?? ""}`);
     },
@@ -105,6 +102,9 @@ function createCliHarness(overrides: Partial<CliDeps> = {}): CliHarness {
     },
     runLog: async (argv) => {
       calls.push(`log:${argv.join(",")}`);
+    },
+    runPrune: async (argv) => {
+      calls.push(`prune:${argv.join(",")}`);
     },
     runDoctor: async (argv) => {
       calls.push(`doctor:${argv?.join(",") ?? ""}`);
@@ -299,9 +299,9 @@ describe("cli entrypoints", () => {
         expectedCall: "apply:--session,session-1",
       },
       {
-        command: "discard",
-        args: ["--session", "session-2"],
-        expectedCall: "discard:--session,session-2",
+        command: "prune",
+        args: ["--discard", "--session", "session-2"],
+        expectedCall: "prune:--discard,--session,session-2",
       },
       { command: "_run-foreground", args: ["--max", "1"], expectedCall: "_run-foreground:--max,1" },
       { command: "stop", args: ["--all"], expectedCall: "stop:--all" },
@@ -414,6 +414,25 @@ describe("cli entrypoints", () => {
     await runCli([], harness.deps);
 
     expect(harness.errors).toEqual(["Unknown command: logs"]);
+    expect(harness.logs).toEqual(["\nUSAGE"]);
+    expect(harness.exits).toEqual([1]);
+  });
+
+  test("treats removed discard command as unknown", async () => {
+    const harness = createCliHarness({
+      parseArgs: () => ({
+        command: "discard",
+        args: ["--session", "session-2"],
+        showHelp: false,
+        showVersion: false,
+      }),
+      printUsage: () => "USAGE",
+      getCommandDef: () => undefined,
+    });
+
+    await runCli([], harness.deps);
+
+    expect(harness.errors).toEqual(["Unknown command: discard"]);
     expect(harness.logs).toEqual(["\nUSAGE"]);
     expect(harness.exits).toEqual([1]);
   });

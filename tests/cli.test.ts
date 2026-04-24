@@ -62,7 +62,7 @@ describe("cli", () => {
       expect(usage).toContain("run");
       expect(usage).toContain("fix");
       expect(usage).toContain("apply");
-      expect(usage).toContain("discard");
+      expect(usage).not.toContain("discard");
       expect(usage).toContain("list");
       expect(usage).toContain("stop");
       expect(usage).toContain("log");
@@ -106,7 +106,7 @@ describe("cli", () => {
       expect(names).toContain("run");
       expect(names).toContain("fix");
       expect(names).toContain("apply");
-      expect(names).toContain("discard");
+      expect(names).not.toContain("discard");
       expect(names).toContain("list");
       expect(names).toContain("stop");
       expect(names).toContain("log");
@@ -151,6 +151,16 @@ describe("cli", () => {
       expect(optionNames).toContain("all");
       expect(optionNames).toContain("priority");
       expect(optionNames).toContain("id");
+    });
+
+    test("prune command exposes discard mode", () => {
+      const pruneCmd = COMMANDS.find((c) => c.name === "prune");
+      expect(pruneCmd).toBeDefined();
+      const optionNames = pruneCmd?.options?.map((o) => o.name) ?? [];
+      expect(optionNames).toContain("discard");
+      expect(optionNames).toContain("session");
+      expect(pruneCmd?.examples).toContain("rr prune --discard");
+      expect(pruneCmd?.examples).toContain("rr prune --discard --session session-123");
     });
 
     test("list command has ls alias", () => {
