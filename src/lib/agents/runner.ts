@@ -23,7 +23,7 @@ export async function runAgent(
   const agentModule = AGENTS[agentSettings.agent];
 
   const command = agentModule.config.command;
-  const args = agentModule.config.buildArgs(
+  const args = await agentModule.config.buildArgs(
     role,
     prompt,
     agentSettings.model,

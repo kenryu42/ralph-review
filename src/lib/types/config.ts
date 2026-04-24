@@ -117,6 +117,6 @@ export interface AgentConfig {
     reviewOptions?: ReviewOptions,
     provider?: string,
     reasoning?: string
-  ) => string[];
+  ) => string[] | Promise<string[]>;
   buildEnv: (reasoning?: string) => Record<string, string>;
 }

@@ -2,6 +2,8 @@
  * Codex agent configuration and stream handling
  */
 
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { REVIEW_SUMMARY_END_TOKEN, REVIEW_SUMMARY_START_TOKEN } from "@/lib/prompts/protocol";
 import {
   type AgentConfig,
@@ -20,6 +22,42 @@ import type {
 
 const defaultCodexReasoningEffort = "high";
 const CODEX_SESSION_LOOKBACK_DAYS = 3;
+const CODEX_CONFIG_FILENAME = "config.toml";
+
+function resolveCodexHome(): string {
+  return process.env.CODEX_HOME ?? join(homedir(), ".codex");
+}
+
+function getCodexConfigPath(): string {
+  return join(resolveCodexHome(), CODEX_CONFIG_FILENAME);
+}
+
+async function readCodexActiveProfile(): Promise<string | null> {
+  const configPath = getCodexConfigPath();
+  const file = Bun.file(configPath);
+  if (!(await file.exists())) {
+    return null;
+  }
+
+  const text = await file.text();
+  let parsed: unknown;
+  try {
+    parsed = Bun.TOML.parse(text);
+  } catch (error) {
+    throw new Error(`Failed to parse Codex config at ${configPath}: ${error}`);
+  }
+
+  if (typeof parsed !== "object" || parsed === null) {
+    return null;
+  }
+
+  const profile = (parsed as Record<string, unknown>).profile;
+  if (typeof profile !== "string") {
+    return null;
+  }
+
+  return profile.trim() || null;
+}
 
 function resolveCodexReasoningEffort(model?: string, reasoning?: string): string {
   if (!isReasoningLevel(reasoning)) {
@@ -38,12 +76,18 @@ function resolveCodexReasoningEffort(model?: string, reasoning?: string): string
   return defaultCodexReasoningEffort;
 }
 
-function withReasoningEffort(args: string[], model?: string, reasoning?: string): string[] {
-  return [
-    ...args,
-    "--config",
-    `model_reasoning_effort=${resolveCodexReasoningEffort(model, reasoning)}`,
-  ];
+async function withReasoningEffort(
+  args: string[],
+  model?: string,
+  reasoning?: string
+): Promise<string[]> {
+  const reasoningEffort = resolveCodexReasoningEffort(model, reasoning);
+  const activeProfile = await readCodexActiveProfile();
+  const reasoningConfigKey = activeProfile
+    ? `profiles.${activeProfile}.model_reasoning_effort`
+    : "model_reasoning_effort";
+
+  return [...args, "--config", `${reasoningConfigKey}=${reasoningEffort}`];
 }
 
 function withModel(args: string[], model?: string): string[] {
@@ -60,20 +104,24 @@ function requireReviewerPrompt(prompt: string): string {
 
 export const codexConfig: AgentConfig = {
   command: "codex",
-  buildArgs: (
+  buildArgs: async (
     role: AgentRole,
     prompt: string,
     model?: string,
     _reviewOptions?: ReviewOptions,
     _provider?: string,
     reasoning?: string
-  ): string[] => {
+  ): Promise<string[]> => {
     if (role !== "reviewer") {
-      const args = withReasoningEffort(["exec", "--full-auto"], model, reasoning);
+      const args = await withReasoningEffort(["exec", "--full-auto"], model, reasoning);
       return prompt ? withModel([...args, prompt], model) : withModel(args, model);
     }
 
-    const baseReviewArgs = withReasoningEffort(["exec", "review", "--json"], model, reasoning);
+    const baseReviewArgs = await withReasoningEffort(
+      ["exec", "review", "--json"],
+      model,
+      reasoning
+    );
     return withModel([...baseReviewArgs, requireReviewerPrompt(prompt)], model);
   },
   buildEnv: defaultBuildEnv,

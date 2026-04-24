@@ -1,4 +1,7 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { AGENTS } from "@/lib/agents";
 import { registerCodexReasoningOptions, registerDroidReasoningOptions } from "@/lib/agents/models";
 import type { AgentConfig } from "@/lib/types";
@@ -29,9 +32,26 @@ describe("agents", () => {
 
   describe("codex buildArgs", () => {
     const reviewerPrompt = "GENERATED_REVIEW_PROMPT";
+    let codexHome: string;
+    let originalCodexHome: string | undefined;
 
-    test("builds reviewer args correctly", () => {
-      const args = AGENTS.codex.config.buildArgs("reviewer", reviewerPrompt, undefined);
+    beforeEach(async () => {
+      originalCodexHome = process.env.CODEX_HOME;
+      codexHome = await mkdtemp(join(tmpdir(), "ralph-codex-config-test-"));
+      process.env.CODEX_HOME = codexHome;
+    });
+
+    afterEach(async () => {
+      if (originalCodexHome === undefined) {
+        delete process.env.CODEX_HOME;
+      } else {
+        process.env.CODEX_HOME = originalCodexHome;
+      }
+      await rm(codexHome, { recursive: true, force: true });
+    });
+
+    test("builds reviewer args correctly", async () => {
+      const args = await AGENTS.codex.config.buildArgs("reviewer", reviewerPrompt, undefined);
       expect(args[0]).toBe("exec");
       expect(args).toContain("review");
       expect(args).toContain("--json");
@@ -41,20 +61,20 @@ describe("agents", () => {
       expect(args).not.toContain("--base");
     });
 
-    test("builds fixer args correctly", () => {
-      const args = AGENTS.codex.config.buildArgs("fixer", "fix the bug", undefined);
+    test("builds fixer args correctly", async () => {
+      const args = await AGENTS.codex.config.buildArgs("fixer", "fix the bug", undefined);
       expect(args[0]).toBe("exec");
       expect(args.some((a: string) => a.includes("fix the bug"))).toBe(true);
     });
 
-    test("rejects reviewer args when prompt is empty", () => {
-      expect(() => AGENTS.codex.config.buildArgs("reviewer", "", undefined)).toThrow(
+    test("rejects reviewer args when prompt is empty", async () => {
+      await expect(AGENTS.codex.config.buildArgs("reviewer", "", undefined)).rejects.toThrow(
         "Codex reviewer requires a generated review prompt"
       );
     });
 
-    test("never translates reviewOptions into codex scope flags", () => {
-      const args = AGENTS.codex.config.buildArgs("reviewer", reviewerPrompt, undefined, {
+    test("never translates reviewOptions into codex scope flags", async () => {
+      const args = await AGENTS.codex.config.buildArgs("reviewer", reviewerPrompt, undefined, {
         commitSha: "abc123",
         baseBranch: "main",
         customInstructions: "check security",
@@ -69,8 +89,8 @@ describe("agents", () => {
       expect(args).not.toContain("--base");
     });
 
-    test("uses review mode when reviewer instructions are provided", () => {
-      const args = AGENTS.codex.config.buildArgs("reviewer", "check security", undefined, {
+    test("uses review mode when reviewer instructions are provided", async () => {
+      const args = await AGENTS.codex.config.buildArgs("reviewer", "check security", undefined, {
         customInstructions: "check security",
       });
       expect(args).toContain("exec");
@@ -82,16 +102,20 @@ describe("agents", () => {
       expect(args).not.toContain("--base");
     });
 
-    test("uses review mode when reviewer prompt has no repo review target", () => {
-      const args = AGENTS.codex.config.buildArgs("reviewer", "TARGETED_AUDIT_PROMPT", undefined);
+    test("uses review mode when reviewer prompt has no repo review target", async () => {
+      const args = await AGENTS.codex.config.buildArgs(
+        "reviewer",
+        "TARGETED_AUDIT_PROMPT",
+        undefined
+      );
       expect(args).toContain("exec");
       expect(args).toContain("review");
       expect(args).toContain("TARGETED_AUDIT_PROMPT");
       expect(args).not.toContain("--uncommitted");
     });
 
-    test("uses review mode when prompt is combined with commitSha", () => {
-      const args = AGENTS.codex.config.buildArgs("reviewer", "ignored", undefined, {
+    test("uses review mode when prompt is combined with commitSha", async () => {
+      const args = await AGENTS.codex.config.buildArgs("reviewer", "ignored", undefined, {
         commitSha: "abc123",
         customInstructions: "check security",
       });
@@ -104,8 +128,8 @@ describe("agents", () => {
       expect(args).not.toContain("--uncommitted");
     });
 
-    test("uses review mode when prompt is combined with baseBranch", () => {
-      const args = AGENTS.codex.config.buildArgs("reviewer", "ignored", undefined, {
+    test("uses review mode when prompt is combined with baseBranch", async () => {
+      const args = await AGENTS.codex.config.buildArgs("reviewer", "ignored", undefined, {
         baseBranch: "main",
         customInstructions: "check security",
       });
@@ -118,12 +142,12 @@ describe("agents", () => {
       expect(args).not.toContain("--uncommitted");
     });
 
-    test("uses configured reasoning level when valid", () => {
+    test("uses configured reasoning level when valid", async () => {
       registerCodexReasoningOptions({
         "gpt-5.4": ["low", "medium", "high", "xhigh"],
       });
 
-      const args = AGENTS.codex.config.buildArgs(
+      const args = await AGENTS.codex.config.buildArgs(
         "reviewer",
         reviewerPrompt,
         "gpt-5.4",
@@ -135,12 +159,65 @@ describe("agents", () => {
       expect(args).toContain("model_reasoning_effort=xhigh");
     });
 
-    test("falls back to high thinking when config value is unsupported for discovered model", () => {
+    test("uses active profile reasoning config key when top-level profile is set", async () => {
+      await Bun.write(join(codexHome, "config.toml"), 'profile = "default"\n');
+
+      const args = await AGENTS.codex.config.buildArgs(
+        "reviewer",
+        reviewerPrompt,
+        "gpt-5.4",
+        undefined,
+        undefined,
+        "xhigh"
+      );
+
+      expect(args).toContain("--config");
+      expect(args).toContain("profiles.default.model_reasoning_effort=xhigh");
+      expect(args).not.toContain("model_reasoning_effort=xhigh");
+    });
+
+    test("ignores profiles table when top-level profile is absent", async () => {
+      await Bun.write(
+        join(codexHome, "config.toml"),
+        '[profiles.default]\nmodel_reasoning_effort = "low"\n'
+      );
+
+      const args = await AGENTS.codex.config.buildArgs(
+        "reviewer",
+        reviewerPrompt,
+        "gpt-5.4",
+        undefined,
+        undefined,
+        "xhigh"
+      );
+
+      expect(args).toContain("--config");
+      expect(args).toContain("model_reasoning_effort=xhigh");
+      expect(args).not.toContain("profiles.default.model_reasoning_effort=xhigh");
+    });
+
+    test("reports malformed codex config", async () => {
+      const configPath = join(codexHome, "config.toml");
+      await Bun.write(configPath, 'profile = "unterminated\n');
+
+      await expect(
+        AGENTS.codex.config.buildArgs(
+          "reviewer",
+          reviewerPrompt,
+          "gpt-5.4",
+          undefined,
+          undefined,
+          "xhigh"
+        )
+      ).rejects.toThrow(`Failed to parse Codex config at ${configPath}`);
+    });
+
+    test("falls back to high thinking when config value is unsupported for discovered model", async () => {
       registerCodexReasoningOptions({
         "gpt-5.4-mini": ["low", "medium"],
       });
 
-      const args = AGENTS.codex.config.buildArgs(
+      const args = await AGENTS.codex.config.buildArgs(
         "reviewer",
         reviewerPrompt,
         "gpt-5.4-mini",
@@ -152,8 +229,8 @@ describe("agents", () => {
       expect(args).toContain("model_reasoning_effort=high");
     });
 
-    test("passes through valid reasoning level when model metadata is unavailable", () => {
-      const args = AGENTS.codex.config.buildArgs(
+    test("passes through valid reasoning level when model metadata is unavailable", async () => {
+      const args = await AGENTS.codex.config.buildArgs(
         "reviewer",
         reviewerPrompt,
         "unknown-codex-model",
@@ -167,40 +244,44 @@ describe("agents", () => {
   });
 
   describe("claude buildArgs", () => {
-    test("builds args with prompt correctly", () => {
-      const args = AGENTS.claude.config.buildArgs("reviewer", "review the code", undefined);
+    test("builds args with prompt correctly", async () => {
+      const args = await AGENTS.claude.config.buildArgs("reviewer", "review the code", undefined);
       expect(args).toContain("-p");
       expect(args.some((a: string) => a.toLowerCase().includes("review"))).toBe(true);
     });
 
-    test("builds fixer args correctly", () => {
-      const args = AGENTS.claude.config.buildArgs("fixer", "fix the fix", undefined);
+    test("builds fixer args correctly", async () => {
+      const args = await AGENTS.claude.config.buildArgs("fixer", "fix the fix", undefined);
       expect(args).toContain("-p");
       expect(args.some((a: string) => a.includes("fix the fix"))).toBe(true);
     });
 
-    test("includes model flags when a model is provided", () => {
-      const args = AGENTS.claude.config.buildArgs("reviewer", "review the code", "claude-opus-4-6");
+    test("includes model flags when a model is provided", async () => {
+      const args = await AGENTS.claude.config.buildArgs(
+        "reviewer",
+        "review the code",
+        "claude-opus-4-6"
+      );
       expect(args).toContain("--model");
       expect(args).toContain("claude-opus-4-6");
     });
   });
 
   describe("opencode buildArgs", () => {
-    test("builds args with prompt correctly", () => {
-      const args = AGENTS.opencode.config.buildArgs("reviewer", "review the code", undefined);
+    test("builds args with prompt correctly", async () => {
+      const args = await AGENTS.opencode.config.buildArgs("reviewer", "review the code", undefined);
       expect(args[0]).toBe("run");
       expect(args.some((a: string) => a.includes("review"))).toBe(true);
     });
 
-    test("builds fixer args correctly", () => {
-      const args = AGENTS.opencode.config.buildArgs("fixer", "apply changes", undefined);
+    test("builds fixer args correctly", async () => {
+      const args = await AGENTS.opencode.config.buildArgs("fixer", "apply changes", undefined);
       expect(args[0]).toBe("run");
       expect(args.some((a: string) => a.includes("apply changes"))).toBe(true);
     });
 
-    test("adds variant when reasoning level is valid", () => {
-      const args = AGENTS.opencode.config.buildArgs(
+    test("adds variant when reasoning level is valid", async () => {
+      const args = await AGENTS.opencode.config.buildArgs(
         "reviewer",
         "review the code",
         "gpt-5.2-codex",
@@ -212,8 +293,8 @@ describe("agents", () => {
       expect(args).toContain("xhigh");
     });
 
-    test("omits variant when reasoning level is invalid", () => {
-      const args = AGENTS.opencode.config.buildArgs(
+    test("omits variant when reasoning level is invalid", async () => {
+      const args = await AGENTS.opencode.config.buildArgs(
         "reviewer",
         "review the code",
         "gpt-5.2-codex",
@@ -226,8 +307,12 @@ describe("agents", () => {
   });
 
   describe("droid buildArgs", () => {
-    test("builds args with prompt correctly", () => {
-      const args = AGENTS.droid.config.buildArgs("reviewer", "/review current changes", undefined);
+    test("builds args with prompt correctly", async () => {
+      const args = await AGENTS.droid.config.buildArgs(
+        "reviewer",
+        "/review current changes",
+        undefined
+      );
       expect(args[0]).toBe("exec");
       expect(args).toContain("--model");
       expect(args).toContain("gpt-5.2-codex");
@@ -235,26 +320,26 @@ describe("agents", () => {
       expect(args).toContain("/review current changes");
     });
 
-    test("builds fixer args correctly", () => {
-      const args = AGENTS.droid.config.buildArgs("fixer", "fix the issue", undefined);
+    test("builds fixer args correctly", async () => {
+      const args = await AGENTS.droid.config.buildArgs("fixer", "fix the issue", undefined);
       expect(args[0]).toBe("exec");
       expect(args).toContain("--auto");
       expect(args).toContain("medium");
       expect(args.some((a: string) => a.includes("fix the issue"))).toBe(true);
     });
 
-    test("uses custom model when provided", () => {
-      const args = AGENTS.droid.config.buildArgs("reviewer", "", "custom-model");
+    test("uses custom model when provided", async () => {
+      const args = await AGENTS.droid.config.buildArgs("reviewer", "", "custom-model");
       expect(args).toContain("custom-model");
       expect(args).not.toContain("gpt-5.2-codex");
     });
 
-    test("uses configured reasoning level for supported model", () => {
+    test("uses configured reasoning level for supported model", async () => {
       registerDroidReasoningOptions({
         "registered-droid-model": ["low", "medium", "high", "xhigh"],
       });
 
-      const args = AGENTS.droid.config.buildArgs(
+      const args = await AGENTS.droid.config.buildArgs(
         "reviewer",
         "review",
         "registered-droid-model",
@@ -266,15 +351,15 @@ describe("agents", () => {
       expect(args).toContain("xhigh");
     });
 
-    test("omits reasoning effort for unsupported model", () => {
-      const args = AGENTS.droid.config.buildArgs("reviewer", "review", "glm-4.7");
+    test("omits reasoning effort for unsupported model", async () => {
+      const args = await AGENTS.droid.config.buildArgs("reviewer", "review", "glm-4.7");
       expect(args).not.toContain("--reasoning-effort");
     });
   });
 
   describe("gemini buildArgs", () => {
-    test("builds args with prompt correctly", () => {
-      const args = AGENTS.gemini.config.buildArgs(
+    test("builds args with prompt correctly", async () => {
+      const args = await AGENTS.gemini.config.buildArgs(
         "reviewer",
         "review the uncommitted changes",
         undefined
@@ -285,16 +370,16 @@ describe("agents", () => {
       expect(args).toContain("review the uncommitted changes");
     });
 
-    test("builds fixer args correctly", () => {
-      const args = AGENTS.gemini.config.buildArgs("fixer", "fix the issue", undefined);
+    test("builds fixer args correctly", async () => {
+      const args = await AGENTS.gemini.config.buildArgs("fixer", "fix the issue", undefined);
       expect(args[0]).toBe("--yolo");
       expect(args).toContain("--output-format");
       expect(args).toContain("stream-json");
       expect(args.some((a: string) => a.includes("fix the issue"))).toBe(true);
     });
 
-    test("includes model when provided", () => {
-      const args = AGENTS.gemini.config.buildArgs(
+    test("includes model when provided", async () => {
+      const args = await AGENTS.gemini.config.buildArgs(
         "reviewer",
         "review the uncommitted changes",
         "gemini-3-flash"
@@ -305,8 +390,8 @@ describe("agents", () => {
   });
 
   describe("pi buildArgs", () => {
-    test("builds args with provider and model", () => {
-      const args = AGENTS.pi.config.buildArgs(
+    test("builds args with provider and model", async () => {
+      const args = await AGENTS.pi.config.buildArgs(
         "reviewer",
         "review current changes",
         "gemini_cli/gemini-3-flash-preview",
@@ -326,8 +411,8 @@ describe("agents", () => {
       ]);
     });
 
-    test("adds thinking when level is valid", () => {
-      const args = AGENTS.pi.config.buildArgs(
+    test("adds thinking when level is valid", async () => {
+      const args = await AGENTS.pi.config.buildArgs(
         "reviewer",
         "review current changes",
         "gemini_cli/gemini-3-flash-preview",
@@ -340,8 +425,8 @@ describe("agents", () => {
       expect(args).toContain("xhigh");
     });
 
-    test("omits thinking when level is invalid", () => {
-      const args = AGENTS.pi.config.buildArgs(
+    test("omits thinking when level is invalid", async () => {
+      const args = await AGENTS.pi.config.buildArgs(
         "reviewer",
         "review current changes",
         "gemini_cli/gemini-3-flash-preview",
