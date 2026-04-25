@@ -35,6 +35,12 @@ function createFindingMap(findings: StoredFinding[]): Map<FindingId, StoredFindi
   return new Map(findings.map((finding) => [finding.id, finding]));
 }
 
+export function collectReviewIterationFindings(
+  reviewEntries: ReviewIterationEntry[]
+): StoredFinding[] {
+  return reviewEntries.flatMap((entry) => entry.findings);
+}
+
 export function storedFindingToFinding(finding: StoredFinding): Finding {
   return {
     title: finding.title,
@@ -72,7 +78,7 @@ export function deriveWorkflowPresentationData(entries: LogEntry[]): WorkflowPre
     }
   }
 
-  const storedFindings = reviewEntries.at(-1)?.findings ?? [];
+  const storedFindings = collectReviewIterationFindings(reviewEntries);
   const regressionFindings: StoredFinding[] = [];
   const findingsById = createFindingMap(storedFindings);
   const selectedFindingIds =

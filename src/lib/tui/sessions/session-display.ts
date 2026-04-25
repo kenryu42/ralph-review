@@ -1,4 +1,7 @@
-import { storedFindingToFinding } from "@/lib/review-workflow/presentation";
+import {
+  collectReviewIterationFindings,
+  storedFindingToFinding,
+} from "@/lib/review-workflow/presentation";
 import type { SessionState } from "@/lib/session-state";
 import { TUI_COLORS } from "@/lib/tui/shared/colors";
 import type {
@@ -144,12 +147,10 @@ function getFindingKey(finding: Finding): string {
 }
 
 export function extractFindingsFromStats(stats: SessionStats): Finding[] {
-  const latestReviewEntry = [...stats.entries]
-    .reverse()
-    .find((entry) => entry.type === "review_iteration");
+  const reviewEntries = stats.entries.filter((entry) => entry.type === "review_iteration");
 
-  if (latestReviewEntry) {
-    return latestReviewEntry.findings.map(storedFindingToFinding);
+  if (reviewEntries.length > 0) {
+    return collectReviewIterationFindings(reviewEntries).map(storedFindingToFinding);
   }
 
   const findings: Finding[] = [];

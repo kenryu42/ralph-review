@@ -970,6 +970,16 @@ describe("SessionDetailPane", () => {
               startLine: 10,
               endLine: 12,
             },
+          ],
+          netNewFindingIds: ["F001"],
+        },
+        {
+          type: "review_iteration",
+          timestamp: Date.now(),
+          iteration: 2,
+          phase: "review",
+          sessionStatus: "running",
+          findings: [
             {
               id: "F002",
               fingerprint: "fp-2",
@@ -982,7 +992,7 @@ describe("SessionDetailPane", () => {
               endLine: 22,
             },
           ],
-          netNewFindingIds: ["F001", "F002"],
+          netNewFindingIds: ["F002"],
         },
         {
           type: "finding_selection",
@@ -1016,13 +1026,14 @@ describe("SessionDetailPane", () => {
 
     expect(frame).toContain("incomplete");
     expect(frame).toContain("2 issues found");
-    expect(frame).toContain("Selection");
+    expect(frame).toContain("Review Iteration 1");
+    expect(frame).toContain("Review Iteration 2");
     expect(frame).toContain("1 selected");
     expect(frame).toContain("0 resolved");
     expect(frame).toContain("1 unresolved");
     expect(frame).toContain("Guard missing config");
+    expect(frame.match(/1 issues found/g)).toHaveLength(2);
     expect(frame).toContain("Confidence: 97%");
-    expect(frame).toContain("Confidence: 92%");
     expect(frame.indexOf("Guard missing config")).toBeLessThan(frame.indexOf("Confidence: 97%"));
     expect(frame.indexOf("Confidence: 97%")).toBeLessThan(frame.indexOf("src/config.ts:10-12"));
   });

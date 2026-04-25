@@ -206,7 +206,7 @@ describe("SessionPanel helpers", () => {
       ]);
     });
 
-    test("prefers the latest review inventory for batch-first sessions", () => {
+    test("accumulates review iteration findings for batch-first sessions", () => {
       const stats = createSessionStats([
         createSystemEntry(),
         {
@@ -255,10 +255,10 @@ describe("SessionPanel helpers", () => {
 
       const result = extractFindingsFromStats(stats);
 
-      expect(result).toHaveLength(1);
-      expect(result[0]?.title).toBe("Latest finding");
-      expect(result[0]?.priority).toBe(0);
-      expect(result[0]?.code_location.absolute_file_path).toBe("src/latest.ts");
+      expect(result).toHaveLength(2);
+      expect(result.map((finding) => finding.title)).toEqual(["Old finding", "Latest finding"]);
+      expect(result[1]?.priority).toBe(0);
+      expect(result[1]?.code_location.absolute_file_path).toBe("src/latest.ts");
     });
   });
 

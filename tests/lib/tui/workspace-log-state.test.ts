@@ -148,6 +148,27 @@ describe("deriveWorkspaceLogData", () => {
         netNewFindingIds: ["F001", "F002"],
       },
       {
+        type: "review_iteration",
+        timestamp: 250,
+        iteration: 2,
+        phase: "review",
+        sessionStatus: "running",
+        findings: [
+          {
+            id: "F003",
+            fingerprint: "fp-3",
+            title: "Handle partial write",
+            body: "Writes can be partial",
+            priority: "P1",
+            confidenceScore: 0.91,
+            filePath: "src/write.ts",
+            startLine: 30,
+            endLine: 32,
+          },
+        ],
+        netNewFindingIds: ["F003"],
+      },
+      {
         type: "finding_selection",
         timestamp: 300,
         selectionMode: "id",
@@ -169,14 +190,15 @@ describe("deriveWorkspaceLogData", () => {
 
     const result = deriveWorkspaceLogData(logEntries);
 
-    expect(result.storedFindings.map((finding) => finding.id)).toEqual(["F001", "F002"]);
+    expect(result.storedFindings.map((finding) => finding.id)).toEqual(["F001", "F002", "F003"]);
     expect(result.findings.map((finding) => finding.title)).toEqual([
       "Guard missing config",
       "Avoid stale cache",
+      "Handle partial write",
     ]);
     expect(result.selectedFindingIds).toEqual(["F001"]);
     expect(result.selectedFindings.map((finding) => finding.id)).toEqual(["F001"]);
-    expect(result.unselectedFindings.map((finding) => finding.id)).toEqual(["F002"]);
+    expect(result.unselectedFindings.map((finding) => finding.id)).toEqual(["F002", "F003"]);
     expect(result.fixResults).toHaveLength(1);
     expect(result.fixResults[0]).toMatchObject({
       findingId: "F001",
