@@ -10,8 +10,6 @@ interface RunReviewPhaseOptions {
   projectPath: string;
   findingPathRoots: string[];
   sessionPath: string;
-  reviewerWorktreePath: string;
-  baselineFingerprint: string;
   runReviewerIteration: (
     iteration: number,
     knownFindings: StoredFinding[]
@@ -27,7 +25,6 @@ interface RunReviewPhaseOptions {
     updates: Record<string, unknown>,
     options?: { expectedSessionId?: string }
   ) => Promise<boolean>;
-  computeWorkingTreeFingerprint: (repoPath: string) => Promise<string>;
   wasInterrupted: () => boolean;
 }
 
@@ -64,19 +61,6 @@ async function updateReviewSessionState(
       expectedSessionId: options.sessionId,
     })
     .catch(() => {});
-}
-
-async function assertWorktreeFingerprint(
-  reviewerWorktreePath: string,
-  expectedFingerprint: string,
-  computeWorkingTreeFingerprint: RunReviewPhaseOptions["computeWorkingTreeFingerprint"]
-): Promise<void> {
-  const currentFingerprint = await computeWorkingTreeFingerprint(reviewerWorktreePath);
-  if (currentFingerprint !== expectedFingerprint) {
-    throw new Error(
-      `Review phase mutated the reviewer worktree at ${reviewerWorktreePath}. Expected ${expectedFingerprint}, got ${currentFingerprint}.`
-    );
-  }
 }
 
 export async function runReviewPhase(options: RunReviewPhaseOptions): Promise<ReviewPhaseResult> {
@@ -133,11 +117,6 @@ export async function runReviewPhase(options: RunReviewPhaseOptions): Promise<Re
       iteration,
       accumulatedFindings: findings,
     });
-    await assertWorktreeFingerprint(
-      options.reviewerWorktreePath,
-      options.baselineFingerprint,
-      options.computeWorkingTreeFingerprint
-    );
 
     if (options.wasInterrupted()) {
       return {

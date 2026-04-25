@@ -54,7 +54,6 @@ function createReviewSummary(findings: ReviewSummary["findings"] = []): ReviewSu
 function createDependencies(overrides: {
   runAgent: RunReviewSessionDependencies["runAgent"];
   createReviewerPrompt?: RunReviewSessionDependencies["createReviewerPrompt"];
-  computeWorkingTreeFingerprintAsync?: RunReviewSessionDependencies["computeWorkingTreeFingerprintAsync"];
   parseReviewSummaryOutput?: RunReviewSessionDependencies["parseReviewSummaryOutput"];
   deleteSessionRefs?: RunReviewSessionDependencies["deleteSessionRefs"];
   saveFindingsArtifact?: RunReviewSessionDependencies["saveFindingsArtifact"];
@@ -93,8 +92,6 @@ function createDependencies(overrides: {
     } as unknown as RunReviewSessionDependencies["AGENTS"],
     runAgent: overrides.runAgent,
     createCheckpoint: () => ({ kind: "clean", id: "checkpoint-1" }),
-    computeWorkingTreeFingerprintAsync:
-      overrides.computeWorkingTreeFingerprintAsync ?? (async () => "baseline-fingerprint"),
     createSessionWorktree: () => ({
       sourceProjectPath: "/repo/project",
       sourceRepoPath: "/repo/project",
@@ -203,9 +200,10 @@ describe("review-workflow/review/runReviewSession", () => {
     expect(result.result.iterations).toBe(0);
   });
 
-  test("preserves completed iteration count when review phase errors after progress", async () => {
+  test("preserves completed iteration count when reviewer parsing errors after progress", async () => {
     const savedArtifacts: Array<{ findings: unknown[] }> = [];
     const deletedSessionRefs: string[] = [];
+    let parseCalls = 0;
     const deps = createDependencies({
       runAgent: async () => ({
         success: true,
@@ -213,14 +211,19 @@ describe("review-workflow/review/runReviewSession", () => {
         exitCode: 0,
         duration: 1,
       }),
-      parseReviewSummaryOutput: () => ({
-        ok: true,
-        value: createReviewSummary([createReviewFinding()]),
-        source: "framed-raw",
-        usedRepair: false,
-        failureReason: null,
-      }),
-      computeWorkingTreeFingerprintAsync: async () => "mismatched-fingerprint",
+      parseReviewSummaryOutput: () => {
+        parseCalls += 1;
+        if (parseCalls === 1) {
+          return {
+            ok: true,
+            value: createReviewSummary([createReviewFinding()]),
+            source: "framed-raw",
+            usedRepair: false,
+            failureReason: null,
+          };
+        }
+        throw new Error("parse failed after first iteration");
+      },
       deleteSessionRefs: (_repoPath, sessionId) => {
         deletedSessionRefs.push(sessionId);
       },
@@ -232,7 +235,7 @@ describe("review-workflow/review/runReviewSession", () => {
 
     const result = await runReviewSession(
       createConfig(),
-      undefined,
+      { forceMaxIterations: true },
       {
         projectPath: "/repo/project",
         sessionId: "session-123",
@@ -245,6 +248,7 @@ describe("review-workflow/review/runReviewSession", () => {
     expect(result.result.sessionStatus).toBe("failed");
     expect(result.result.reviewOutcome).toBe("findings-pending");
     expect(result.result.iterations).toBe(1);
+    expect(result.result.reason).toContain("parse failed after first iteration");
     expect(result.result.reason).toContain("Findings were preserved");
     expect(result.result.findings).toEqual([
       expect.objectContaining({
@@ -346,7 +350,7 @@ describe("review-workflow/review/runReviewSession", () => {
     expect(deletedSessionRefs).toEqual([]);
   });
 
-  test("keeps failed sessions incomplete when no findings were preserved", async () => {
+  test("keeps failed sessions incomplete when parsing fails before findings are preserved", async () => {
     const deps = createDependencies({
       runAgent: async () => ({
         success: true,
@@ -354,7 +358,9 @@ describe("review-workflow/review/runReviewSession", () => {
         exitCode: 0,
         duration: 1,
       }),
-      computeWorkingTreeFingerprintAsync: async () => "mismatched-fingerprint",
+      parseReviewSummaryOutput: () => {
+        throw new Error("parse failed before findings");
+      },
     });
 
     const result = await runReviewSession(
@@ -371,7 +377,7 @@ describe("review-workflow/review/runReviewSession", () => {
 
     expect(result.result.sessionStatus).toBe("failed");
     expect(result.result.reviewOutcome).toBe("incomplete");
-    expect(result.result.iterations).toBe(1);
+    expect(result.result.iterations).toBe(0);
     expect(result.result.findings).toEqual([]);
     expect(result.result.artifact).toBeUndefined();
   });

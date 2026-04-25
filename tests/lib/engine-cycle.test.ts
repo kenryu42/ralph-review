@@ -261,10 +261,6 @@ function createDependencies(state: HarnessState): RunReviewCycleDeps {
       state.savedArtifacts.push(artifact);
       return artifact;
     },
-    computeWorkingTreeFingerprintAsync: async () =>
-      state.baselineCommitCalls.length > 0
-        ? "reviewed-baseline-fingerprint"
-        : TEST_SOURCE_BASELINE_FINGERPRINT,
   };
 }
 

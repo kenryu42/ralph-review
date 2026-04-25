@@ -24,8 +24,6 @@ describe("review-workflow/review/runReviewPhase", () => {
       projectPath: "/repo/project",
       findingPathRoots: ["/repo/project"],
       sessionPath: "/tmp/session.jsonl",
-      reviewerWorktreePath: "/tmp/worktree",
-      baselineFingerprint: "baseline-fingerprint",
       runReviewerIteration: async () => {
         calls += 1;
         return {
@@ -35,7 +33,6 @@ describe("review-workflow/review/runReviewPhase", () => {
       },
       appendLog: async () => {},
       updateSessionState: async () => true,
-      computeWorkingTreeFingerprint: async () => "baseline-fingerprint",
       wasInterrupted: () => false,
     });
 
@@ -55,8 +52,6 @@ describe("review-workflow/review/runReviewPhase", () => {
       projectPath: "/repo/project",
       findingPathRoots: ["/repo/project"],
       sessionPath: "/tmp/session.jsonl",
-      reviewerWorktreePath: "/tmp/worktree",
-      baselineFingerprint: "baseline-fingerprint",
       runReviewerIteration: async () => {
         calls += 1;
         return {
@@ -66,7 +61,6 @@ describe("review-workflow/review/runReviewPhase", () => {
       },
       appendLog: async () => {},
       updateSessionState: async () => true,
-      computeWorkingTreeFingerprint: async () => "baseline-fingerprint",
       wasInterrupted: () => false,
     });
 

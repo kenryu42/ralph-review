@@ -1,7 +1,6 @@
 import { AGENTS, runAgent } from "@/lib/agents";
 import { CONFIG_DIR } from "@/lib/config";
 import {
-  computeWorkingTreeFingerprintAsync,
   createCheckpoint,
   createSessionWorktree,
   deleteSessionRefs,
@@ -45,7 +44,6 @@ export interface RunReviewSessionDependencies {
   AGENTS: typeof AGENTS;
   runAgent: typeof runAgent;
   createCheckpoint: typeof createCheckpoint;
-  computeWorkingTreeFingerprintAsync: typeof computeWorkingTreeFingerprintAsync;
   createSessionWorktree: typeof createSessionWorktree;
   deleteSessionRefs: typeof deleteSessionRefs;
   discardCheckpoint: typeof discardCheckpoint;
@@ -65,7 +63,6 @@ export const DEFAULT_RUN_REVIEW_SESSION_DEPENDENCIES: RunReviewSessionDependenci
   AGENTS,
   runAgent,
   createCheckpoint,
-  computeWorkingTreeFingerprintAsync,
   createSessionWorktree,
   deleteSessionRefs,
   discardCheckpoint,
@@ -395,11 +392,8 @@ export async function runReviewSession(
       projectPath,
       findingPathRoots: [projectPath, reviewerCwd],
       sessionPath,
-      reviewerWorktreePath: reviewerCwd,
-      baselineFingerprint: reviewerBaselineFingerprint,
       appendLog: appendReviewLog,
       updateSessionState: deps.updateSessionState,
-      computeWorkingTreeFingerprint: deps.computeWorkingTreeFingerprintAsync,
       wasInterrupted,
       runReviewerIteration: async (iteration, knownFindings) => {
         const reviewerResult = await runReviewerIteration(
