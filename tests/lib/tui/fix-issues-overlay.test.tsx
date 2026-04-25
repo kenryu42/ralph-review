@@ -1,11 +1,13 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { KeyEvent } from "@opentui/core";
 import { testRender } from "@opentui/react/test-utils";
 import { act, createElement } from "react";
 import type { StoredFinding } from "@/lib/review-workflow/findings/types";
 import { buildWrappedFindingRow, FixIssuesOverlay } from "@/lib/tui/sessions/fix/FixIssuesOverlay";
 import { PRIORITY_COLORS } from "@/lib/tui/sessions/session-display";
+import * as clipboard from "@/lib/tui/shared/clipboard";
 import { TUI_COLORS } from "@/lib/tui/shared/colors";
+import { SelectionCopyToastBoundary } from "@/lib/tui/shared/SelectionCopyToastBoundary";
 
 function createFinding(
   id: `F${string}`,
@@ -38,6 +40,25 @@ function findTextLocation(frame: string, text: string): { x: number; y: number }
   throw new Error(`Could not find "${text}" in frame:\n${frame}`);
 }
 
+function expectedFindingMarkdown(findings: StoredFinding[]): string {
+  return findings
+    .map((finding) => {
+      const locationKey =
+        finding.locationKey ?? `${finding.filePath}:${finding.startLine}:${finding.endLine}`;
+
+      return [
+        `## ${finding.title}`,
+        "",
+        `**locationKey:** \`${locationKey}\``,
+        "",
+        "**body:**",
+        "",
+        finding.body,
+      ].join("\n");
+    })
+    .join("\n\n");
+}
+
 describe("FixIssuesOverlay", () => {
   let testSetup: Awaited<ReturnType<typeof testRender>> | null = null;
 
@@ -48,6 +69,7 @@ describe("FixIssuesOverlay", () => {
       });
       testSetup = null;
     }
+    mock.restore();
   });
 
   const defaultFindings = [
@@ -74,6 +96,15 @@ describe("FixIssuesOverlay", () => {
     }),
   ];
 
+  function defaultFindingAt(index: number): StoredFinding {
+    const finding = defaultFindings[index];
+    if (!finding) {
+      throw new Error(`expected default finding at index ${index}`);
+    }
+
+    return finding;
+  }
+
   async function renderOverlay(
     options: {
       width?: number;
@@ -85,19 +116,25 @@ describe("FixIssuesOverlay", () => {
     let closeCount = 0;
     const submitCalls: string[][] = [];
 
+    const findings = options.findings ?? defaultFindings;
+
     testSetup = await testRender(
-      createElement(FixIssuesOverlay, {
-        sessionId: "session-123",
-        projectPath: "/repo/project",
-        findings: options.findings ?? defaultFindings,
-        commandScope: options.commandScope,
-        onSubmit: (args) => {
-          submitCalls.push(args);
-        },
-        onClose: () => {
-          closeCount += 1;
-        },
-      }),
+      createElement(
+        SelectionCopyToastBoundary,
+        null,
+        createElement(FixIssuesOverlay, {
+          sessionId: "session-123",
+          projectPath: "/repo/project",
+          findings,
+          commandScope: options.commandScope,
+          onSubmit: (args) => {
+            submitCalls.push(args);
+          },
+          onClose: () => {
+            closeCount += 1;
+          },
+        })
+      ),
       {
         width: options.width ?? 120,
         height: options.height ?? 36,
@@ -251,6 +288,72 @@ describe("FixIssuesOverlay", () => {
     expect(frame).toContain("[Tab]");
     expect(frame).not.toContain("[←/→]");
     expect(details.y).toBeGreaterThan(selection.y);
+  });
+
+  test("renders copy findings in the footer without move or filter helper text", async () => {
+    const overlay = await renderOverlay();
+    const frame = overlay.frame();
+
+    expect(frame).toContain("[C]");
+    expect(frame).toContain("Copy findings");
+    expect(frame).not.toContain("[↑/↓ j/k]");
+    expect(frame).not.toContain("Move");
+    expect(frame).not.toContain("[/]");
+    expect(frame).not.toContain("Filter");
+  });
+
+  test("copies all selected findings as markdown by default", async () => {
+    const copySpy = spyOn(clipboard, "copyToClipboard").mockResolvedValue();
+    const overlay = await renderOverlay();
+    const frame = await overlay.press("c");
+
+    expect(copySpy).toHaveBeenCalledWith(expectedFindingMarkdown(defaultFindings));
+    expect(frame).toContain("Copied findings to clipboard.");
+  });
+
+  test("copies only priority-selected findings as markdown", async () => {
+    const copySpy = spyOn(clipboard, "copyToClipboard").mockResolvedValue();
+    const overlay = await renderOverlay();
+
+    await overlay.press("j");
+    const frame = await overlay.press(" ");
+    expect(frame).toContain("--priority P0");
+
+    await overlay.press("c");
+
+    expect(copySpy).toHaveBeenCalledWith(expectedFindingMarkdown([defaultFindingAt(0)]));
+  });
+
+  test("copies only id-selected findings as markdown", async () => {
+    const copySpy = spyOn(clipboard, "copyToClipboard").mockResolvedValue();
+    const overlay = await renderOverlay();
+
+    await moveDown(overlay, 5);
+    await overlay.press(" ");
+    await overlay.press("j");
+    await overlay.press(" ");
+    await overlay.press("c");
+
+    expect(copySpy).toHaveBeenCalledWith(
+      expectedFindingMarkdown([defaultFindingAt(0), defaultFindingAt(1)])
+    );
+  });
+
+  test("uses stored locationKey when copying findings", async () => {
+    const copySpy = spyOn(clipboard, "copyToClipboard").mockResolvedValue();
+    const finding = createFinding("F004", "P1", {
+      locationKey: "src/from-artifact.ts:100:120",
+      title: "Stored location key finding",
+      body: "Copy the persisted location key.",
+      filePath: "src/fallback.ts",
+      startLine: 1,
+      endLine: 2,
+    });
+    const overlay = await renderOverlay({ findings: [finding] });
+
+    await overlay.press("c");
+
+    expect(copySpy).toHaveBeenCalledWith(expectedFindingMarkdown([finding]));
   });
 
   test("cycles focus between selection and details with Tab", async () => {

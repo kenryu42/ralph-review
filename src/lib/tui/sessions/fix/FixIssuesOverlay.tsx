@@ -8,6 +8,7 @@ import { toSingleLine } from "@/lib/tui/sessions/detail/session-detail-parts";
 import { formatFindingTitleForDisplay } from "@/lib/tui/sessions/finding-title";
 import { buildPriorityTextSegments, PriorityText } from "@/lib/tui/sessions/priority-text";
 import { TUI_COLORS } from "@/lib/tui/shared/colors";
+import { useSelectionCopyToast } from "@/lib/tui/shared/SelectionCopyToastBoundary";
 import type { Priority } from "@/lib/types";
 import { VALID_PRIORITIES as PRIORITIES } from "@/lib/types/domain";
 
@@ -316,6 +317,43 @@ function buildFixCommandPreview(
   return args ? `rr ${args.join(" ")}` : null;
 }
 
+function getFindingLocationKey(finding: StoredFinding): string {
+  return finding.locationKey ?? `${finding.filePath}:${finding.startLine}:${finding.endLine}`;
+}
+
+function formatFindingsMarkdown(findings: StoredFinding[]): string {
+  return findings
+    .map((finding) =>
+      [
+        `## ${finding.title}`,
+        "",
+        `**locationKey:** \`${getFindingLocationKey(finding)}\``,
+        "",
+        "**body:**",
+        "",
+        finding.body,
+      ].join("\n")
+    )
+    .join("\n\n");
+}
+
+function resolveSelectedFindings(
+  findings: StoredFinding[],
+  mode: FindingSelectionMode,
+  selectedPrioritySet: Set<Priority>,
+  selectedFindingIdSet: Set<FindingId>
+): StoredFinding[] {
+  if (mode === "all") {
+    return findings;
+  }
+
+  if (mode === "priority") {
+    return findings.filter((finding) => selectedPrioritySet.has(finding.priority));
+  }
+
+  return findings.filter((finding) => selectedFindingIdSet.has(finding.id));
+}
+
 function buildFindingFilterText(finding: StoredFinding): string {
   return [
     finding.id,
@@ -408,6 +446,7 @@ export function FixIssuesOverlay({
   onClose,
 }: FixIssuesOverlayProps) {
   const { width: terminalWidth, height: terminalHeight } = useTerminalDimensions();
+  const { copyText } = useSelectionCopyToast();
   const selectionListRef = useRef<ScrollBoxRenderable>(null);
   const [allSelected, setAllSelected] = useState(true);
   const [selectedPriorities, setSelectedPriorities] = useState<Priority[]>([]);
@@ -492,6 +531,11 @@ export function FixIssuesOverlay({
 
     return orderedSelectedFindingIds.length;
   }, [findings, mode, orderedSelectedFindingIds, selectedPrioritySet]);
+
+  const selectedFindings = useMemo(
+    () => resolveSelectedFindings(findings, mode, selectedPrioritySet, selectedFindingIdSet),
+    [findings, mode, selectedFindingIdSet, selectedPrioritySet]
+  );
 
   const rows = useMemo<NavigableRow[]>(() => {
     const allRow: NavigableRow = {
@@ -686,6 +730,19 @@ export function FixIssuesOverlay({
     sessionId,
   ]);
 
+  const copySelectedFindings = useCallback(async () => {
+    if (selectedFindings.length === 0) {
+      setError("Select at least one finding to enable Copy.");
+      return;
+    }
+
+    setError(null);
+    await copyText(formatFindingsMarkdown(selectedFindings), {
+      successMessage: "Copied findings to clipboard.",
+      errorMessage: "Failed to copy findings to clipboard.",
+    });
+  }, [copyText, selectedFindings]);
+
   const focusFilter = useCallback(() => {
     setFocusedPane("selection");
     setFocusArea("filter");
@@ -714,6 +771,11 @@ export function FixIssuesOverlay({
       }
 
       if (findings.length === 0) {
+        return;
+      }
+
+      if (key.name === "c") {
+        void copySelectedFindings();
         return;
       }
 
@@ -751,6 +813,7 @@ export function FixIssuesOverlay({
     [
       closeOverlay,
       confirmFixSelection,
+      copySelectedFindings,
       currentRow,
       cycleFocusedPane,
       findings.length,
@@ -1023,9 +1086,8 @@ export function FixIssuesOverlay({
 
   const footerKeys: Array<[string, string]> = [
     ["Tab", "Focus pane"],
-    ["↑/↓ j/k", "Move"],
     ["Space", "Toggle"],
-    ["/", "Filter"],
+    ["C", "Copy findings"],
     ["Enter", "Run"],
     ["Esc", isFilterFocused ? "Back" : "Close"],
   ];
