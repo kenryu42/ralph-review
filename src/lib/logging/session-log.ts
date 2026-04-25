@@ -490,8 +490,8 @@ function applyEntryToSummary(
     next.phase = "review";
     next.endedAt = undefined;
     next.reason = undefined;
-    next.totalFindings = entry.findings.length;
-    next.priorityCounts = countFindingPriorityCounts(entry.findings);
+    next.totalFindings = (summary.totalFindings ?? 0) + entry.findings.length;
+    aggregatePriorityCounts(next.priorityCounts, countFindingPriorityCounts(entry.findings));
 
     if (entry.duration !== undefined) {
       next.totalDuration = (summary.totalDuration ?? 0) + entry.duration;

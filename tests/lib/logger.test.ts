@@ -368,11 +368,7 @@ describe("logger", () => {
         phase: "review",
         sessionStatus: "running",
         duration: 2_000,
-        findings: [
-          createStoredFinding("F001", "P0"),
-          createStoredFinding("F002", "P2"),
-          createStoredFinding("F003", "P1"),
-        ],
+        findings: [createStoredFinding("F003", "P1")],
         netNewFindingIds: ["F003"],
       });
       await appendLog(logPath, {
