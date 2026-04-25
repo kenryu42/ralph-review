@@ -354,6 +354,22 @@ describe("DetailPane", () => {
     });
 
     expect(frame).toContain("running reviewer agent");
+    expect(frame).toContain("Iteration:");
+  });
+
+  test("hides iteration progress while the fixer agent is running", async () => {
+    const frame = await renderFrame({
+      session: createSession({
+        state: "running",
+        iteration: 1,
+        currentAgent: "fixer",
+      }),
+      currentAgent: "fixer",
+    });
+
+    expect(frame).toContain("running fixer agent");
+    expect(frame).not.toContain("Iteration:");
+    expect(frame).not.toContain("1/5");
   });
 
   test("renders the loading state", async () => {

@@ -273,6 +273,7 @@ export function SessionDetailView({
     inventoryFindings.length > 0 ? inventoryFindings.map(storedFindingToFinding) : displayFindings;
 
   const sessionIdentity = formatSessionIdentityDisplay(session, activeSessionCount);
+  const showIterationProgress = currentAgent !== "fixer";
 
   return (
     <box flexDirection="column" flexGrow={1} minHeight={0}>
@@ -323,9 +324,12 @@ export function SessionDetailView({
         <MetadataDivider />
       </box>
 
-      <ProgressBar current={iteration} max={maxIterations} />
-
-      <box paddingTop={1} />
+      {showIterationProgress && (
+        <>
+          <ProgressBar current={iteration} max={maxIterations} />
+          <box paddingTop={1} />
+        </>
+      )}
 
       {batchFirstMode ? (
         <>
