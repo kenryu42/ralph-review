@@ -61,7 +61,7 @@ flowchart TD
     G -- No --> K[Clean review result]
     J --> L{Fix now?}
     L -- Later --> M[rr fix --session SESSION]
-    L -- rr run --auto --> N[Select findings automatically]
+    L -- "rr run --auto" --> N[Select findings automatically]
     M --> O[Select findings by prompt, all, priority, or ID]
     N --> P[Create disposable fix worktree]
     O --> P
