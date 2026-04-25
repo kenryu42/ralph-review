@@ -4,6 +4,7 @@ import { useKeyboard } from "@opentui/react";
 import { testRender } from "@opentui/react/test-utils";
 import { act, createElement } from "react";
 import { CLI_PATH } from "@/lib/paths";
+import type { StoredFinding } from "@/lib/review-workflow/findings/types";
 import type { ActiveSession } from "@/lib/session-state";
 import type { WorkspaceState } from "@/lib/tui/workspace/workspace-types";
 import type { Config } from "@/lib/types";
@@ -41,6 +42,20 @@ function createActiveSession(overrides: Partial<ActiveSession> = {}): ActiveSess
   };
 }
 
+function createStoredFinding(id: `F${string}`, priority: StoredFinding["priority"] = "P0") {
+  return {
+    id,
+    fingerprint: `fp-${id}`,
+    title: `Finding ${id}`,
+    body: `Body for ${id}`,
+    priority,
+    confidenceScore: 0.97,
+    filePath: "src/config.ts",
+    startLine: 10,
+    endLine: 12,
+  } satisfies StoredFinding;
+}
+
 function createWorkspaceState(overrides: Partial<WorkspaceState> = {}): WorkspaceState {
   const next: WorkspaceState = {
     sessionGroups: [],
@@ -55,6 +70,7 @@ function createWorkspaceState(overrides: Partial<WorkspaceState> = {}): Workspac
     storedFindings: [],
     selectedFindingIds: [],
     selectedFindings: [],
+    unselectedFindings: [],
     fixResults: [],
     unresolvedSelectedFindings: [],
     auditRegressionFindings: [],
@@ -85,9 +101,46 @@ function createWorkspaceState(overrides: Partial<WorkspaceState> = {}): Workspac
     storedFindings: next.storedFindings ?? [],
     selectedFindingIds: next.selectedFindingIds ?? [],
     selectedFindings: next.selectedFindings ?? [],
+    unselectedFindings: next.unselectedFindings ?? [],
     fixResults: next.fixResults ?? [],
     unresolvedSelectedFindings: next.unresolvedSelectedFindings ?? [],
     auditRegressionFindings: next.auditRegressionFindings ?? [],
+  };
+}
+
+function createLastSessionStats(
+  overrides: Partial<NonNullable<WorkspaceState["lastSessionStats"]>> = {}
+): NonNullable<WorkspaceState["lastSessionStats"]> {
+  return {
+    sessionId: "session-123",
+    reviewOutcome: "findings-pending",
+    sessionPath: "/tmp/logs/session-123.jsonl",
+    sessionName: "session-123.jsonl",
+    timestamp: Date.now(),
+    status: "completed",
+    totalFixes: 0,
+    totalSkipped: 0,
+    priorityCounts: { P0: 1, P1: 0, P2: 0, P3: 0 },
+    iterations: 2,
+    entries: [
+      {
+        type: "system",
+        timestamp: Date.now(),
+        projectPath: "/repo/project",
+        reviewer: { agent: "claude" },
+        fixer: { agent: "codex" },
+        maxIterations: 5,
+      },
+    ],
+    reviewer: "claude",
+    reviewerModel: "sonnet-4",
+    reviewerDisplayName: "claude",
+    reviewerModelDisplayName: "sonnet-4",
+    fixer: "codex",
+    fixerModel: "gpt-5.3-codex",
+    fixerDisplayName: "codex",
+    fixerModelDisplayName: "gpt-5.3-codex",
+    ...overrides,
   };
 }
 
@@ -150,7 +203,11 @@ async function mountDashboardHarness(options: DashboardHarnessOptions = {}) {
       showFixFindings: boolean;
       showSession: boolean;
       showStopPicker: boolean;
-      pendingFixTarget: { sessionId: string } | null;
+      pendingFixTarget: {
+        sessionId: string;
+        commandScope: "artifact" | "visible";
+        findings: Array<{ id: `F${string}` }>;
+      } | null;
       onSubmitRunOverlay: (args: string[]) => void;
       onSubmitFixOverlay: (args: string[]) => void;
     }) => {
@@ -160,12 +217,15 @@ async function mountDashboardHarness(options: DashboardHarnessOptions = {}) {
         }
 
         if (showFixFindings && (key.name === "enter" || key.name === "return")) {
-          onSubmitFixOverlay([
-            "fix",
-            "--session",
-            pendingFixTarget?.sessionId ?? "session-123",
-            "--all",
-          ]);
+          const args = ["fix", "--session", pendingFixTarget?.sessionId ?? "session-123"];
+          if (pendingFixTarget?.commandScope === "visible") {
+            for (const finding of pendingFixTarget.findings) {
+              args.push("--id", finding.id);
+            }
+          } else {
+            args.push("--all");
+          }
+          onSubmitFixOverlay(args);
         }
       });
 
@@ -459,6 +519,66 @@ describe("Dashboard component", () => {
     try {
       const frame = await harness.press("f");
       expect(frame).toContain("fix overlay");
+    } finally {
+      await harness.destroy();
+    }
+  });
+
+  test("opens the fix overlay for fixed-selected sessions with unselected findings", async () => {
+    const harness = await mountDashboardHarness({
+      workspaceState: {
+        lastSessionStats: createLastSessionStats({ reviewOutcome: "fixed-selected" }),
+        storedFindings: [createStoredFinding("F001"), createStoredFinding("F002", "P1")],
+        unselectedFindings: [createStoredFinding("F002", "P1")],
+      },
+    });
+
+    try {
+      const frame = await harness.press("f");
+      expect(frame).toContain("fix overlay");
+    } finally {
+      await harness.destroy();
+    }
+  });
+
+  test("opens the fix overlay for incomplete sessions with unresolved selected findings", async () => {
+    const harness = await mountDashboardHarness({
+      workspaceState: {
+        lastSessionStats: createLastSessionStats({ reviewOutcome: "incomplete" }),
+        storedFindings: [createStoredFinding("F001"), createStoredFinding("F002", "P1")],
+        unresolvedSelectedFindings: [createStoredFinding("F001")],
+      },
+    });
+
+    try {
+      const frame = await harness.press("f");
+      expect(frame).toContain("fix overlay");
+    } finally {
+      await harness.destroy();
+    }
+  });
+
+  test("submits remaining subset fixes with explicit id flags", async () => {
+    const harness = await mountDashboardHarness({
+      workspaceState: {
+        lastSessionStats: createLastSessionStats({ reviewOutcome: "fixed-selected" }),
+        storedFindings: [createStoredFinding("F001"), createStoredFinding("F002", "P1")],
+        unselectedFindings: [createStoredFinding("F002", "P1")],
+      },
+    });
+
+    try {
+      const overlayFrame = await harness.press("f");
+      expect(overlayFrame).toContain("fix overlay");
+
+      await harness.press("\r", 4);
+
+      expect(harness.spawnCalls).toEqual([
+        {
+          cmd: [process.execPath, CLI_PATH, "fix", "--session", "session-123", "--id", "F002"],
+          cwd: "/repo/project",
+        },
+      ]);
     } finally {
       await harness.destroy();
     }

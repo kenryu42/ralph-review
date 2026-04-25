@@ -67,6 +67,7 @@ export function DashboardOverlays({
           sessionId={pendingFixTarget.sessionId}
           projectPath={pendingFixTarget.projectPath}
           findings={pendingFixTarget.findings}
+          commandScope={pendingFixTarget.commandScope}
           onSubmit={onSubmitFixOverlay}
           onClose={onCloseFixFindings}
         />

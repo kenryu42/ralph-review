@@ -15,6 +15,7 @@ export interface FixIssuesOverlayProps {
   sessionId: string;
   projectPath: string;
   findings: StoredFinding[];
+  commandScope?: "artifact" | "visible";
   onSubmit: (args: string[]) => void;
   onClose: () => void;
 }
@@ -239,6 +240,8 @@ function sortSelectedFindingIds(
 
 function buildFixCommandArgs(
   sessionId: string,
+  findings: StoredFinding[],
+  commandScope: "artifact" | "visible",
   mode: FindingSelectionMode,
   selectedPriorities: Priority[],
   selectedFindingIds: FindingId[]
@@ -246,6 +249,13 @@ function buildFixCommandArgs(
   const args = ["fix", "--session", sessionId];
 
   if (mode === "all") {
+    if (commandScope === "visible") {
+      for (const finding of findings) {
+        args.push("--id", finding.id);
+      }
+      return args;
+    }
+
     args.push("--all");
     return args;
   }
@@ -255,8 +265,24 @@ function buildFixCommandArgs(
       return null;
     }
 
-    args.push("--priority", formatPriorityList(selectedPriorities));
+    if (commandScope === "visible") {
+      const selectedPrioritySet = new Set(selectedPriorities);
+      const matchingFindingIds = findings
+        .filter((finding) => selectedPrioritySet.has(finding.priority))
+        .map((finding) => finding.id);
 
+      if (matchingFindingIds.length === 0) {
+        return null;
+      }
+
+      for (const findingId of matchingFindingIds) {
+        args.push("--id", findingId);
+      }
+
+      return args;
+    }
+
+    args.push("--priority", formatPriorityList(selectedPriorities));
     return args;
   }
 
@@ -273,11 +299,20 @@ function buildFixCommandArgs(
 
 function buildFixCommandPreview(
   sessionId: string,
+  findings: StoredFinding[],
+  commandScope: "artifact" | "visible",
   mode: FindingSelectionMode,
   selectedPriorities: Priority[],
   selectedFindingIds: FindingId[]
 ): string | null {
-  const args = buildFixCommandArgs(sessionId, mode, selectedPriorities, selectedFindingIds);
+  const args = buildFixCommandArgs(
+    sessionId,
+    findings,
+    commandScope,
+    mode,
+    selectedPriorities,
+    selectedFindingIds
+  );
   return args ? `rr ${args.join(" ")}` : null;
 }
 
@@ -368,6 +403,7 @@ export function FixIssuesOverlay({
   sessionId,
   projectPath,
   findings,
+  commandScope = "artifact",
   onSubmit,
   onClose,
 }: FixIssuesOverlayProps) {
@@ -518,6 +554,8 @@ export function FixIssuesOverlay({
   const baseCommandPreview = `rr fix --session ${sessionId}`;
   const commandPreview = buildFixCommandPreview(
     sessionId,
+    findings,
+    commandScope,
     mode,
     selectedPriorities,
     orderedSelectedFindingIds
@@ -622,6 +660,8 @@ export function FixIssuesOverlay({
   const confirmFixSelection = useCallback(() => {
     const commandArgs = buildFixCommandArgs(
       sessionId,
+      findings,
+      commandScope,
       mode,
       selectedPriorities,
       orderedSelectedFindingIds
@@ -636,6 +676,8 @@ export function FixIssuesOverlay({
     onClose();
   }, [
     disabledReason,
+    findings,
+    commandScope,
     mode,
     onSubmit,
     onClose,
@@ -821,7 +863,9 @@ export function FixIssuesOverlay({
             <strong>What runs</strong>
           </text>
           <text fg={TUI_COLORS.text.secondary}>
-            Every pending finding, passed together via --all.
+            {commandScope === "visible"
+              ? "Every visible finding, passed together with explicit --id flags."
+              : "Every pending finding, passed together via --all."}
           </text>
           <text fg={TUI_COLORS.text.dim}>
             <strong>Findings by priority</strong>

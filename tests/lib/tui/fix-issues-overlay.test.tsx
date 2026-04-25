@@ -79,6 +79,7 @@ describe("FixIssuesOverlay", () => {
       width?: number;
       height?: number;
       findings?: Parameters<typeof FixIssuesOverlay>[0]["findings"];
+      commandScope?: Parameters<typeof FixIssuesOverlay>[0]["commandScope"];
     } = {}
   ) {
     let closeCount = 0;
@@ -89,6 +90,7 @@ describe("FixIssuesOverlay", () => {
         sessionId: "session-123",
         projectPath: "/repo/project",
         findings: options.findings ?? defaultFindings,
+        commandScope: options.commandScope,
         onSubmit: (args) => {
           submitCalls.push(args);
         },
@@ -299,6 +301,20 @@ describe("FixIssuesOverlay", () => {
     expect(overlay.getCloseCount()).toBe(1);
   });
 
+  test("submits visible findings as repeated id flags in all mode", async () => {
+    const overlay = await renderOverlay({ commandScope: "visible" });
+    const frame = overlay.frame();
+
+    expect(frame).toContain("rr fix --session session-123 --id F001 --id F002 --id F003");
+    expect(frame).not.toContain("passed together via --all");
+
+    await overlay.press("\r");
+
+    expect(overlay.getSubmitCalls()).toEqual([
+      ["fix", "--session", "session-123", "--id", "F001", "--id", "F002", "--id", "F003"],
+    ]);
+  });
+
   test("selects priorities and submits a csv --priority flag", async () => {
     const overlay = await renderOverlay();
     let frame = overlay.frame();
@@ -319,6 +335,24 @@ describe("FixIssuesOverlay", () => {
 
     expect(overlay.getSubmitCalls()).toEqual([
       ["fix", "--session", "session-123", "--priority", "P0,P1"],
+    ]);
+  });
+
+  test("submits visible priority matches as repeated id flags", async () => {
+    const overlay = await renderOverlay({ commandScope: "visible" });
+
+    await overlay.press("j");
+    let frame = await overlay.press(" ");
+    expect(frame).toContain("--id F001");
+    expect(frame).not.toContain("--priority P0");
+
+    await overlay.press("j");
+    frame = await overlay.press(" ");
+    expect(frame).toContain("--id F001 --id F002");
+    await overlay.press("\r");
+
+    expect(overlay.getSubmitCalls()).toEqual([
+      ["fix", "--session", "session-123", "--id", "F001", "--id", "F002"],
     ]);
   });
 

@@ -13,6 +13,7 @@ export interface WorkspaceLogData {
   storedFindings: ReturnType<typeof deriveWorkflowPresentationData>["storedFindings"];
   selectedFindingIds: ReturnType<typeof deriveWorkflowPresentationData>["selectedFindingIds"];
   selectedFindings: ReturnType<typeof deriveWorkflowPresentationData>["selectedFindings"];
+  unselectedFindings: ReturnType<typeof deriveWorkflowPresentationData>["unselectedFindings"];
   fixResults: ReturnType<typeof deriveWorkflowPresentationData>["fixResults"];
   unresolvedSelectedFindings: ReturnType<
     typeof deriveWorkflowPresentationData
@@ -78,6 +79,7 @@ export function deriveWorkspaceLogData(logEntries: LogEntry[]): WorkspaceLogData
     storedFindings: workflow.storedFindings,
     selectedFindingIds: workflow.selectedFindingIds,
     selectedFindings: workflow.selectedFindings,
+    unselectedFindings: workflow.unselectedFindings,
     fixResults: workflow.fixResults,
     unresolvedSelectedFindings: workflow.unresolvedSelectedFindings,
     auditRegressionFindings: workflow.regressionFindings,

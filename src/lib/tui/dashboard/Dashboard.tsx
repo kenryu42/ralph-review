@@ -45,7 +45,12 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
 
   const projectName = basename(projectPath);
   const isExitingRef = useRef(false);
-  const pendingFixTarget = getPendingFixTarget(state.lastSessionStats, state.storedFindings);
+  const pendingFixTarget = getPendingFixTarget(
+    state.lastSessionStats,
+    state.storedFindings,
+    state.unselectedFindings,
+    state.unresolvedSelectedFindings
+  );
   const canFixPendingSession = pendingFixTarget !== null;
 
   const [prevCurrentSessionId, setPrevCurrentSessionId] = useState<string | null>(

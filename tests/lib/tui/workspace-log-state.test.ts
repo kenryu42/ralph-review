@@ -176,6 +176,7 @@ describe("deriveWorkspaceLogData", () => {
     ]);
     expect(result.selectedFindingIds).toEqual(["F001"]);
     expect(result.selectedFindings.map((finding) => finding.id)).toEqual(["F001"]);
+    expect(result.unselectedFindings.map((finding) => finding.id)).toEqual(["F002"]);
     expect(result.fixResults).toHaveLength(1);
     expect(result.fixResults[0]).toMatchObject({
       findingId: "F001",

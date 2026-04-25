@@ -62,6 +62,7 @@ describe("dashboard fix state", () => {
       sessionId: "session-123",
       projectPath: "/repo/project",
       findings: [createFinding()],
+      commandScope: "artifact",
     });
   });
 
@@ -79,7 +80,63 @@ describe("dashboard fix state", () => {
       sessionId: "session-123",
       projectPath: "/repo/project",
       findings: [createFinding()],
+      commandScope: "artifact",
     });
+  });
+
+  test("builds a visible pending fix target for fixed-selected unselected findings", () => {
+    const target = getPendingFixTarget(
+      createSessionStats({ reviewOutcome: "fixed-selected" }),
+      [createFinding("F001"), createFinding("F002")],
+      [createFinding("F002")],
+      []
+    );
+
+    expect(target).toEqual({
+      sessionId: "session-123",
+      projectPath: "/repo/project",
+      findings: [createFinding("F002")],
+      commandScope: "visible",
+    });
+  });
+
+  test("builds a visible pending fix target for incomplete unresolved selected findings", () => {
+    const target = getPendingFixTarget(
+      createSessionStats({ reviewOutcome: "incomplete" }),
+      [createFinding("F001"), createFinding("F002")],
+      [],
+      [createFinding("F001")]
+    );
+
+    expect(target).toEqual({
+      sessionId: "session-123",
+      projectPath: "/repo/project",
+      findings: [createFinding("F001")],
+      commandScope: "visible",
+    });
+  });
+
+  test("combines incomplete unresolved selected and unselected findings in stored order", () => {
+    const target = getPendingFixTarget(
+      createSessionStats({ reviewOutcome: "incomplete" }),
+      [createFinding("F001"), createFinding("F002"), createFinding("F003")],
+      [createFinding("F001"), createFinding("F003")],
+      [createFinding("F003"), createFinding("F002")]
+    );
+
+    expect(target?.findings.map((finding) => finding.id)).toEqual(["F001", "F002", "F003"]);
+    expect(target?.commandScope).toBe("visible");
+  });
+
+  test("returns null for fixed-selected when no findings remain", () => {
+    expect(
+      getPendingFixTarget(
+        createSessionStats({ reviewOutcome: "fixed-selected" }),
+        [createFinding("F001")],
+        [],
+        []
+      )
+    ).toBeNull();
   });
 
   test("returns null when there is nothing actionable to fix", () => {

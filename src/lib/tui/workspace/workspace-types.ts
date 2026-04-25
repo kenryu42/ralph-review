@@ -39,6 +39,7 @@ export interface WorkspaceState {
   storedFindings: StoredFinding[];
   selectedFindingIds: FindingId[];
   selectedFindings: StoredFinding[];
+  unselectedFindings: StoredFinding[];
   fixResults: FindingFixResult[];
   unresolvedSelectedFindings: StoredFinding[];
   auditRegressionFindings: StoredFinding[];
