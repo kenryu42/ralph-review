@@ -105,7 +105,7 @@ export async function runReviewPhase(options: RunReviewPhaseOptions): Promise<Re
       duration: reviewerResult.duration ?? Date.now() - iterationStartTime,
       phase: "review",
       sessionStatus: "running",
-      findings,
+      findings: merged.newFindings,
       netNewFindingIds: merged.newFindings.map((finding) => finding.id),
     };
     await options.appendLog(options.sessionPath, entry);
