@@ -1,9 +1,9 @@
 import type { Selection } from "@opentui/core";
 import { useRenderer, useTerminalDimensions } from "@opentui/react";
-import type { ReactNode } from "react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { createContext, type ReactNode, useCallback, useContext, useRef, useState } from "react";
 import * as clipboard from "@/lib/tui/shared/clipboard";
 import { TUI_COLORS } from "@/lib/tui/shared/colors";
+import { useMountEffect } from "@/lib/tui/shared/use-mount-effect";
 
 const SUCCESS_TOAST_DURATION_MS = 2_000;
 const ERROR_TOAST_DURATION_MS = 4_000;
@@ -13,6 +13,26 @@ type ToastTone = "success" | "error";
 interface ToastState {
   message: string;
   tone: ToastTone;
+}
+
+interface CopyTextOptions {
+  successMessage?: string;
+  errorMessage?: string;
+}
+
+interface SelectionCopyToastContextValue {
+  copyText: (text: string, options?: CopyTextOptions) => Promise<boolean>;
+}
+
+const SelectionCopyToastContext = createContext<SelectionCopyToastContextValue | null>(null);
+
+export function useSelectionCopyToast(): SelectionCopyToastContextValue {
+  const context = useContext(SelectionCopyToastContext);
+  if (!context) {
+    throw new Error("useSelectionCopyToast must be used within SelectionCopyToastBoundary");
+  }
+
+  return context;
 }
 
 function CopyToast({ toast }: { toast: ToastState }) {
@@ -46,6 +66,7 @@ export function SelectionCopyToastBoundary({ children }: { children: ReactNode }
   const renderer = useRenderer();
   const [toast, setToast] = useState<ToastState | null>(null);
   const dismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mountedRef = useRef(true);
 
   const showToast = useCallback((nextToast: ToastState, durationMs: number) => {
     if (dismissTimerRef.current) {
@@ -63,65 +84,76 @@ export function SelectionCopyToastBoundary({ children }: { children: ReactNode }
     dismissTimerRef.current = dismissTimer;
   }, []);
 
-  useEffect(() => {
+  const copyText = useCallback(
+    async (text: string, options: CopyTextOptions = {}) => {
+      try {
+        await clipboard.copyToClipboard(text);
+        if (!mountedRef.current) {
+          return false;
+        }
+
+        showToast(
+          {
+            message: options.successMessage ?? "Copied to clipboard",
+            tone: "success",
+          },
+          SUCCESS_TOAST_DURATION_MS
+        );
+        return true;
+      } catch {
+        if (!mountedRef.current) {
+          return false;
+        }
+
+        showToast(
+          {
+            message: options.errorMessage ?? "Failed to copy to clipboard",
+            tone: "error",
+          },
+          ERROR_TOAST_DURATION_MS
+        );
+        return false;
+      }
+    },
+    [showToast]
+  );
+
+  useMountEffect(() => {
     return () => {
+      mountedRef.current = false;
       if (dismissTimerRef.current) {
         clearTimeout(dismissTimerRef.current);
         dismissTimerRef.current = null;
       }
     };
-  }, []);
+  });
 
-  useEffect(() => {
-    let mounted = true;
-
+  useMountEffect(() => {
     const handleSelection = async (selection: Selection) => {
       const selectedText = selection.getSelectedText();
       if (selectedText.length === 0) {
         return;
       }
 
-      try {
-        await clipboard.copyToClipboard(selectedText);
-        if (!mounted) {
-          return;
-        }
-
+      const copied = await copyText(selectedText);
+      if (copied && mountedRef.current) {
         renderer.clearSelection();
-        showToast(
-          {
-            message: "Copied to clipboard",
-            tone: "success",
-          },
-          SUCCESS_TOAST_DURATION_MS
-        );
-      } catch {
-        if (!mounted) {
-          return;
-        }
-
-        showToast(
-          {
-            message: "Failed to copy to clipboard",
-            tone: "error",
-          },
-          ERROR_TOAST_DURATION_MS
-        );
       }
     };
 
     renderer.on("selection", handleSelection);
 
     return () => {
-      mounted = false;
       renderer.off("selection", handleSelection);
     };
-  }, [renderer, showToast]);
+  });
 
   return (
-    <box width="100%" height="100%">
-      {children}
-      {toast && <CopyToast toast={toast} />}
-    </box>
+    <SelectionCopyToastContext.Provider value={{ copyText }}>
+      <box width="100%" height="100%">
+        {children}
+        {toast && <CopyToast toast={toast} />}
+      </box>
+    </SelectionCopyToastContext.Provider>
   );
 }
