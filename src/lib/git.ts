@@ -267,36 +267,6 @@ function assertGitOkWithEnv(
   return result.stdout.toString().trim();
 }
 
-async function assertGitOkWithEnvAsync(
-  cwd: string,
-  args: string[],
-  env: Record<string, string>,
-  context: string
-): Promise<string> {
-  const proc = Bun.spawn(["git", ...args], {
-    cwd,
-    env: {
-      ...process.env,
-      ...env,
-    },
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  const [exitCode, stdout, stderr] = await Promise.all([
-    proc.exited,
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-  ]);
-
-  if (exitCode !== 0) {
-    throw new Error(
-      `${context}: git ${args.join(" ")} failed: ${stderr.trim() || stdout.trim() || "unknown git error"}`
-    );
-  }
-
-  return stdout.trim();
-}
-
 function normalizeGitArtifactId(value: string): string {
   return value.replace(/[^a-zA-Z0-9_.-]/g, "-");
 }
@@ -550,43 +520,8 @@ export function createBaselineCommit(
   };
 }
 
-async function computeWorkingTreeFingerprintInternalAsync(repoPath: string): Promise<string> {
-  const repoRoot = assertGitOk(
-    repoPath,
-    ["rev-parse", "--show-toplevel"],
-    "Failed to resolve repository root for worktree fingerprint"
-  );
-  const tempIndexPath = createTemporaryIndexPath("worktree-async");
-
-  try {
-    seedTemporaryIndex(repoRoot, tempIndexPath, "Failed to fingerprint worktree state");
-    await assertGitOkWithEnvAsync(
-      repoRoot,
-      ["add", "-A", "--", "."],
-      {
-        GIT_INDEX_FILE: tempIndexPath,
-      },
-      "Failed to fingerprint worktree state"
-    );
-    return await assertGitOkWithEnvAsync(
-      repoRoot,
-      ["write-tree"],
-      {
-        GIT_INDEX_FILE: tempIndexPath,
-      },
-      "Failed to fingerprint worktree state"
-    );
-  } finally {
-    runCommand(repoRoot, ["rm", "-f", tempIndexPath]);
-  }
-}
-
 export function computeWorkingTreeFingerprint(repoPath: string): string {
   return createWorktreeStateTree(repoPath, "Failed to fingerprint worktree state");
-}
-
-export async function computeWorkingTreeFingerprintAsync(repoPath: string): Promise<string> {
-  return await computeWorkingTreeFingerprintInternalAsync(repoPath);
 }
 
 export async function createBaselineToFinalPatch(
