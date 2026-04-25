@@ -1075,6 +1075,58 @@ describe("init command", () => {
       expect(harness.outros).toEqual(["You can now run: rr run"]);
     });
 
+    test("probes codex during auto setup when it is the only installed agent", async () => {
+      const probeCalls: Array<AgentType[] | undefined> = [];
+      const harness = createInitHarness({
+        availability: createAvailability({ codex: true }),
+        selectResponses: ["auto"],
+        confirmResponses: [true],
+        reviewAgentCapabilities: async (input = {}) => {
+          probeCalls.push(input.probeAgents);
+          const codexWasProbed = input.probeAgents?.includes("codex") ?? true;
+
+          return createCapabilities({
+            codex: {
+              models: codexWasProbed ? [{ model: "gpt-5.4", label: "GPT-5.4" }] : [],
+            },
+          });
+        },
+      });
+
+      await runInitWithRuntime(harness.overrides);
+
+      expect(probeCalls[0]).toContain("codex");
+      expect(harness.savedConfigs).toHaveLength(1);
+      expect(harness.savedConfigs[0]?.reviewer.agent).toBe("codex");
+      expect(harness.savedConfigs[0]?.fixer.agent).toBe("codex");
+    });
+
+    test("probes droid during auto setup when it is the only installed agent", async () => {
+      const probeCalls: Array<AgentType[] | undefined> = [];
+      const harness = createInitHarness({
+        availability: createAvailability({ droid: true }),
+        selectResponses: ["auto"],
+        confirmResponses: [true],
+        reviewAgentCapabilities: async (input = {}) => {
+          probeCalls.push(input.probeAgents);
+          const droidWasProbed = input.probeAgents?.includes("droid") ?? true;
+
+          return createCapabilities({
+            droid: {
+              models: droidWasProbed ? [{ model: "gpt-5.2-codex", label: "GPT-5.2-Codex" }] : [],
+            },
+          });
+        },
+      });
+
+      await runInitWithRuntime(harness.overrides);
+
+      expect(probeCalls[0]).toContain("droid");
+      expect(harness.savedConfigs).toHaveLength(1);
+      expect(harness.savedConfigs[0]?.reviewer.agent).toBe("droid");
+      expect(harness.savedConfigs[0]?.fixer.agent).toBe("droid");
+    });
+
     test("writes repo-local config overrides to .ralph-review/config.json when repo-local scope is selected", async () => {
       const harness = createInitHarness({
         availability: createAvailability({ codex: true }),

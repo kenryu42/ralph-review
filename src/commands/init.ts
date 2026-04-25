@@ -1046,7 +1046,7 @@ export async function runInitWithRuntime(
     try {
       const capabilitiesByAgent = await runtime.reviewAgentCapabilities({
         availabilityOverride: agentAvailability,
-        probeAgents: ["opencode", "pi"],
+        probeAgents: ["codex", "droid", "opencode", "pi"],
         cacheNamespace: "init-auto",
       });
       const autoResult = await buildAutoInitInput(agentAvailability, { capabilitiesByAgent });
