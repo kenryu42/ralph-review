@@ -5,15 +5,15 @@
 [![Version](https://img.shields.io/github/v/tag/kenryu42/ralph-review?label=version&color=blue)](https://github.com/kenryu42/ralph-review)
 [![License: MIT](https://img.shields.io/badge/License-MIT-red.svg)](https://opensource.org/licenses/MIT)
 
-Orchestrating coding agents for code review, verification and fixing via the ralph loop.
+Orchestrating coding agents for code review, verification, and fixing via the Ralph loop.
 
 ---
 
 ## Table of Contents
 
-- [Why This Exists](#why-this-exists)
 - [How It Works](#how-it-works)
-- [Agent Roles](#agent-roles)
+- [Reviewer and Fixer Flow](#reviewer-and-fixer-flow)
+- [Interactive Mode](#interactive-mode)
 - [Prerequisites](#prerequisites)
 - [Installation](#installation)
 - [Quick Start](#quick-start)
@@ -24,81 +24,97 @@ Orchestrating coding agents for code review, verification and fixing via the ral
 
 ---
 
-## Why This Exists
-
-I've been a huge fan of Codex's review feature ever since its [first release](https://x.com/DanielEdrisian/status/1968819243694104899). Because the GPT Codex model actually reads many files to gather context and reasoning, it is slower than other agents, but it consistently finds bugs they miss.
-
-My usual workflow was repetitive: run a Codex review, copy and paste the findings into a new session,
-ask another agent if it agrees, and then ask it to fix the issues.
-
-Why not fix it in the same session? Because I wanted an independent second opinion before applying changes, and a fresh context helped avoid the first agent’s bias carrying into the fix.
-
-Doing that manually is tedious and time-consuming, so I built this tool to automate the loop. Inspired by the [Ralph Wiggum technique](https://ghuntley.com/ralph/) by Geoffrey Huntley. I also
-wanted an easy way to try different coding agents and models.
-
-If this helps other people, great. If not, it still helps me.
-
----
-
 ## How It Works
 
-Ralph Review automates code review by pairing two AI agents -- a **reviewer** and a **fixer** -- and looping until the code is clean or the iteration limit is reached.
+Ralph Review now uses a batch-first workflow:
 
-```text
-┌──────────────────────────────┐
-│         Your changes         │
-└──────────────┬───────────────┘
-               │
-               ▼
-      ┌─────────────────┐
-      │ Reviewer agent  │ ◀───────────────────────────────────────┐
-      └────────┬────────┘                                         │
-               │                                                  │
-               ▼                                                  │
-      ┌─────────────────┐                                         │
-      │   Fixer agent   │                                         │
-      │  (verify & fix) │                                         │
-      └────────┬────────┘                                         │
-               │                                                  │
-               ▼                                                  │
-    ┌───────────────────────┐                                     │
-    │   Parse fix summary   │                                     │
-    └──────────┬────────────┘                                     │
-               │                                                  │
-               ├── no issues found (verified by fixer) ──▶ Stop   │
-               ├── issues found, all skipped by fixer  ──▶ Stop   │
-               │                                                  │
-               ▼                                                  │
-  Loop back to Reviewer ───────────────────────────────────────────┘
-  (until max iterations reached)
-```
+1. `rr run` performs review only.
+2. The reviewer runs in a disposable session worktree and reports structured findings.
+3. Findings are deduplicated across review iterations and persisted as a session artifact.
+4. If findings exist, you choose which ones to fix with `rr fix`.
+5. The fixer handles the selected findings in a separate batch remediation phase.
+6. Resolved fixes are handed back to your working tree, either automatically or as a pending handoff
+   to apply manually.
 
-**How the cycle works:**
+This keeps review and remediation separate by default. The reviewer can focus on finding real
+issues, and the fixer treats those findings as input for a later, explicit remediation step.
 
-1. The **reviewer** analyzes your changes and returns structured review output.
-2. The **fixer** independently reads the code, confirms each issue is real, and applies fixes only where warranted. It does not blindly trust the reviewer.
-3. The fixer outputs a structured summary. If it reports no actionable issues left, the cycle ends.
-4. Otherwise, the cycle repeats from step 1 until no issues remain or the configured iteration limit is hit.
-
-Mutating agent steps run inside a disposable session worktree. If a fixer run fails mid-step, Ralph Review discards that session worktree instead of trying to roll partial edits forward.
-
-You can assign different AI agents to each role (e.g. Claude reviews, Gemini fixes).
+Use `rr run --auto` when you want Ralph Review to run remediation immediately after review. Add
+`--priority P0,P1` to auto-fix only selected priority levels.
 
 ---
 
-## Agent Roles
+## Reviewer and Fixer Flow
 
-Ralph Review orchestrates two distinct roles. You can assign any [supported coding agent](#supported-coding-agents) to each role.
+```mermaid
+flowchart TD
+    A[Your repository] --> B[rr run]
+    B --> C[Preflight checks]
+    C --> D[Start tmux session]
+    D --> E[Create disposable review worktree]
+    E --> F[Reviewer agent]
+    F --> G{New findings?}
+    G -- Yes --> H[Merge findings into inventory]
+    H --> I{Max iterations reached or no new findings?}
+    I -- No --> F
+    I -- Yes --> J[Persist findings artifact]
+    G -- No --> K[Clean review result]
+    J --> L{Fix now?}
+    L -- Later --> M[rr fix --session SESSION]
+    L -- rr run --auto --> N[Select findings automatically]
+    M --> O[Select findings by prompt, all, priority, or ID]
+    N --> P[Create disposable fix worktree]
+    O --> P
+    P --> Q[Fixer agent batch remediation]
+    Q --> R{Selected findings resolved?}
+    R -- Yes --> S[Create handoff]
+    S --> T{Auto-apply succeeds?}
+    T -- Yes --> U[Fixes applied to working tree]
+    T -- No --> V[Pending handoff]
+    V --> W[rr apply or rr prune --discard]
+    R -- No --> X[Retain remediation worktree for review]
+```
 
 ### Reviewer
 
-Analyzes changes for bugs that impact correctness, security, reliability, or maintainability. Outputs structured JSON with findings, each tagged P0–P3 by priority. Ignores style nits and pre-existing issues — only flags bugs introduced in the change. Does not suggest fixes.
+The reviewer analyzes the selected review scope for correctness, security, reliability, and
+maintainability issues introduced by the change. It outputs structured findings with stable IDs
+such as `F001`, priorities `P0` through `P3`, and source locations.
 
-Prompt adapted from the [Codex CLI review prompt](https://github.com/openai/codex/blob/main/codex-rs/core/review_prompt.md).
+Reviewer iterations continue until no new findings are discovered or `maxIterations` is reached.
+By default the run stops early when an iteration finds nothing new. Use `--force` to run the full
+iteration count.
 
 ### Fixer
 
-Treats review findings as untrusted input — verifies every claim against actual code before acting. Classifies each issue as APPLY (real and fixable) or SKIP (false positive or not actionable). Applies minimal safe changes, then runs project verification (lint, typecheck, tests, build). When no actionable issues remain, signals the cycle to stop.
+The fixer runs only after findings have been persisted and selected. It receives the selected
+finding inventory, works in a disposable fix worktree, and returns a per-finding result:
+`resolved` or `unresolved`.
+
+When all selected findings are resolved, Ralph Review creates a handoff. Depending on the working
+tree state, the handoff may be applied automatically or left pending for `rr apply`. If selected
+findings remain unresolved, Ralph Review keeps the remediation worktree available for inspection.
+
+---
+
+## Interactive Mode
+
+Run `rr` with no command to open Interactive Mode. It shows active sessions, recent session history,
+review output, findings, fix results, and handoff status.
+
+Keyboard shortcuts:
+
+| Key | Action |
+|-----|--------|
+| `r` | Start a new review session |
+| `f` | Fix pending findings when a session has actionable findings |
+| `s` | Stop a running review session |
+| `l` | View session logs |
+| `o` | Toggle the output drawer |
+| `Tab`, `←`, `→` | Switch panel focus |
+| `↑`, `↓`, `j`, `k` | Scroll the focused panel |
+| `h`, `?` | Toggle help |
+| `Esc`, `q` | Quit Interactive Mode without stopping reviews |
 
 ---
 
@@ -107,6 +123,8 @@ Treats review findings as untrusted input — verifies every claim against actua
 - [Bun](https://bun.sh) (runtime)
 - [tmux](https://github.com/tmux/tmux) (background sessions)
 - At least one [supported agent CLI](#supported-coding-agents) installed and authenticated
+
+Ralph Review is a Bun-only TypeScript CLI. Use Bun for development and script execution.
 
 ---
 
@@ -119,8 +137,21 @@ brew install kenryu42/tap/ralph-review
 # npm (install or update)
 npm install -g ralph-review
 
-# Or let ralph-review detect the install method and update itself
+# Or let Ralph Review detect the install method and update itself
 rr update
+```
+
+For update checks without installing, run:
+
+```bash
+rr update --check
+```
+
+If install-source detection is ambiguous, force the package manager:
+
+```bash
+rr update --manager npm
+rr update --manager brew
 ```
 
 ---
@@ -128,18 +159,33 @@ rr update
 ## Quick Start
 
 ```bash
-# Auto-detect installed agents and configure reviewer/fixer
+# Configure reviewer and fixer agents
 rr init
 
-# Start a non-interactive review cycle (runs in tmux)
+# Start Interactive Mode
+rr
+
+# Start a review-only background session
 rr run
 
-# Or use the shorthand alias
-rrr
+# Review against a base branch
+rr run --base main
 
-# Open Interactive Mode separately
-rr
+# Review staged, unstaged, and untracked changes
+rr run --uncommitted
+
+# Review a specific commit
+rr run --commit SHA
+
+# Fix findings after review completes
+rr fix --session SESSION_ID --all
+
+# Review and immediately fix P0/P1 findings
+rr run --auto --priority P0,P1
 ```
+
+`rrr` is a shorthand alias for `rr run`. It starts a non-interactive review run without launching
+Interactive Mode.
 
 ---
 
@@ -147,27 +193,48 @@ rr
 
 | Command | Description |
 |---------|-------------|
-| `rr` | Interactive Mode |
-| `rr init` | Configure reviewer and fixer agents (auto-detects installed CLIs) |
-| `rr run` | Start a non-interactive review cycle in a tmux session |
-| `rr run --base main` | Review changes against a base branch |
+| `rr` | Launch Interactive Mode |
+| `rrr` | Alias for `rr run` |
+| `rr init` | Configure reviewer and fixer agents |
+| `rr init --global` | Write the user-global config |
+| `rr init --local` | Write repo-local overrides to `.ralph-review/config.json` |
+| `rr run` | Run review only and persist findings for later fixing |
+| `rr run --base main` | Review changes against a base branch or ref |
 | `rr run --uncommitted` | Review staged, unstaged, and untracked changes |
 | `rr run --commit SHA` | Review changes introduced by a specific commit |
-| `rr run --max N` | Set max iterations |
-| `rr config show` | Print full configuration |
-| `rr config set KEY VAL` | Update a config value (e.g. `rr config set maxIterations 8`) |
-| `rr list` | List active review sessions |
-| `rr stop` | Stop running review session (`--all` to stop all) |
-| `rr log` | View review logs (`-n 5` for last 5, `--json` for JSON output) |
-| `rr doctor` | Run environment and configuration diagnostics (`--fix` to auto-resolve) |
-| `rr update` | Check for and install a newer `ralph-review` version |
+| `rr run --max N` | Set max review iterations |
+| `rr run --force` | Run all configured iterations even if no new findings appear |
+| `rr run --auto` | Run remediation immediately after review completes |
+| `rr run --auto --priority P0,P1` | Auto-fix only findings with matching priorities |
+| `rr run --sound` | Play a completion sound for this run |
+| `rr run --no-sound` | Disable the completion sound for this run |
+| `rr fix --session SESSION` | Fix selected findings from a persisted review session |
+| `rr fix --session SESSION --all` | Select all persisted findings for remediation |
+| `rr fix --session SESSION --priority P0,P1` | Select findings by priority |
+| `rr fix --session SESSION --id F001 --id F003` | Select findings by ID |
+| `rr apply` | Apply a pending review handoff |
+| `rr apply --session HANDOFF` | Apply a specific pending handoff |
+| `rr prune` | Prune orphaned review session artifacts |
+| `rr prune --dry-run` | List prunable artifacts without deleting them |
+| `rr prune --discard --session HANDOFF` | Discard a pending handoff |
+| `rr list` / `rr ls` | List active review sessions |
+| `rr stop` | Stop a running review session |
+| `rr stop --all` | Stop all running review sessions |
+| `rr log` | View the latest review log for the current project |
+| `rr log -n 5` | View the last 5 review logs |
+| `rr log --json` | Print current-project review logs as JSON |
+| `rr log --json --global` | Print review logs across all projects as JSON |
+| `rr doctor` | Run environment and configuration diagnostics |
+| `rr doctor --fix` | Auto-resolve supported diagnostic issues |
+| `rr update` | Check for and install a newer version |
+| `rr update --check` | Check for a newer version without installing |
 
-The `rrr` command is a shorthand alias for `rr run`. Both start the review without launching
-Interactive Mode; run `rr` separately to open it.
+You can append one positional custom instruction to `rr run` when an explicit review target is
+selected:
 
-For update checks without installing, run `rr update --check`. If install-source detection is
-ambiguous, force the package manager with `rr update --manager npm` or
-`rr update --manager brew`.
+```bash
+rr run --base main "focus on security boundaries"
+```
 
 ---
 
@@ -182,24 +249,58 @@ ambiguous, force the package manager with `rr update --manager npm` or
 | OpenCode | https://opencode.ai/ |
 | Pi | https://pi.dev |
 
+You can assign different agents and models to the reviewer and fixer roles. For example, Codex can
+review while Claude or Gemini fixes.
+
 ---
 
 ## Configuration
 
-After running `rr init`, Ralph Review stores its configuration in your project directory. You can view and modify settings with the `rr config` subcommand:
+Run `rr init` to create configuration. Ralph Review supports a user-global config and repo-local
+overrides:
+
+- Global config: `~/.config/ralph-review/config.json`
+- Repo-local overrides: `.ralph-review/config.json`
+
+By default, `rr config show` displays the effective merged configuration for the current project.
 
 ```bash
-# View current configuration
+# View effective configuration
 rr config show
 
-# Edit configuration in your editor
-rr config edit
+# View raw JSON
+rr config show --json
 
-# Or set a specific config using cli
-rr config set maxIterations 5
+# View only repo-local overrides
+rr config show --local
+
+# View one value
+rr config get reviewer.agent
+
+# Update global configuration
+rr config set maxIterations 8
+
+# Update repo-local configuration
+rr config set --local defaultReview.branch main
+
+# Edit configuration in $EDITOR
+rr config edit
+rr config edit --local
 ```
 
-Run `rr doctor` to verify that your environment and configuration are valid. Add `--fix` to let it auto-resolve common issues.
+Useful settings include:
+
+| Key | Purpose |
+|-----|---------|
+| `reviewer` | Agent, model, and reasoning used for review |
+| `fixer` | Agent, model, and reasoning used for remediation |
+| `maxIterations` | Maximum reviewer iterations per run |
+| `iterationTimeout` | Per-agent timeout in milliseconds |
+| `defaultReview` | Default review target, such as uncommitted changes or a base branch |
+| `notifications.sound.enabled` | Completion sound preference |
+
+Run `rr doctor` to verify that your environment and configuration are valid. Add `--fix` to let it
+auto-resolve supported issues.
 
 ---
 
