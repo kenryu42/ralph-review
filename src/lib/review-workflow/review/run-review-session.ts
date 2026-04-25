@@ -323,7 +323,7 @@ export async function runReviewSession(
     await deps.appendLog(logPath, entry);
 
     if (entry.type === "review_iteration") {
-      latestPersistedFindings = entry.findings;
+      latestPersistedFindings = [...latestPersistedFindings, ...entry.findings];
       completedReviewIterations = entry.iteration;
     }
   };

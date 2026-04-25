@@ -275,6 +275,84 @@ describe("review-workflow/review/runReviewSession", () => {
     expect(deletedSessionRefs).toEqual([]);
   });
 
+  test("preserves accumulated findings when reviewer parsing errors after multiple iterations", async () => {
+    const savedArtifacts: Array<{ findings: unknown[] }> = [];
+    let parseCalls = 0;
+    const deps = createDependencies({
+      runAgent: async () => ({
+        success: true,
+        output: "structured output",
+        exitCode: 0,
+        duration: 1,
+      }),
+      parseReviewSummaryOutput: () => {
+        parseCalls += 1;
+
+        if (parseCalls === 1) {
+          return {
+            ok: true,
+            value: createReviewSummary([createReviewFinding()]),
+            source: "framed-raw",
+            usedRepair: false,
+            failureReason: null,
+          };
+        }
+
+        if (parseCalls === 2) {
+          return {
+            ok: true,
+            value: createReviewSummary([
+              createReviewFinding({
+                title: "Avoid stale cache",
+                code_location: {
+                  absolute_file_path: "/repo/project/src/cache.ts",
+                  line_range: { start: 20, end: 22 },
+                },
+              }),
+            ]),
+            source: "framed-raw",
+            usedRepair: false,
+            failureReason: null,
+          };
+        }
+
+        throw new Error("parse failed after second iteration");
+      },
+      saveFindingsArtifact: async (_storageRoot, artifact) => {
+        savedArtifacts.push({ findings: artifact.findings });
+        return artifact;
+      },
+    });
+
+    const result = await runReviewSession(
+      createConfig(),
+      { forceMaxIterations: true },
+      {
+        projectPath: "/repo/project",
+        sessionId: "session-123",
+        sessionPath: "/tmp/session-123.jsonl",
+      },
+      () => false,
+      deps
+    );
+
+    expect(result.result.sessionStatus).toBe("failed");
+    expect(result.result.reviewOutcome).toBe("findings-pending");
+    expect(result.result.iterations).toBe(2);
+    expect(result.result.reason).toContain("parse failed after second iteration");
+    expect(result.result.findings.map((finding) => finding.id)).toEqual(["F001", "F002"]);
+    expect(savedArtifacts[0]?.findings).toMatchObject([
+      {
+        id: "F001",
+        filePath: "src/file.ts",
+      },
+      {
+        id: "F002",
+        filePath: "src/cache.ts",
+      },
+    ]);
+  });
+
   test("preserves findings artifact when an interrupted reviewer run happens after progress", async () => {
     const savedArtifacts: Array<{ findings: unknown[] }> = [];
     const deletedSessionRefs: string[] = [];
