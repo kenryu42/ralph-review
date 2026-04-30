@@ -244,7 +244,6 @@ describe("DetailPane status rendering", () => {
         findings: [],
         storedFindings: [],
         selectedFindingIds: [],
-        selectedFindings: [],
         fixResults: [],
         unresolvedSelectedFindings: [],
         auditRegressionFindings: [],

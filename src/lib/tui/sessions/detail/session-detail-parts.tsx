@@ -1,4 +1,8 @@
-import type { FindingFixResult, StoredFinding } from "@/lib/review-workflow/findings/types";
+import type {
+  FindingFixResult,
+  FindingId,
+  StoredFinding,
+} from "@/lib/review-workflow/findings/types";
 import { storedFindingToFinding } from "@/lib/review-workflow/presentation";
 import { formatFindingTitleForDisplay } from "@/lib/tui/sessions/finding-title";
 import { PriorityText } from "@/lib/tui/sessions/priority-text";
@@ -116,6 +120,73 @@ export function StoredFindingsList({
       scrollable={scrollable}
       showConfidence={showConfidence}
     />
+  );
+}
+
+export function SelectableStoredFindingsList({
+  findings,
+  selectedFindingIds,
+  height = 8,
+  focused = false,
+  scrollable = true,
+  selectedFirst = false,
+}: {
+  findings: StoredFinding[];
+  selectedFindingIds: FindingId[];
+  height?: BoxHeight;
+  focused?: boolean;
+  scrollable?: boolean;
+  selectedFirst?: boolean;
+}) {
+  if (findings.length === 0) {
+    return (
+      <text fg={TUI_COLORS.text.dim} paddingLeft={2}>
+        None yet
+      </text>
+    );
+  }
+
+  const selectedIdSet = new Set(selectedFindingIds);
+  const displayFindings = selectedFirst
+    ? [
+        ...findings.filter((finding) => selectedIdSet.has(finding.id)),
+        ...findings.filter((finding) => !selectedIdSet.has(finding.id)),
+      ]
+    : findings;
+
+  const content = displayFindings.map((finding) => {
+    const isSelected = selectedIdSet.has(finding.id);
+    const lineRange = `${finding.startLine}-${finding.endLine}`;
+
+    return (
+      <box key={finding.id} flexDirection="column">
+        <box flexDirection="row" gap={1}>
+          <text fg={isSelected ? TUI_COLORS.status.success : TUI_COLORS.text.dim}>
+            {isSelected ? "◉" : "◎"}
+          </text>
+          <text>
+            <PriorityText priority={finding.priority} />
+          </text>
+          <text fg={TUI_COLORS.text.dim}>▸</text>
+          <text fg={TUI_COLORS.text.secondary} wrapMode="none">
+            {toSingleLine(formatFindingTitleForDisplay(finding.title))}
+          </text>
+        </box>
+        <text fg={TUI_COLORS.text.dim} paddingLeft={7} wrapMode="none">
+          {toSingleLine(finding.filePath)}:{lineRange}
+        </text>
+      </box>
+    );
+  });
+
+  if (!scrollable) {
+    return <box paddingLeft={2}>{content}</box>;
+  }
+
+  return (
+    <scrollbox paddingLeft={2} height={height} focused={focused}>
+      {content}
+    </scrollbox>
   );
 }
 

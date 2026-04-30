@@ -234,7 +234,6 @@ describe("DetailPane", () => {
     findings = [],
     storedFindings = [],
     selectedFindingIds = [],
-    selectedFindings = [],
     fixResults = [],
     unresolvedSelectedFindings = [],
     auditRegressionFindings = [],
@@ -260,7 +259,6 @@ describe("DetailPane", () => {
     findings?: Finding[];
     storedFindings?: StoredFinding[];
     selectedFindingIds?: FindingId[];
-    selectedFindings?: StoredFinding[];
     fixResults?: FindingFixResult[];
     unresolvedSelectedFindings?: StoredFinding[];
     auditRegressionFindings?: StoredFinding[];
@@ -288,7 +286,6 @@ describe("DetailPane", () => {
         findings,
         storedFindings,
         selectedFindingIds,
-        selectedFindings,
         fixResults,
         unresolvedSelectedFindings,
         auditRegressionFindings,
@@ -506,7 +503,7 @@ describe("DetailPane", () => {
     expect(frame).toContain("Skipped title");
   });
 
-  test("renders batch-first workflow metadata, inventory, fix results, and audit details", async () => {
+  test("renders batch-first workflow findings with selected state markers", async () => {
     const frame = await renderFrame({
       session: createSession({
         currentPhase: "complete",
@@ -536,7 +533,7 @@ describe("DetailPane", () => {
             endLine: 22,
           },
         ],
-        selectedFindingIds: ["F001"],
+        selectedFindingIds: ["F002"],
       }),
       reviewOptions: { baseBranch: "main" },
       storedFindings: [
@@ -563,38 +560,25 @@ describe("DetailPane", () => {
           endLine: 22,
         },
       ],
-      selectedFindingIds: ["F001"],
-      selectedFindings: [
-        {
-          id: "F001",
-          fingerprint: "fp-1",
-          title: "Guard missing config",
-          body: "Null check is missing",
-          priority: "P0",
-          confidenceScore: 0.97,
-          filePath: "src/config.ts",
-          startLine: 10,
-          endLine: 12,
-        },
-      ],
+      selectedFindingIds: ["F002"],
       fixResults: [
         {
-          findingId: "F001",
+          findingId: "F002",
           status: "unresolved",
           summary: "Added a null guard",
         },
       ],
       unresolvedSelectedFindings: [
         {
-          id: "F001",
-          fingerprint: "fp-1",
-          title: "Guard missing config",
-          body: "Null check is missing",
-          priority: "P0",
-          confidenceScore: 0.97,
-          filePath: "src/config.ts",
-          startLine: 10,
-          endLine: 12,
+          id: "F002",
+          fingerprint: "fp-2",
+          title: "Avoid stale cache",
+          body: "Cache can be stale",
+          priority: "P2",
+          confidenceScore: 0.91,
+          filePath: "src/cache.ts",
+          startLine: 20,
+          endLine: 22,
         },
       ],
       auditRegressionFindings: [
@@ -613,10 +597,15 @@ describe("DetailPane", () => {
     });
 
     expect(frame).not.toContain("Workflow:");
-    expect(frame).toContain("Findings inventory");
+    expect(frame).toContain("Findings");
+    expect(frame).not.toContain("Findings inventory");
+    expect(frame).not.toContain("Selected findings");
+    expect(frame).toContain("◉");
+    expect(frame).toContain("◎");
     expect(frame).toContain("Guard missing config");
+    expect(frame).toContain("Avoid stale cache");
+    expect(frame.indexOf("Avoid stale cache")).toBeLessThan(frame.indexOf("Guard missing config"));
     expect(frame).not.toContain("Confidence:");
-    expect(frame).toContain("Selected findings");
     expect(frame).toContain("Fix results");
     expect(frame).toContain("Added a null guard");
     expect(frame).toContain("Remediation follow-up");
@@ -675,7 +664,6 @@ describe("DetailPane", () => {
         findings: [],
         storedFindings: [],
         selectedFindingIds: [],
-        selectedFindings: [],
         fixResults: [],
         unresolvedSelectedFindings: [],
         auditRegressionFindings: [],

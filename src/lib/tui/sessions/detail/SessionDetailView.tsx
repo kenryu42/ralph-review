@@ -30,6 +30,7 @@ import {
   FindingsList,
   FixList,
   SectionHeader,
+  SelectableStoredFindingsList,
   SkippedList,
   StoredFindingsList,
   toSingleLine,
@@ -42,7 +43,6 @@ interface SessionDetailViewProps {
   findings: Finding[];
   storedFindings: StoredFinding[];
   selectedFindingIds: FindingId[];
-  selectedFindings: StoredFinding[];
   fixResults: FindingFixResult[];
   unresolvedSelectedFindings: StoredFinding[];
   auditRegressionFindings: StoredFinding[];
@@ -157,7 +157,6 @@ export function SessionDetailView({
   findings,
   storedFindings,
   selectedFindingIds,
-  selectedFindings,
   fixResults,
   unresolvedSelectedFindings,
   auditRegressionFindings,
@@ -255,12 +254,6 @@ export function SessionDetailView({
     session.selectedFindingIds && session.selectedFindingIds.length > 0
       ? session.selectedFindingIds
       : selectedFindingIds;
-  const workflowSelectedFindings =
-    selectedFindings.length > 0
-      ? selectedFindings
-      : workflowSelectedIds
-          .map((findingId) => workflowFindingsById.get(findingId))
-          .filter((finding): finding is StoredFinding => finding !== undefined);
   const workflowUnresolvedFindings =
     unresolvedSelectedFindings.length > 0
       ? unresolvedSelectedFindings
@@ -334,10 +327,24 @@ export function SessionDetailView({
       {batchFirstMode ? (
         <>
           <box flexDirection="column" flexBasis={0} flexGrow={5} minHeight={0}>
-            <SectionHeader title="Findings inventory" count={batchDisplayFindings.length} />
+            <SectionHeader
+              title="Findings"
+              count={batchDisplayFindings.length}
+              suffix={
+                workflowSelectedIds.length > 0 ? (
+                  <span fg={TUI_COLORS.text.dim}> · {workflowSelectedIds.length} selected</span>
+                ) : undefined
+              }
+            />
             <box flexGrow={1} minHeight={0}>
               {inventoryFindings.length > 0 ? (
-                <StoredFindingsList findings={inventoryFindings} height="100%" focused={focused} />
+                <SelectableStoredFindingsList
+                  findings={inventoryFindings}
+                  selectedFindingIds={workflowSelectedIds}
+                  height="100%"
+                  focused={focused}
+                  selectedFirst
+                />
               ) : showingCodex ? (
                 <CodexReviewDisplay text={displayCodexText ?? ""} height="100%" focused={focused} />
               ) : (
@@ -345,15 +352,6 @@ export function SessionDetailView({
               )}
             </box>
           </box>
-
-          {workflowSelectedFindings.length > 0 && (
-            <box flexDirection="column" flexBasis={0} flexGrow={2} minHeight={0}>
-              <SectionHeader title="Selected findings" count={workflowSelectedFindings.length} />
-              <box flexGrow={1} minHeight={0}>
-                <StoredFindingsList findings={workflowSelectedFindings} height="100%" />
-              </box>
-            </box>
-          )}
 
           {fixResults.length > 0 && (
             <box flexDirection="column" flexBasis={0} flexGrow={2} minHeight={0}>
