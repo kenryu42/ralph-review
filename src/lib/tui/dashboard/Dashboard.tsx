@@ -240,7 +240,6 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
             findings={state.findings}
             storedFindings={state.storedFindings}
             selectedFindingIds={state.selectedFindingIds}
-            selectedFindings={state.selectedFindings}
             fixResults={state.fixResults}
             unresolvedSelectedFindings={state.unresolvedSelectedFindings}
             auditRegressionFindings={state.auditRegressionFindings}

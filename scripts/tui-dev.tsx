@@ -271,7 +271,6 @@ interface MockData {
   findings: Finding[];
   storedFindings: StoredFinding[];
   selectedFindingIds: FindingId[];
-  selectedFindings: StoredFinding[];
   fixResults: FindingFixResult[];
   unresolvedSelectedFindings: StoredFinding[];
   auditRegressionFindings: StoredFinding[];
@@ -297,7 +296,6 @@ function getMockData(state: MockState): MockData {
     findings: [],
     storedFindings: [],
     selectedFindingIds: [],
-    selectedFindings: [],
     fixResults: [],
     unresolvedSelectedFindings: [],
     auditRegressionFindings: [],
@@ -428,7 +426,6 @@ async function main() {
         findings={mockData.findings}
         storedFindings={mockData.storedFindings ?? []}
         selectedFindingIds={mockData.selectedFindingIds ?? []}
-        selectedFindings={mockData.selectedFindings ?? []}
         fixResults={mockData.fixResults ?? []}
         unresolvedSelectedFindings={mockData.unresolvedSelectedFindings ?? []}
         auditRegressionFindings={mockData.auditRegressionFindings ?? []}

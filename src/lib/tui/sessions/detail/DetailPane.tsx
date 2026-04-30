@@ -25,7 +25,6 @@ interface DetailPaneProps {
   findings: Finding[];
   storedFindings: StoredFinding[];
   selectedFindingIds: FindingId[];
-  selectedFindings: StoredFinding[];
   fixResults: FindingFixResult[];
   unresolvedSelectedFindings: StoredFinding[];
   auditRegressionFindings: StoredFinding[];
@@ -53,7 +52,6 @@ export function DetailPane({
   findings,
   storedFindings,
   selectedFindingIds,
-  selectedFindings,
   fixResults,
   unresolvedSelectedFindings,
   auditRegressionFindings,
@@ -112,7 +110,6 @@ export function DetailPane({
             findings={findings}
             storedFindings={storedFindings}
             selectedFindingIds={selectedFindingIds}
-            selectedFindings={selectedFindings}
             fixResults={fixResults}
             unresolvedSelectedFindings={unresolvedSelectedFindings}
             auditRegressionFindings={auditRegressionFindings}

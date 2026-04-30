@@ -29,7 +29,6 @@ interface WorkspaceProps {
   findings: Finding[];
   storedFindings: StoredFinding[];
   selectedFindingIds: FindingId[];
-  selectedFindings: StoredFinding[];
   fixResults: FindingFixResult[];
   unresolvedSelectedFindings: StoredFinding[];
   auditRegressionFindings: StoredFinding[];
@@ -61,7 +60,6 @@ export function Workspace({
   findings,
   storedFindings,
   selectedFindingIds,
-  selectedFindings,
   fixResults,
   unresolvedSelectedFindings,
   auditRegressionFindings,
@@ -103,7 +101,6 @@ export function Workspace({
           findings={findings}
           storedFindings={storedFindings}
           selectedFindingIds={selectedFindingIds}
-          selectedFindings={selectedFindings}
           fixResults={fixResults}
           unresolvedSelectedFindings={unresolvedSelectedFindings}
           auditRegressionFindings={auditRegressionFindings}
