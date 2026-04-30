@@ -453,7 +453,12 @@ export function SessionDetailPane({
                   <text fg={TUI_COLORS.text.secondary} paddingLeft={2}>
                     {entry.findings.length} issues found
                   </text>
-                  <StoredFindingsList findings={entry.findings} scrollable={false} showConfidence />
+                  <StoredFindingsList
+                    findings={entry.findings}
+                    scrollable={false}
+                    showBody
+                    showConfidence
+                  />
                 </WorkflowSection>
               ))}
 

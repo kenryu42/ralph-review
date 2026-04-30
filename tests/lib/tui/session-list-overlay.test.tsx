@@ -963,23 +963,15 @@ describe("SessionDetailPane", () => {
               id: "F001",
               fingerprint: "fp-1",
               title: "Guard missing config",
-              body: "Null check is missing",
+              body:
+                "Null check is missing before reading project settings, so the workflow can crash " +
+                "instead of showing the configured fallback path.",
               priority: "P0",
               confidenceScore: 0.97,
               filePath: "src/config.ts",
               startLine: 10,
               endLine: 12,
             },
-          ],
-          netNewFindingIds: ["F001"],
-        },
-        {
-          type: "review_iteration",
-          timestamp: Date.now(),
-          iteration: 2,
-          phase: "review",
-          sessionStatus: "running",
-          findings: [
             {
               id: "F002",
               fingerprint: "fp-2",
@@ -992,7 +984,7 @@ describe("SessionDetailPane", () => {
               endLine: 22,
             },
           ],
-          netNewFindingIds: ["F002"],
+          netNewFindingIds: ["F001", "F002"],
         },
         {
           type: "finding_selection",
@@ -1021,18 +1013,26 @@ describe("SessionDetailPane", () => {
       ],
     });
 
-    const setup = await renderDetailPane(stats);
+    const setup = await renderDetailPane(stats, { height: 80 });
     const frame = setup.captureCharFrame();
 
     expect(frame).toContain("incomplete");
     expect(frame).toContain("2 issues found");
     expect(frame).toContain("Review Iteration 1");
-    expect(frame).toContain("Review Iteration 2");
     expect(frame).toContain("1 selected");
     expect(frame).toContain("0 resolved");
     expect(frame).toContain("1 unresolved");
     expect(frame).toContain("Guard missing config");
-    expect(frame.match(/1 issues found/g)).toHaveLength(2);
+    expect(frame).toContain("Null check is missing before reading project settings");
+    expect(frame).toContain("showing the configured fallback path.");
+    expect(frame).toContain("Cache can be stale");
+    expect(frame.match(/Null check is missing/g)).toHaveLength(1);
+    expect(frame.indexOf("Guard missing config")).toBeLessThan(
+      frame.indexOf("Null check is missing")
+    );
+    expect(frame).toMatch(/Guard missing config[^\n]*\n[^\n]*\n[^\n]*Null check is missing/);
+    expect(frame).toMatch(/src\/config\.ts:10-12[^\n]*\n[^\n]*\n[^\n]*P2 ▸ Avoid stale cache/);
+    expect(frame.indexOf("Null check is missing")).toBeLessThan(frame.indexOf("Confidence: 97%"));
     expect(frame).toContain("Confidence: 97%");
     expect(frame.indexOf("Guard missing config")).toBeLessThan(frame.indexOf("Confidence: 97%"));
     expect(frame.indexOf("Confidence: 97%")).toBeLessThan(frame.indexOf("src/config.ts:10-12"));

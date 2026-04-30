@@ -44,12 +44,14 @@ export function FindingsList({
   height = 8,
   focused = false,
   scrollable = true,
+  showBody = false,
   showConfidence = false,
 }: {
   findings: Finding[];
   height?: BoxHeight;
   focused?: boolean;
   scrollable?: boolean;
+  showBody?: boolean;
   showConfidence?: boolean;
 }) {
   if (findings.length === 0) {
@@ -67,6 +69,7 @@ export function FindingsList({
 
     return (
       <box key={key} flexDirection="column">
+        {showBody && index > 0 && <text> </text>}
         <box flexDirection="row">
           <text>
             <PriorityText priority={finding.priority} />
@@ -76,6 +79,14 @@ export function FindingsList({
             {toSingleLine(formatFindingTitleForDisplay(finding.title))}
           </text>
         </box>
+        {showBody && (
+          <>
+            <text> </text>
+            <text fg={TUI_COLORS.text.secondary} paddingLeft={5} wrapMode="word">
+              {finding.body.trim()}
+            </text>
+          </>
+        )}
         {showConfidence && (
           <text fg={TUI_COLORS.text.dim} paddingLeft={5} wrapMode="none">
             Confidence: {formatConfidenceScore(finding.confidence_score)}
@@ -104,12 +115,14 @@ export function StoredFindingsList({
   height = 8,
   focused = false,
   scrollable = true,
+  showBody = false,
   showConfidence = false,
 }: {
   findings: StoredFinding[];
   height?: BoxHeight;
   focused?: boolean;
   scrollable?: boolean;
+  showBody?: boolean;
   showConfidence?: boolean;
 }) {
   return (
@@ -118,6 +131,7 @@ export function StoredFindingsList({
       height={height}
       focused={focused}
       scrollable={scrollable}
+      showBody={showBody}
       showConfidence={showConfidence}
     />
   );
