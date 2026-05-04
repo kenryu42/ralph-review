@@ -1,47 +1,96 @@
-# Repository Guidelines
+- ALWAYS USE PARALLEL TOOLS WHEN APPLICABLE.
+- Prefer automation: execute requested actions without confirmation unless blocked by missing info or safety/irreversibility.
+- ALWAYS use `bun run check` to verify changes. This runs typecheck, knip, biome lint, and tests together. Do not run these separately.
 
-## Project Structure & Module Organization
+## Style Guide
 
-This is a Bun-only TypeScript CLI project. Entry points live in `src/cli.ts` and
-`src/cli-rrr.ts`, with command implementations in `src/commands/`. Core behavior is under
-`src/lib/`, including agent runners, config loading, git helpers, logging, review workflow, and
-tmux integration. Terminal UI code uses OpenTUI/React in `src/lib/tui/`. Tests mirror source areas
-under `tests/`, with helpers in `tests/helpers/` and `tests/test-utils/`. Static assets and type
-declarations are in `assets/` and `assets.d.ts`; maintenance scripts are in `scripts/`.
+### General Principles
 
-## Build, Test, and Development Commands
+- Keep things in one function unless composable or reusable
+- Avoid `try`/`catch` where possible
+- Avoid using the `any` type
+- Use Bun APIs when possible, like `Bun.file()`
+- Rely on type inference when possible; avoid explicit type annotations or interfaces unless necessary for exports or clarity
+- Prefer functional array methods (flatMap, filter, map) over for loops; use type guards on filter to maintain type inference downstream
+- In `src/config`, follow the existing self-export pattern at the top of the file (for example `export * as ConfigAgent from "./agent"`) when adding a new config module.
 
-- `bun install`: install dependencies from `bun.lock`.
-- `bun src/cli.ts --help`: run the CLI directly during development.
-- `bun run rr -- <command>`: run the package script wrapper for CLI commands.
-- `bun test`: run the full Bun test suite.
-- `bun test tests/commands/run.test.ts`: run one test file.
-- `bun run check`: required pre-submit verification; runs typecheck, knip, Biome lint, and coverage
-  tests.
+Reduce total variable count by inlining when a value is only used once.
 
-Use Bun for all runtime and script work. Do not use `npm`, `yarn`, `pnpm`, Node `fs`, or
-`child_process` APIs in application code.
+```ts
+// Good
+const journal = await Bun.file(path.join(dir, "journal.json")).json()
 
-## Coding Style & Naming Conventions
+// Bad
+const journalPath = path.join(dir, "journal.json")
+const journal = await Bun.file(journalPath).json()
+```
 
-Biome enforces 2-space indentation, 100-character lines, double quotes, ES5 trailing commas, and
-organized imports. Use `@/` path aliases for imports from `src/`; avoid relative parent imports.
-Use `camelCase` for functions and variables, `PascalCase` for types and interfaces,
-`UPPER_SNAKE_CASE` for module constants, and kebab-case filenames such as `session-detail-scroll.ts`.
-Prefer type-only imports where appropriate. Do not use `as any`, `@ts-ignore`, or empty catch blocks.
+### Destructuring
 
-## Testing Guidelines
+Avoid unnecessary destructuring. Use dot notation to preserve context.
 
-Tests use `bun:test`. Place tests in `tests/<area>/` with names ending in `.test.ts` or `.test.tsx`.
-Use sentence-style test names, for example `"returns undefined when --help is passed"`. Add or update
-tests before changing behavior, and cover real logic rather than mocked behavior. Keep test output
-clean; expected errors should be captured and asserted.
+```ts
+// Good
+obj.a
+obj.b
 
-## Commit & Pull Request Guidelines
+// Bad
+const { a, b } = obj
+```
 
-Recent history uses conventional commit prefixes such as `feat(...)`, `fix(...)`, `refactor(...)`,
-and `chore:`. Keep commits scoped and descriptive, for example
-`fix(tui): hide iteration progress bar during fixer agent phase`. Do not commit without explicit
-approval. Pull requests should describe the user-visible change, list verification performed
-(`bun run check`), link related issues, and include screenshots or terminal output when UI behavior
-changes.
+### Variables
+
+Prefer `const` over `let`. Use ternaries or early returns instead of reassignment.
+
+```ts
+// Good
+const foo = condition ? 1 : 2
+
+// Bad
+let foo
+if (condition) foo = 1
+else foo = 2
+```
+
+### Control Flow
+
+Avoid `else` statements. Prefer early returns.
+
+```ts
+// Good
+function foo() {
+  if (condition) return 1
+  return 2
+}
+
+// Bad
+function foo() {
+  if (condition) return 1
+  else return 2
+}
+```
+
+### Schema Definitions (Drizzle)
+
+Use snake_case for field names so column names don't need to be redefined as strings.
+
+```ts
+// Good
+const table = sqliteTable("session", {
+  id: text().primaryKey(),
+  project_id: text().notNull(),
+  created_at: integer().notNull(),
+})
+
+// Bad
+const table = sqliteTable("session", {
+  id: text("id").primaryKey(),
+  projectID: text("project_id").notNull(),
+  createdAt: integer("created_at").notNull(),
+})
+```
+
+## Testing
+
+- Avoid mocks as much as possible
+- Test actual implementation, do not duplicate logic into tests
