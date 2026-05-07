@@ -13,7 +13,7 @@ Orchestrating coding agents for code review, verification, and fixing via the Ra
 
 - [How It Works](#how-it-works)
 - [Reviewer and Fixer Flow](#reviewer-and-fixer-flow)
-- [Interactive Mode](#interactive-mode)
+- [Workflows](#workflows)
 - [Prerequisites](#prerequisites)
 - [Installation](#installation)
 - [Quick Start](#quick-start)
@@ -97,12 +97,101 @@ findings remain unresolved, Ralph Review keeps the remediation worktree availabl
 
 ---
 
-## Interactive Mode
+## Workflows
 
-Run `rr` with no command to open Interactive Mode. It shows active sessions, recent session history,
-review output, findings, fix results, and handoff status.
+Ralph Review fits into a few common loops. Each workflow below shows the scenario
+first, then the exact commands.
 
-Keyboard shortcuts:
+### 1. Review what you are about to commit
+
+You just finished a feature on a working branch. Before you stage and push, you
+want a second pair of eyes on staged, unstaged, and untracked changes.
+
+```bash
+rr run --uncommitted
+```
+
+Findings are printed and persisted. You can keep coding while the reviewer runs
+in the background and come back to triage when it is done.
+
+### 2. Review your branch against the base
+
+You are preparing a pull request against `main` and want the reviewer to look at
+the full diff, not just your last commit.
+
+```bash
+rr run --base main
+```
+
+Add a focus instruction when the diff is large:
+
+```bash
+rr run --base main "focus on auth boundaries and input validation"
+```
+
+### 3. Re-review a single commit
+
+CI flagged something on a specific commit, or you are auditing a hotfix in
+isolation.
+
+```bash
+rr run --commit 9f3a2b1
+```
+
+### 4. Review now, fix later (the default loop)
+
+`rr run` only reviews. Findings get a stable ID (`F001`, `F002`, ...) and a
+priority (`P0` through `P3`). Triage them, then fix exactly what you want:
+
+```bash
+rr run
+rr fix --session SESSION --priority P0,P1
+# or pick by ID
+rr fix --session SESSION --id F003 --id F007
+```
+
+When the fixer is done it either applies the patch to your working tree
+automatically, or leaves a pending handoff that you apply explicitly:
+
+```bash
+rr apply
+```
+
+### 5. Review and auto-fix in one shot
+
+Trusted change, low risk, you want the loop to close itself:
+
+```bash
+rr run --auto --priority P0,P1
+```
+
+The reviewer runs first, then the fixer immediately remediates only matching
+priorities in a disposable worktree and hands the result back to you.
+
+> Auto Setup picks the reviewer model based on Factory.ai's public code review
+> benchmark. See [Why these models?](#why-these-models-auto-setup-model-selection)
+> below.
+
+### 6. Pre-PR / team review workflow
+
+Before opening a PR, run a base-branch review and let auto-fix clean up the
+obvious stuff. Anything left becomes review notes you can paste into the PR
+description.
+
+```bash
+rr run --base main --auto --priority P0
+rr log -n 1            # grab the latest review log
+rr log --json          # or pipe into your own tooling
+```
+
+For an org-wide loop, persisted review logs (`rr log --json --global`) make it
+easy to feed findings into dashboards or follow-up issues.
+
+### 7. Triage with Interactive Mode
+
+Run `rr` with no arguments to open Interactive Mode. It shows active sessions,
+recent history, review output, findings, fix results, and handoff status in a
+single view, which is convenient when several reviews are in flight.
 
 | Key | Action |
 |-----|--------|
@@ -115,6 +204,36 @@ Keyboard shortcuts:
 | `↑`, `↓`, `j`, `k` | Scroll the focused panel |
 | `h`, `?` | Toggle help |
 | `Esc`, `q` | Quit Interactive Mode without stopping reviews |
+
+### Why these models? (Auto Setup model selection)
+
+`rr init` with Auto Setup chooses your reviewer and fixer's model. That list is
+informed by Factory.ai's public code review benchmark, which scored 13 frontier
+and open-weight models against a golden set of 50 human-curated bugs across
+five real-world repositories (Sentry, Grafana, Keycloak, Discourse, and
+cal.com).
+
+The reviewer model priority (highest first) is currently:
+
+1. GPT-5.2
+2. Claude Opus 4.6
+3. Claude Sonnet 4.6
+4. Claude Opus 4.7
+5. GLM 5.1
+6. GPT-5.3 Codex
+7. Gemini 3.1 Pro Preview
+8. Kimi K2.6
+
+Models near the top scored highest on the benchmark for finding real bugs at a
+reasonable cost. The fixer priority is tuned separately and favors models that
+are strong at code edits rather than at finding issues.
+
+For the methodology and full results, see Factory.ai's writeup:
+[Which Model Reviews Code Best?](https://factory.ai/news/code-review-benchmark).
+
+You can always override the auto selection by running `rr init` and choosing
+Customize Setup, or by editing `reviewer.model` and `fixer.model` in your
+configuration directly.
 
 ---
 
