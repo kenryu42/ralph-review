@@ -32,7 +32,7 @@ export function createCapabilities(): AgentCapabilitiesMap {
       command: "gemini",
       installed: true,
       modelCatalogSource: "static",
-      models: [{ model: "gemini-3-pro-preview" }],
+      models: [{ model: "gemini-3.1-pro-preview" }],
       probeWarnings: [],
     },
     opencode: {

@@ -38,11 +38,11 @@ describe("agent model metadata", () => {
     });
 
     test("returns effort levels for claude", () => {
-      expect(getReasoningOptions("claude", "sonnet")).toEqual(["low", "medium", "high"]);
+      expect(getReasoningOptions("claude", "claude-sonnet-4-6")).toEqual(["low", "medium", "high"]);
     });
 
     test("returns no options for gemini", () => {
-      expect(getReasoningOptions("gemini", "gemini-3-pro-preview")).toEqual([]);
+      expect(getReasoningOptions("gemini", "gemini-3.1-pro-preview")).toEqual([]);
     });
 
     test("never includes banned levels", () => {
@@ -66,12 +66,12 @@ describe("agent model metadata", () => {
       expect(supportsReasoning("codex", "gpt-5.4-mini")).toBe(true);
       expect(supportsReasoning("droid", "gpt-5.1")).toBe(false);
       expect(supportsReasoning("pi", "model")).toBe(true);
-      expect(supportsReasoning("claude", "sonnet")).toBe(true);
+      expect(supportsReasoning("claude", "claude-sonnet-4-6")).toBe(true);
     });
 
     test("returns false for unsupported selections", () => {
       expect(supportsReasoning("droid", "glm-4.7")).toBe(false);
-      expect(supportsReasoning("gemini", "gemini-3-pro-preview")).toBe(false);
+      expect(supportsReasoning("gemini", "gemini-3.1-pro-preview")).toBe(false);
       expect(supportsReasoning("codex", "unknown-model")).toBe(false);
     });
   });

@@ -49,7 +49,7 @@ describe("config schema artifact", () => {
   test("includes every top-level key emitted by parseConfig", async () => {
     const candidate = {
       reviewer: { agent: "codex", model: "gpt-5.2-codex", reasoning: "medium" },
-      fixer: { agent: "claude", model: "sonnet", reasoning: "high" },
+      fixer: { agent: "claude", model: "claude-sonnet-4-6", reasoning: "high" },
       maxIterations: 5,
       iterationTimeout: 1800000,
       retry: { maxRetries: 3, baseDelayMs: 1000, maxDelayMs: 30000 },
