@@ -62,7 +62,7 @@ function createCapabilities(overrides: CapabilityOverrides = {}): AgentCapabilit
       command: "gemini",
       installed: true,
       modelCatalogSource: "static",
-      models: [{ model: "gemini-3-pro-preview" }],
+      models: [{ model: "gemini-3.1-pro-preview" }],
       probeWarnings: [],
       ...overrides.gemini,
     },
@@ -517,30 +517,35 @@ describe("init command", () => {
       );
     });
 
-    test("reviewer model priority ranks GPT 5.4 > GPT 5.3 codex > GPT 5.2 > GPT 5.2 codex", () => {
-      const rank54 = getRoleModelPriorityRank("reviewer", "gpt-5.4");
-      const rank53 = getRoleModelPriorityRank("reviewer", "gpt-5.3-codex");
-      const rank52 = getRoleModelPriorityRank("reviewer", "gpt-5.2");
-      const rank52Codex = getRoleModelPriorityRank("reviewer", "gpt-5.2-codex");
-
-      expect(rank54).toBeLessThan(rank53);
-      expect(rank53).toBeLessThan(rank52);
-      expect(rank52).toBeLessThan(rank52Codex);
+    test("reviewer model priority ranks GPT 5.2 > claude-opus-4-6 > claude-sonnet-4-6 > claude-opus-4-7 > glm-5.1 > gpt-5.3-codex > gemini-3.1-pro-preview > kimi-k2.6", () => {
+      expect(getRoleModelPriorityRank("reviewer", "gpt-5.2")).toBe(0);
+      expect(getRoleModelPriorityRank("reviewer", "claude-opus-4-6")).toBe(1);
+      expect(getRoleModelPriorityRank("reviewer", "claude-sonnet-4-6")).toBe(2);
+      expect(getRoleModelPriorityRank("reviewer", "claude-opus-4-7")).toBe(3);
+      expect(getRoleModelPriorityRank("reviewer", "glm-5.1")).toBe(4);
+      expect(getRoleModelPriorityRank("reviewer", "gpt-5.3-codex")).toBe(5);
+      expect(getRoleModelPriorityRank("reviewer", "gemini-3.1-pro-preview")).toBe(6);
+      expect(getRoleModelPriorityRank("reviewer", "kimi-k2.6")).toBe(7);
+      expect(getRoleModelPriorityRank("reviewer", "unknown-model")).toBe(8);
     });
 
-    test("fixer model priority matches GPT-5.4, codex, claude, and gemini in order", () => {
-      expect(getRoleModelPriorityRank("fixer", "provider/gpt-5.4")).toBe(0);
-      expect(getRoleModelPriorityRank("fixer", "provider/gpt-5.3-codex")).toBe(1);
+    test("fixer model priority ranks GPT 5.5 > GPT 5.4 > claude-opus-4-6 > gpt-5.3-codex > kimi-k2.6 > gemini-3.1-pro-preview > glm-5.1 > claude-sonnet-4-6", () => {
+      expect(getRoleModelPriorityRank("fixer", "gpt-5.5")).toBe(0);
+      expect(getRoleModelPriorityRank("fixer", "provider/gpt-5.4")).toBe(1);
       expect(getRoleModelPriorityRank("fixer", "claude-opus-4-6")).toBe(2);
-      expect(getRoleModelPriorityRank("fixer", "gemini-3-pro-preview")).toBe(3);
-      expect(getRoleModelPriorityRank("fixer", "unknown-model")).toBe(4);
+      expect(getRoleModelPriorityRank("fixer", "gpt-5.3-codex")).toBe(3);
+      expect(getRoleModelPriorityRank("fixer", "kimi-k2.6")).toBe(4);
+      expect(getRoleModelPriorityRank("fixer", "gemini-3.1-pro-preview")).toBe(5);
+      expect(getRoleModelPriorityRank("fixer", "glm-5.1")).toBe(6);
+      expect(getRoleModelPriorityRank("fixer", "claude-sonnet-4-6")).toBe(7);
+      expect(getRoleModelPriorityRank("fixer", "unknown-model")).toBe(8);
     });
 
     test("uses model-first when model and agent priorities conflict", () => {
       const selected = pickAutoRoleCandidate("fixer", [
         {
           agent: "claude",
-          model: "sonnet",
+          model: "claude-sonnet-4-6",
           modelOrder: 0,
           probeOrder: 0,
         },
@@ -687,7 +692,7 @@ describe("init command", () => {
     });
 
     test("returns undefined reasoning when unsupported", () => {
-      expect(selectAutoReasoning("gemini", "gemini-3-pro-preview")).toBeUndefined();
+      expect(selectAutoReasoning("gemini", "gemini-3.1-pro-preview")).toBeUndefined();
     });
   });
 
@@ -1388,7 +1393,7 @@ describe("init command", () => {
         selectResponses: [
           "custom",
           "gemini",
-          "gemini-3-pro-preview",
+          "gemini-3.1-pro-preview",
           "gemini",
           "gemini-3-flash-preview",
           "uncommitted",

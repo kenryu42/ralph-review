@@ -291,18 +291,24 @@ const FIXER_AGENT_PRIORITY: readonly AgentType[] = ["codex", "claude", "droid", 
 
 const MODEL_PRIORITY_MATCHERS: Record<ConfiguredRole, readonly ((model: string) => boolean)[]> = {
   reviewer: [
-    (model) => matchesModelId(model, "gpt-5.4"),
-    (model) => matchesModelId(model, "gpt-5.3-codex"),
     (model) => matchesModelId(model, "gpt-5.2"),
-    (model) => matchesModelId(model, "gpt-5.2-codex"),
     (model) => matchesModelId(model, "claude-opus-4-6"),
-    (model) => matchesModelId(model, "gemini-3-pro-preview"),
+    (model) => matchesModelId(model, "claude-sonnet-4-6"),
+    (model) => matchesModelId(model, "claude-opus-4-7"),
+    (model) => matchesModelId(model, "glm-5.1"),
+    (model) => matchesModelId(model, "gpt-5.3-codex"),
+    (model) => matchesModelId(model, "gemini-3.1-pro-preview"),
+    (model) => matchesModelId(model, "kimi-k2.6"),
   ],
   fixer: [
+    (model) => matchesModelId(model, "gpt-5.5"),
     (model) => matchesModelId(model, "gpt-5.4"),
-    (model) => matchesModelId(model, "gpt-5.3-codex"),
     (model) => matchesModelId(model, "claude-opus-4-6"),
-    (model) => matchesModelId(model, "gemini-3-pro-preview"),
+    (model) => matchesModelId(model, "gpt-5.3-codex"),
+    (model) => matchesModelId(model, "kimi-k2.6"),
+    (model) => matchesModelId(model, "gemini-3.1-pro-preview"),
+    (model) => matchesModelId(model, "glm-5.1"),
+    (model) => matchesModelId(model, "claude-sonnet-4-6"),
   ],
 };
 
