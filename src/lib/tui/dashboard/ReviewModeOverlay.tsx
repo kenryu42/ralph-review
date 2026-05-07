@@ -13,10 +13,33 @@ type ReviewModeInputMode = Exclude<ReviewModeSelection, "uncommitted">;
 type ReviewModeStep = "picker" | "branch-picker" | "commit-picker" | "options";
 type ReviewExecutionMode = "review-only" | "auto-all" | "auto-priority";
 type OptionsFocusTarget =
-  | "max-iterations"
+  | "iterations"
   | "force-max-iterations"
-  | "execution-mode"
+  | "execution-review-only"
+  | "execution-auto-all"
+  | "execution-auto-priority"
   | "custom-instructions";
+
+const OPTIONS_FOCUS_ORDER: OptionsFocusTarget[] = [
+  "iterations",
+  "force-max-iterations",
+  "execution-review-only",
+  "execution-auto-all",
+  "execution-auto-priority",
+];
+
+function executionFocusToMode(focus: OptionsFocusTarget): ReviewExecutionMode | null {
+  if (focus === "execution-review-only") return "review-only";
+  if (focus === "execution-auto-all") return "auto-all";
+  if (focus === "execution-auto-priority") return "auto-priority";
+  return null;
+}
+
+function executionModeToFocus(mode: ReviewExecutionMode): OptionsFocusTarget {
+  if (mode === "review-only") return "execution-review-only";
+  if (mode === "auto-all") return "execution-auto-all";
+  return "execution-auto-priority";
+}
 
 interface ReviewModeOption {
   label: string;
@@ -347,30 +370,6 @@ function clampMaxIterations(value: number): number {
   return Math.min(MAX_MAX_ITERATIONS, Math.max(MIN_MAX_ITERATIONS, Math.trunc(value)));
 }
 
-function cycleExecutionMode(current: ReviewExecutionMode, direction: 1 | -1): ReviewExecutionMode {
-  const currentIndex = REVIEW_EXECUTION_OPTIONS.findIndex((option) => option.mode === current);
-  const nextIndex = Math.min(
-    REVIEW_EXECUTION_OPTIONS.length - 1,
-    Math.max(0, currentIndex + direction)
-  );
-
-  return REVIEW_EXECUTION_OPTIONS[nextIndex]?.mode ?? current;
-}
-
-function getOptionsFocusOrder(showCustomInstructions: boolean): OptionsFocusTarget[] {
-  const focusOrder: OptionsFocusTarget[] = [
-    "max-iterations",
-    "force-max-iterations",
-    "execution-mode",
-  ];
-
-  if (showCustomInstructions) {
-    focusOrder.push("custom-instructions");
-  }
-
-  return focusOrder;
-}
-
 export function ReviewModeOverlay({
   defaultReview,
   defaultMaxIterations,
@@ -396,7 +395,8 @@ export function ReviewModeOverlay({
   const [priorityCursorIndex, setPriorityCursorIndex] = useState(0);
   const [customInstructionsDraft, setCustomInstructionsDraft] = useState("");
   const [showCustomInstructions, setShowCustomInstructions] = useState(false);
-  const [optionsFocus, setOptionsFocus] = useState<OptionsFocusTarget>("max-iterations");
+  const [optionsFocus, setOptionsFocus] = useState<OptionsFocusTarget>("iterations");
+  const lastNonCustomFocusRef = useRef<OptionsFocusTarget>("iterations");
   const customInstructionsRef = useRef<TextareaRenderable>(null);
   const maxIterationsInputRef = useRef<InputRenderable>(null);
 
@@ -490,34 +490,13 @@ export function ReviewModeOverlay({
     Math.min(68, configurationContentWidth - (showCustomInstructions ? 2 : 0))
   );
 
-  if (step === "options" && !getOptionsFocusOrder(showCustomInstructions).includes(optionsFocus)) {
-    setOptionsFocus("execution-mode");
-  }
-
-  function pruneEmptyCustomInstructions() {
-    const nextValue = customInstructionsRef.current?.plainText ?? customInstructionsDraft;
-    const normalizedValue = nextValue.trim().length === 0 ? "" : nextValue;
-    if (normalizedValue !== customInstructionsDraft) {
-      setCustomInstructionsDraft(normalizedValue);
-    }
-    if (normalizedValue.length === 0) {
-      setShowCustomInstructions(false);
-    }
-  }
-
   function movePriorityCursor(direction: 1 | -1) {
     setPriorityCursorIndex((current) => clampPriorityCursorIndex(current + direction));
     setError(null);
   }
 
-  function adjustMaxIterations(direction: 1 | -1) {
-    const current = parseInt(maxIterationsDraft, 10);
-    const base = Number.isFinite(current)
-      ? current
-      : direction > 0
-        ? initialMaxIterations - 1
-        : initialMaxIterations + 1;
-    setMaxIterationsDraft(String(clampMaxIterations(base + direction)));
+  function advancePriorityCursor() {
+    setPriorityCursorIndex((current) => (current + 1) % PRIORITIES.length);
     setError(null);
   }
 
@@ -544,22 +523,6 @@ export function ReviewModeOverlay({
 
   useKeyboard((key) => {
     if (step === "options") {
-      if (key.name === "tab") {
-        const focusOrder = getOptionsFocusOrder(showCustomInstructions);
-        const currentIndex = focusOrder.indexOf(optionsFocus);
-        const direction = key.shift ? -1 : 1;
-        const nextIndex = (currentIndex + direction + focusOrder.length) % focusOrder.length;
-        const nextFocus = focusOrder[nextIndex];
-        if (nextFocus) {
-          if (optionsFocus === "custom-instructions" && nextFocus !== "custom-instructions") {
-            pruneEmptyCustomInstructions();
-          }
-          setOptionsFocus(nextFocus);
-          setError(null);
-        }
-        return;
-      }
-
       if (isCustomInstructionsFocused) {
         if (key.name === "escape") {
           hideCustomInstructions();
@@ -579,50 +542,48 @@ export function ReviewModeOverlay({
         return;
       }
 
-      if (optionsFocus === "max-iterations") {
-        if (isUpNavigationKey(key.name)) {
-          adjustMaxIterations(1);
-          return;
+      if (isUpNavigationKey(key.name) || isDownNavigationKey(key.name)) {
+        const direction = isUpNavigationKey(key.name) ? -1 : 1;
+        const currentIndex = OPTIONS_FOCUS_ORDER.indexOf(optionsFocus);
+        const nextIndex = Math.min(
+          OPTIONS_FOCUS_ORDER.length - 1,
+          Math.max(0, currentIndex + direction)
+        );
+        const nextFocus = OPTIONS_FOCUS_ORDER[nextIndex];
+        if (nextFocus && nextFocus !== optionsFocus) {
+          setOptionsFocus(nextFocus);
+          const mode = executionFocusToMode(nextFocus);
+          if (mode) {
+            setExecutionMode(mode);
+          }
+          setError(null);
         }
-
-        if (isDownNavigationKey(key.name)) {
-          adjustMaxIterations(-1);
-          return;
-        }
+        return;
       }
 
-      if (optionsFocus === "force-max-iterations") {
-        if (key.name === "space") {
-          toggleForceMaxIterations();
-          return;
-        }
+      if (optionsFocus === "force-max-iterations" && key.name === "space") {
+        toggleForceMaxIterations();
+        return;
       }
 
-      if (optionsFocus === "execution-mode") {
-        if (isUpNavigationKey(key.name)) {
-          setExecutionMode((current) => cycleExecutionMode(current, -1));
-          setError(null);
-          return;
-        }
-
-        if (isDownNavigationKey(key.name)) {
-          setExecutionMode((current) => cycleExecutionMode(current, 1));
-          setError(null);
-          return;
-        }
-
-        if (executionMode === "auto-priority" && isLeftNavigationKey(key.name)) {
+      if (optionsFocus === "execution-auto-priority") {
+        if (isLeftNavigationKey(key.name)) {
           movePriorityCursor(-1);
           return;
         }
 
-        if (executionMode === "auto-priority" && isRightNavigationKey(key.name)) {
+        if (isRightNavigationKey(key.name)) {
           movePriorityCursor(1);
           return;
         }
 
-        if (executionMode === "auto-priority" && key.name === "space") {
+        if (key.name === "space") {
           toggleSelectedPriority();
+          return;
+        }
+
+        if (key.name === "tab") {
+          advancePriorityCursor();
           return;
         }
       }
@@ -712,7 +673,8 @@ export function ReviewModeOverlay({
     setSelectedPriorities([]);
     setPriorityCursorIndex(0);
     setShowCustomInstructions(false);
-    setOptionsFocus("max-iterations");
+    setOptionsFocus("iterations");
+    lastNonCustomFocusRef.current = "iterations";
     setError(null);
     setStep("options");
   }
@@ -770,6 +732,9 @@ export function ReviewModeOverlay({
   }
 
   function openCustomInstructions() {
+    if (optionsFocus !== "custom-instructions") {
+      lastNonCustomFocusRef.current = optionsFocus;
+    }
     setShowCustomInstructions(true);
     setOptionsFocus("custom-instructions");
     setError(null);
@@ -778,7 +743,7 @@ export function ReviewModeOverlay({
   function hideCustomInstructions() {
     syncCustomInstructionsDraft();
     setShowCustomInstructions(false);
-    setOptionsFocus("max-iterations");
+    setOptionsFocus(lastNonCustomFocusRef.current);
     setError(null);
   }
 
@@ -928,14 +893,13 @@ export function ReviewModeOverlay({
         <box flexDirection="column">
           {REVIEW_EXECUTION_OPTIONS.map((option) => {
             const isSelected = option.mode === executionMode;
-            const isFocused = optionsFocus === "execution-mode" && isSelected;
-            const showFocusMarker = isFocused && option.mode !== "auto-priority";
+            const isFocused = optionsFocus === executionModeToFocus(option.mode);
 
             return (
               <box key={option.mode} flexDirection="column" paddingX={1} paddingY={0}>
                 <box flexDirection="row">
-                  <text fg={showFocusMarker ? TUI_COLORS.accent.key : TUI_COLORS.text.dim}>
-                    {showFocusMarker ? "▶ " : "  "}
+                  <text fg={isFocused ? TUI_COLORS.accent.key : TUI_COLORS.text.dim}>
+                    {isFocused ? "▶ " : "  "}
                   </text>
                   <text fg={isSelected ? TUI_COLORS.status.success : TUI_COLORS.text.dim}>
                     {isSelected ? "◉" : "◎"}
@@ -989,30 +953,21 @@ export function ReviewModeOverlay({
           </text>
           <input
             ref={attachMaxIterationsInput}
-            focused={optionsFocus === "max-iterations"}
+            focused={optionsFocus === "iterations"}
             value={maxIterationsDraft}
             placeholder={String(initialMaxIterations)}
             width={12}
             onChange={handleMaxIterationsInput}
             onInput={handleMaxIterationsInput}
-            onKeyDown={(key) => {
-              if (isUpNavigationKey(key.name)) {
-                key.preventDefault();
-                key.stopPropagation();
-                adjustMaxIterations(1);
-                return;
-              }
-
-              if (isDownNavigationKey(key.name)) {
-                key.preventDefault();
-                key.stopPropagation();
-                adjustMaxIterations(-1);
-              }
-            }}
           />
-          <box flexDirection="row" marginTop={1}>
+        </box>
+
+        <box marginTop={1} paddingX={1} paddingY={0} flexDirection="column" gap={0}>
+          <text fg={TUI_COLORS.text.dim}>
+            <strong>Force Max Iterations</strong>
+          </text>
+          <box flexDirection="row">
             <text fg={isForceFocused ? TUI_COLORS.accent.key : TUI_COLORS.text.dim}>
-              {" "}
               {isForceFocused ? "▶ " : "  "}
             </text>
             <text fg={forceMaxIterations ? TUI_COLORS.status.success : TUI_COLORS.text.dim}>
@@ -1020,7 +975,7 @@ export function ReviewModeOverlay({
             </text>
             <text fg={forceMaxIterations ? TUI_COLORS.text.primary : TUI_COLORS.text.secondary}>
               {" "}
-              Force max iterations
+              {forceMaxIterations ? "Enabled" : "Disabled"}
             </text>
           </box>
         </box>
@@ -1032,15 +987,12 @@ export function ReviewModeOverlay({
           {renderExecutionModeOptions()}
         </box>
 
-        {executionMode === "auto-priority" && (
+        {optionsFocus === "execution-auto-priority" && (
           <box paddingX={1} paddingY={0} flexDirection="column" gap={0}>
             <box flexDirection="row" paddingLeft={2}>
               {PRIORITIES.map((priority, index) => {
                 const isSelected = selectedPriorities.includes(priority);
-                const isHighlighted =
-                  optionsFocus === "execution-mode" &&
-                  executionMode === "auto-priority" &&
-                  priorityCursorIndex === index;
+                const isHighlighted = priorityCursorIndex === index;
 
                 return (
                   <box key={priority} paddingLeft={1}>
@@ -1136,8 +1088,7 @@ export function ReviewModeOverlay({
   }
 
   function renderOptions() {
-    const isInlinePriorityControlActive =
-      optionsFocus === "execution-mode" && executionMode === "auto-priority";
+    const isPriorityFocusActive = optionsFocus === "execution-auto-priority";
     const isForceControlActive = optionsFocus === "force-max-iterations";
     const reviewStartKeyLabel = isCustomInstructionsFocused ? "[Shift+Enter]" : "[Enter]";
 
@@ -1150,27 +1101,28 @@ export function ReviewModeOverlay({
         <text fg={optionsStatusColor}>
           {error ?? (
             <>
-              <span fg={TUI_COLORS.accent.key}>[Tab]</span>
-              <span fg={TUI_COLORS.text.muted}> moves focus </span>
-              {isInlinePriorityControlActive && (
+              <span fg={TUI_COLORS.accent.key}>[↑/↓]</span>
+              <span fg={TUI_COLORS.text.muted}> navigates </span>
+              {isPriorityFocusActive && (
                 <>
+                  <span fg={TUI_COLORS.accent.key}>[←/→]</span>
+                  <span fg={TUI_COLORS.text.muted}> priority cursor </span>
+                  <span fg={TUI_COLORS.accent.key}>[Tab]</span>
+                  <span fg={TUI_COLORS.text.muted}> next priority </span>
                   <span fg={TUI_COLORS.accent.key}>[Space]</span>
-                  <span fg={TUI_COLORS.text.muted}> to select </span>
+                  <span fg={TUI_COLORS.text.muted}> toggles priority </span>
                 </>
               )}
-              {isForceControlActive ? (
+              {isForceControlActive && (
                 <>
                   <span fg={TUI_COLORS.accent.key}>[Space]</span>
                   <span fg={TUI_COLORS.text.muted}> toggles force </span>
-                  <span fg={TUI_COLORS.accent.key}>{reviewStartKeyLabel}</span>
-                  <span fg={TUI_COLORS.text.muted}> starts review</span>
-                </>
-              ) : (
-                <>
-                  <span fg={TUI_COLORS.accent.key}>{reviewStartKeyLabel}</span>
-                  <span fg={TUI_COLORS.text.muted}> starts review</span>
                 </>
               )}
+              <span fg={TUI_COLORS.accent.key}>[C]</span>
+              <span fg={TUI_COLORS.text.muted}> custom instructions </span>
+              <span fg={TUI_COLORS.accent.key}>{reviewStartKeyLabel}</span>
+              <span fg={TUI_COLORS.text.muted}> starts review</span>
             </>
           )}
         </text>

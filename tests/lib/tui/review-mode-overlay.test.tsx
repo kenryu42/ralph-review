@@ -335,10 +335,14 @@ describe("ReviewModeOverlay", () => {
     expect(frame).toContain("Configuration");
     expect(frame).toContain("Run Preview");
     expect(frame).toContain("rr run --uncommitted --max 5");
-    expect(frame).toContain("[Tab] moves focus [Enter] starts review");
+    expect(frame).toContain("[↑/↓]");
+    expect(frame).toContain("navigates");
+    expect(frame).toContain("[Enter]");
+    expect(frame).toContain("starts review");
     expect(frame).not.toContain("Set an upper bound for review/fix cycles in this run.");
     expect(frame).toContain("╔═Review Run");
     expect(frame).toContain("│ Iterations");
+    expect(frame).toContain("│ Force Max Iterations");
     expect(frame).toContain("│Target: Uncommitted");
 
     const configuration = findTextLocation(frame, "Configuration");
@@ -349,7 +353,7 @@ describe("ReviewModeOverlay", () => {
   });
 
   test("stacks the preview below configuration on compact terminals", async () => {
-    const setup = await renderOverlay({}, { width: 92, height: 24 });
+    const setup = await renderOverlay({}, { width: 92, height: 28 });
 
     await emitKey(setup, "return");
     await act(async () => {
@@ -375,7 +379,10 @@ describe("ReviewModeOverlay", () => {
 
     const frame = setup.captureCharFrame();
     expect(frame).toContain("Custom instructions [C]");
-    expect(frame).toContain("[Tab] moves focus [Enter] starts review");
+    expect(frame).toContain("[↑/↓]");
+    expect(frame).toContain("navigates");
+    expect(frame).toContain("[Enter]");
+    expect(frame).toContain("starts review");
     expect(frame).not.toContain("Status");
     expect(frame).not.toContain("Press [c] to edit");
     expect(frame).not.toContain("Press [Esc] to close.");
@@ -393,8 +400,8 @@ describe("ReviewModeOverlay", () => {
     });
 
     const frame = setup.captureCharFrame();
-    expect(frame).toContain("[Tab] moves focus [Shift+Enter] starts review");
-    expect(frame).not.toContain("[Tab] moves focus [Enter] starts review");
+    expect(frame).toContain("[Shift+Enter]");
+    expect(frame).toContain("starts review");
   });
 
   test("preserves hidden custom instructions in the options step", async () => {
@@ -416,7 +423,7 @@ describe("ReviewModeOverlay", () => {
     expect(frame).toContain("Set");
   });
 
-  test("auto closes blank custom instructions when focus moves away", async () => {
+  test("closes blank custom instructions when escape is pressed", async () => {
     const setup = await renderOverlay({}, { width: 120, height: 30 });
 
     await emitKey(setup, "return");
@@ -425,7 +432,7 @@ describe("ReviewModeOverlay", () => {
       await setup.mockInput.typeText("   ");
       await setup.renderOnce();
     });
-    await emitKey(setup, "tab");
+    await emitKey(setup, "escape");
     await act(async () => {
       await setup.renderOnce();
     });
@@ -433,27 +440,10 @@ describe("ReviewModeOverlay", () => {
     const frame = setup.captureCharFrame();
     expect(frame).toContain("Custom instructions [C]");
     expect(frame).not.toContain(CUSTOM_INSTRUCTIONS_PLACEHOLDER_FRAME);
-    expect(frame).toContain("[Tab] moves focus [Enter] starts review");
-  });
-
-  test("keeps custom instructions open when focus moves away and text is present", async () => {
-    const setup = await renderOverlay({}, { width: 120, height: 30 });
-
-    await emitKey(setup, "return");
-    await emitKey(setup, "c");
-    await act(async () => {
-      await setup.mockInput.typeText("check security");
-      await setup.renderOnce();
-    });
-    await emitKey(setup, "tab");
-    await act(async () => {
-      await setup.renderOnce();
-    });
-
-    const frame = setup.captureCharFrame();
-    expect(frame).toContain("Custom instructions [C]");
-    expect(frame).toContain("check security");
-    expect(frame).toContain("[Tab] moves focus [Enter] starts review");
+    expect(frame).toContain("[↑/↓]");
+    expect(frame).toContain("navigates");
+    expect(frame).toContain("[Enter]");
+    expect(frame).toContain("starts review");
   });
 
   test("submits custom instructions with uncommitted review from options", async () => {
@@ -488,8 +478,8 @@ describe("ReviewModeOverlay", () => {
     });
 
     await emitKey(setup, "return");
-    await emitKey(setup, "tab");
-    await emitKey(setup, "tab");
+    await emitKey(setup, "down");
+    await emitKey(setup, "down");
     await emitKey(setup, "down");
     await emitKey(setup, "return");
 
@@ -505,8 +495,8 @@ describe("ReviewModeOverlay", () => {
     });
 
     await emitKey(setup, "return");
-    await emitKey(setup, "tab");
-    await emitKey(setup, "tab");
+    await emitKey(setup, "down");
+    await emitKey(setup, "down");
     await emitKey(setup, "down");
     await emitKey(setup, "down");
     await emitKey(setup, "space");
@@ -526,7 +516,7 @@ describe("ReviewModeOverlay", () => {
     });
 
     await emitKey(setup, "return");
-    await emitKey(setup, "tab");
+    await emitKey(setup, "down");
     await emitKey(setup, "space");
     await emitKey(setup, "return");
 
@@ -546,7 +536,7 @@ describe("ReviewModeOverlay", () => {
     expect(frame).toContain("rr run --uncommitted --max 5");
     expect(frame).not.toContain("--force");
 
-    await emitKey(setup, "tab");
+    await emitKey(setup, "down");
     await emitKey(setup, "space");
     await act(async () => {
       await setup.renderOnce();
@@ -555,7 +545,8 @@ describe("ReviewModeOverlay", () => {
     frame = setup.captureCharFrame();
     expect(frame).toContain("Force max iterations: Enabled");
     expect(frame).toContain("rr run --uncommitted --max 5 --force");
-    expect(frame).toContain("[Tab] moves focus [Space] toggles force [Enter] starts review");
+    expect(frame).toContain("[Space]");
+    expect(frame).toContain("toggles force");
   });
 
   test("resets force max iterations when re-entering options", async () => {
@@ -567,7 +558,7 @@ describe("ReviewModeOverlay", () => {
     });
 
     await emitKey(setup, "return");
-    await emitKey(setup, "tab");
+    await emitKey(setup, "down");
     await emitKey(setup, "space");
     await emitKey(setup, "escape");
     await emitKey(setup, "return");
@@ -593,9 +584,9 @@ describe("ReviewModeOverlay", () => {
     });
 
     await emitKey(setup, "return");
-    await emitKey(setup, "tab");
+    await emitKey(setup, "down");
     await emitKey(setup, "space");
-    await emitKey(setup, "tab");
+    await emitKey(setup, "down");
     await emitKey(setup, "down");
     await emitKey(setup, "down");
     await emitKey(setup, "space");
@@ -612,8 +603,8 @@ describe("ReviewModeOverlay", () => {
     const setup = await renderOverlay({}, { width: 120, height: 30 });
 
     await emitKey(setup, "return");
-    await emitKey(setup, "tab");
-    await emitKey(setup, "tab");
+    await emitKey(setup, "down");
+    await emitKey(setup, "down");
     await emitKey(setup, "down");
     await emitKey(setup, "down");
     await act(async () => {
@@ -629,7 +620,9 @@ describe("ReviewModeOverlay", () => {
     expect(frame).toContain("◇ P1");
     expect(frame).toContain("◇ P2");
     expect(frame).toContain("◇ P3");
-    expect(frame).toContain("[Tab] moves focus [Space] to select [Enter] starts review");
+    expect(frame).toContain("[←/→]");
+    expect(frame).toContain("priority cursor");
+    expect(frame).toContain("toggles priority");
     expect(frame).not.toContain("P0,P1");
   });
 
@@ -645,8 +638,8 @@ describe("ReviewModeOverlay", () => {
     );
 
     await emitKey(setup, "return");
-    await emitKey(setup, "tab");
-    await emitKey(setup, "tab");
+    await emitKey(setup, "down");
+    await emitKey(setup, "down");
     await emitKey(setup, "down");
     await emitKey(setup, "down");
     await emitKey(setup, "return");
@@ -661,7 +654,7 @@ describe("ReviewModeOverlay", () => {
     expect(frame).toContain("Select at least one priority");
   });
 
-  test("cycles backwards with shift tab in the options step", async () => {
+  test("cycles upward with up arrow in the options step", async () => {
     const submitted: string[][] = [];
     const setup = await renderOverlay(
       {
@@ -673,20 +666,21 @@ describe("ReviewModeOverlay", () => {
     );
 
     await emitKey(setup, "return");
-    await emitKey(setup, "tab");
-    await emitKey(setup, "tab", { shift: true });
     await emitKey(setup, "down");
+    await emitKey(setup, "down");
+    await emitKey(setup, "up");
+    await emitKey(setup, "up");
     await emitKey(setup, "return");
 
-    expect(submitted).toEqual([["--uncommitted", "--max", "4"]]);
+    expect(submitted).toEqual([["--uncommitted", "--max", "5"]]);
   });
 
   test("updates the preview for auto-fix priorities with ordered selected priorities", async () => {
     const setup = await renderOverlay({}, { width: 120, height: 30 });
 
     await emitKey(setup, "return");
-    await emitKey(setup, "tab");
-    await emitKey(setup, "tab");
+    await emitKey(setup, "down");
+    await emitKey(setup, "down");
     await emitKey(setup, "down");
     await emitKey(setup, "down");
     await emitKey(setup, "space");
@@ -710,8 +704,8 @@ describe("ReviewModeOverlay", () => {
       await setup.renderOnce();
     });
     await emitKey(setup, "escape");
-    await emitKey(setup, "tab");
-    await emitKey(setup, "tab");
+    await emitKey(setup, "down");
+    await emitKey(setup, "down");
     await emitKey(setup, "down");
     await emitKey(setup, "down");
     await emitKey(setup, "space");
@@ -735,16 +729,7 @@ describe("ReviewModeOverlay", () => {
 
     await emitKey(setup, "return");
     await emitKey(setup, "j");
-    await act(async () => {
-      await setup.renderOnce();
-    });
-
-    let frame = setup.captureCharFrame();
-    expect(frame).toContain("Max iterations: 4");
-
-    await emitKey(setup, "k");
-    await emitKey(setup, "tab");
-    await emitKey(setup, "tab");
+    await emitKey(setup, "j");
     await emitKey(setup, "j");
     await emitKey(setup, "j");
     await emitKey(setup, "l");
@@ -752,7 +737,7 @@ describe("ReviewModeOverlay", () => {
       await setup.renderOnce();
     });
 
-    frame = setup.captureCharFrame();
+    let frame = setup.captureCharFrame();
     expect(frame).toContain("◇ P0 ▶ ◇ P1");
 
     await emitKey(setup, "h");
@@ -772,12 +757,12 @@ describe("ReviewModeOverlay", () => {
     expect(frame).toContain("◉ Auto-fix all");
   });
 
-  test("uses left and right to move the inline priority cursor while up changes execution mode", async () => {
+  test("uses left and right to move the inline priority cursor without affecting execution mode", async () => {
     const setup = await renderOverlay({}, { width: 120, height: 30 });
 
     await emitKey(setup, "return");
-    await emitKey(setup, "tab");
-    await emitKey(setup, "tab");
+    await emitKey(setup, "down");
+    await emitKey(setup, "down");
     await emitKey(setup, "down");
     await emitKey(setup, "down");
     await emitKey(setup, "right");
@@ -787,7 +772,8 @@ describe("ReviewModeOverlay", () => {
 
     let frame = setup.captureCharFrame();
     expect(frame).toContain("◇ P0 ▶ ◇ P1");
-    expect(frame).toContain("[Tab] moves focus [Space] to select [Enter] starts review");
+    expect(frame).toContain("[←/→]");
+    expect(frame).toContain("priority cursor");
 
     await emitKey(setup, "up");
     await act(async () => {
@@ -795,17 +781,16 @@ describe("ReviewModeOverlay", () => {
     });
 
     frame = setup.captureCharFrame();
-    expect(frame).not.toContain("[Tab] moves focus [Space] to select [Enter] starts review");
-    expect(frame).toContain("[Tab] moves focus [Enter] starts review");
+    expect(frame).not.toContain("priority cursor");
     expect(frame).toContain("◉ Auto-fix all");
   });
 
-  test("renders the select helper in the footer only while active", async () => {
+  test("renders the priority helper in the footer only while active", async () => {
     const setup = await renderOverlay({}, { width: 120, height: 30 });
 
     await emitKey(setup, "return");
-    await emitKey(setup, "tab");
-    await emitKey(setup, "tab");
+    await emitKey(setup, "down");
+    await emitKey(setup, "down");
     await emitKey(setup, "down");
     await emitKey(setup, "down");
     await act(async () => {
@@ -813,8 +798,8 @@ describe("ReviewModeOverlay", () => {
     });
 
     let frame = setup.captureCharFrame();
-    expect(frame).toContain("[Tab] moves focus [Space] to select [Enter] starts review");
-    expect(frame).not.toContain("◉ Auto-fix priorities [Space] to select");
+    expect(frame).toContain("priority cursor");
+    expect(frame).toContain("toggles priority");
 
     await emitKey(setup, "up");
     await act(async () => {
@@ -822,8 +807,8 @@ describe("ReviewModeOverlay", () => {
     });
 
     frame = setup.captureCharFrame();
-    expect(frame).not.toContain("[Tab] moves focus [Space] to select [Enter] starts review");
-    expect(frame).toContain("[Tab] moves focus [Enter] starts review");
+    expect(frame).not.toContain("priority cursor");
+    expect(frame).not.toContain("toggles priority");
   });
 
   test("shows a placeholder token for custom instructions in the preview", async () => {
