@@ -193,18 +193,6 @@ Run `rr` with no arguments to open Interactive Mode. It shows active sessions,
 recent history, review output, findings, fix results, and handoff status in a
 single view, which is convenient when several reviews are in flight.
 
-| Key | Action |
-|-----|--------|
-| `r` | Start a new review session |
-| `f` | Fix pending findings when a session has actionable findings |
-| `s` | Stop a running review session |
-| `l` | View session logs |
-| `o` | Toggle the output drawer |
-| `Tab`, `←`, `→` | Switch panel focus |
-| `↑`, `↓`, `j`, `k` | Scroll the focused panel |
-| `h`, `?` | Toggle help |
-| `Esc`, `q` | Quit Interactive Mode without stopping reviews |
-
 ### Why these models? (Auto Setup model selection)
 
 `rr init` with Auto Setup chooses your reviewer and fixer's model. That list is
