@@ -412,7 +412,24 @@ export async function runFixSession(
       worktree,
     });
 
-    if (result.reviewOutcome === "incomplete") {
+    if (result.handoffStatus) {
+      if (artifactWithFixResults.retainedWorktree) {
+        deps.discardSessionWorktree(
+          buildRetainedCleanupWorktree(worktree, artifactWithFixResults.retainedWorktree)
+        );
+        const artifactWithoutRetainedWorktree = await deps.updateRetainedWorktree(
+          CONFIG_DIR,
+          artifact.projectPath,
+          artifact.sessionId,
+          undefined
+        );
+        artifactForResult = artifactWithoutRetainedWorktree;
+        result = {
+          ...result,
+          artifact: artifactWithoutRetainedWorktree,
+        };
+      }
+    } else if (result.reviewOutcome === "incomplete") {
       try {
         retainedWorktree = deps.finalizeSessionWorktree(worktree) ?? undefined;
       } catch {

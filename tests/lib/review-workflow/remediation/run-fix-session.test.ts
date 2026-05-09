@@ -79,6 +79,7 @@ function createDependencies(
     finalizedWorktrees?: string[];
     createdWorktreeStartPoints?: string[];
     retainedWorktreeUpdates?: Array<RetainedSessionWorktree | undefined>;
+    finalizeResultHandoffWhenResolved?: boolean;
   } = {}
 ): RunFixSessionDependencies {
   const artifact = state.artifact ?? createArtifact();
@@ -166,6 +167,26 @@ function createDependencies(
       unselectedFindings: artifact.findings.filter(
         (finding) => !selection.selectedFindingIds.includes(finding.id)
       ),
+      handoffStatus:
+        state.finalizeResultHandoffWhenResolved &&
+        fixResults.some((result) => result.status === "resolved")
+          ? ("applied-auto" as const)
+          : undefined,
+      handoffId:
+        state.finalizeResultHandoffWhenResolved &&
+        fixResults.some((result) => result.status === "resolved")
+          ? "session-123-handoff-1"
+          : undefined,
+      handoffUpdatedAt:
+        state.finalizeResultHandoffWhenResolved &&
+        fixResults.some((result) => result.status === "resolved")
+          ? 123
+          : undefined,
+      commitSha:
+        state.finalizeResultHandoffWhenResolved &&
+        fixResults.some((result) => result.status === "resolved")
+          ? "handoff-commit-sha"
+          : undefined,
     }),
     finalizeSessionWorktree: (currentWorktree) => {
       state.finalizedWorktrees?.push(currentWorktree.worktreeProjectPath);
@@ -403,6 +424,45 @@ describe("review-workflow/remediation/runFixSession", () => {
     });
     expect(finalizedWorktrees).toEqual(["/tmp/worktree"]);
     expect(discardedWorktrees).toEqual([]);
+  });
+
+  test("does not retain the worktree when incomplete remediation created a handoff", async () => {
+    const finalizedWorktrees: string[] = [];
+    const discardedWorktrees: string[] = [];
+
+    const result = await runFixSession(
+      createConfig(),
+      {
+        sessionId: "session-123",
+        selector: {
+          ids: ["F001", "F002"],
+        },
+        isTTY: false,
+      },
+      createDependencies({
+        batchFixResults: [
+          {
+            findingId: "F001",
+            status: "resolved",
+            summary: "Resolved with a focused code change.",
+          },
+          {
+            findingId: "F002",
+            status: "unresolved",
+            summary: "Skipped because the finding was not proven.",
+          },
+        ],
+        finalizedWorktrees,
+        discardedWorktrees,
+        finalizeResultHandoffWhenResolved: true,
+      })
+    );
+
+    expect(result.reviewOutcome).toBe("incomplete");
+    expect(result.handoffStatus).toBe("applied-auto");
+    expect(result.retainedWorktree).toBeUndefined();
+    expect(finalizedWorktrees).toEqual([]);
+    expect(discardedWorktrees).toEqual(["/tmp/worktree"]);
   });
 
   test("persists the retained worktree metadata when remediation is incomplete", async () => {
