@@ -39,6 +39,9 @@ export async function finalizeResult(
   const unselectedFindings = input.artifact.findings.filter(
     (finding) => !input.selection.selectedFindingIds.includes(finding.id)
   );
+  const hasResolvedSelectedFindings = input.fixResults.some(
+    (result) => result.status === "resolved"
+  );
 
   let reviewOutcome: FixSessionResult["reviewOutcome"];
   let reason: string;
@@ -56,7 +59,7 @@ export async function finalizeResult(
   let handoffUpdatedAt: number | undefined;
   let commitSha: string | undefined;
 
-  if (reviewOutcome === "fixed-selected") {
+  if (hasResolvedSelectedFindings) {
     const handoff = await deps.createOrAutoApplyHandoff(undefined, {
       sessionId: input.artifact.sessionId,
       projectPath: input.artifact.projectPath,

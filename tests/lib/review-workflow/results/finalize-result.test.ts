@@ -104,7 +104,8 @@ describe("review-workflow/results/finalizeResult", () => {
     expect(calls).toEqual(["handoff", "log"]);
   });
 
-  test("returns incomplete and skips handoff creation when any selected finding is unresolved", async () => {
+  test("returns incomplete and creates a handoff when some selected findings are resolved", async () => {
+    const calls: string[] = [];
     const artifact = createArtifact([createFinding("F001"), createFinding("F002")]);
 
     const result = await finalizeResult(
@@ -130,6 +131,48 @@ describe("review-workflow/results/finalizeResult", () => {
       },
       {
         createOrAutoApplyHandoff: async () => {
+          calls.push("handoff");
+          return {
+            handoffId: "session-123-handoff-1",
+            handoffStatus: "applied-auto",
+            commitSha: "commit-123",
+            handoffUpdatedAt: 123,
+          };
+        },
+        appendLog: async () => {
+          calls.push("log");
+        },
+      }
+    );
+
+    expect(result.reviewOutcome).toBe("incomplete");
+    expect(result.unresolvedSelectedFindings.map((finding) => finding.id)).toEqual(["F002"]);
+    expect(result.handoffStatus).toBe("applied-auto");
+    expect(result.handoffId).toBe("session-123-handoff-1");
+    expect(calls).toEqual(["handoff", "log"]);
+  });
+
+  test("returns incomplete and skips handoff creation when no selected findings are resolved", async () => {
+    const artifact = createArtifact([createFinding("F001")]);
+
+    const result = await finalizeResult(
+      {
+        artifact,
+        selection: {
+          selectedFindingIds: ["F001"],
+          selectedFindings: [getFirstFinding(artifact)],
+        },
+        fixResults: [
+          {
+            findingId: "F001",
+            status: "unresolved",
+            summary: "Could not prove a safe remediation.",
+          },
+        ],
+        worktree: createWorktree(),
+      },
+      {
+        createOrAutoApplyHandoff: async () => {
           throw new Error("handoff should not be created");
         },
         appendLog: async () => {
@@ -139,7 +182,6 @@ describe("review-workflow/results/finalizeResult", () => {
     );
 
     expect(result.reviewOutcome).toBe("incomplete");
-    expect(result.unresolvedSelectedFindings.map((finding) => finding.id)).toEqual(["F002"]);
     expect(result.handoffStatus).toBeUndefined();
   });
 
