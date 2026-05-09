@@ -529,7 +529,7 @@ function applyEntryToSummary(
     next.totalResolvedSelectedFindings = resolvedFindings;
     next.totalUnresolvedSelectedFindings = unresolvedFindings;
     next.totalFixes = resolvedFindings;
-    next.totalSkipped = skippedFindings;
+    next.totalSkipped = skippedFindings + unresolvedFindings;
 
     if (entry.duration !== undefined) {
       next.totalDuration = (summary.totalDuration ?? 0) + entry.duration;
