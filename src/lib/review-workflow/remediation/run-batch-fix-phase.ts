@@ -19,7 +19,7 @@ import type { Config } from "@/lib/types";
 import type { FixDecision } from "@/lib/types/domain";
 
 interface BatchFixerResultEntry {
-  status: "resolved" | "unresolved";
+  status: "resolved" | "skipped" | "unresolved";
   summary: string;
 }
 
@@ -66,7 +66,9 @@ function isBatchFixerResultEntry(value: unknown): value is BatchFixerResultEntry
 
   const candidate = value as Record<string, unknown>;
   return (
-    (candidate.status === "resolved" || candidate.status === "unresolved") &&
+    (candidate.status === "resolved" ||
+      candidate.status === "skipped" ||
+      candidate.status === "unresolved") &&
     typeof candidate.summary === "string"
   );
 }

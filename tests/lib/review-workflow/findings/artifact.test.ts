@@ -127,8 +127,8 @@ describe("review-workflow/findings/artifact", () => {
     const fixResults: FindingFixResult[] = [
       {
         findingId: "F001",
-        status: "resolved",
-        summary: "Resolved fix",
+        status: "skipped",
+        summary: "SKIP: false positive",
       },
     ];
     const withFixes = await appendFixResults(tempDir, repoPath, "session-123", fixResults);

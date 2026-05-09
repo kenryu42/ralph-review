@@ -116,7 +116,7 @@ describe("review-workflow/remediation/runBatchFixPhase", () => {
           return {
             success: true,
             output: `<<<RR_FIX_SUMMARY_JSON_START>>>
-{"decision":"APPLY_SELECTIVELY","results":{"F001":{"status":"resolved","summary":"Applied guard"},"F002":{"status":"unresolved","summary":"SKIP: insufficient evidence"}}}
+{"decision":"APPLY_SELECTIVELY","results":{"F001":{"status":"resolved","summary":"Applied guard"},"F002":{"status":"skipped","summary":"SKIP: insufficient evidence"}}}
 <<<RR_FIX_SUMMARY_JSON_END>>>`,
             exitCode: 0,
             duration: 1,
@@ -144,10 +144,62 @@ describe("review-workflow/remediation/runBatchFixPhase", () => {
       },
       {
         findingId: "F002",
-        status: "unresolved",
+        status: "skipped",
         summary: "SKIP: insufficient evidence",
       },
     ]);
     expect(appendedEntries).toHaveLength(1);
+  });
+
+  test("rejects unknown fixer result statuses", async () => {
+    const findings = [createFinding("F001")];
+    const checkpoint: GitCheckpoint = {
+      kind: "snapshot",
+      id: "checkpoint-1",
+      snapshotDir: "/tmp/checkpoint",
+    };
+
+    await expect(
+      runBatchFixPhase(
+        {
+          config: createConfig(),
+          artifact: createArtifact(findings),
+          selection: {
+            selectedFindingIds: ["F001"],
+            selectedFindings: findings,
+          },
+          worktree: createWorktree(),
+        },
+        {
+          createBatchFixerPrompt: () => "BATCH_FIX_PROMPT",
+          AGENTS: {
+            claude: {
+              config: {
+                command: "mock",
+                buildArgs: () => [],
+                buildEnv: () => ({}),
+              },
+              extractResult: async (output: string) => output,
+              detectSessionId: () => null,
+              getUpdateInstructions: () => [],
+            },
+          } as unknown as RunBatchFixPhaseDependencies["AGENTS"],
+          runAgent: async () => ({
+            success: true,
+            output: `<<<RR_FIX_SUMMARY_JSON_START>>>
+{"decision":"APPLY_SELECTIVELY","results":{"F001":{"status":"fixed","summary":"Applied guard"}}}
+<<<RR_FIX_SUMMARY_JSON_END>>>`,
+            exitCode: 0,
+            duration: 1,
+          }),
+          createCheckpoint: () => checkpoint,
+          discardCheckpoint: () => {
+            throw new Error("discard should not be called");
+          },
+          rollbackToCheckpoint: () => {},
+          appendLog: async () => {},
+        }
+      )
+    ).rejects.toThrow("Structured JSON output was missing or invalid.");
   });
 });

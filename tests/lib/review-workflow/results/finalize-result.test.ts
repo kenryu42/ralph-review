@@ -104,7 +104,7 @@ describe("review-workflow/results/finalizeResult", () => {
     expect(calls).toEqual(["handoff", "log"]);
   });
 
-  test("returns incomplete and creates a handoff when some selected findings are resolved", async () => {
+  test("returns fixed-selected and creates a handoff when selected findings are resolved or skipped", async () => {
     const calls: string[] = [];
     const artifact = createArtifact([createFinding("F001"), createFinding("F002")]);
 
@@ -123,8 +123,8 @@ describe("review-workflow/results/finalizeResult", () => {
           },
           {
             findingId: "F002",
-            status: "unresolved",
-            summary: "Could not prove a safe remediation.",
+            status: "skipped",
+            summary: "SKIP: false positive.",
           },
         ],
         worktree: createWorktree(),
@@ -145,11 +145,88 @@ describe("review-workflow/results/finalizeResult", () => {
       }
     );
 
-    expect(result.reviewOutcome).toBe("incomplete");
-    expect(result.unresolvedSelectedFindings.map((finding) => finding.id)).toEqual(["F002"]);
+    expect(result.reviewOutcome).toBe("fixed-selected");
+    expect(result.unresolvedSelectedFindings).toEqual([]);
     expect(result.handoffStatus).toBe("applied-auto");
     expect(result.handoffId).toBe("session-123-handoff-1");
     expect(calls).toEqual(["handoff", "log"]);
+  });
+
+  test("returns fixed-selected without a handoff when selected findings are skipped only", async () => {
+    const artifact = createArtifact([createFinding("F001")]);
+
+    const result = await finalizeResult(
+      {
+        artifact,
+        selection: {
+          selectedFindingIds: ["F001"],
+          selectedFindings: [getFirstFinding(artifact)],
+        },
+        fixResults: [
+          {
+            findingId: "F001",
+            status: "skipped",
+            summary: "SKIP: not actionable.",
+          },
+        ],
+        worktree: createWorktree(),
+      },
+      {
+        createOrAutoApplyHandoff: async () => {
+          throw new Error("handoff should not be created");
+        },
+        appendLog: async () => {
+          throw new Error("handoff log should not be written");
+        },
+      }
+    );
+
+    expect(result.reviewOutcome).toBe("fixed-selected");
+    expect(result.reason).toBe("Selected findings were skipped after verification.");
+    expect(result.unresolvedSelectedFindings).toEqual([]);
+    expect(result.handoffStatus).toBeUndefined();
+  });
+
+  test("returns incomplete and skips handoff creation when selected findings are resolved and unresolved", async () => {
+    const artifact = createArtifact([createFinding("F001"), createFinding("F002")]);
+
+    const result = await finalizeResult(
+      {
+        artifact,
+        selection: {
+          selectedFindingIds: ["F001", "F002"],
+          selectedFindings: [...artifact.findings],
+        },
+        fixResults: [
+          {
+            findingId: "F001",
+            status: "resolved",
+            summary: "Resolved with a focused code change.",
+          },
+          {
+            findingId: "F002",
+            status: "unresolved",
+            summary: "Could not safely finish remediation.",
+          },
+        ],
+        worktree: createWorktree(),
+      },
+      {
+        createOrAutoApplyHandoff: async () => {
+          throw new Error("handoff should not be created");
+        },
+        appendLog: async () => {
+          throw new Error("handoff log should not be written");
+        },
+      }
+    );
+
+    expect(result.reviewOutcome).toBe("incomplete");
+    expect(result.reason).toBe(
+      "Some selected findings were resolved, but others remain unresolved. Ralph retained the remediation worktree instead of creating a handoff because the partial edits may be unsafe to apply automatically."
+    );
+    expect(result.unresolvedSelectedFindings.map((finding) => finding.id)).toEqual(["F002"]);
+    expect(result.handoffStatus).toBeUndefined();
   });
 
   test("returns incomplete and skips handoff creation when no selected findings are resolved", async () => {

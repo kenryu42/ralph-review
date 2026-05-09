@@ -57,8 +57,8 @@ describe("review-workflow/remediation/createBatchFixerPrompt", () => {
     });
 
     expect(prompt).toContain("`resolved`");
+    expect(prompt).toContain("`skipped`");
     expect(prompt).toContain("`unresolved`");
     expect(prompt).not.toContain("Use `fixed`");
-    expect(prompt).not.toContain("Use `skipped`");
   });
 });
