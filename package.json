@@ -57,7 +57,7 @@
     "prepublishOnly": "bun test",
     "typecheck": "tsc --noEmit",
     "knip": "knip-bun",
-    "check-duplicates": "bunx jscpd src tests --exitCode 1 --reporters ai --noTips",
+    "check-duplicates": "bunx jscpd src tests --exitCode 1 --reporters ai",
     "lint": "biome check --write .",
     "lint:ci": "biome ci .",
     "lint-staged": "lint-staged",
