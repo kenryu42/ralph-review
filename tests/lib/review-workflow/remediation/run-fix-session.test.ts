@@ -141,57 +141,43 @@ function createDependencies(
         retainedWorktree,
       };
     },
-    finalizeResult: async ({ artifact: finalizedArtifact, selection, fixResults }) => ({
-      phase: "complete" as const,
-      sessionStatus: "completed" as const,
-      reviewOutcome: fixResults.some((result) => result.status === "unresolved")
-        ? ("incomplete" as const)
-        : ("fixed-selected" as const),
-      reason:
-        fixResults.some((result) => result.status === "unresolved") &&
-        fixResults.some((result) => result.status === "resolved")
-          ? "Some selected findings were resolved, but others remain unresolved. Ralph retained the remediation worktree instead of creating a handoff because the partial edits may be unsafe to apply automatically."
-          : fixResults.some((result) => result.status === "unresolved")
-            ? "Some selected findings remain unresolved after remediation."
-            : fixResults.some((result) => result.status === "resolved")
-              ? "Selected findings were resolved by remediation."
-              : "Selected findings were skipped after verification.",
-      artifact: finalizedArtifact,
-      selection,
-      fixResults,
-      unresolvedSelectedFindings: artifact.findings.filter((finding) =>
-        fixResults.some(
-          (result) => result.findingId === finding.id && result.status === "unresolved"
-        )
-      ),
-      unselectedFindings: artifact.findings.filter(
-        (finding) => !selection.selectedFindingIds.includes(finding.id)
-      ),
-      handoffStatus:
+    finalizeResult: async ({ artifact: finalizedArtifact, selection, fixResults }) => {
+      const handoffResolved =
         state.finalizeResultHandoffWhenResolved &&
-        fixResults.some((result) => result.status === "resolved") &&
-        !fixResults.some((result) => result.status === "unresolved")
-          ? ("applied-auto" as const)
-          : undefined,
-      handoffId:
-        state.finalizeResultHandoffWhenResolved &&
-        fixResults.some((result) => result.status === "resolved") &&
-        !fixResults.some((result) => result.status === "unresolved")
-          ? "session-123-handoff-1"
-          : undefined,
-      handoffUpdatedAt:
-        state.finalizeResultHandoffWhenResolved &&
-        fixResults.some((result) => result.status === "resolved") &&
-        !fixResults.some((result) => result.status === "unresolved")
-          ? 123
-          : undefined,
-      commitSha:
-        state.finalizeResultHandoffWhenResolved &&
-        fixResults.some((result) => result.status === "resolved") &&
-        !fixResults.some((result) => result.status === "unresolved")
-          ? "handoff-commit-sha"
-          : undefined,
-    }),
+        fixResults.every((result) => result.status === "resolved");
+
+      return {
+        phase: "complete" as const,
+        sessionStatus: "completed" as const,
+        reviewOutcome: fixResults.some((result) => result.status === "unresolved")
+          ? ("incomplete" as const)
+          : ("fixed-selected" as const),
+        reason:
+          fixResults.some((result) => result.status === "unresolved") &&
+          fixResults.some((result) => result.status === "resolved")
+            ? "Some selected findings were resolved, but others remain unresolved. Ralph retained the remediation worktree instead of creating a handoff because the partial edits may be unsafe to apply automatically."
+            : fixResults.some((result) => result.status === "unresolved")
+              ? "Some selected findings remain unresolved after remediation."
+              : fixResults.some((result) => result.status === "resolved")
+                ? "Selected findings were resolved by remediation."
+                : "Selected findings were skipped after verification.",
+        artifact: finalizedArtifact,
+        selection,
+        fixResults,
+        unresolvedSelectedFindings: artifact.findings.filter((finding) =>
+          fixResults.some(
+            (result) => result.findingId === finding.id && result.status === "unresolved"
+          )
+        ),
+        unselectedFindings: artifact.findings.filter(
+          (finding) => !selection.selectedFindingIds.includes(finding.id)
+        ),
+        handoffStatus: handoffResolved ? ("applied-auto" as const) : undefined,
+        handoffId: handoffResolved ? "session-123-handoff-1" : undefined,
+        handoffUpdatedAt: handoffResolved ? 123 : undefined,
+        commitSha: handoffResolved ? "handoff-commit-sha" : undefined,
+      };
+    },
     finalizeSessionWorktree: (currentWorktree) => {
       state.finalizedWorktrees?.push(currentWorktree.worktreeProjectPath);
       return Object.hasOwn(state, "finalizeSessionWorktreeResult")
