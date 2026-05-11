@@ -6,7 +6,7 @@ import {
   runFixForeground,
 } from "@/commands/fix";
 import type { FindingId, FindingsArtifact } from "@/lib/review-workflow/findings/types";
-import { captureExitCode, EXIT_PREFIX } from "../helpers/capture";
+import { captureExitCode, ForcedExitError } from "../helpers/capture";
 import { createConfig } from "../helpers/diagnostics";
 import { createFindingsArtifact, createStoredFinding } from "../helpers/review-workflow";
 import type {
@@ -225,7 +225,7 @@ function createFixHarness(
       },
       exit: (code) => {
         exits.push(code);
-        throw new Error(`${EXIT_PREFIX}${code}`);
+        throw new ForcedExitError(code);
       },
     },
   };
@@ -452,11 +452,6 @@ describe("fix command", () => {
       currentAgent: null,
       sessionPath: artifact.logPath,
     });
-    expect(
-      harness.updateSessionStateCalls.some(
-        (call) => call.updates.currentPhase === "batch-fix" && call.updates.currentAgent === "fixer"
-      )
-    ).toBe(true);
     expect(
       harness.updateSessionStateCalls.some(
         (call) => call.updates.currentPhase === "batch-fix" && call.updates.currentAgent === "fixer"

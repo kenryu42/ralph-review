@@ -37,12 +37,20 @@ export function createMockProcess(
   } as unknown as SpawnProcess;
 }
 
-export function useImmediateTimeout(): void {
-  globalThis.setTimeout = ((...args: Parameters<typeof setTimeout>) => {
+export function useImmediateTimeout(): () => void {
+  const originalSetTimeout: typeof setTimeout = globalThis.setTimeout;
+  const immediateSetTimeout = ((
+    ...args: Parameters<typeof setTimeout>
+  ): ReturnType<typeof setTimeout> => {
     const handler = args[0];
     if (typeof handler === "function") {
       handler();
     }
     return 0 as unknown as ReturnType<typeof setTimeout>;
   }) as typeof setTimeout;
+
+  globalThis.setTimeout = immediateSetTimeout;
+  return () => {
+    globalThis.setTimeout = originalSetTimeout;
+  };
 }

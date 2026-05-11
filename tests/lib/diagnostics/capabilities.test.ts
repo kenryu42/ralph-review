@@ -281,7 +281,6 @@ describe("diagnostics capabilities", () => {
 
   test("returns timeout warning when opencode probe times out", async () => {
     let killed = false;
-    const originalSetTimeout = globalThis.setTimeout;
     Bun.spawn = ((args) => {
       expect(args).toEqual(["opencode", "models"]);
       return createMockProcess(
@@ -293,7 +292,7 @@ describe("diagnostics capabilities", () => {
         }
       );
     }) as typeof Bun.spawn;
-    useImmediateTimeout();
+    const restoreSetTimeout = useImmediateTimeout();
 
     try {
       const capabilities = await reviewAgentCapabilities({
@@ -307,7 +306,7 @@ describe("diagnostics capabilities", () => {
       expect(capabilities.opencode.modelCatalogSource).toBe("none");
       expect(capabilities.opencode.probeWarnings[0]).toContain("probe timed out after 8000ms");
     } finally {
-      globalThis.setTimeout = originalSetTimeout;
+      restoreSetTimeout();
     }
   });
 

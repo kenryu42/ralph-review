@@ -231,13 +231,17 @@ describe("sound notifications", () => {
         createMockProcess(Promise.resolve(0), () => {
           killed = true;
         })) as typeof Bun.spawn;
-      useImmediateTimeout();
+      const restoreSetTimeout = useImmediateTimeout();
 
-      const { bell, result } = await playDarwinAfplayWithBell();
+      try {
+        const { bell, result } = await playDarwinAfplayWithBell();
 
-      expect(result.played).toBe(true);
-      expect(killed).toBe(true);
-      expect(bell.wasCalled()).toBe(true);
+        expect(result.played).toBe(true);
+        expect(killed).toBe(true);
+        expect(bell.wasCalled()).toBe(true);
+      } finally {
+        restoreSetTimeout();
+      }
     });
 
     test("falls back to bell when Bun.spawn throws", async () => {

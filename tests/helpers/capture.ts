@@ -1,4 +1,9 @@
-export const EXIT_PREFIX = "__FORCED_EXIT__:";
+export class ForcedExitError extends Error {
+  constructor(readonly code: number) {
+    super(`Forced exit with code ${code}`);
+    this.name = "ForcedExitError";
+  }
+}
 
 export function createPromptLogCapture(selectValues: unknown[] = []) {
   const values = [...selectValues];
@@ -94,7 +99,11 @@ export async function captureJsonOutput(run: () => Promise<void>): Promise<unkno
   const originalConsoleLog = console.log;
   console.log = ((...args: unknown[]) => {
     if (args.length === 1 && typeof args[0] === "string") {
-      outputs.push(JSON.parse(args[0]));
+      try {
+        outputs.push(JSON.parse(args[0]));
+      } catch {
+        outputs.push(args[0]);
+      }
       return;
     }
     outputs.push(args);
@@ -112,15 +121,15 @@ export async function captureJsonOutput(run: () => Promise<void>): Promise<unkno
 export async function captureExitCode(run: () => Promise<void>): Promise<number | undefined> {
   const originalExit = process.exit;
   process.exit = ((code?: number) => {
-    throw new Error(`${EXIT_PREFIX}${code ?? 0}`);
+    throw new ForcedExitError(code ?? 0);
   }) as typeof process.exit;
 
   try {
     await run();
     return undefined;
   } catch (error) {
-    if (error instanceof Error && error.message.startsWith(EXIT_PREFIX)) {
-      return Number.parseInt(error.message.slice(EXIT_PREFIX.length), 10);
+    if (error instanceof ForcedExitError) {
+      return error.code;
     }
     throw error;
   } finally {
