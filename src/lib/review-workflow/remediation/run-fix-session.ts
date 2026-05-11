@@ -56,7 +56,9 @@ export interface RunFixSessionDependencies {
   discardSessionWorktree: typeof discardSessionWorktree;
 }
 
-async function defaultPromptForSelection(artifact: FindingsArtifact): Promise<FindingId[] | null> {
+export async function promptForFixSelection(
+  artifact: FindingsArtifact
+): Promise<FindingId[] | null> {
   const selection = await p.multiselect({
     message: "Choose findings to fix",
     options: artifact.findings.map((finding) => ({
@@ -80,7 +82,7 @@ const DEFAULT_RUN_FIX_SESSION_DEPENDENCIES: RunFixSessionDependencies = {
   createSessionWorktreeAt,
   updateSelection,
   appendLog,
-  promptForSelection: defaultPromptForSelection,
+  promptForSelection: promptForFixSelection,
   runBatchFixPhase,
   appendFixResults,
   updateRetainedWorktree,

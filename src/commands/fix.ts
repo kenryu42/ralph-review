@@ -12,7 +12,10 @@ import {
 } from "@/lib/priority-list";
 import { loadFindingsArtifactBySessionId } from "@/lib/review-workflow/findings/artifact";
 import type { FindingId, FindingsArtifact } from "@/lib/review-workflow/findings/types";
-import { runFixSession } from "@/lib/review-workflow/remediation/run-fix-session";
+import {
+  promptForFixSelection,
+  runFixSession,
+} from "@/lib/review-workflow/remediation/run-fix-session";
 import {
   createSessionState,
   HEARTBEAT_INTERVAL_MS,
@@ -76,30 +79,10 @@ interface PreparedFixCommand extends LoadedFixArtifact {
   commandDeps: FixCommandDeps;
 }
 
-function defaultPromptForSelection(artifact: FindingsArtifact): Promise<FindingId[] | null> {
-  return p
-    .multiselect({
-      message: "Choose findings to fix",
-      options: artifact.findings.map((finding) => ({
-        value: finding.id,
-        label: `${finding.id} [${finding.priority}] ${finding.title}`,
-        hint: `${finding.filePath}:${finding.startLine}-${finding.endLine}`,
-      })),
-      required: false,
-    })
-    .then((selection) => {
-      if (p.isCancel(selection)) {
-        return null;
-      }
-
-      return (selection as FindingId[]) ?? [];
-    });
-}
-
 const DEFAULT_FIX_COMMAND_DEPS: FixCommandDeps = {
   loadConfig: loadEffectiveConfig,
   loadFindingsArtifactBySessionId,
-  promptForSelection: defaultPromptForSelection,
+  promptForSelection: promptForFixSelection,
   runFixSession,
   isTTY: () => process.stdout.isTTY === true,
   isTmuxInstalled,
