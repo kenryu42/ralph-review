@@ -65,14 +65,17 @@ function createPendingHandoff(
   repoPath: string,
   overrides: Partial<PendingHandoffArtifact> = {}
 ): PendingHandoffArtifact {
+  const sessionId = overrides.sessionId ?? "session-id";
+  const handoffId = overrides.handoffId ?? overrides.sessionId ?? "session-id";
+
   return createReviewWorkflowPendingHandoff({
-    handoffId: overrides.handoffId ?? overrides.sessionId ?? "session-id",
-    sessionId: "session-id",
+    handoffId,
+    sessionId,
     projectPath: repoPath,
     sourceRepoPath: repoPath,
-    logPath: join(repoPath, ".ralph-review", "logs", "session.jsonl"),
-    hiddenRef: "refs/ralph-review/sessions/session-id/final",
-    patchPath: join(repoPath, ".ralph-review", "handoffs", "session-id.patch"),
+    logPath: join(repoPath, ".ralph-review", "logs", `${sessionId}.jsonl`),
+    hiddenRef: `refs/ralph-review/sessions/${handoffId}/final`,
+    patchPath: join(repoPath, ".ralph-review", "handoffs", `${handoffId}.patch`),
     sourceBaselineFingerprint: "fingerprint-1",
     commitSha: "commit-sha-1",
     state: "pending-apply",
