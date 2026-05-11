@@ -107,6 +107,23 @@ describe("isReviewSummary", () => {
     ).toBe(false);
   });
 
+  test("returns false when a finding line_range end is before start", () => {
+    expect(
+      isReviewSummary({
+        ...validSummary,
+        findings: [
+          {
+            ...validSummary.findings[0],
+            code_location: {
+              ...validSummary.findings[0].code_location,
+              line_range: { start: 10, end: 5 },
+            },
+          },
+        ],
+      })
+    ).toBe(false);
+  });
+
   test("returns false when overall_explanation is not a string", () => {
     expect(
       isReviewSummary({

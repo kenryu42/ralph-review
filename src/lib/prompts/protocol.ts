@@ -11,7 +11,8 @@ export function createReviewerStructuredOutputInstructions(): string {
   - ${REVIEW_SUMMARY_START_TOKEN}
   - ${REVIEW_SUMMARY_END_TOKEN}
 - Do not include markdown fences.
-- Do not include any text before the start token or after the end token.`;
+- Do not include any text before the start token or after the end token.
+- For each finding code_location.line_range, start and end MUST be integers and end MUST be greater than or equal to start.`;
 }
 
 export function createFixerStructuredOutputInstructions(): string {

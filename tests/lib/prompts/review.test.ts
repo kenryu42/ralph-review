@@ -24,6 +24,7 @@ function expectStructuredOutputProtocol(prompt: string): void {
   expect(prompt).toContain("Structured output protocol (STRICT)");
   expect(prompt).toContain(REVIEW_SUMMARY_START_TOKEN);
   expect(prompt).toContain(REVIEW_SUMMARY_END_TOKEN);
+  expect(prompt).toContain("end MUST be greater than or equal to start");
 }
 
 describe("createTargetedReviewPrompt", () => {

@@ -89,6 +89,6 @@ Use this strict framing protocol:
 
 * **Do not** wrap the JSON in markdown fences or extra prose.
 * The code_location field is required and must include absolute_file_path and line_range.
-* Line ranges must be as short as possible for interpreting the issue (avoid ranges over 5–10 lines; pick the most suitable subrange).
+* Line ranges must use integer `start` and `end` values with `end >= start`, and must be as short as possible for interpreting the issue (avoid ranges over 5–10 lines; pick the most suitable subrange).
 * The code_location should overlap with the diff.
 * Do not generate a PR fix.
