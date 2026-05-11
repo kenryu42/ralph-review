@@ -5,18 +5,48 @@ import {
   formatConfigSection,
   formatReadableConfigSection,
 } from "@/lib/config-display";
-import { CONFIG_SCHEMA_URI, CONFIG_VERSION, type Config } from "@/lib/types";
+import { CONFIG_SCHEMA_URI, CONFIG_VERSION } from "@/lib/types";
+import { baseConfig } from "../helpers/config";
 
-const baseConfig: Config = {
-  $schema: CONFIG_SCHEMA_URI,
-  version: CONFIG_VERSION,
-  reviewer: { agent: "codex", model: "gpt-5.3-codex", reasoning: "high" },
-  fixer: { agent: "claude", model: "claude-opus-4-6", reasoning: "medium" },
-  maxIterations: 5,
-  iterationTimeout: 1800000,
-  defaultReview: { type: "uncommitted" },
-  notifications: { sound: { enabled: true } },
-};
+type EffectiveLayer = Parameters<typeof formatConfigLayersDisplay>[0];
+type GlobalLayer = Parameters<typeof formatConfigLayersDisplay>[1];
+type LocalLayer = NonNullable<Parameters<typeof formatConfigLayersDisplay>[2]>;
+
+function effectiveLayer(overrides: Partial<EffectiveLayer> = {}): EffectiveLayer {
+  return {
+    exists: true,
+    source: "merged",
+    config: baseConfig,
+    errors: [],
+    globalPath: "/tmp/global.json",
+    localPath: "/repo/.ralph-review/config.json",
+    repoRoot: "/repo",
+    globalExists: false,
+    localExists: true,
+    globalErrors: [],
+    localErrors: [],
+    ...overrides,
+  };
+}
+
+function globalLayer(overrides: Partial<GlobalLayer> = {}): GlobalLayer {
+  return {
+    exists: false,
+    config: null,
+    errors: [],
+    ...overrides,
+  };
+}
+
+function localLayer(overrides: Partial<LocalLayer> = {}): LocalLayer {
+  return {
+    exists: true,
+    path: "/repo/.ralph-review/config.json",
+    config: { maxIterations: 9 },
+    errors: [],
+    ...overrides,
+  };
+}
 
 describe("config display", () => {
   test("formats invalid sections with bullet errors", () => {
@@ -287,32 +317,7 @@ describe("config display", () => {
   });
 
   test("formats readable layered config without duplicating global json", () => {
-    const output = formatConfigLayersDisplay(
-      {
-        exists: true,
-        source: "merged",
-        config: baseConfig,
-        errors: [],
-        globalPath: "/tmp/global.json",
-        localPath: "/repo/.ralph-review/config.json",
-        repoRoot: "/repo",
-        globalExists: false,
-        localExists: true,
-        globalErrors: [],
-        localErrors: [],
-      },
-      {
-        exists: false,
-        config: null,
-        errors: [],
-      },
-      {
-        exists: true,
-        path: "/repo/.ralph-review/config.json",
-        config: { maxIterations: 9 },
-        errors: [],
-      }
-    );
+    const output = formatConfigLayersDisplay(effectiveLayer(), globalLayer(), localLayer());
 
     expect(output).toContain("Effective config");
     expect(output).toContain("Source: global + repo-local");
@@ -325,30 +330,13 @@ describe("config display", () => {
 
   test("formats readable layered config for repo-local only source", () => {
     const output = formatConfigLayersDisplay(
-      {
-        exists: true,
+      effectiveLayer({
         source: "local",
-        config: baseConfig,
-        errors: [],
-        globalPath: "/tmp/global.json",
-        localPath: "/repo/.ralph-review/config.json",
-        repoRoot: "/repo",
-        globalExists: false,
-        localExists: true,
-        globalErrors: [],
-        localErrors: [],
-      },
-      {
-        exists: false,
-        config: null,
-        errors: [],
-      },
-      {
-        exists: true,
-        path: "/repo/.ralph-review/config.json",
+      }),
+      globalLayer(),
+      localLayer({
         config: {},
-        errors: [],
-      }
+      })
     );
 
     expect(output).toContain("Source: repo-local only");
@@ -358,24 +346,17 @@ describe("config display", () => {
 
   test("formats readable layered config for global-only source", () => {
     const output = formatConfigLayersDisplay(
-      {
-        exists: true,
+      effectiveLayer({
         source: "global",
-        config: baseConfig,
-        errors: [],
-        globalPath: "/tmp/global.json",
         localPath: null,
         repoRoot: null,
         globalExists: true,
         localExists: false,
-        globalErrors: [],
-        localErrors: [],
-      },
-      {
+      }),
+      globalLayer({
         exists: true,
         config: baseConfig,
-        errors: [],
-      },
+      }),
       null
     );
 
@@ -385,24 +366,14 @@ describe("config display", () => {
 
   test("falls back to missing readable effective config details when no config is available", () => {
     const output = formatConfigLayersDisplay(
-      {
-        exists: true,
+      effectiveLayer({
         source: "none",
         config: null,
-        errors: [],
-        globalPath: "/tmp/global.json",
         localPath: null,
         repoRoot: null,
-        globalExists: false,
         localExists: false,
-        globalErrors: [],
-        localErrors: [],
-      },
-      {
-        exists: false,
-        config: null,
-        errors: [],
-      },
+      }),
+      globalLayer(),
       null
     );
 
@@ -411,32 +382,7 @@ describe("config display", () => {
 
   test("formats raw layered config as JSON with missing global section", () => {
     const output = JSON.parse(
-      formatConfigRawLayersDisplay(
-        {
-          exists: true,
-          source: "local",
-          config: baseConfig,
-          errors: [],
-          globalPath: "/tmp/global.json",
-          localPath: "/repo/.ralph-review/config.json",
-          repoRoot: "/repo",
-          globalExists: false,
-          localExists: true,
-          globalErrors: [],
-          localErrors: [],
-        },
-        {
-          exists: false,
-          config: null,
-          errors: [],
-        },
-        {
-          exists: true,
-          path: "/repo/.ralph-review/config.json",
-          config: { maxIterations: 9 },
-          errors: [],
-        }
-      )
+      formatConfigRawLayersDisplay(effectiveLayer({ source: "local" }), globalLayer(), localLayer())
     );
 
     expect(output).toEqual({
@@ -449,24 +395,17 @@ describe("config display", () => {
   test("formats raw global-only layered config as JSON", () => {
     const output = JSON.parse(
       formatConfigRawLayersDisplay(
-        {
-          exists: true,
+        effectiveLayer({
           source: "global",
-          config: baseConfig,
-          errors: [],
-          globalPath: "/tmp/global.json",
           localPath: null,
           repoRoot: null,
           globalExists: true,
           localExists: false,
-          globalErrors: [],
-          localErrors: [],
-        },
-        {
+        }),
+        globalLayer({
           exists: true,
           config: baseConfig,
-          errors: [],
-        },
+        }),
         null
       )
     );
