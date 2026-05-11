@@ -36,7 +36,7 @@ describe("agents", () => {
     let originalCodexHome: string | undefined;
 
     function expectCodexReviewArgs(args: string[], prompt: string): void {
-      expect(args).toContain("exec");
+      expect(args[0]).toBe("exec");
       expect(args).toContain("review");
       expect(args).toContain("--json");
       expect(args).toContain(prompt);
@@ -62,13 +62,7 @@ describe("agents", () => {
 
     test("builds reviewer args correctly", async () => {
       const args = await AGENTS.codex.config.buildArgs("reviewer", reviewerPrompt, undefined);
-      expect(args[0]).toBe("exec");
-      expect(args).toContain("review");
-      expect(args).toContain("--json");
-      expect(args).toContain(reviewerPrompt);
-      expect(args).not.toContain("--uncommitted");
-      expect(args).not.toContain("--commit");
-      expect(args).not.toContain("--base");
+      expectCodexReviewArgs(args, reviewerPrompt);
     });
 
     test("builds fixer args correctly", async () => {
