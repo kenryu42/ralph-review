@@ -36,8 +36,8 @@ const FIX_SELECTION_OPTIONS: CommandDef["options"] = [
   {
     name: "priority",
     type: "string",
-    placeholder: "P0|P1|P2|P3",
-    description: "Select findings by priority (repeatable)",
+    placeholder: "P0,P1,P2,P3",
+    description: "Select findings by priority (comma-separated values)",
   },
   {
     name: "id",
