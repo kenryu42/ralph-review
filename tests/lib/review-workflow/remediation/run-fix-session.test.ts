@@ -538,4 +538,29 @@ describe("review-workflow/remediation/runFixSession", () => {
     expect(retainedWorktreeUpdates).toEqual([undefined]);
     expect(discardedWorktrees).toEqual(["/tmp/retained-worktree", "/tmp/worktree"]);
   });
+
+  test("does not fail when clearing retained worktree metadata fails", async () => {
+    const artifact = createRetainedArtifact();
+    const discardedWorktrees: string[] = [];
+    const retainedWorktreeUpdates: Array<RetainedSessionWorktree | undefined> = [];
+
+    const result = await runSelectedFixSession({
+      ...createDependencies({
+        artifact,
+        discardedWorktrees,
+      }),
+      updateRetainedWorktree: async (_storageRoot, projectPath, sessionId, retainedWorktree) => {
+        expect(projectPath).toBe(artifact.projectPath);
+        expect(sessionId).toBe(artifact.sessionId);
+        retainedWorktreeUpdates.push(retainedWorktree);
+        throw new Error("Failed to clear retained metadata");
+      },
+    });
+
+    expect(result.sessionStatus).toBe("completed");
+    expect(result.reviewOutcome).toBe("fixed-selected");
+    expect(result.artifact).toBe(artifact);
+    expect(retainedWorktreeUpdates).toEqual([undefined]);
+    expect(discardedWorktrees).toEqual(["/tmp/retained-worktree", "/tmp/worktree"]);
+  });
 });

@@ -132,12 +132,17 @@ async function discardRetainedWorktree(
   retainedWorktree: RetainedSessionWorktree
 ): Promise<FindingsArtifact> {
   deps.discardSessionWorktree(buildRetainedCleanupWorktree(worktree, retainedWorktree));
-  return await deps.updateRetainedWorktree(
-    CONFIG_DIR,
-    artifact.projectPath,
-    artifact.sessionId,
-    undefined
-  );
+  try {
+    await deps.updateRetainedWorktree(
+      CONFIG_DIR,
+      artifact.projectPath,
+      artifact.sessionId,
+      undefined
+    );
+  } catch {
+    // Best-effort cleanup; the remediation result is still returned.
+  }
+  return artifact;
 }
 
 function resolveSelectionMode(selector: FixSessionSelector | undefined): {
