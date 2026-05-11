@@ -5,6 +5,7 @@ import type { SessionState } from "@/lib/session-state";
 import { DetailPane } from "@/lib/tui/sessions/detail/DetailPane";
 import { resolveIssuesFoundDisplay } from "@/lib/tui/sessions/issues-found-display";
 import type { AgentRole, ReviewSummary } from "@/lib/types";
+import { createSessionState, destroyTestRender } from "../../helpers/tui";
 
 describe("SessionPanel behavior", () => {
   const finding = {
@@ -25,53 +26,52 @@ describe("SessionPanel behavior", () => {
     overall_confidence_score: 0.8,
   };
 
-  test("shows reviewer issues immediately when live summary is available", () => {
-    const result = resolveIssuesFoundDisplay({
+  function resolveIssues(overrides: Partial<Parameters<typeof resolveIssuesFoundDisplay>[0]> = {}) {
+    return resolveIssuesFoundDisplay({
       sessionStatus: "running",
       sessionIteration: 2,
       latestReviewIteration: 1,
       persistedFindings: [],
       persistedCodexText: null,
       parsedCodexSummary: null,
-      liveReviewSummary: liveSummary,
+      liveReviewSummary: null,
       cachedLiveReviewSummary: null,
       sessionStateReviewSummary: null,
+      ...overrides,
+    });
+  }
+
+  function expectSingleFindingTitle(
+    result: ReturnType<typeof resolveIssuesFoundDisplay>,
+    title: string
+  ) {
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0]?.title).toBe(title);
+  }
+
+  test("shows reviewer issues immediately when live summary is available", () => {
+    const result = resolveIssues({
+      liveReviewSummary: liveSummary,
     });
 
     expect(result.codexText).toBeNull();
-    expect(result.findings).toHaveLength(1);
-    expect(result.findings[0]?.title).toBe("Fix race condition");
+    expectSingleFindingTitle(result, "Fix race condition");
   });
 
   test("keeps issues visible during reviewer-to-fixer transition via cached summary", () => {
-    const result = resolveIssuesFoundDisplay({
-      sessionStatus: "running",
-      sessionIteration: 2,
-      latestReviewIteration: 1,
-      persistedFindings: [],
-      persistedCodexText: null,
-      parsedCodexSummary: null,
-      liveReviewSummary: null,
+    const result = resolveIssues({
       cachedLiveReviewSummary: liveSummary,
-      sessionStateReviewSummary: null,
     });
 
     expect(result.codexText).toBeNull();
-    expect(result.findings).toHaveLength(1);
-    expect(result.findings[0]?.title).toBe("Fix race condition");
+    expectSingleFindingTitle(result, "Fix race condition");
   });
 
   test("hides previous-iteration findings while next reviewer phase is active", () => {
-    const result = resolveIssuesFoundDisplay({
-      sessionStatus: "running",
+    const result = resolveIssues({
       sessionIteration: 3,
       latestReviewIteration: 2,
       persistedFindings: [finding],
-      persistedCodexText: null,
-      parsedCodexSummary: null,
-      liveReviewSummary: null,
-      cachedLiveReviewSummary: null,
-      sessionStateReviewSummary: null,
     });
 
     expect(result.codexText).toBeNull();
@@ -79,21 +79,12 @@ describe("SessionPanel behavior", () => {
   });
 
   test("shows session-state review summary when running with no live or persisted review", () => {
-    const result = resolveIssuesFoundDisplay({
-      sessionStatus: "running",
-      sessionIteration: 2,
-      latestReviewIteration: 1,
-      persistedFindings: [],
-      persistedCodexText: null,
-      parsedCodexSummary: null,
-      liveReviewSummary: null,
-      cachedLiveReviewSummary: null,
+    const result = resolveIssues({
       sessionStateReviewSummary: liveSummary,
     });
 
     expect(result.codexText).toBeNull();
-    expect(result.findings).toHaveLength(1);
-    expect(result.findings[0]?.title).toBe("Fix race condition");
+    expectSingleFindingTitle(result, "Fix race condition");
   });
 
   test("prefers live tmux summary over session-state review summary", () => {
@@ -104,20 +95,12 @@ describe("SessionPanel behavior", () => {
       overall_confidence_score: 0.7,
     };
 
-    const result = resolveIssuesFoundDisplay({
-      sessionStatus: "running",
-      sessionIteration: 2,
-      latestReviewIteration: 1,
-      persistedFindings: [],
-      persistedCodexText: null,
-      parsedCodexSummary: null,
+    const result = resolveIssues({
       liveReviewSummary: liveSummary,
-      cachedLiveReviewSummary: null,
       sessionStateReviewSummary: sessionStateSummary,
     });
 
-    expect(result.findings).toHaveLength(1);
-    expect(result.findings[0]?.title).toBe("Fix race condition");
+    expectSingleFindingTitle(result, "Fix race condition");
   });
 
   test("ignores session-state review summary when persisted review matches current iteration", () => {
@@ -141,16 +124,11 @@ describe("SessionPanel behavior", () => {
 
   test("shows persisted findings when session is not running", () => {
     const persistedFinding = { ...finding, title: "Persisted finding for completed run" };
-    const result = resolveIssuesFoundDisplay({
+    const result = resolveIssues({
       sessionStatus: "completed",
       sessionIteration: 3,
       latestReviewIteration: 2,
       persistedFindings: [persistedFinding],
-      persistedCodexText: null,
-      parsedCodexSummary: null,
-      liveReviewSummary: null,
-      cachedLiveReviewSummary: null,
-      sessionStateReviewSummary: null,
     });
 
     expect(result.codexText).toBeNull();
@@ -166,16 +144,12 @@ describe("SessionPanel behavior", () => {
       overall_confidence_score: 0.77,
     };
 
-    const result = resolveIssuesFoundDisplay({
+    const result = resolveIssues({
       sessionStatus: "completed",
       sessionIteration: 3,
       latestReviewIteration: 2,
       persistedFindings: [],
-      persistedCodexText: null,
       parsedCodexSummary: parsedSummary,
-      liveReviewSummary: null,
-      cachedLiveReviewSummary: null,
-      sessionStateReviewSummary: null,
     });
 
     expect(result.codexText).toBeNull();
@@ -184,16 +158,12 @@ describe("SessionPanel behavior", () => {
   });
 
   test("falls back to persisted codex text when no findings are available", () => {
-    const result = resolveIssuesFoundDisplay({
+    const result = resolveIssues({
       sessionStatus: "completed",
       sessionIteration: 3,
       latestReviewIteration: 2,
       persistedFindings: [],
       persistedCodexText: "raw codex output",
-      parsedCodexSummary: null,
-      liveReviewSummary: null,
-      cachedLiveReviewSummary: null,
-      sessionStateReviewSummary: null,
     });
 
     expect(result.findings).toEqual([]);
@@ -205,32 +175,12 @@ describe("DetailPane status rendering", () => {
   let testSetup: Awaited<ReturnType<typeof testRender>> | null = null;
 
   afterEach(async () => {
-    if (testSetup) {
-      await act(async () => {
-        testSetup?.renderer.destroy();
-      });
-      testSetup = null;
-    }
+    await destroyTestRender(testSetup);
+    testSetup = null;
   });
 
-  function createSession(overrides: Partial<SessionState> = {}): SessionState {
-    return {
-      schemaVersion: 2,
-      sessionId: "session-1",
-      sessionName: "rr-test-123",
-      startTime: Date.now(),
-      lastHeartbeat: Date.now(),
-      pid: process.pid,
-      projectPath: "/test/project",
-      branch: "main",
-      state: "running",
-      mode: "background",
-      ...overrides,
-    };
-  }
-
   async function renderFrame({
-    session = createSession(),
+    session = createSessionState(),
     currentAgent = null,
   }: {
     session?: SessionState | null;
@@ -274,7 +224,7 @@ describe("DetailPane status rendering", () => {
 
   test("renders preparing session worktree before the first agent starts", async () => {
     const frame = await renderFrame({
-      session: createSession({
+      session: createSessionState({
         state: "running",
         currentAgent: null,
         iteration: undefined,
@@ -287,7 +237,7 @@ describe("DetailPane status rendering", () => {
 
   test("renders starting review for pending sessions", async () => {
     const frame = await renderFrame({
-      session: createSession({
+      session: createSessionState({
         state: "pending",
         currentAgent: null,
       }),
@@ -299,7 +249,7 @@ describe("DetailPane status rendering", () => {
 
   test("renders the active agent once the review is underway", async () => {
     const frame = await renderFrame({
-      session: createSession({
+      session: createSessionState({
         state: "running",
         iteration: 1,
         currentAgent: "reviewer",
@@ -312,7 +262,7 @@ describe("DetailPane status rendering", () => {
 
   test("renders a generic running status once iteration one has started", async () => {
     const frame = await renderFrame({
-      session: createSession({
+      session: createSessionState({
         state: "running",
         iteration: 1,
         currentAgent: null,

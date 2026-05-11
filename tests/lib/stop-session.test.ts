@@ -6,10 +6,15 @@ import {
   STOP_SESSION_POLL_INTERVAL_MS,
   stopActiveSession,
 } from "@/lib/stop-session";
+import type { LogEntry } from "@/lib/types";
+import type {
+  RemoveSessionStateCall,
+  UpdateSessionStateCall,
+} from "../helpers/session-state-calls";
+import { createActiveSession as createTestActiveSession } from "../helpers/tui";
 
 function createActiveSession(overrides: Partial<ActiveSession> = {}): ActiveSession {
-  return {
-    schemaVersion: 2,
+  return createTestActiveSession({
     sessionId: "session-123",
     sessionName: "rr-project-main",
     startTime: 1,
@@ -19,9 +24,94 @@ function createActiveSession(overrides: Partial<ActiveSession> = {}): ActiveSess
     branch: "main",
     state: "running",
     mode: "background",
+    iteration: undefined,
+    currentAgent: undefined,
+    sessionPath: undefined,
     sessionStatePath: "/tmp/session-123.json",
+    worktreeProjectPath: undefined,
     ...overrides,
+  });
+}
+
+function recordSessionStep(steps: string[], label: string): (sessionName: string) => Promise<void> {
+  return async (sessionName) => {
+    steps.push(`${label}:${sessionName}`);
   };
+}
+
+function recordSleepStep(steps: string[]): (ms: number) => Promise<void> {
+  return async (ms) => {
+    steps.push(`sleep:${ms}`);
+  };
+}
+
+function recordRemoveStep(steps: string[]): () => Promise<boolean> {
+  return async () => {
+    steps.push("remove");
+    return true;
+  };
+}
+
+function readInterruptedSession(session: ActiveSession): Promise<SessionState> {
+  return Promise.resolve({
+    ...session,
+    state: "interrupted",
+  });
+}
+
+function readLogAfterInitialEmpty(entry: LogEntry): () => Promise<LogEntry[]> {
+  let readLogCallCount = 0;
+  return async () => {
+    readLogCallCount += 1;
+    return readLogCallCount === 1 ? [] : [entry];
+  };
+}
+
+async function stopAndCollectDeletedSessionPaths(
+  session: ActiveSession,
+  readLog: () => Promise<LogEntry[]>
+): Promise<string[]> {
+  const deletedSessionPaths: string[] = [];
+
+  await stopActiveSession(session, {
+    updateSessionState: async () => true,
+    sendInterrupt: async () => {},
+    readLog,
+    readSessionState: async () => readInterruptedSession(session),
+    sessionExists: async () => false,
+    killSession: async () => {},
+    resolveSourceRepoPath: () => null,
+    deleteSessionFiles: async (sessionPath) => {
+      deletedSessionPaths.push(sessionPath);
+    },
+    removeSessionState: async () => true,
+  });
+
+  return deletedSessionPaths;
+}
+
+async function stopAndCollectSteps(
+  session: ActiveSession,
+  readLog: () => Promise<LogEntry[]>,
+  overrides: Partial<Parameters<typeof stopActiveSession>[1]> = {}
+): Promise<string[]> {
+  const steps: string[] = [];
+  await stopActiveSession(session, {
+    updateSessionState: async () => true,
+    sendInterrupt: recordSessionStep(steps, "interrupt"),
+    readLog,
+    readSessionState: async (): Promise<SessionState> => session,
+    sessionExists: async () => true,
+    sleep: recordSleepStep(steps),
+    killSession: recordSessionStep(steps, "kill"),
+    discardSessionWorktree: (worktree) => {
+      steps.push(`discard:${worktree.worktreeProjectPath}`);
+    },
+    resolveSourceRepoPath: () => null,
+    removeSessionState: recordRemoveStep(steps),
+    ...overrides,
+  });
+  return steps;
 }
 
 describe("stopActiveSession", () => {
@@ -30,17 +120,8 @@ describe("stopActiveSession", () => {
     const steps: string[] = [];
     const now = 123_456_789;
     const originalNow = Date.now;
-    const updateSessionStateCalls: Array<{
-      projectPath: string;
-      sessionId: string;
-      updates: Record<string, unknown>;
-      expectedSessionId?: string;
-    }> = [];
-    const removeSessionStateCalls: Array<{
-      projectPath: string;
-      sessionId: string;
-      expectedSessionId?: string;
-    }> = [];
+    const updateSessionStateCalls: UpdateSessionStateCall[] = [];
+    const removeSessionStateCalls: RemoveSessionStateCall[] = [];
 
     Date.now = () => now;
 
@@ -118,21 +199,12 @@ describe("stopActiveSession", () => {
 
     await stopActiveSession(session, {
       updateSessionState: async () => true,
-      sendInterrupt: async (sessionName) => {
-        steps.push(`interrupt:${sessionName}`);
-      },
+      sendInterrupt: recordSessionStep(steps, "interrupt"),
       readSessionState: async () => sessionStates.shift() ?? null,
       sessionExists: async () => true,
-      sleep: async (ms) => {
-        steps.push(`sleep:${ms}`);
-      },
-      killSession: async (sessionName) => {
-        steps.push(`kill:${sessionName}`);
-      },
-      removeSessionState: async () => {
-        steps.push("remove");
-        return true;
-      },
+      sleep: recordSleepStep(steps),
+      killSession: recordSessionStep(steps, "kill"),
+      removeSessionState: recordRemoveStep(steps),
     });
 
     expect(steps).toEqual([
@@ -149,30 +221,8 @@ describe("stopActiveSession", () => {
       worktreeProjectPath: "/tmp/worktrees/session-123",
       worktreeBranch: "rr-worktree-session-123",
     });
-    const steps: string[] = [];
-
-    await stopActiveSession(session, {
-      updateSessionState: async () => true,
-      sendInterrupt: async (sessionName) => {
-        steps.push(`interrupt:${sessionName}`);
-      },
-      readLog: async () => [],
-      readSessionState: async (): Promise<SessionState> => session,
-      sessionExists: async () => true,
-      sleep: async (ms) => {
-        steps.push(`sleep:${ms}`);
-      },
-      killSession: async (sessionName) => {
-        steps.push(`kill:${sessionName}`);
-      },
-      discardSessionWorktree: (worktree) => {
-        steps.push(`discard:${worktree.worktreeProjectPath}`);
-      },
+    const steps = await stopAndCollectSteps(session, async () => [], {
       resolveSourceRepoPath: () => "/repo/project",
-      removeSessionState: async () => {
-        steps.push("remove");
-        return true;
-      },
     });
 
     expect(steps[0]).toBe(`interrupt:${session.sessionName}`);
@@ -190,38 +240,17 @@ describe("stopActiveSession", () => {
     const session = createActiveSession({
       sessionPath: "/tmp/session-123.jsonl",
     });
-    const steps: string[] = [];
-
-    await stopActiveSession(session, {
-      updateSessionState: async () => true,
-      sendInterrupt: async (sessionName) => {
-        steps.push(`interrupt:${sessionName}`);
+    const steps = await stopAndCollectSteps(session, async () => [
+      {
+        type: "review_iteration",
+        timestamp: Date.now(),
+        iteration: 1,
+        phase: "review",
+        sessionStatus: "running",
+        findings: [],
+        netNewFindingIds: [],
       },
-      readLog: async () => [
-        {
-          type: "review_iteration",
-          timestamp: Date.now(),
-          iteration: 1,
-          phase: "review",
-          sessionStatus: "running",
-          findings: [],
-          netNewFindingIds: [],
-        },
-      ],
-      readSessionState: async (): Promise<SessionState> => session,
-      sessionExists: async () => true,
-      sleep: async (ms) => {
-        steps.push(`sleep:${ms}`);
-      },
-      killSession: async (sessionName) => {
-        steps.push(`kill:${sessionName}`);
-      },
-      resolveSourceRepoPath: () => null,
-      removeSessionState: async () => {
-        steps.push("remove");
-        return true;
-      },
-    });
+    ]);
 
     expect(steps[0]).toBe(`interrupt:${session.sessionName}`);
     expect(steps.filter((step) => step === `sleep:${STOP_SESSION_POLL_INTERVAL_MS}`)).toHaveLength(
@@ -236,24 +265,8 @@ describe("stopActiveSession", () => {
     const session = createActiveSession({
       sessionPath,
     });
-    const deletedSessionPaths: string[] = [];
 
-    await stopActiveSession(session, {
-      updateSessionState: async () => true,
-      sendInterrupt: async () => {},
-      readLog: async () => [],
-      readSessionState: async (): Promise<SessionState> => ({
-        ...session,
-        state: "interrupted",
-      }),
-      sessionExists: async () => false,
-      killSession: async () => {},
-      resolveSourceRepoPath: () => null,
-      deleteSessionFiles: async (sessionPath) => {
-        deletedSessionPaths.push(sessionPath);
-      },
-      removeSessionState: async () => true,
-    });
+    const deletedSessionPaths = await stopAndCollectDeletedSessionPaths(session, async () => []);
 
     expect(deletedSessionPaths).toEqual([sessionPath]);
   });
@@ -262,42 +275,19 @@ describe("stopActiveSession", () => {
     const session = createActiveSession({
       sessionPath: "/tmp/session-123.jsonl",
     });
-    const deletedSessionPaths: string[] = [];
-    let readLogCallCount = 0;
 
-    await stopActiveSession(session, {
-      updateSessionState: async () => true,
-      sendInterrupt: async () => {},
-      readLog: async () => {
-        readLogCallCount += 1;
-        if (readLogCallCount === 1) {
-          return [];
-        }
-
-        return [
-          {
-            type: "iteration",
-            timestamp: Date.now(),
-            iteration: 1,
-            error: {
-              phase: "reviewer",
-              message: "Interrupted by user",
-            },
-          },
-        ];
-      },
-      readSessionState: async (): Promise<SessionState> => ({
-        ...session,
-        state: "interrupted",
-      }),
-      sessionExists: async () => false,
-      killSession: async () => {},
-      resolveSourceRepoPath: () => null,
-      deleteSessionFiles: async (sessionPath) => {
-        deletedSessionPaths.push(sessionPath);
-      },
-      removeSessionState: async () => true,
-    });
+    const deletedSessionPaths = await stopAndCollectDeletedSessionPaths(
+      session,
+      readLogAfterInitialEmpty({
+        type: "iteration",
+        timestamp: Date.now(),
+        iteration: 1,
+        error: {
+          phase: "reviewer",
+          message: "Interrupted by user",
+        },
+      })
+    );
 
     expect(deletedSessionPaths).toEqual([]);
   });
@@ -306,42 +296,19 @@ describe("stopActiveSession", () => {
     const session = createActiveSession({
       sessionPath: "/tmp/session-123.jsonl",
     });
-    const deletedSessionPaths: string[] = [];
-    let readLogCallCount = 0;
 
-    await stopActiveSession(session, {
-      updateSessionState: async () => true,
-      sendInterrupt: async () => {},
-      readLog: async () => {
-        readLogCallCount += 1;
-        if (readLogCallCount === 1) {
-          return [];
-        }
-
-        return [
-          {
-            type: "review_iteration",
-            timestamp: Date.now(),
-            iteration: 1,
-            phase: "review",
-            sessionStatus: "running",
-            findings: [],
-            netNewFindingIds: [],
-          },
-        ];
-      },
-      readSessionState: async (): Promise<SessionState> => ({
-        ...session,
-        state: "interrupted",
-      }),
-      sessionExists: async () => false,
-      killSession: async () => {},
-      resolveSourceRepoPath: () => null,
-      deleteSessionFiles: async (sessionPath) => {
-        deletedSessionPaths.push(sessionPath);
-      },
-      removeSessionState: async () => true,
-    });
+    const deletedSessionPaths = await stopAndCollectDeletedSessionPaths(
+      session,
+      readLogAfterInitialEmpty({
+        type: "review_iteration",
+        timestamp: Date.now(),
+        iteration: 1,
+        phase: "review",
+        sessionStatus: "running",
+        findings: [],
+        netNewFindingIds: [],
+      })
+    );
 
     expect(deletedSessionPaths).toEqual([]);
   });
@@ -353,34 +320,21 @@ describe("stopActiveSession", () => {
       worktreeBranch: "rr-worktree-session-123",
     });
     const discardedWorktreePaths: string[] = [];
-    let readLogCallCount = 0;
 
     await stopActiveSession(session, {
       updateSessionState: async () => true,
       sendInterrupt: async () => {},
-      readLog: async () => {
-        readLogCallCount += 1;
-        if (readLogCallCount === 1) {
-          return [];
-        }
-
-        return [
-          {
-            type: "iteration",
-            timestamp: Date.now(),
-            iteration: 1,
-            fixes: {
-              decision: "NO_CHANGES_NEEDED",
-              fixes: [],
-              skipped: [],
-            },
-          },
-        ];
-      },
-      readSessionState: async (): Promise<SessionState> => ({
-        ...session,
-        state: "interrupted",
+      readLog: readLogAfterInitialEmpty({
+        type: "iteration",
+        timestamp: Date.now(),
+        iteration: 1,
+        fixes: {
+          decision: "NO_CHANGES_NEEDED",
+          fixes: [],
+          skipped: [],
+        },
       }),
+      readSessionState: async () => readInterruptedSession(session),
       sessionExists: async () => false,
       killSession: async () => {},
       discardSessionWorktree: (worktree) => {

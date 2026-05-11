@@ -40,12 +40,11 @@ describe("droid-stream", () => {
 
       const event = parseDroidStreamEvent(line);
 
-      expect(event).not.toBeNull();
-      expect(event?.type).toBe("message");
-      if (event?.type === "message") {
-        expect(event.role).toBe("user");
-        expect(event.text).toBe("/review current changes");
-      }
+      expect(event).toMatchObject({
+        type: "message",
+        role: "user",
+        text: "/review current changes",
+      });
     });
 
     test("parses assistant message event", () => {
@@ -204,34 +203,30 @@ describe("droid-stream", () => {
     });
 
     test("formats completion event", () => {
-      const event = {
+      const output = formatDroidEventForDisplay({
         type: "completion" as const,
         finalText: "Final answer here",
         numTurns: 3,
         durationMs: 5000,
         session_id: "abc",
         timestamp: 1234567890,
-      };
-
-      const output = formatDroidEventForDisplay(event);
+      });
 
       expect(output).toContain("Result");
       expect(output).toContain("Final answer here");
     });
 
     test("returns null for system init event", () => {
-      const event = {
-        type: "system" as const,
-        subtype: "init" as const,
-        session_id: "abc",
-        model: "gpt-5",
-        cwd: "/home",
-        tools: [],
-      };
-
-      const output = formatDroidEventForDisplay(event);
-
-      expect(output).toBeNull();
+      expect(
+        formatDroidEventForDisplay({
+          type: "system" as const,
+          subtype: "init" as const,
+          session_id: "abc",
+          model: "gpt-5",
+          cwd: "/home",
+          tools: [],
+        })
+      ).toBeNull();
     });
 
     test("returns null for user message event", () => {
@@ -278,17 +273,14 @@ describe("droid-stream", () => {
     });
 
     test("returns null when no completion event found", () => {
-      const jsonl = [
-        JSON.stringify({ type: "system", subtype: "init", session_id: "abc" }),
-        JSON.stringify({
-          type: "message",
-          role: "assistant",
-          id: "msg",
-          text: "Working...",
-          timestamp: 123,
-          session_id: "abc",
-        }),
-      ].join("\n");
+      const jsonl = JSON.stringify({
+        type: "message",
+        role: "assistant",
+        id: "msg",
+        text: "Working...",
+        timestamp: 123,
+        session_id: "abc",
+      });
 
       const result = extractDroidResult(jsonl);
 

@@ -35,12 +35,11 @@ describe("gemini-stream", () => {
 
       const event = parseGeminiStreamEvent(line);
 
-      expect(event).not.toBeNull();
-      expect(event?.type).toBe("message");
-      if (event?.type === "message") {
-        expect(event.role).toBe("user");
-        expect(event.content).toBe("review the core logic");
-      }
+      expect(event).toMatchObject({
+        type: "message",
+        role: "user",
+        content: "review the core logic",
+      });
     });
 
     test("parses assistant message event with delta", () => {
@@ -362,11 +361,7 @@ describe("gemini-stream", () => {
           content: "Valid content",
           delta: true,
         }),
-        JSON.stringify({
-          type: "result",
-          timestamp: "t",
-          status: "success",
-        }),
+        JSON.stringify({ type: "result", timestamp: "t", status: "success" }),
       ].join("\n");
 
       const result = extractGeminiResult(jsonl);

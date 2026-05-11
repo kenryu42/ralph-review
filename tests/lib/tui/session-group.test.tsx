@@ -1,50 +1,26 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { testRender } from "@opentui/react/test-utils";
-import { act, createElement } from "react";
-import type { ActiveSession } from "@/lib/session-state";
+import { createElement } from "react";
 import { SessionGroup } from "@/lib/tui/sessions/sidebar/SessionGroup";
 import { SessionItem } from "@/lib/tui/sessions/sidebar/SessionItem";
-
-function createActiveSession(overrides: Partial<ActiveSession> = {}): ActiveSession {
-  return {
-    schemaVersion: 2,
-    sessionId: "session-1",
-    sessionName: "rr-project-main",
-    startTime: Date.now() - 5_000,
-    lastHeartbeat: Date.now(),
-    pid: process.pid,
-    projectPath: "/repo/project",
-    branch: "main",
-    state: "running",
-    mode: "background",
-    iteration: 1,
-    currentAgent: "reviewer",
-    sessionStatePath: "/tmp/rr-project-main.lock",
-    sessionPath: "/tmp/logs/rr-project-main.jsonl",
-    ...overrides,
-  };
-}
+import {
+  createActiveSession,
+  destroyTestRender,
+  renderOnce,
+  type TestRenderSetup,
+} from "../../helpers/tui";
 
 describe("SessionGroup and SessionItem", () => {
-  let testSetup: Awaited<ReturnType<typeof testRender>> | null = null;
+  let testSetup: TestRenderSetup | null = null;
 
   afterEach(async () => {
-    if (testSetup) {
-      await act(async () => {
-        testSetup?.renderer.destroy();
-      });
-      testSetup = null;
-    }
+    await destroyTestRender(testSetup);
+    testSetup = null;
   });
 
   async function renderFrame(node: ReturnType<typeof createElement>): Promise<string> {
-    testSetup = await testRender(node, {
+    testSetup = await renderOnce(node, {
       width: 80,
       height: 20,
-    });
-
-    await act(async () => {
-      await testSetup?.renderOnce();
     });
 
     return testSetup.captureCharFrame();

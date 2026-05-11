@@ -37,6 +37,49 @@ import type { SessionGroupData, WorkspaceState } from "./workspace-types";
 const DEFAULT_REFRESH_INTERVAL = 1000;
 const LIVE_REFRESH_INTERVAL = TMUX_CAPTURE_MIN_INTERVAL_MS;
 
+export function createInitialWorkspaceState(
+  overrides: Partial<WorkspaceState> = {}
+): WorkspaceState {
+  return {
+    sessionGroups: [],
+    allSessions: [],
+    projectSessions: [],
+    selectedSessionId: null,
+    currentSession: null,
+    logEntries: [],
+    fixes: [],
+    skipped: [],
+    findings: [],
+    storedFindings: [],
+    selectedFindingIds: [],
+    selectedFindings: [],
+    unselectedFindings: [],
+    fixResults: [],
+    unresolvedSelectedFindings: [],
+    auditRegressionFindings: [],
+    iterationFixes: [],
+    iterationSkipped: [],
+    iterationFindings: [],
+    latestReviewIteration: null,
+    codexReviewText: null,
+    tmuxOutput: "",
+    elapsed: 0,
+    maxIterations: 0,
+    error: null,
+    liveRefreshError: null,
+    isLoading: true,
+    lastSessionStats: null,
+    projectStats: null,
+    config: null,
+    configWarning: null,
+    isGitRepo: true,
+    currentAgent: null,
+    reviewOptions: undefined,
+    outputVisible: false,
+    ...overrides,
+  };
+}
+
 function buildSessionGroups(
   allSessions: ActiveSession[],
   currentProjectPath: string
@@ -80,43 +123,7 @@ export function useWorkspaceState(
   _branch?: string,
   refreshInterval: number = DEFAULT_REFRESH_INTERVAL
 ): WorkspaceState {
-  const [state, setState] = useState<WorkspaceState>({
-    sessionGroups: [],
-    allSessions: [],
-    projectSessions: [],
-    selectedSessionId: null,
-    currentSession: null,
-    logEntries: [],
-    fixes: [],
-    skipped: [],
-    findings: [],
-    storedFindings: [],
-    selectedFindingIds: [],
-    selectedFindings: [],
-    unselectedFindings: [],
-    fixResults: [],
-    unresolvedSelectedFindings: [],
-    auditRegressionFindings: [],
-    iterationFixes: [],
-    iterationSkipped: [],
-    iterationFindings: [],
-    latestReviewIteration: null,
-    codexReviewText: null,
-    tmuxOutput: "",
-    elapsed: 0,
-    maxIterations: 0,
-    error: null,
-    liveRefreshError: null,
-    isLoading: true,
-    lastSessionStats: null,
-    projectStats: null,
-    config: null,
-    configWarning: null,
-    isGitRepo: true,
-    currentAgent: null,
-    reviewOptions: undefined,
-    outputVisible: false,
-  });
+  const [state, setState] = useState<WorkspaceState>(() => createInitialWorkspaceState());
 
   const stateRef = useRef(state);
   stateRef.current = state;

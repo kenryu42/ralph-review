@@ -1,3 +1,5 @@
+import { removeTrailingCommas } from "@/lib/structured-output";
+
 interface ParseFramedJsonOptions<T> {
   extractedText: string | null;
   rawOutput: string;
@@ -8,53 +10,6 @@ interface ParseFramedJsonOptions<T> {
 
 function normalizeCandidate(candidate: string): string {
   return candidate.replace(/\r\n?/g, "\n").trim();
-}
-
-function removeTrailingCommas(candidate: string): string {
-  let output = "";
-  let inString = false;
-  let escaped = false;
-
-  for (let index = 0; index < candidate.length; index += 1) {
-    const char = candidate[index];
-
-    if (escaped) {
-      output += char;
-      escaped = false;
-      continue;
-    }
-
-    if (char === "\\") {
-      output += char;
-      escaped = true;
-      continue;
-    }
-
-    if (char === '"') {
-      output += char;
-      inString = !inString;
-      continue;
-    }
-
-    if (inString || char !== ",") {
-      output += char;
-      continue;
-    }
-
-    let lookahead = index + 1;
-    while (lookahead < candidate.length && /\s/u.test(candidate[lookahead] ?? "")) {
-      lookahead += 1;
-    }
-
-    const nextChar = candidate[lookahead];
-    if (nextChar === "}" || nextChar === "]") {
-      continue;
-    }
-
-    output += char;
-  }
-
-  return output;
 }
 
 function extractFramedPayload(output: string, startToken: string, endToken: string): string | null {

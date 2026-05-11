@@ -1,18 +1,14 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { testRender } from "@opentui/react/test-utils";
-import { act, createElement } from "react";
+import { createElement } from "react";
 import { StatusBar } from "@/lib/tui/dashboard/StatusBar";
+import { destroyTestRender, renderOnce, type TestRenderSetup } from "../../helpers/tui";
 
 describe("StatusBar", () => {
-  let testSetup: Awaited<ReturnType<typeof testRender>> | null = null;
+  let testSetup: TestRenderSetup | null = null;
 
   afterEach(async () => {
-    if (testSetup) {
-      await act(async () => {
-        testSetup?.renderer.destroy();
-      });
-      testSetup = null;
-    }
+    await destroyTestRender(testSetup);
+    testSetup = null;
   });
 
   async function renderFrame(
@@ -28,13 +24,11 @@ describe("StatusBar", () => {
       configWarning: null,
     };
 
-    testSetup = await testRender(createElement(StatusBar, { ...defaultProps, ...props }), {
+    await destroyTestRender(testSetup);
+    testSetup = null;
+    testSetup = await renderOnce(createElement(StatusBar, { ...defaultProps, ...props }), {
       width: 120,
       height: 4,
-    });
-
-    await act(async () => {
-      await testSetup?.renderOnce();
     });
 
     return testSetup.captureCharFrame();

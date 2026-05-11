@@ -1,4 +1,5 @@
 import * as p from "@clack/prompts";
+import type { SpinnerFactory } from "@/cli-io";
 import { runDiagnostics } from "@/lib/diagnostics";
 import type { FixResult, RemediationDependencies } from "@/lib/diagnostics/remediation";
 import { applyFixes as defaultApplyFixes, isFixable } from "@/lib/diagnostics/remediation";
@@ -17,10 +18,7 @@ interface DoctorRuntime {
   ) => Promise<FixResult[]>;
   intro: (message: string) => void;
   note: (message: string, title: string) => void;
-  spinner: () => {
-    start: (message: string) => void;
-    stop: (message: string) => void;
-  };
+  spinner: SpinnerFactory;
   log: {
     error: (message: string) => void;
     warn: (message: string) => void;

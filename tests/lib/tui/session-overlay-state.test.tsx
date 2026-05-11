@@ -6,6 +6,8 @@ import * as logger from "@/lib/logger";
 import * as sessionState from "@/lib/session-state";
 import { useSessionOverlayState } from "@/lib/tui/sessions/history/use-session-overlay-state";
 import type { SessionStats } from "@/lib/types";
+import { createDeferred } from "../../helpers/async";
+import { actAndRender } from "../../helpers/tui";
 
 function buildLogSession(overrides: Partial<LogSession> = {}): LogSession {
   return {
@@ -40,18 +42,18 @@ function buildSessionStats(overrides: Partial<SessionStats> = {}): SessionStats 
   };
 }
 
-function createDeferred<T>() {
-  let resolve!: (value: T) => void;
-  let reject!: (reason?: unknown) => void;
-  const promise = new Promise<T>((res, rej) => {
-    resolve = res;
-    reject = rej;
-  });
-
+function buildOrderedLogSessions() {
   return {
-    promise,
-    resolve,
-    reject,
+    first: buildLogSession({
+      path: "/tmp/logs/session-a.jsonl",
+      name: "session-a.jsonl",
+      timestamp: 200,
+    }),
+    second: buildLogSession({
+      path: "/tmp/logs/session-b.jsonl",
+      name: "session-b.jsonl",
+      timestamp: 100,
+    }),
   };
 }
 
@@ -92,17 +94,25 @@ describe("useSessionOverlayState", () => {
     }
   }
 
+  async function updateAndRender(update: () => void | Promise<void>) {
+    await actAndRender(setup, update);
+  }
+
+  async function deleteSelectedSessionAndRender() {
+    let deleteResult:
+      | Awaited<ReturnType<ReturnType<typeof useSessionOverlayState>["deleteSelectedSession"]>>
+      | undefined;
+    await updateAndRender(async () => {
+      deleteResult = await latestState?.deleteSelectedSession();
+    });
+    if (!deleteResult) {
+      throw new Error("expected delete result");
+    }
+    return deleteResult;
+  }
+
   test("loads sessions on mount, selects the first entry, and requests its stats", async () => {
-    const first = buildLogSession({
-      path: "/tmp/logs/session-a.jsonl",
-      name: "session-a.jsonl",
-      timestamp: 200,
-    });
-    const second = buildLogSession({
-      path: "/tmp/logs/session-b.jsonl",
-      name: "session-b.jsonl",
-      timestamp: 100,
-    });
+    const { first, second } = buildOrderedLogSessions();
     const firstStats = buildSessionStats({ sessionPath: first.path });
 
     const listSpy = spyOn(logger, "listLogSessions").mockResolvedValue([first, second]);
@@ -120,16 +130,7 @@ describe("useSessionOverlayState", () => {
   });
 
   test("ignores stale stats responses when selected session changes", async () => {
-    const first = buildLogSession({
-      path: "/tmp/logs/session-a.jsonl",
-      name: "session-a.jsonl",
-      timestamp: 200,
-    });
-    const second = buildLogSession({
-      path: "/tmp/logs/session-b.jsonl",
-      name: "session-b.jsonl",
-      timestamp: 100,
-    });
+    const { first, second } = buildOrderedLogSessions();
 
     const firstStats = createDeferred<SessionStats>();
     const secondStats = createDeferred<SessionStats>();
@@ -144,31 +145,23 @@ describe("useSessionOverlayState", () => {
     });
 
     await mountHook();
-    await act(async () => {
+    await updateAndRender(() => {
       sessions.resolve([first, second]);
-      await Promise.resolve();
-      await setup?.renderOnce();
     });
     await flush();
 
-    await act(async () => {
+    await updateAndRender(() => {
       latestState?.setSelectedPath(second.path);
-      await Promise.resolve();
-      await setup?.renderOnce();
     });
 
-    await act(async () => {
+    await updateAndRender(() => {
       secondStats.resolve(buildSessionStats({ sessionPath: second.path }));
-      await Promise.resolve();
-      await setup?.renderOnce();
     });
     await flush();
     expect(latestState?.selectedStats?.sessionPath).toBe(second.path);
 
-    await act(async () => {
+    await updateAndRender(() => {
       firstStats.resolve(buildSessionStats({ sessionPath: first.path }));
-      await Promise.resolve();
-      await setup?.renderOnce();
     });
     await flush();
     expect(latestState?.selectedStats?.sessionPath).toBe(second.path);
@@ -180,10 +173,8 @@ describe("useSessionOverlayState", () => {
     spyOn(logger, "computeSessionStats").mockResolvedValue(buildSessionStats());
 
     await mountHook();
-    await act(async () => {
+    await updateAndRender(() => {
       sessions.reject(new Error("unable to load logs"));
-      await Promise.resolve();
-      await setup?.renderOnce();
     });
     await flush();
 
@@ -200,15 +191,11 @@ describe("useSessionOverlayState", () => {
     spyOn(logger, "computeSessionStats").mockImplementation(async () => stats.promise);
 
     await mountHook();
-    await act(async () => {
+    await updateAndRender(() => {
       sessions.resolve([session]);
-      await Promise.resolve();
-      await setup?.renderOnce();
     });
-    await act(async () => {
+    await updateAndRender(() => {
       stats.reject(new Error("stats unavailable"));
-      await Promise.resolve();
-      await setup?.renderOnce();
     });
     await flush();
 
@@ -218,16 +205,7 @@ describe("useSessionOverlayState", () => {
   });
 
   test("loads stats for the next remaining session after deleting the selected session", async () => {
-    const first = buildLogSession({
-      path: "/tmp/logs/session-a.jsonl",
-      name: "session-a.jsonl",
-      timestamp: 200,
-    });
-    const second = buildLogSession({
-      path: "/tmp/logs/session-b.jsonl",
-      name: "session-b.jsonl",
-      timestamp: 100,
-    });
+    const { first, second } = buildOrderedLogSessions();
     const secondStats = createDeferred<SessionStats>();
 
     spyOn(logger, "listLogSessions").mockResolvedValue([first, second]);
@@ -244,18 +222,7 @@ describe("useSessionOverlayState", () => {
     await mountHook();
     await flush();
 
-    let deleteResult:
-      | Awaited<ReturnType<ReturnType<typeof useSessionOverlayState>["deleteSelectedSession"]>>
-      | undefined;
-    await act(async () => {
-      deleteResult = await latestState?.deleteSelectedSession();
-      await Promise.resolve();
-      await setup?.renderOnce();
-    });
-
-    if (!deleteResult) {
-      throw new Error("expected delete result");
-    }
+    const deleteResult = await deleteSelectedSessionAndRender();
 
     expect(deleteResult).toEqual({ deleted: true });
     expect(deleteSpy).toHaveBeenCalledWith(first.path);
@@ -263,10 +230,8 @@ describe("useSessionOverlayState", () => {
     expect(latestState?.selectedStats).toBeNull();
     expect(latestState?.statsLoading).toBe(true);
 
-    await act(async () => {
+    await updateAndRender(() => {
       secondStats.resolve(buildSessionStats({ sessionPath: second.path }));
-      await Promise.resolve();
-      await setup?.renderOnce();
     });
     await flush();
 
@@ -288,19 +253,8 @@ describe("useSessionOverlayState", () => {
     await mountHook();
     await flush();
 
-    let deleteResult:
-      | Awaited<ReturnType<ReturnType<typeof useSessionOverlayState>["deleteSelectedSession"]>>
-      | undefined;
-    await act(async () => {
-      deleteResult = await latestState?.deleteSelectedSession();
-      await Promise.resolve();
-      await setup?.renderOnce();
-    });
+    const deleteResult = await deleteSelectedSessionAndRender();
     await flush();
-
-    if (!deleteResult) {
-      throw new Error("expected delete result");
-    }
 
     expect(deleteResult).toEqual({ deleted: true });
     expect(latestState?.sessions).toEqual([]);

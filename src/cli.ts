@@ -2,6 +2,7 @@
 
 import * as p from "@clack/prompts";
 import { getCommandDef, getVersion, parseArgs, printCommandHelp, printUsage } from "./cli-core";
+import { CONSOLE_LOG, PROCESS_EXIT } from "./cli-io";
 import { runApply } from "./commands/apply";
 import { runConfig } from "./commands/config";
 import { runDoctor } from "./commands/doctor";
@@ -55,10 +56,8 @@ export interface CliDeps {
   exit: (code: number) => void;
 }
 
-const CONSOLE_LOG = console.log.bind(console) as (message: string) => void;
 const CLACK_ERROR = p.log.error.bind(p.log) as (message: string) => void;
 const CLACK_MESSAGE = p.log.message.bind(p.log) as (message: string) => void;
-const PROCESS_EXIT = process.exit.bind(process) as (code: number) => void;
 const IS_INTERACTIVE_TERMINAL = (): boolean =>
   process.stdin.isTTY === true && process.stdout.isTTY === true;
 

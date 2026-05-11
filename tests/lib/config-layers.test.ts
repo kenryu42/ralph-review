@@ -1,17 +1,68 @@
 import { describe, expect, test } from "bun:test";
+import type { EffectiveConfigDiagnostics, LoadedConfigOverrideDiagnostics } from "@/lib/config";
 import { loadConfigDisplayLayers } from "@/lib/config-layers";
-import { CONFIG_SCHEMA_URI, CONFIG_VERSION, type Config, type ConfigOverride } from "@/lib/types";
+import type { ConfigOverride } from "@/lib/types";
+import { baseConfig } from "../helpers/config";
 
-const baseConfig: Config = {
-  $schema: CONFIG_SCHEMA_URI,
-  version: CONFIG_VERSION,
-  reviewer: { agent: "codex", model: "gpt-5.3-codex", reasoning: "high" },
-  fixer: { agent: "claude", model: "claude-opus-4-6", reasoning: "medium" },
-  maxIterations: 5,
-  iterationTimeout: 1800000,
-  defaultReview: { type: "uncommitted" },
-  notifications: { sound: { enabled: true } },
-};
+function effectiveDiagnostics(
+  overrides: Partial<EffectiveConfigDiagnostics> = {}
+): EffectiveConfigDiagnostics {
+  return {
+    exists: true,
+    source: "merged",
+    config: baseConfig,
+    errors: [],
+    globalPath: "/tmp/global.json",
+    localPath: "/repo/.ralph-review/config.json",
+    repoRoot: "/repo",
+    globalExists: true,
+    localExists: true,
+    globalErrors: [],
+    localErrors: [],
+    ...overrides,
+  };
+}
+
+function globalDiagnostics() {
+  return {
+    exists: true,
+    config: baseConfig,
+    errors: [],
+  };
+}
+
+function localDiagnostics(
+  path: string,
+  config: ConfigOverride | null
+): LoadedConfigOverrideDiagnostics {
+  return {
+    exists: config !== null,
+    path,
+    config,
+    errors: [],
+  };
+}
+
+function createLayerDeps(
+  calls: string[],
+  effective: EffectiveConfigDiagnostics,
+  localConfig: ConfigOverride | null
+) {
+  return {
+    loadEffectiveConfigWithDiagnostics: async (projectPath: string | undefined) => {
+      calls.push(`effective:${projectPath}`);
+      return effective;
+    },
+    loadConfigWithDiagnostics: async (path: string | undefined) => {
+      calls.push(`global:${path}`);
+      return globalDiagnostics();
+    },
+    loadConfigOverrideWithDiagnostics: async (path: string | undefined) => {
+      calls.push(`local:${path}`);
+      return localDiagnostics(path ?? "", localConfig);
+    },
+  };
+}
 
 describe("config layers", () => {
   test("loads effective, global, and local diagnostics using effective paths", async () => {
@@ -20,41 +71,10 @@ describe("config layers", () => {
       maxIterations: 9,
     };
 
-    const layers = await loadConfigDisplayLayers("/repo/project", {
-      loadEffectiveConfigWithDiagnostics: async (projectPath) => {
-        calls.push(`effective:${projectPath}`);
-        return {
-          exists: true,
-          source: "merged",
-          config: baseConfig,
-          errors: [],
-          globalPath: "/tmp/global.json",
-          localPath: "/repo/.ralph-review/config.json",
-          repoRoot: "/repo",
-          globalExists: true,
-          localExists: true,
-          globalErrors: [],
-          localErrors: [],
-        };
-      },
-      loadConfigWithDiagnostics: async (path) => {
-        calls.push(`global:${path}`);
-        return {
-          exists: true,
-          config: baseConfig,
-          errors: [],
-        };
-      },
-      loadConfigOverrideWithDiagnostics: async (path) => {
-        calls.push(`local:${path}`);
-        return {
-          exists: true,
-          path,
-          config: localOverride,
-          errors: [],
-        };
-      },
-    });
+    const layers = await loadConfigDisplayLayers(
+      "/repo/project",
+      createLayerDeps(calls, effectiveDiagnostics(), localOverride)
+    );
 
     expect(layers.effective.source).toBe("merged");
     expect(layers.globalConfig.config).toEqual(baseConfig);
@@ -69,41 +89,19 @@ describe("config layers", () => {
   test("does not load local diagnostics when there is no repo-local path", async () => {
     const calls: string[] = [];
 
-    const layers = await loadConfigDisplayLayers("/project", {
-      loadEffectiveConfigWithDiagnostics: async (projectPath) => {
-        calls.push(`effective:${projectPath}`);
-        return {
-          exists: true,
+    const layers = await loadConfigDisplayLayers(
+      "/project",
+      createLayerDeps(
+        calls,
+        effectiveDiagnostics({
           source: "global",
-          config: baseConfig,
-          errors: [],
-          globalPath: "/tmp/global.json",
           localPath: null,
           repoRoot: null,
-          globalExists: true,
           localExists: false,
-          globalErrors: [],
-          localErrors: [],
-        };
-      },
-      loadConfigWithDiagnostics: async (path) => {
-        calls.push(`global:${path}`);
-        return {
-          exists: true,
-          config: baseConfig,
-          errors: [],
-        };
-      },
-      loadConfigOverrideWithDiagnostics: async (path) => {
-        calls.push(`local:${path}`);
-        return {
-          exists: false,
-          path,
-          config: null,
-          errors: [],
-        };
-      },
-    });
+        }),
+        null
+      )
+    );
 
     expect(layers.localConfig).toBeNull();
     expect(calls).toEqual(["effective:/project", "global:/tmp/global.json"]);

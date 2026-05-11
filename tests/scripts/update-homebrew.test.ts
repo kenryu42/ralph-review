@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { CommandRunner } from "../../scripts/generate-changelog";
 import { computeSha256, runUpdateHomebrew, updateFormula } from "../../scripts/update-homebrew";
+import { createMockRunner } from "../helpers/command-runner";
 
 const SAMPLE_FORMULA = `class RalphReview < Formula
   desc "Orchestrating coding agents for code review, verification and fixing"
@@ -26,33 +27,6 @@ end`;
 
 const ENCODED_FORMULA = Buffer.from(SAMPLE_FORMULA).toString("base64");
 const FORMULA_SHA = "abc123formulasha";
-
-type RunnerResponse = string | Error;
-
-function createMockRunner(responses: readonly [string, RunnerResponse][]): CommandRunner {
-  return (strings: TemplateStringsArray, ...values: readonly string[]) => {
-    const command = strings.reduce((accumulator, part, index) => {
-      const value = values[index] ?? "";
-      return `${accumulator}${part}${value}`;
-    }, "");
-
-    return {
-      text: async () => {
-        const match = responses.find(([pattern]) => command.includes(pattern));
-        if (!match) {
-          throw new Error(`Unexpected command: ${command}`);
-        }
-
-        const response = match[1];
-        if (response instanceof Error) {
-          throw response;
-        }
-
-        return response;
-      },
-    };
-  };
-}
 
 describe("updateFormula", () => {
   test("updates url and sha256 to new version", () => {

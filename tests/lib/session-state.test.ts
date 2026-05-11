@@ -21,21 +21,7 @@ import {
   touchSessionHeartbeat,
   updateSessionState,
 } from "@/lib/session-state";
-
-function createStoredFinding(id: `F${string}`, priority: "P0" | "P1" | "P2" | "P3") {
-  return {
-    id,
-    fingerprint: `fp-${id}`,
-    locationKey: `src/file-${id}.ts:10:12`,
-    title: `Finding ${id}`,
-    body: `Body for ${id}`,
-    priority,
-    confidenceScore: 0.91,
-    filePath: `src/file-${id}.ts`,
-    startLine: 10,
-    endLine: 12,
-  };
-}
+import { createStoredFinding } from "../helpers/review-workflow";
 
 describe("session-state", () => {
   let tempLogsDir: string;
@@ -48,6 +34,19 @@ describe("session-state", () => {
   afterEach(async () => {
     await rm(tempLogsDir, { recursive: true, force: true });
   });
+
+  async function createPairedProjectSessions(projectPath: string): Promise<void> {
+    await createSessionState(tempLogsDir, projectPath, "rr-test-a", {
+      sessionId: "session-a",
+      branch: "main",
+      state: "running",
+    });
+    await createSessionState(tempLogsDir, projectPath, "rr-test-b", {
+      sessionId: "session-b",
+      branch: "main",
+      state: "running",
+    });
+  }
 
   test("builds a per-session state path inside the project storage directory", () => {
     const projectPath = "/Users/foo/my-project";
@@ -71,16 +70,7 @@ describe("session-state", () => {
   test("stores multiple active session states for the same project", async () => {
     const projectPath = "/Users/test/project";
 
-    await createSessionState(tempLogsDir, projectPath, "rr-test-a", {
-      sessionId: "session-a",
-      branch: "main",
-      state: "running",
-    });
-    await createSessionState(tempLogsDir, projectPath, "rr-test-b", {
-      sessionId: "session-b",
-      branch: "main",
-      state: "running",
-    });
+    await createPairedProjectSessions(projectPath);
 
     const sessionA = await readSessionState(tempLogsDir, projectPath, "session-a");
     const sessionB = await readSessionState(tempLogsDir, projectPath, "session-b");
@@ -140,16 +130,7 @@ describe("session-state", () => {
   test("updates heartbeats and removes only the targeted session state", async () => {
     const projectPath = "/Users/test/project-targeted";
 
-    await createSessionState(tempLogsDir, projectPath, "rr-test-a", {
-      sessionId: "session-a",
-      branch: "main",
-      state: "running",
-    });
-    await createSessionState(tempLogsDir, projectPath, "rr-test-b", {
-      sessionId: "session-b",
-      branch: "main",
-      state: "running",
-    });
+    await createPairedProjectSessions(projectPath);
 
     const before = await readSessionState(tempLogsDir, projectPath, "session-a");
     expect(before).not.toBeNull();

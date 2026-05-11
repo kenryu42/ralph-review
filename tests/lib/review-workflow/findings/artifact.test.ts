@@ -18,6 +18,7 @@ import type {
   FindingsArtifact,
   StoredFinding,
 } from "@/lib/review-workflow/findings/types";
+import { initTestRepo, runGitIn } from "../../../helpers/git";
 
 function createStoredFinding(id: FindingId): StoredFinding {
   return {
@@ -32,25 +33,6 @@ function createStoredFinding(id: FindingId): StoredFinding {
     startLine: 1,
     endLine: 1,
   };
-}
-
-function runGitIn(repoPath: string, args: string[]): void {
-  const result = Bun.spawnSync(["git", ...args], {
-    cwd: repoPath,
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  if (result.exitCode !== 0) {
-    throw new Error(`git ${args.join(" ")} failed: ${result.stderr.toString()}`);
-  }
-}
-
-function initTestRepo(repoPath: string): void {
-  runGitIn(repoPath, ["init", "--initial-branch=main"]);
-  runGitIn(repoPath, ["config", "core.autocrlf", "false"]);
-  runGitIn(repoPath, ["config", "user.name", "Tester"]);
-  runGitIn(repoPath, ["config", "user.email", "test@example.com"]);
-  runGitIn(repoPath, ["config", "commit.gpgsign", "false"]);
 }
 
 function createArtifact(
@@ -85,7 +67,7 @@ describe("review-workflow/findings/artifact", () => {
     await rm(tempDir, { recursive: true, force: true });
   });
 
-  test("round-trips git-based artifacts and resolves the project-scoped path", async () => {
+  async function createRepoArtifact() {
     const repoPath = join(tempDir, "repo");
     await mkdir(repoPath, { recursive: true });
     initTestRepo(repoPath);
@@ -96,7 +78,15 @@ describe("review-workflow/findings/artifact", () => {
     runGitIn(repoPath, ["commit", "-m", "initial commit"]);
 
     const baseline = createBaselineCommit(repoPath, "session-123");
-    const artifact = createArtifact(repoPath, baseline);
+    return {
+      repoPath,
+      baseline,
+      artifact: createArtifact(repoPath, baseline),
+    };
+  }
+
+  test("round-trips git-based artifacts and resolves the project-scoped path", async () => {
+    const { repoPath, baseline, artifact } = await createRepoArtifact();
     const artifactPath = getFindingsArtifactPath(tempDir, repoPath, artifact.sessionId);
 
     await saveFindingsArtifact(tempDir, artifact);
@@ -109,17 +99,8 @@ describe("review-workflow/findings/artifact", () => {
   });
 
   test("updates selection and fix results on stored artifacts", async () => {
-    const repoPath = join(tempDir, "repo");
-    await mkdir(repoPath, { recursive: true });
-    initTestRepo(repoPath);
-    await Bun.write(join(repoPath, "src/file.ts"), "export const value = 1;\n", {
-      createPath: true,
-    });
-    runGitIn(repoPath, ["add", "src/file.ts"]);
-    runGitIn(repoPath, ["commit", "-m", "initial commit"]);
-
-    const baseline = createBaselineCommit(repoPath, "session-123");
-    await saveFindingsArtifact(tempDir, createArtifact(repoPath, baseline));
+    const { repoPath, artifact } = await createRepoArtifact();
+    await saveFindingsArtifact(tempDir, artifact);
 
     const selection = await updateSelection(tempDir, repoPath, "session-123", ["F001"]);
     expect(selection.selectedFindingIds).toEqual(["F001"]);
@@ -127,8 +108,8 @@ describe("review-workflow/findings/artifact", () => {
     const fixResults: FindingFixResult[] = [
       {
         findingId: "F001",
-        status: "resolved",
-        summary: "Resolved fix",
+        status: "skipped",
+        summary: "SKIP: false positive",
       },
     ];
     const withFixes = await appendFixResults(tempDir, repoPath, "session-123", fixResults);
@@ -136,34 +117,16 @@ describe("review-workflow/findings/artifact", () => {
   });
 
   test("loads a single artifact by session id across project storage", async () => {
-    const repoPath = join(tempDir, "repo");
-    await mkdir(repoPath, { recursive: true });
-    initTestRepo(repoPath);
-    await Bun.write(join(repoPath, "src/file.ts"), "export const value = 1;\n", {
-      createPath: true,
-    });
-    runGitIn(repoPath, ["add", "src/file.ts"]);
-    runGitIn(repoPath, ["commit", "-m", "initial commit"]);
-
-    const baseline = createBaselineCommit(repoPath, "session-123");
-    await saveFindingsArtifact(tempDir, createArtifact(repoPath, baseline));
+    const { repoPath, artifact } = await createRepoArtifact();
+    await saveFindingsArtifact(tempDir, artifact);
 
     const loaded = await loadFindingsArtifactBySessionId(tempDir, "session-123");
     expect(loaded?.projectPath).toBe(repoPath);
   });
 
   test("validates that the artifact baseline commit is still reachable", async () => {
-    const repoPath = join(tempDir, "repo");
-    await mkdir(repoPath, { recursive: true });
-    initTestRepo(repoPath);
-    await Bun.write(join(repoPath, "src/file.ts"), "export const value = 1;\n", {
-      createPath: true,
-    });
-    runGitIn(repoPath, ["add", "src/file.ts"]);
-    runGitIn(repoPath, ["commit", "-m", "initial commit"]);
-
-    const baseline = createBaselineCommit(repoPath, "session-123");
-    const artifact = await saveFindingsArtifact(tempDir, createArtifact(repoPath, baseline));
+    const { baseline, artifact: storedArtifact } = await createRepoArtifact();
+    const artifact = await saveFindingsArtifact(tempDir, storedArtifact);
 
     await expect(validateArtifactBaseline(artifact)).resolves.toEqual({
       baselineCommitSha: baseline.commitSha,

@@ -1,5 +1,6 @@
 import * as p from "@clack/prompts";
 import { getCommandDef } from "@/cli";
+import type { SpinnerFactory } from "@/cli-io";
 import { type CommandDef, parseCommand } from "@/lib/cli-parser";
 import {
   getDefaultSelfUpdateDependencies,
@@ -16,10 +17,7 @@ interface UpdateRuntime extends SelfUpdateDependencies {
   getCommandDef: (name: string) => CommandDef | undefined;
   parseCommand: typeof parseCommand;
   performSelfUpdate: typeof performSelfUpdate;
-  spinner: () => {
-    start: (message: string) => void;
-    stop: (message: string) => void;
-  };
+  spinner: SpinnerFactory;
   log: {
     error: (message: string) => void;
     info: (message: string) => void;

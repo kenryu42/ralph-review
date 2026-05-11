@@ -4,27 +4,122 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runDiagnostics } from "@/lib/diagnostics";
 import { createCapabilities, createConfig } from "../../helpers/diagnostics";
+import { runGitIn } from "../../helpers/git";
 
-function runGitIn(repoPath: string, args: string[]): void {
-  const result = Bun.spawnSync(["git", ...args], {
-    cwd: repoPath,
-    stdout: "pipe",
-    stderr: "pipe",
+type DiagnosticsOptions = NonNullable<Parameters<typeof runDiagnostics>[1]>;
+
+function runDiagnosticsWithDefaults(
+  context: Parameters<typeof runDiagnostics>[0],
+  options: DiagnosticsOptions = {}
+) {
+  return runDiagnostics(context, {
+    capabilitiesByAgent: createCapabilities(),
+    ...options,
+    dependencies: {
+      configExists: async () => true,
+      loadConfig: async () => createConfig(),
+      isGitRepository: async () => true,
+      hasUncommittedChanges: async () => true,
+      isTmuxInstalled: () => true,
+      ...options.dependencies,
+    },
   });
-  if (result.exitCode !== 0) {
-    throw new Error(`git ${args.join(" ")} failed: ${result.stderr.toString().trim()}`);
-  }
+}
+
+function createEffectiveConfigDiagnostics(
+  overrides: Partial<ReturnType<typeof createDefaultEffectiveConfigDiagnostics>> = {}
+) {
+  return {
+    ...createDefaultEffectiveConfigDiagnostics(),
+    ...overrides,
+  };
+}
+
+function createDefaultEffectiveConfigDiagnostics() {
+  return {
+    exists: true,
+    config: null as ReturnType<typeof createConfig> | null,
+    errors: [] as string[],
+    source: "local" as "none" | "global" | "local" | "merged",
+    globalPath: "/Users/test/.config/ralph-review/config.json",
+    localPath: "/repo/.ralph-review/config.json",
+    repoRoot: "/repo",
+    globalExists: true,
+    localExists: true,
+    globalErrors: [] as string[],
+    localErrors: [] as string[],
+  };
+}
+
+function runRealGitDiagnostics(
+  repoPath: string,
+  options: Omit<DiagnosticsOptions, "capabilitiesByAgent" | "projectPath" | "dependencies"> & {
+    dependencies?: DiagnosticsOptions["dependencies"];
+  } = {}
+) {
+  return runDiagnostics("run", {
+    ...options,
+    capabilitiesByAgent: createCapabilities(),
+    projectPath: repoPath,
+    dependencies: {
+      configExists: async () => true,
+      loadConfig: async () => createConfig(),
+      isTmuxInstalled: () => true,
+      ...options.dependencies,
+    },
+  });
+}
+
+function runDiagnosticsWithEffectiveConfig(
+  overrides: Parameters<typeof createEffectiveConfigDiagnostics>[0]
+) {
+  return runDiagnosticsWithDefaults("run", {
+    projectPath: "/repo/project",
+    dependencies: {
+      loadEffectiveConfigWithDiagnostics: async () => createEffectiveConfigDiagnostics(overrides),
+    },
+  });
+}
+
+function findReportItem(report: Awaited<ReturnType<typeof runDiagnostics>>, id: string) {
+  return report.items.find((item) => item.id === id);
+}
+
+function expectGlobalConfigInvalid(report: Awaited<ReturnType<typeof runDiagnostics>>) {
+  const configItem = findReportItem(report, "config-invalid");
+  expect(configItem?.severity).toBe("error");
+  expect(configItem?.details).toContain("global config issue");
+  expect(configItem?.details).not.toContain("repo-local config issue");
+  expect(configItem?.context).toEqual({ configScope: "global" });
+  return configItem;
+}
+
+async function runMissingReviewerModelDiagnostics(
+  models: Array<{ model: string }>,
+  model = "nonexistent-model"
+) {
+  const capabilities = createCapabilities();
+  capabilities.opencode.models = models;
+
+  const config = createConfig();
+  config.reviewer = {
+    agent: "opencode",
+    model,
+  };
+
+  return runDiagnosticsWithDefaults("run", {
+    capabilitiesByAgent: capabilities,
+    dependencies: {
+      loadConfig: async () => config,
+    },
+  });
 }
 
 describe("diagnostics checks", () => {
   test("reports missing config as error for run context", async () => {
-    const report = await runDiagnostics("run", {
-      capabilitiesByAgent: createCapabilities(),
+    const report = await runDiagnosticsWithDefaults("run", {
       dependencies: {
         configExists: async () => false,
-        isGitRepository: async () => true,
-        hasUncommittedChanges: async () => true,
-        isTmuxInstalled: () => true,
       },
     });
 
@@ -35,11 +130,9 @@ describe("diagnostics checks", () => {
   });
 
   test("reports missing config as warning for init context", async () => {
-    const report = await runDiagnostics("init", {
-      capabilitiesByAgent: createCapabilities(),
+    const report = await runDiagnosticsWithDefaults("init", {
       dependencies: {
         configExists: async () => false,
-        isTmuxInstalled: () => true,
       },
     });
 
@@ -50,9 +143,8 @@ describe("diagnostics checks", () => {
   });
 
   test("reports both valid config locations when no config file exists in a git repo", async () => {
-    const report = await runDiagnostics("run", {
+    const report = await runDiagnosticsWithDefaults("run", {
       projectPath: "/repo/project",
-      capabilitiesByAgent: createCapabilities(),
       dependencies: {
         loadEffectiveConfigWithDiagnostics: async () => ({
           exists: false,
@@ -67,9 +159,6 @@ describe("diagnostics checks", () => {
           globalErrors: [],
           localErrors: [],
         }),
-        isGitRepository: async () => true,
-        hasUncommittedChanges: async () => true,
-        isTmuxInstalled: () => true,
       },
     });
 
@@ -82,190 +171,97 @@ describe("diagnostics checks", () => {
   });
 
   test("flags configured dynamic model that is not discovered", async () => {
-    const capabilities = createCapabilities();
-    capabilities.opencode.models = [{ model: "gpt-5.2-codex" }];
+    const report = await runMissingReviewerModelDiagnostics(
+      [{ model: "gpt-5.2-codex" }],
+      "model-not-found"
+    );
 
-    const config = createConfig();
-    config.reviewer = {
-      agent: "opencode",
-      model: "model-not-found",
-    };
-
-    const report = await runDiagnostics("run", {
-      capabilitiesByAgent: capabilities,
-      dependencies: {
-        configExists: async () => true,
-        loadConfig: async () => config,
-        isGitRepository: async () => true,
-        hasUncommittedChanges: async () => true,
-        isTmuxInstalled: () => true,
-      },
-    });
-
-    const missingModel = report.items.find((item) => item.id === "config-reviewer-model-missing");
+    const missingModel = findReportItem(report, "config-reviewer-model-missing");
     expect(missingModel?.severity).toBe("error");
     expect(missingModel?.remediation.some((entry) => entry.includes("rr config set"))).toBe(true);
     expect(report.hasErrors).toBe(true);
   });
 
   test("reports invalid config as warning for init context", async () => {
-    const report = await runDiagnostics("init", {
-      capabilitiesByAgent: createCapabilities(),
+    const report = await runDiagnosticsWithDefaults("init", {
       dependencies: {
-        configExists: async () => true,
         loadConfig: async () => null,
-        isTmuxInstalled: () => true,
       },
     });
 
-    const configItem = report.items.find((item) => item.id === "config-invalid");
+    const configItem = findReportItem(report, "config-invalid");
     expect(configItem?.severity).toBe("warning");
     expect(report.hasErrors).toBe(false);
     expect(report.hasWarnings).toBe(true);
   });
 
   test("reports invalid config as error for run context", async () => {
-    const report = await runDiagnostics("run", {
-      capabilitiesByAgent: createCapabilities(),
+    const report = await runDiagnosticsWithDefaults("run", {
       dependencies: {
-        configExists: async () => true,
         loadConfig: async () => null,
-        isGitRepository: async () => true,
-        hasUncommittedChanges: async () => true,
-        isTmuxInstalled: () => true,
       },
     });
 
-    const configItem = report.items.find((item) => item.id === "config-invalid");
+    const configItem = findReportItem(report, "config-invalid");
     expect(configItem?.severity).toBe("error");
     expect(report.hasErrors).toBe(true);
   });
 
   test("reports repo-local config failures with source-aware details", async () => {
-    const report = await runDiagnostics("run", {
-      projectPath: "/repo/project",
-      capabilitiesByAgent: createCapabilities(),
-      dependencies: {
-        loadEffectiveConfigWithDiagnostics: async () => ({
-          exists: true,
-          config: null,
-          errors: [
-            "Local config /repo/.ralph-review/config.json could not be parsed: Invalid JSON syntax: Unexpected token",
-          ],
-          source: "local",
-          globalPath: "/Users/test/.config/ralph-review/config.json",
-          localPath: "/repo/.ralph-review/config.json",
-          repoRoot: "/repo",
-          globalExists: true,
-          localExists: true,
-          globalErrors: [],
-          localErrors: ["Invalid JSON syntax: Unexpected token"],
-        }),
-        isGitRepository: async () => true,
-        hasUncommittedChanges: async () => true,
-        isTmuxInstalled: () => true,
-      },
+    const report = await runDiagnosticsWithEffectiveConfig({
+      errors: [
+        "Local config /repo/.ralph-review/config.json could not be parsed: Invalid JSON syntax: Unexpected token",
+      ],
+      localErrors: ["Invalid JSON syntax: Unexpected token"],
     });
 
-    const configItem = report.items.find((item) => item.id === "config-invalid");
+    const configItem = findReportItem(report, "config-invalid");
     expect(configItem?.severity).toBe("error");
     expect(configItem?.details).toContain("/repo/.ralph-review/config.json");
     expect(configItem?.details).toContain("repo-local");
   });
 
   test("reports invalid global config as global even when a repo root is detected", async () => {
-    const report = await runDiagnostics("run", {
-      projectPath: "/repo/project",
-      capabilitiesByAgent: createCapabilities(),
-      dependencies: {
-        loadEffectiveConfigWithDiagnostics: async () => ({
-          exists: true,
-          config: null,
-          errors: [
-            "Invalid global config at /Users/test/.config/ralph-review/config.json",
-            "Invalid JSON syntax: Unexpected token",
-          ],
-          source: "global",
-          globalPath: "/Users/test/.config/ralph-review/config.json",
-          localPath: "/repo/.ralph-review/config.json",
-          repoRoot: "/repo",
-          globalExists: true,
-          localExists: false,
-          globalErrors: ["Invalid JSON syntax: Unexpected token"],
-          localErrors: [],
-        }),
-        isGitRepository: async () => true,
-        hasUncommittedChanges: async () => true,
-        isTmuxInstalled: () => true,
-      },
+    const report = await runDiagnosticsWithEffectiveConfig({
+      errors: [
+        "Invalid global config at /Users/test/.config/ralph-review/config.json",
+        "Invalid JSON syntax: Unexpected token",
+      ],
+      source: "global",
+      localExists: false,
+      globalErrors: ["Invalid JSON syntax: Unexpected token"],
     });
 
-    const configItem = report.items.find((item) => item.id === "config-invalid");
-    expect(configItem?.severity).toBe("error");
-    expect(configItem?.details).toContain("global config issue");
-    expect(configItem?.details).not.toContain("repo-local config issue");
-    expect(configItem?.context).toEqual({ configScope: "global" });
+    const configItem = expectGlobalConfigInvalid(report);
     expect(configItem?.remediation).toEqual(["Run: rr init --global", "Then run: rr doctor --fix"]);
   });
 
   test("reports merged failures caused only by the global config as global", async () => {
-    const report = await runDiagnostics("run", {
-      projectPath: "/repo/project",
-      capabilitiesByAgent: createCapabilities(),
-      dependencies: {
-        loadEffectiveConfigWithDiagnostics: async () => ({
-          exists: true,
-          config: null,
-          errors: [
-            "Effective configuration is invalid.",
-            "Global config /Users/test/.config/ralph-review/config.json: Invalid JSON syntax: Unexpected token",
-            "reviewer must be an object.",
-          ],
-          source: "merged",
-          globalPath: "/Users/test/.config/ralph-review/config.json",
-          localPath: "/repo/.ralph-review/config.json",
-          repoRoot: "/repo",
-          globalExists: true,
-          localExists: true,
-          globalErrors: ["Invalid JSON syntax: Unexpected token"],
-          localErrors: [],
-        }),
-        isGitRepository: async () => true,
-        hasUncommittedChanges: async () => true,
-        isTmuxInstalled: () => true,
-      },
+    const report = await runDiagnosticsWithEffectiveConfig({
+      errors: [
+        "Effective configuration is invalid.",
+        "Global config /Users/test/.config/ralph-review/config.json: Invalid JSON syntax: Unexpected token",
+        "reviewer must be an object.",
+      ],
+      source: "merged",
+      globalErrors: ["Invalid JSON syntax: Unexpected token"],
     });
 
-    const configItem = report.items.find((item) => item.id === "config-invalid");
-    expect(configItem?.severity).toBe("error");
-    expect(configItem?.details).toContain("global config issue");
-    expect(configItem?.details).not.toContain("repo-local config issue");
-    expect(configItem?.context).toEqual({ configScope: "global" });
+    expectGlobalConfigInvalid(report);
   });
 
   test("downgrades hidden global config parse errors to a warning when an effective config is available", async () => {
-    const report = await runDiagnostics("run", {
+    const report = await runDiagnosticsWithDefaults("run", {
       projectPath: "/repo/project",
-      capabilitiesByAgent: createCapabilities(),
       dependencies: {
-        loadEffectiveConfigWithDiagnostics: async () => ({
-          exists: true,
-          config: createConfig(),
-          errors: [
-            "Invalid global config at /Users/test/.config/ralph-review/config.json: Invalid JSON syntax: Unexpected token",
-          ],
-          source: "local",
-          globalPath: "/Users/test/.config/ralph-review/config.json",
-          localPath: "/repo/.ralph-review/config.json",
-          repoRoot: "/repo",
-          globalExists: true,
-          localExists: true,
-          globalErrors: ["Invalid JSON syntax: Unexpected token"],
-          localErrors: [],
-        }),
-        isGitRepository: async () => true,
-        hasUncommittedChanges: async () => true,
-        isTmuxInstalled: () => true,
+        loadEffectiveConfigWithDiagnostics: async () =>
+          createEffectiveConfigDiagnostics({
+            config: createConfig(),
+            errors: [
+              "Invalid global config at /Users/test/.config/ralph-review/config.json: Invalid JSON syntax: Unexpected token",
+            ],
+            globalErrors: ["Invalid JSON syntax: Unexpected token"],
+          }),
       },
     });
 
@@ -282,30 +278,13 @@ describe("diagnostics checks", () => {
   });
 
   test("reports mixed global and repo-local config failures together", async () => {
-    const report = await runDiagnostics("run", {
-      projectPath: "/repo/project",
-      capabilitiesByAgent: createCapabilities(),
-      dependencies: {
-        loadEffectiveConfigWithDiagnostics: async () => ({
-          exists: true,
-          config: null,
-          errors: [
-            "Invalid repo-local config at /repo/.ralph-review/config.json: Invalid JSON syntax: Unexpected token",
-            "Invalid global config at /Users/test/.config/ralph-review/config.json: Invalid JSON syntax: Unexpected token",
-          ],
-          source: "local",
-          globalPath: "/Users/test/.config/ralph-review/config.json",
-          localPath: "/repo/.ralph-review/config.json",
-          repoRoot: "/repo",
-          globalExists: true,
-          localExists: true,
-          globalErrors: ["Invalid JSON syntax: Unexpected token"],
-          localErrors: ["Invalid JSON syntax: Unexpected token"],
-        }),
-        isGitRepository: async () => true,
-        hasUncommittedChanges: async () => true,
-        isTmuxInstalled: () => true,
-      },
+    const report = await runDiagnosticsWithEffectiveConfig({
+      errors: [
+        "Invalid repo-local config at /repo/.ralph-review/config.json: Invalid JSON syntax: Unexpected token",
+        "Invalid global config at /Users/test/.config/ralph-review/config.json: Invalid JSON syntax: Unexpected token",
+      ],
+      globalErrors: ["Invalid JSON syntax: Unexpected token"],
+      localErrors: ["Invalid JSON syntax: Unexpected token"],
     });
 
     const configItem = report.items.find((item) => item.id === "config-invalid");
@@ -323,13 +302,8 @@ describe("diagnostics checks", () => {
     const capabilities = createCapabilities();
     capabilities.codex.installed = false;
 
-    const report = await runDiagnostics("init", {
+    const report = await runDiagnosticsWithDefaults("init", {
       capabilitiesByAgent: capabilities,
-      dependencies: {
-        configExists: async () => true,
-        loadConfig: async () => createConfig(),
-        isTmuxInstalled: () => true,
-      },
     });
 
     const agentMissing = report.items.find((item) => item.id === "config-reviewer-agent-missing");
@@ -341,15 +315,8 @@ describe("diagnostics checks", () => {
     const capabilities = createCapabilities();
     capabilities.codex.installed = false;
 
-    const report = await runDiagnostics("run", {
+    const report = await runDiagnosticsWithDefaults("run", {
       capabilitiesByAgent: capabilities,
-      dependencies: {
-        configExists: async () => true,
-        loadConfig: async () => createConfig(),
-        isGitRepository: async () => true,
-        hasUncommittedChanges: async () => true,
-        isTmuxInstalled: () => true,
-      },
     });
 
     const agentMissing = report.items.find((item) => item.id === "config-reviewer-agent-missing");
@@ -363,14 +330,8 @@ describe("diagnostics checks", () => {
       capability.installed = false;
     }
 
-    const report = await runDiagnostics("doctor", {
+    const report = await runDiagnosticsWithDefaults("doctor", {
       capabilitiesByAgent: capabilities,
-      dependencies: {
-        configExists: async () => true,
-        loadConfig: async () => createConfig(),
-        isGitRepository: async () => true,
-        isTmuxInstalled: () => true,
-      },
     });
 
     const item = report.items.find((diagnostic) => diagnostic.id === "agents-installed-count");
@@ -386,14 +347,9 @@ describe("diagnostics checks", () => {
     const invalidReviewer = { ...config.reviewer, agent: "invalid-agent" };
     config.reviewer = invalidReviewer as unknown as (typeof config)["reviewer"];
 
-    const report = await runDiagnostics("run", {
-      capabilitiesByAgent: createCapabilities(),
+    const report = await runDiagnosticsWithDefaults("run", {
       dependencies: {
-        configExists: async () => true,
         loadConfig: async () => config,
-        isGitRepository: async () => true,
-        hasUncommittedChanges: async () => true,
-        isTmuxInstalled: () => true,
       },
     });
 
@@ -410,14 +366,9 @@ describe("diagnostics checks", () => {
       model: " ",
     };
 
-    const report = await runDiagnostics("run", {
-      capabilitiesByAgent: createCapabilities(),
+    const report = await runDiagnosticsWithDefaults("run", {
       dependencies: {
-        configExists: async () => true,
         loadConfig: async () => config,
-        isGitRepository: async () => true,
-        hasUncommittedChanges: async () => true,
-        isTmuxInstalled: () => true,
       },
     });
 
@@ -438,14 +389,10 @@ describe("diagnostics checks", () => {
       model: "gpt-5.2-codex",
     };
 
-    const report = await runDiagnostics("run", {
+    const report = await runDiagnosticsWithDefaults("run", {
       capabilitiesByAgent: capabilities,
       dependencies: {
-        configExists: async () => true,
         loadConfig: async () => config,
-        isGitRepository: async () => true,
-        hasUncommittedChanges: async () => true,
-        isTmuxInstalled: () => true,
       },
     });
 
@@ -464,14 +411,9 @@ describe("diagnostics checks", () => {
       model: "gpt-5.2-codex",
     };
 
-    const report = await runDiagnostics("run", {
-      capabilitiesByAgent: createCapabilities(),
+    const report = await runDiagnosticsWithDefaults("run", {
       dependencies: {
-        configExists: async () => true,
         loadConfig: async () => config,
-        isGitRepository: async () => true,
-        hasUncommittedChanges: async () => true,
-        isTmuxInstalled: () => true,
       },
     });
 
@@ -481,40 +423,18 @@ describe("diagnostics checks", () => {
   });
 
   test("includes no-discovered-models details when dynamic lookup returns empty list", async () => {
-    const capabilities = createCapabilities();
-    capabilities.opencode.models = [];
+    const report = await runMissingReviewerModelDiagnostics([]);
 
-    const config = createConfig();
-    config.reviewer = {
-      agent: "opencode",
-      model: "nonexistent-model",
-    };
-
-    const report = await runDiagnostics("run", {
-      capabilitiesByAgent: capabilities,
-      dependencies: {
-        configExists: async () => true,
-        loadConfig: async () => config,
-        isGitRepository: async () => true,
-        hasUncommittedChanges: async () => true,
-        isTmuxInstalled: () => true,
-      },
-    });
-
-    const missingModel = report.items.find((item) => item.id === "config-reviewer-model-missing");
+    const missingModel = findReportItem(report, "config-reviewer-model-missing");
     expect(missingModel?.details).toContain("No models found.");
   });
 
   test("reports git execution failures explicitly", async () => {
-    const report = await runDiagnostics("doctor", {
-      capabilitiesByAgent: createCapabilities(),
+    const report = await runDiagnosticsWithDefaults("doctor", {
       dependencies: {
-        configExists: async () => true,
-        loadConfig: async () => createConfig(),
         isGitRepository: async () => {
           throw new Error("spawn git ENOENT");
         },
-        isTmuxInstalled: () => true,
       },
     });
 
@@ -525,16 +445,11 @@ describe("diagnostics checks", () => {
   });
 
   test("reports git uncommitted check failures explicitly", async () => {
-    const report = await runDiagnostics("run", {
-      capabilitiesByAgent: createCapabilities(),
+    const report = await runDiagnosticsWithDefaults("run", {
       dependencies: {
-        configExists: async () => true,
-        loadConfig: async () => createConfig(),
-        isGitRepository: async () => true,
         hasUncommittedChanges: async () => {
           throw new Error("git status failed");
         },
-        isTmuxInstalled: () => true,
       },
     });
 
@@ -547,18 +462,13 @@ describe("diagnostics checks", () => {
   test("runs uncommitted checks when custom instructions are provided", async () => {
     let uncommittedChecks = 0;
 
-    const report = await runDiagnostics("run", {
+    const report = await runDiagnosticsWithDefaults("run", {
       customInstructions: "focus on security",
-      capabilitiesByAgent: createCapabilities(),
       dependencies: {
-        configExists: async () => true,
-        loadConfig: async () => createConfig(),
-        isGitRepository: async () => true,
         hasUncommittedChanges: async () => {
           uncommittedChecks += 1;
           return false;
         },
-        isTmuxInstalled: () => true,
       },
     });
 
@@ -573,13 +483,9 @@ describe("diagnostics checks", () => {
     let uncommittedChecks = 0;
     const checkedRefs: string[] = [];
 
-    const report = await runDiagnostics("run", {
+    const report = await runDiagnosticsWithDefaults("run", {
       baseBranch: "origin/main",
-      capabilitiesByAgent: createCapabilities(),
       dependencies: {
-        configExists: async () => true,
-        loadConfig: async () => createConfig(),
-        isGitRepository: async () => true,
         gitRefExists: async (_path, ref) => {
           checkedRefs.push(ref);
           return true;
@@ -588,7 +494,6 @@ describe("diagnostics checks", () => {
           uncommittedChecks += 1;
           return true;
         },
-        isTmuxInstalled: () => true,
       },
     });
 
@@ -601,15 +506,10 @@ describe("diagnostics checks", () => {
   });
 
   test("reports missing base ref as error", async () => {
-    const report = await runDiagnostics("run", {
+    const report = await runDiagnosticsWithDefaults("run", {
       baseBranch: "mian",
-      capabilitiesByAgent: createCapabilities(),
       dependencies: {
-        configExists: async () => true,
-        loadConfig: async () => createConfig(),
-        isGitRepository: async () => true,
         gitRefExists: async () => false,
-        isTmuxInstalled: () => true,
       },
     });
 
@@ -624,15 +524,8 @@ describe("diagnostics checks", () => {
     try {
       runGitIn(repoPath, ["init"]);
 
-      const report = await runDiagnostics("run", {
+      const report = await runRealGitDiagnostics(repoPath, {
         baseBranch: "   ",
-        capabilitiesByAgent: createCapabilities(),
-        projectPath: repoPath,
-        dependencies: {
-          configExists: async () => true,
-          loadConfig: async () => createConfig(),
-          isTmuxInstalled: () => true,
-        },
       });
 
       const baseRefItem = report.items.find((item) => item.id === "git-base-ref");
@@ -653,15 +546,8 @@ describe("diagnostics checks", () => {
       runGitIn(repoPath, ["add", "README.md"]);
       runGitIn(repoPath, ["commit", "-m", "initial commit"]);
 
-      const report = await runDiagnostics("run", {
+      const report = await runRealGitDiagnostics(repoPath, {
         baseBranch: "HEAD",
-        capabilitiesByAgent: createCapabilities(),
-        projectPath: repoPath,
-        dependencies: {
-          configExists: async () => true,
-          loadConfig: async () => createConfig(),
-          isTmuxInstalled: () => true,
-        },
       });
 
       const baseRefItem = report.items.find((item) => item.id === "git-base-ref");
@@ -674,17 +560,12 @@ describe("diagnostics checks", () => {
   });
 
   test("reports base ref validation errors explicitly", async () => {
-    const report = await runDiagnostics("run", {
+    const report = await runDiagnosticsWithDefaults("run", {
       baseBranch: "origin/main",
-      capabilitiesByAgent: createCapabilities(),
       dependencies: {
-        configExists: async () => true,
-        loadConfig: async () => createConfig(),
-        isGitRepository: async () => true,
         gitRefExists: async () => {
           throw new Error("base ref check failed");
         },
-        isTmuxInstalled: () => true,
       },
     });
 
@@ -700,13 +581,9 @@ describe("diagnostics checks", () => {
     let uncommittedChecks = 0;
     const checkedRefs: string[] = [];
 
-    const report = await runDiagnostics("run", {
+    const report = await runDiagnosticsWithDefaults("run", {
       commitSha: "abc123",
-      capabilitiesByAgent: createCapabilities(),
       dependencies: {
-        configExists: async () => true,
-        loadConfig: async () => createConfig(),
-        isGitRepository: async () => true,
         gitRefExists: async (_path, ref) => {
           checkedRefs.push(ref);
           return true;
@@ -715,7 +592,6 @@ describe("diagnostics checks", () => {
           uncommittedChecks += 1;
           return true;
         },
-        isTmuxInstalled: () => true,
       },
     });
 
@@ -728,15 +604,10 @@ describe("diagnostics checks", () => {
   });
 
   test("reports missing commit ref as error", async () => {
-    const report = await runDiagnostics("run", {
+    const report = await runDiagnosticsWithDefaults("run", {
       commitSha: "does-not-exist",
-      capabilitiesByAgent: createCapabilities(),
       dependencies: {
-        configExists: async () => true,
-        loadConfig: async () => createConfig(),
-        isGitRepository: async () => true,
         gitRefExists: async () => false,
-        isTmuxInstalled: () => true,
       },
     });
 
@@ -747,17 +618,12 @@ describe("diagnostics checks", () => {
   });
 
   test("reports commit ref validation errors explicitly", async () => {
-    const report = await runDiagnostics("run", {
+    const report = await runDiagnosticsWithDefaults("run", {
       commitSha: "deadbeef",
-      capabilitiesByAgent: createCapabilities(),
       dependencies: {
-        configExists: async () => true,
-        loadConfig: async () => createConfig(),
-        isGitRepository: async () => true,
         gitRefExists: async () => {
           throw new Error("commit ref check failed");
         },
-        isTmuxInstalled: () => true,
       },
     });
 
@@ -775,15 +641,7 @@ describe("diagnostics checks", () => {
       runGitIn(repoPath, ["init"]);
       await Bun.write(join(repoPath, "draft.txt"), "draft changes");
 
-      const report = await runDiagnostics("run", {
-        capabilitiesByAgent: createCapabilities(),
-        projectPath: repoPath,
-        dependencies: {
-          configExists: async () => true,
-          loadConfig: async () => createConfig(),
-          isTmuxInstalled: () => true,
-        },
-      });
+      const report = await runRealGitDiagnostics(repoPath);
 
       const gitItem = report.items.find((item) => item.id === "git-uncommitted");
       expect(gitItem?.severity).toBe("ok");
@@ -798,15 +656,7 @@ describe("diagnostics checks", () => {
     try {
       runGitIn(repoPath, ["init", "--bare"]);
 
-      const report = await runDiagnostics("run", {
-        capabilitiesByAgent: createCapabilities(),
-        projectPath: repoPath,
-        dependencies: {
-          configExists: async () => true,
-          loadConfig: async () => createConfig(),
-          isTmuxInstalled: () => true,
-        },
-      });
+      const report = await runRealGitDiagnostics(repoPath);
 
       const gitItem = report.items.find((item) => item.id === "git-uncommitted");
       expect(gitItem?.severity).toBe("error");
@@ -820,15 +670,9 @@ describe("diagnostics checks", () => {
     const capabilities = createCapabilities();
     capabilities.opencode.probeWarnings = ["probe warning"];
 
-    const report = await runDiagnostics("run", {
+    const report = await runDiagnosticsWithDefaults("run", {
       capabilitiesByAgent: capabilities,
-      dependencies: {
-        configExists: async () => true,
-        loadConfig: async () => createConfig(),
-        isGitRepository: async () => true,
-        hasUncommittedChanges: async () => true,
-        isTmuxInstalled: () => true,
-      },
+      dependencies: {},
     });
 
     expect(report.hasErrors).toBe(false);
@@ -836,12 +680,8 @@ describe("diagnostics checks", () => {
   });
 
   test("uses platform-aware tmux remediation via injected guidance", async () => {
-    const report = await runDiagnostics("doctor", {
-      capabilitiesByAgent: createCapabilities(),
+    const report = await runDiagnosticsWithDefaults("doctor", {
       dependencies: {
-        configExists: async () => true,
-        loadConfig: async () => createConfig(),
-        isGitRepository: async () => true,
         isTmuxInstalled: () => false,
         resolveTmuxInstallGuidance: () => ({
           commandArgs: ["sudo", "apt-get", "install", "-y", "tmux"],
@@ -860,15 +700,8 @@ describe("diagnostics checks", () => {
     const capabilities = createCapabilities();
     capabilities.codex.installed = false;
 
-    const report = await runDiagnostics("run", {
+    const report = await runDiagnosticsWithDefaults("run", {
       capabilitiesByAgent: capabilities,
-      dependencies: {
-        configExists: async () => true,
-        loadConfig: async () => createConfig(),
-        isGitRepository: async () => true,
-        hasUncommittedChanges: async () => true,
-        isTmuxInstalled: () => true,
-      },
     });
 
     const missingAgent = report.items.find((item) => item.id === "config-reviewer-agent-missing");

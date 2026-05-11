@@ -19,19 +19,17 @@ import { Spinner } from "@/lib/tui/shared/Spinner";
 import type { ProjectStats, SessionStats } from "@/lib/types";
 import { toSingleLine } from "./session-detail-parts";
 
+const LAST_RUN_STATUS_DISPLAY: Partial<
+  Record<SessionStats["status"], { text: string; color: string }>
+> = {
+  completed: { text: "completed", color: TUI_COLORS.status.success },
+  failed: { text: "failed", color: TUI_COLORS.status.error },
+  interrupted: { text: "interrupted", color: TUI_COLORS.status.warning },
+  running: { text: "running", color: TUI_COLORS.status.pending },
+};
+
 function getLastRunStatusDisplay(status: SessionStats["status"]): { text: string; color: string } {
-  switch (status) {
-    case "completed":
-      return { text: "completed", color: TUI_COLORS.status.success };
-    case "failed":
-      return { text: "failed", color: TUI_COLORS.status.error };
-    case "interrupted":
-      return { text: "interrupted", color: TUI_COLORS.status.warning };
-    case "running":
-      return { text: "running", color: TUI_COLORS.status.pending };
-    default:
-      return { text: "unknown", color: TUI_COLORS.status.inactive };
-  }
+  return LAST_RUN_STATUS_DISPLAY[status] ?? { text: "unknown", color: TUI_COLORS.status.inactive };
 }
 
 function getLastRunHandoffDisplay(stats: SessionStats): {

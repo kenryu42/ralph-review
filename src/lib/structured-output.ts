@@ -42,6 +42,12 @@ interface RepairedCandidate {
   changed: boolean;
 }
 
+export interface JsonObjectSlice {
+  start: number;
+  end: number;
+  value: string;
+}
+
 function normalizeCandidateText(candidate: string): string {
   return candidate
     .replace(/^\uFEFF/, "")
@@ -72,8 +78,8 @@ function extractJsonBlock(output: string): string | null {
   return match[1].trim();
 }
 
-function extractBalancedJsonObjects(text: string): string[] {
-  const objects: string[] = [];
+export function extractBalancedJsonObjectSlices(text: string): JsonObjectSlice[] {
+  const objects: JsonObjectSlice[] = [];
   let depth = 0;
   let startIndex = -1;
   let inString = false;
@@ -87,12 +93,12 @@ function extractBalancedJsonObjects(text: string): string[] {
       continue;
     }
 
-    if (char === "\\") {
-      escaped = true;
-      continue;
-    }
-
     if (inString) {
+      if (char === "\\") {
+        escaped = true;
+        continue;
+      }
+
       if (char === '"') {
         inString = false;
       }
@@ -122,12 +128,21 @@ function extractBalancedJsonObjects(text: string): string[] {
 
     depth -= 1;
     if (depth === 0 && startIndex >= 0) {
-      objects.push(text.slice(startIndex, index + 1));
+      const endIndex = index + 1;
+      objects.push({
+        start: startIndex,
+        end: endIndex,
+        value: text.slice(startIndex, endIndex),
+      });
       startIndex = -1;
     }
   }
 
   return objects;
+}
+
+function extractBalancedJsonObjects(text: string): string[] {
+  return extractBalancedJsonObjectSlices(text).map((object) => object.value);
 }
 
 function isolateJsonObject(candidate: string): string {
@@ -140,7 +155,7 @@ function isolateJsonObject(candidate: string): string {
   return lastObject?.trim() || candidate;
 }
 
-function removeTrailingCommas(candidate: string): string {
+export function removeTrailingCommas(candidate: string): string {
   let output = "";
   let inString = false;
   let escaped = false;

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { playCompletionSound, resolveSoundEnabled } from "@/lib/notify/sound";
 import { CONFIG_SCHEMA_URI, CONFIG_VERSION, type Config } from "@/lib/types";
+import { useImmediateTimeout } from "../../helpers/process";
 
 type SpawnProcess = ReturnType<typeof Bun.spawn>;
 
@@ -27,6 +28,36 @@ function createMockProcess(exited: Promise<number>, onKill?: () => void): SpawnP
       return true;
     },
   } as unknown as SpawnProcess;
+}
+
+function createBellRecorder() {
+  let bellCalled = false;
+  return {
+    writeBell: () => {
+      bellCalled = true;
+    },
+    wasCalled: () => bellCalled,
+  };
+}
+
+async function playDarwinAfplayWithBell() {
+  const bell = createBellRecorder();
+  const result = await playCompletionSound("warning", {
+    platform: "darwin",
+    which: (command) => (command === "afplay" ? "/usr/bin/afplay" : null),
+    writeBell: bell.writeBell,
+  });
+
+  return { bell, result };
+}
+
+async function expectDarwinAfplayBellFallback(spawn: typeof Bun.spawn) {
+  Bun.spawn = spawn;
+
+  const { bell, result } = await playDarwinAfplayWithBell();
+
+  expect(result.played).toBe(true);
+  expect(bell.wasCalled()).toBe(true);
 }
 
 describe("sound notifications", () => {
@@ -184,86 +215,39 @@ describe("sound notifications", () => {
     });
 
     test("falls back to bell when internal spawn exits non-zero", async () => {
-      let bellCalled = false;
-
-      Bun.spawn = (() => createMockProcess(Promise.resolve(1))) as typeof Bun.spawn;
-
-      const result = await playCompletionSound("warning", {
-        platform: "darwin",
-        which: (command) => (command === "afplay" ? "/usr/bin/afplay" : null),
-        writeBell: () => {
-          bellCalled = true;
-        },
-      });
-
-      expect(result.played).toBe(true);
-      expect(bellCalled).toBe(true);
+      await expectDarwinAfplayBellFallback((() =>
+        createMockProcess(Promise.resolve(1))) as typeof Bun.spawn);
     });
 
     test("falls back to bell when internal spawn exited promise rejects", async () => {
-      let bellCalled = false;
-
-      Bun.spawn = (() =>
-        createMockProcess(Promise.reject(new Error("exit failure")))) as typeof Bun.spawn;
-
-      const result = await playCompletionSound("warning", {
-        platform: "darwin",
-        which: (command) => (command === "afplay" ? "/usr/bin/afplay" : null),
-        writeBell: () => {
-          bellCalled = true;
-        },
-      });
-
-      expect(result.played).toBe(true);
-      expect(bellCalled).toBe(true);
+      await expectDarwinAfplayBellFallback((() =>
+        createMockProcess(Promise.reject(new Error("exit failure")))) as typeof Bun.spawn);
     });
 
     test("kills timed-out process and falls back to bell", async () => {
-      let bellCalled = false;
       let killed = false;
 
       Bun.spawn = (() =>
         createMockProcess(Promise.resolve(0), () => {
           killed = true;
         })) as typeof Bun.spawn;
-      globalThis.setTimeout = ((...args: Parameters<typeof setTimeout>) => {
-        const handler = args[0];
-        if (typeof handler === "function") {
-          handler();
-        }
-        return 0 as unknown as ReturnType<typeof setTimeout>;
-      }) as typeof setTimeout;
+      const restoreSetTimeout = useImmediateTimeout();
 
-      const result = await playCompletionSound("warning", {
-        platform: "darwin",
-        which: (command) => (command === "afplay" ? "/usr/bin/afplay" : null),
-        writeBell: () => {
-          bellCalled = true;
-        },
-      });
+      try {
+        const { bell, result } = await playDarwinAfplayWithBell();
 
-      expect(result.played).toBe(true);
-      expect(killed).toBe(true);
-      expect(bellCalled).toBe(true);
+        expect(result.played).toBe(true);
+        expect(killed).toBe(true);
+        expect(bell.wasCalled()).toBe(true);
+      } finally {
+        restoreSetTimeout();
+      }
     });
 
     test("falls back to bell when Bun.spawn throws", async () => {
-      let bellCalled = false;
-
-      Bun.spawn = (() => {
+      await expectDarwinAfplayBellFallback((() => {
         throw new Error("spawn unavailable");
-      }) as typeof Bun.spawn;
-
-      const result = await playCompletionSound("warning", {
-        platform: "darwin",
-        which: (command) => (command === "afplay" ? "/usr/bin/afplay" : null),
-        writeBell: () => {
-          bellCalled = true;
-        },
-      });
-
-      expect(result.played).toBe(true);
-      expect(bellCalled).toBe(true);
+      }) as typeof Bun.spawn);
     });
 
     test("returns failure when every backend fails and bell throws", async () => {

@@ -5,7 +5,7 @@ import { parseCommand } from "@/lib/cli-parser";
 import { loadEffectiveConfig } from "@/lib/config";
 import { collectIssueItems, runDiagnostics } from "@/lib/diagnostics";
 import { getTmuxInstallHint } from "@/lib/diagnostics/tmux-install";
-import type { DiagnosticsReport } from "@/lib/diagnostics/types";
+import type { DiagnosticItem, DiagnosticsReport } from "@/lib/diagnostics/types";
 import { type CycleResult, runReviewCycle } from "@/lib/engine";
 import { formatReviewType } from "@/lib/format";
 import { formatHandoffNote } from "@/lib/handoff-note";
@@ -19,6 +19,7 @@ import {
 } from "@/lib/priority-list";
 import { runFixSession } from "@/lib/review-workflow/remediation/run-fix-session";
 import type { FixSessionResult } from "@/lib/review-workflow/remediation/types";
+import { mapSessionStatusToFinalStatus } from "@/lib/review-workflow/session-status";
 import {
   createSessionId,
   createSessionState,
@@ -106,20 +107,6 @@ export function formatRunAgentsNote(config: Config, reviewOptions: ReviewOptions
 
   lines.push(`Review:     ${formatReviewType(reviewOptions)}`);
   return lines.join("\n");
-}
-
-function mapSessionStatusToFinalStatus(
-  status: FixSessionResult["sessionStatus"]
-): CycleResult["finalStatus"] {
-  if (status === "failed") {
-    return "failed";
-  }
-
-  if (status === "interrupted") {
-    return "interrupted";
-  }
-
-  return "completed";
 }
 
 function hasAutoFixPriorityMatches(result: CycleResult, priorities: Priority[]): boolean {
@@ -255,6 +242,32 @@ export interface RunRuntimeOverrides
   tmux?: Partial<RunRuntime["tmux"]>;
   process?: Partial<RunRuntime["process"]>;
   timer?: Partial<RunRuntime["timer"]>;
+}
+
+function createRunCommandContext(overrides: RunRuntimeOverrides): {
+  runtime: RunRuntime;
+  projectPath: string;
+} {
+  const runtime = createRunRuntime(overrides);
+  return {
+    runtime,
+    projectPath: runtime.process.env.RR_PROJECT_PATH || runtime.process.cwd(),
+  };
+}
+
+function logPreflightItems(
+  runtime: RunRuntime,
+  items: DiagnosticItem[],
+  heading: string,
+  severity: "error" | "warn"
+): void {
+  runtime.prompt.log[severity](heading);
+  for (const item of items) {
+    runtime.prompt.log.message(`  ${item.summary}`);
+    item.remediation.forEach((remediation) => {
+      runtime.prompt.log.message(`    -> ${remediation}`);
+    });
+  }
 }
 
 export function createRunRuntime(overrides: RunRuntimeOverrides = {}): RunRuntime {
@@ -449,8 +462,7 @@ export async function runForeground(
   args: string[] = [],
   overrides: RunRuntimeOverrides = {}
 ): Promise<void> {
-  const runtime = createRunRuntime(overrides);
-  const projectPath = runtime.process.env.RR_PROJECT_PATH || runtime.process.cwd();
+  const { runtime, projectPath } = createRunCommandContext(overrides);
   const config = await runtime.loadConfig(projectPath);
   if (!config) {
     runtime.prompt.log.error("Failed to load config");
@@ -714,8 +726,7 @@ export async function startReview(
   args: string[],
   overrides: RunRuntimeOverrides = {}
 ): Promise<void> {
-  const runtime = createRunRuntime(overrides);
-  const projectPath = runtime.process.env.RR_PROJECT_PATH || runtime.process.cwd();
+  const { runtime, projectPath } = createRunCommandContext(overrides);
   // Parse options using command definition
   const runDef = runtime.getCommandDef("run");
   if (!runDef) {
@@ -856,25 +867,13 @@ export async function startReview(
   const warnings = issues.filter((item) => item.severity === "warning");
 
   if (errors.length > 0) {
-    runtime.prompt.log.error("Cannot run review:");
-    for (const item of errors) {
-      runtime.prompt.log.message(`  ${item.summary}`);
-      item.remediation.forEach((remediation) => {
-        runtime.prompt.log.message(`    -> ${remediation}`);
-      });
-    }
+    logPreflightItems(runtime, errors, "Cannot run review:", "error");
     runtime.process.exit(1);
     return;
   }
 
   if (warnings.length > 0) {
-    runtime.prompt.log.warn("Preflight warnings:");
-    for (const item of warnings) {
-      runtime.prompt.log.message(`  ${item.summary}`);
-      item.remediation.forEach((remediation) => {
-        runtime.prompt.log.message(`    -> ${remediation}`);
-      });
-    }
+    logPreflightItems(runtime, warnings, "Preflight warnings:", "warn");
   }
 
   const config = diagnostics.config ?? (await runtime.loadConfig(projectPath));

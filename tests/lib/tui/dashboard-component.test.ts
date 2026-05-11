@@ -6,9 +6,11 @@ import { act, createElement } from "react";
 import { CLI_PATH } from "@/lib/paths";
 import type { StoredFinding } from "@/lib/review-workflow/findings/types";
 import type { ActiveSession } from "@/lib/session-state";
+import { createInitialWorkspaceState } from "@/lib/tui/workspace/use-workspace-state";
 import type { WorkspaceState } from "@/lib/tui/workspace/workspace-types";
 import type { Config } from "@/lib/types";
 import { createConfig } from "../../helpers/diagnostics";
+import { createActiveSession } from "../../helpers/tui";
 
 interface SpawnResult {
   exitCode: number;
@@ -20,26 +22,6 @@ interface DashboardHarnessOptions {
   workspaceState?: Partial<WorkspaceState>;
   config?: Config | null;
   spawnResult?: SpawnResult;
-}
-
-function createActiveSession(overrides: Partial<ActiveSession> = {}): ActiveSession {
-  return {
-    schemaVersion: 2,
-    sessionId: "session-1",
-    sessionName: "rr-project-main",
-    startTime: Date.now() - 5_000,
-    lastHeartbeat: Date.now(),
-    pid: process.pid,
-    projectPath: "/repo/project",
-    branch: "main",
-    state: "running",
-    mode: "background",
-    iteration: 1,
-    currentAgent: "reviewer",
-    sessionStatePath: "/tmp/rr-project-main.lock",
-    sessionPath: "/tmp/logs/rr-project-main.jsonl",
-    ...overrides,
-  };
 }
 
 function createStoredFinding(id: `F${string}`, priority: StoredFinding["priority"] = "P0") {
@@ -54,58 +36,6 @@ function createStoredFinding(id: `F${string}`, priority: StoredFinding["priority
     startLine: 10,
     endLine: 12,
   } satisfies StoredFinding;
-}
-
-function createWorkspaceState(overrides: Partial<WorkspaceState> = {}): WorkspaceState {
-  const next: WorkspaceState = {
-    sessionGroups: [],
-    allSessions: [],
-    projectSessions: [],
-    selectedSessionId: null,
-    currentSession: null,
-    logEntries: [],
-    fixes: [],
-    skipped: [],
-    findings: [],
-    storedFindings: [],
-    selectedFindingIds: [],
-    selectedFindings: [],
-    unselectedFindings: [],
-    fixResults: [],
-    unresolvedSelectedFindings: [],
-    auditRegressionFindings: [],
-    iterationFixes: [],
-    iterationSkipped: [],
-    iterationFindings: [],
-    latestReviewIteration: null,
-    codexReviewText: null,
-    tmuxOutput: "",
-    elapsed: 0,
-    maxIterations: 0,
-    error: null,
-    liveRefreshError: null,
-    isLoading: false,
-    lastSessionStats: null,
-    projectStats: null,
-    config: createConfig(),
-    configWarning: null,
-    isGitRepo: true,
-    currentAgent: null,
-    reviewOptions: undefined,
-    outputVisible: false,
-    ...overrides,
-  };
-
-  return {
-    ...next,
-    storedFindings: next.storedFindings ?? [],
-    selectedFindingIds: next.selectedFindingIds ?? [],
-    selectedFindings: next.selectedFindings ?? [],
-    unselectedFindings: next.unselectedFindings ?? [],
-    fixResults: next.fixResults ?? [],
-    unresolvedSelectedFindings: next.unresolvedSelectedFindings ?? [],
-    auditRegressionFindings: next.auditRegressionFindings ?? [],
-  };
 }
 
 function createLastSessionStats(
@@ -156,7 +86,8 @@ function createTextStream(text: string): ReadableStream<Uint8Array> {
 }
 
 async function mountDashboardHarness(options: DashboardHarnessOptions = {}) {
-  const workspaceState = createWorkspaceState({
+  const workspaceState = createInitialWorkspaceState({
+    isLoading: false,
     config: options.config ?? createConfig(),
     ...options.workspaceState,
   });
@@ -316,6 +247,25 @@ async function mountDashboardHarness(options: DashboardHarnessOptions = {}) {
   };
 }
 
+async function withDashboardHarness(
+  options: DashboardHarnessOptions,
+  run: (harness: Awaited<ReturnType<typeof mountDashboardHarness>>) => Promise<void>
+) {
+  const harness = await mountDashboardHarness(options);
+  try {
+    await run(harness);
+  } finally {
+    await harness.destroy();
+  }
+}
+
+async function expectFixOverlayForState(workspaceState: Partial<WorkspaceState>) {
+  await withDashboardHarness({ workspaceState }, async (harness) => {
+    const frame = await harness.press("f");
+    expect(frame).toContain("fix overlay");
+  });
+}
+
 afterEach(() => {
   mock.restore();
 });
@@ -468,94 +418,42 @@ describe("Dashboard component", () => {
   });
 
   test("opens the dedicated fix overlay when pending findings are available", async () => {
-    const harness = await mountDashboardHarness({
-      workspaceState: {
-        lastSessionStats: {
-          sessionId: "session-123",
-          reviewOutcome: "findings-pending",
-          sessionPath: "/tmp/logs/session-123.jsonl",
-          sessionName: "session-123.jsonl",
-          timestamp: Date.now(),
-          status: "completed",
-          totalFixes: 0,
-          totalSkipped: 0,
-          priorityCounts: { P0: 1, P1: 0, P2: 0, P3: 0 },
-          iterations: 2,
-          entries: [
-            {
-              type: "system",
-              timestamp: Date.now(),
-              projectPath: "/repo/project",
-              reviewer: { agent: "claude" },
-              fixer: { agent: "codex" },
-              maxIterations: 5,
-            },
-          ],
-          reviewer: "claude",
-          reviewerModel: "sonnet-4",
-          reviewerDisplayName: "claude",
-          reviewerModelDisplayName: "sonnet-4",
-          fixer: "codex",
-          fixerModel: "gpt-5.3-codex",
-          fixerDisplayName: "codex",
-          fixerModelDisplayName: "gpt-5.3-codex",
-        } as NonNullable<WorkspaceState["lastSessionStats"]>,
-        storedFindings: [
-          {
-            id: "F001",
-            fingerprint: "fp-1",
-            title: "Guard missing config",
-            body: "Null check is missing",
-            priority: "P0",
-            confidenceScore: 0.97,
-            filePath: "src/config.ts",
-            startLine: 10,
-            endLine: 12,
-          },
-        ],
-      },
+    await expectFixOverlayForState({
+      lastSessionStats: createLastSessionStats(),
+      storedFindings: [createStoredFinding("F001")],
     });
-
-    try {
-      const frame = await harness.press("f");
-      expect(frame).toContain("fix overlay");
-    } finally {
-      await harness.destroy();
-    }
   });
 
   test("opens the fix overlay for fixed-selected sessions with unselected findings", async () => {
-    const harness = await mountDashboardHarness({
-      workspaceState: {
-        lastSessionStats: createLastSessionStats({ reviewOutcome: "fixed-selected" }),
-        storedFindings: [createStoredFinding("F001"), createStoredFinding("F002", "P1")],
-        unselectedFindings: [createStoredFinding("F002", "P1")],
+    await withDashboardHarness(
+      {
+        workspaceState: {
+          lastSessionStats: createLastSessionStats({ reviewOutcome: "fixed-selected" }),
+          storedFindings: [createStoredFinding("F001"), createStoredFinding("F002", "P1")],
+          unselectedFindings: [createStoredFinding("F002", "P1")],
+        },
       },
-    });
-
-    try {
-      const frame = await harness.press("f");
-      expect(frame).toContain("fix overlay");
-    } finally {
-      await harness.destroy();
-    }
+      async (harness) => {
+        const frame = await harness.press("f");
+        expect(frame).toContain("fix overlay");
+      }
+    );
   });
 
   test("opens the fix overlay for incomplete sessions with unresolved selected findings", async () => {
-    const harness = await mountDashboardHarness({
-      workspaceState: {
-        lastSessionStats: createLastSessionStats({ reviewOutcome: "incomplete" }),
-        storedFindings: [createStoredFinding("F001"), createStoredFinding("F002", "P1")],
-        unresolvedSelectedFindings: [createStoredFinding("F001")],
+    await withDashboardHarness(
+      {
+        workspaceState: {
+          lastSessionStats: createLastSessionStats({ reviewOutcome: "incomplete" }),
+          storedFindings: [createStoredFinding("F001"), createStoredFinding("F002", "P1")],
+          unresolvedSelectedFindings: [createStoredFinding("F001")],
+        },
       },
-    });
-
-    try {
-      const frame = await harness.press("f");
-      expect(frame).toContain("fix overlay");
-    } finally {
-      await harness.destroy();
-    }
+      async (harness) => {
+        const frame = await harness.press("f");
+        expect(frame).toContain("fix overlay");
+      }
+    );
   });
 
   test("submits remaining subset fixes with explicit id flags", async () => {
@@ -585,109 +483,21 @@ describe("Dashboard component", () => {
   });
 
   test("reopens the fix overlay after a failed session when findings are still available", async () => {
-    const harness = await mountDashboardHarness({
-      workspaceState: {
-        lastSessionStats: {
-          sessionId: "session-123",
-          reviewOutcome: "incomplete",
-          sessionStatus: "failed",
-          sessionPath: "/tmp/logs/session-123.jsonl",
-          sessionName: "session-123.jsonl",
-          timestamp: Date.now(),
-          status: "failed",
-          totalFixes: 0,
-          totalSkipped: 0,
-          priorityCounts: { P0: 1, P1: 0, P2: 0, P3: 0 },
-          iterations: 2,
-          entries: [
-            {
-              type: "system",
-              timestamp: Date.now(),
-              projectPath: "/repo/project",
-              reviewer: { agent: "claude" },
-              fixer: { agent: "codex" },
-              maxIterations: 5,
-            },
-          ],
-          reviewer: "claude",
-          reviewerModel: "sonnet-4",
-          reviewerDisplayName: "claude",
-          reviewerModelDisplayName: "sonnet-4",
-          fixer: "codex",
-          fixerModel: "gpt-5.3-codex",
-          fixerDisplayName: "codex",
-          fixerModelDisplayName: "gpt-5.3-codex",
-        } as NonNullable<WorkspaceState["lastSessionStats"]>,
-        storedFindings: [
-          {
-            id: "F001",
-            fingerprint: "fp-1",
-            title: "Guard missing config",
-            body: "Null check is missing",
-            priority: "P0",
-            confidenceScore: 0.97,
-            filePath: "src/config.ts",
-            startLine: 10,
-            endLine: 12,
-          },
-        ],
-      },
+    await expectFixOverlayForState({
+      lastSessionStats: createLastSessionStats({
+        reviewOutcome: "incomplete",
+        sessionStatus: "failed",
+        status: "failed",
+      }),
+      storedFindings: [createStoredFinding("F001")],
     });
-
-    try {
-      const frame = await harness.press("f");
-      expect(frame).toContain("fix overlay");
-    } finally {
-      await harness.destroy();
-    }
   });
 
   test("shows a fix startup banner while the fixer session is launching", async () => {
     const harness = await mountDashboardHarness({
       workspaceState: {
-        lastSessionStats: {
-          sessionId: "session-123",
-          reviewOutcome: "findings-pending",
-          sessionPath: "/tmp/logs/session-123.jsonl",
-          sessionName: "session-123.jsonl",
-          timestamp: Date.now(),
-          status: "completed",
-          totalFixes: 0,
-          totalSkipped: 0,
-          priorityCounts: { P0: 1, P1: 0, P2: 0, P3: 0 },
-          iterations: 2,
-          entries: [
-            {
-              type: "system",
-              timestamp: Date.now(),
-              projectPath: "/repo/project",
-              reviewer: { agent: "claude" },
-              fixer: { agent: "codex" },
-              maxIterations: 5,
-            },
-          ],
-          reviewer: "claude",
-          reviewerModel: "sonnet-4",
-          reviewerDisplayName: "claude",
-          reviewerModelDisplayName: "sonnet-4",
-          fixer: "codex",
-          fixerModel: "gpt-5.3-codex",
-          fixerDisplayName: "codex",
-          fixerModelDisplayName: "gpt-5.3-codex",
-        } as NonNullable<WorkspaceState["lastSessionStats"]>,
-        storedFindings: [
-          {
-            id: "F001",
-            fingerprint: "fp-1",
-            title: "Guard missing config",
-            body: "Null check is missing",
-            priority: "P0",
-            confidenceScore: 0.97,
-            filePath: "src/config.ts",
-            startLine: 10,
-            endLine: 12,
-          },
-        ],
+        lastSessionStats: createLastSessionStats(),
+        storedFindings: [createStoredFinding("F001")],
       },
     });
 
@@ -715,49 +525,8 @@ describe("Dashboard component", () => {
         stderr: "fix spawn failed",
       },
       workspaceState: {
-        lastSessionStats: {
-          sessionId: "session-123",
-          reviewOutcome: "findings-pending",
-          sessionPath: "/tmp/logs/session-123.jsonl",
-          sessionName: "session-123.jsonl",
-          timestamp: Date.now(),
-          status: "completed",
-          totalFixes: 0,
-          totalSkipped: 0,
-          priorityCounts: { P0: 1, P1: 0, P2: 0, P3: 0 },
-          iterations: 2,
-          entries: [
-            {
-              type: "system",
-              timestamp: Date.now(),
-              projectPath: "/repo/project",
-              reviewer: { agent: "claude" },
-              fixer: { agent: "codex" },
-              maxIterations: 5,
-            },
-          ],
-          reviewer: "claude",
-          reviewerModel: "sonnet-4",
-          reviewerDisplayName: "claude",
-          reviewerModelDisplayName: "sonnet-4",
-          fixer: "codex",
-          fixerModel: "gpt-5.3-codex",
-          fixerDisplayName: "codex",
-          fixerModelDisplayName: "gpt-5.3-codex",
-        } as NonNullable<WorkspaceState["lastSessionStats"]>,
-        storedFindings: [
-          {
-            id: "F001",
-            fingerprint: "fp-1",
-            title: "Guard missing config",
-            body: "Null check is missing",
-            priority: "P0",
-            confidenceScore: 0.97,
-            filePath: "src/config.ts",
-            startLine: 10,
-            endLine: 12,
-          },
-        ],
+        lastSessionStats: createLastSessionStats(),
+        storedFindings: [createStoredFinding("F001")],
       },
     });
 

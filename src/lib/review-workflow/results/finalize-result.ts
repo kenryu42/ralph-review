@@ -24,6 +24,9 @@ const DEFAULT_FINALIZE_RESULT_DEPENDENCIES: FinalizeResultDependencies = {
   appendLog,
 };
 
+const MIXED_UNRESOLVED_REASON =
+  "Some selected findings were resolved, but others remain unresolved. Ralph retained the remediation worktree instead of creating a handoff because the partial edits may be unsafe to apply automatically.";
+
 export async function finalizeResult(
   input: FinalizeResultInput,
   deps: FinalizeResultDependencies = DEFAULT_FINALIZE_RESULT_DEPENDENCIES
@@ -39,13 +42,27 @@ export async function finalizeResult(
   const unselectedFindings = input.artifact.findings.filter(
     (finding) => !input.selection.selectedFindingIds.includes(finding.id)
   );
+  const hasResolvedSelectedFindings = input.fixResults.some(
+    (result) => result.status === "resolved"
+  );
+  const hasUnresolvedSelectedFindings = unresolvedSelectedFindings.length > 0;
+  const hasSkippedSelectedFindings = input.fixResults.some((result) => result.status === "skipped");
+  const shouldCreateHandoff = hasResolvedSelectedFindings && !hasUnresolvedSelectedFindings;
 
   let reviewOutcome: FixSessionResult["reviewOutcome"];
   let reason: string;
 
-  if (unresolvedSelectedFindings.length > 0) {
+  if (hasUnresolvedSelectedFindings) {
     reviewOutcome = "incomplete";
-    reason = "Some selected findings remain unresolved after remediation.";
+    reason = hasResolvedSelectedFindings
+      ? MIXED_UNRESOLVED_REASON
+      : "Some selected findings remain unresolved after remediation.";
+  } else if (hasResolvedSelectedFindings) {
+    reviewOutcome = "fixed-selected";
+    reason = "Selected findings were resolved by remediation.";
+  } else if (hasSkippedSelectedFindings) {
+    reviewOutcome = "fixed-selected";
+    reason = "Selected findings were skipped after verification.";
   } else {
     reviewOutcome = "fixed-selected";
     reason = "Selected findings were resolved by remediation.";
@@ -56,7 +73,7 @@ export async function finalizeResult(
   let handoffUpdatedAt: number | undefined;
   let commitSha: string | undefined;
 
-  if (reviewOutcome === "fixed-selected") {
+  if (shouldCreateHandoff) {
     const handoff = await deps.createOrAutoApplyHandoff(undefined, {
       sessionId: input.artifact.sessionId,
       projectPath: input.artifact.projectPath,

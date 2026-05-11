@@ -285,12 +285,16 @@ describe("config command helpers", () => {
     });
 
     test("rejects numeric values outside allowed range", () => {
-      expect(() => parseConfigValue("iterationTimeout", "-1")).toThrow("greater than 0");
+      expect(() => parseConfigValue("iterationTimeout", "-1")).toThrow(
+        "greater than or equal to 1"
+      );
       expect(() => parseConfigValue("retry.maxRetries", "-1")).toThrow(
         "greater than or equal to 0"
       );
-      expect(() => parseConfigValue("retry.baseDelayMs", "0")).toThrow("greater than 0");
-      expect(() => parseConfigValue("retry.maxDelayMs", "0")).toThrow("greater than 0");
+      expect(() => parseConfigValue("retry.baseDelayMs", "0")).toThrow(
+        "greater than or equal to 1"
+      );
+      expect(() => parseConfigValue("retry.maxDelayMs", "0")).toThrow("greater than or equal to 1");
     });
 
     test("parses nullable values", () => {
@@ -309,12 +313,14 @@ describe("config command helpers", () => {
     test("rejects invalid role-specific constraints", () => {
       expect(() => parseConfigValue("fixer.agent", "wizard")).toThrow("must be a valid agent");
       expect(() => parseConfigValue("fixer.reasoning", "ultra")).toThrow("must be one of");
-      expect(() => parseConfigValue("maxIterations", "0")).toThrow("greater than 0");
+      expect(() => parseConfigValue("maxIterations", "0")).toThrow("greater than or equal to 1");
       expect(() => parseConfigValue("retry.maxRetries", "-1")).toThrow(
         "greater than or equal to 0"
       );
-      expect(() => parseConfigValue("retry.baseDelayMs", "0")).toThrow("greater than 0");
-      expect(() => parseConfigValue("retry.maxDelayMs", "0")).toThrow("greater than 0");
+      expect(() => parseConfigValue("retry.baseDelayMs", "0")).toThrow(
+        "greater than or equal to 1"
+      );
+      expect(() => parseConfigValue("retry.maxDelayMs", "0")).toThrow("greater than or equal to 1");
     });
 
     test("parses and validates default review type", () => {

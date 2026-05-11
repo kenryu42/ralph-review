@@ -2,6 +2,10 @@ import * as p from "@clack/prompts";
 import type { PendingHandoffArtifact } from "@/lib/handoff";
 
 type HandoffAction = "apply" | "discard";
+type HandoffSelect = (input: {
+  message: string;
+  options: Array<{ value: string; label: string; hint: string }>;
+}) => Promise<unknown>;
 
 interface SelectableHandoff {
   handoffId: string;
@@ -14,10 +18,7 @@ interface ResolvePendingHandoffSelectionOptions {
   selector?: string;
   action: HandoffAction;
   isTTY: boolean;
-  select?: (input: {
-    message: string;
-    options: Array<{ value: string; label: string; hint: string }>;
-  }) => Promise<unknown>;
+  select?: HandoffSelect;
   isCancel?: (value: unknown) => boolean;
 }
 
@@ -105,10 +106,7 @@ async function resolveHandoffSelection<T extends SelectableHandoff>(options: {
   action: HandoffAction;
   isTTY: boolean;
   multipleHandoffsMessage: string;
-  select?: (input: {
-    message: string;
-    options: Array<{ value: string; label: string; hint: string }>;
-  }) => Promise<unknown>;
+  select?: HandoffSelect;
   isCancel?: (value: unknown) => boolean;
 }): Promise<HandoffSelectionResult<T>> {
   if (options.selector) {

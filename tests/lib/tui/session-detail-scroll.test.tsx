@@ -6,6 +6,7 @@ import {
   type ScrollMetrics,
   useScrollMetrics,
 } from "@/lib/tui/sessions/detail/session-detail-scroll";
+import { actAndRender } from "../../helpers/tui";
 
 describe("useScrollMetrics", () => {
   let setup: Awaited<ReturnType<typeof testRender>> | null = null;
@@ -57,6 +58,10 @@ describe("useScrollMetrics", () => {
       expect(latestMetrics).toEqual(expected);
     }
 
+    async function updateProbe(update: () => void) {
+      await actAndRender(setup, update);
+    }
+
     setup = await testRender(createElement(Probe), { width: 20, height: 4 });
     await act(async () => {
       await setup?.renderOnce();
@@ -69,29 +74,17 @@ describe("useScrollMetrics", () => {
       scrollHeight: 1,
     });
 
-    await act(async () => {
-      intervalCallbacks[0]?.();
-      await Promise.resolve();
-      await setup?.renderOnce();
-    });
+    await updateProbe(() => intervalCallbacks[0]?.());
     expectLatestMetrics({
       scrollTop: 0,
       viewportHeight: 1,
       scrollHeight: 1,
     });
 
-    await act(async () => {
-      setFocused(true);
-      await Promise.resolve();
-      await setup?.renderOnce();
-    });
+    await updateProbe(() => setFocused(true));
     expect(intervalCallbacks).toHaveLength(1);
 
-    await act(async () => {
-      intervalCallbacks[0]?.();
-      await Promise.resolve();
-      await setup?.renderOnce();
-    });
+    await updateProbe(() => intervalCallbacks[0]?.());
     expectLatestMetrics({
       scrollTop: 3,
       viewportHeight: 4,
@@ -100,17 +93,9 @@ describe("useScrollMetrics", () => {
 
     scrollbox.scrollTop = 8;
 
-    await act(async () => {
-      setFocused(false);
-      await Promise.resolve();
-      await setup?.renderOnce();
-    });
+    await updateProbe(() => setFocused(false));
 
-    await act(async () => {
-      intervalCallbacks[0]?.();
-      await Promise.resolve();
-      await setup?.renderOnce();
-    });
+    await updateProbe(() => intervalCallbacks[0]?.());
     expectLatestMetrics({
       scrollTop: 3,
       viewportHeight: 4,

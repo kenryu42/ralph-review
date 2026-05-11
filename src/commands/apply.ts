@@ -1,7 +1,9 @@
 import * as p from "@clack/prompts";
-import { getCommandDef } from "@/cli";
 import { resolvePendingHandoffSelection } from "@/commands/handoff-selection";
-import type { CommandDef } from "@/lib/cli-parser";
+import {
+  createInteractiveCommandDeps,
+  type InteractiveCommandDeps,
+} from "@/commands/interactive-deps";
 import { parseCommand } from "@/lib/cli-parser";
 import { applyPendingHandoff, listProjectPendingHandoffs } from "@/lib/handoff";
 import { appendLog } from "@/lib/logger";
@@ -10,19 +12,9 @@ interface ApplyOptions {
   session?: string;
 }
 
-interface ApplyDeps {
-  getCommandDef: (name: string) => CommandDef | undefined;
-  logError: (message: string) => void;
-  exit: (code: number) => void;
-  isTTY: () => boolean;
-}
+type ApplyDeps = InteractiveCommandDeps;
 
-const DEFAULT_APPLY_DEPS: ApplyDeps = {
-  getCommandDef,
-  logError: (message: string) => p.log.error(message),
-  exit: (code: number) => process.exit(code),
-  isTTY: () => process.stdout.isTTY === true,
-};
+const DEFAULT_APPLY_DEPS = createInteractiveCommandDeps();
 
 const NO_PENDING_HANDOFFS_MESSAGE = "No pending review handoffs for current working directory.";
 

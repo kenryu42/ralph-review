@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import type { SessionState } from "@/lib/session-state";
 import {
   getCurrentAgentFromSessionState,
   getLiveRefreshMeta,
@@ -9,20 +8,10 @@ import {
   selectLatestReviewFromEntries,
 } from "@/lib/tui/workspace/workspace-refresh-utils";
 import type { Finding, LogEntry } from "@/lib/types";
+import { createSessionState } from "../../helpers/tui";
 
 describe("getCurrentAgentFromSessionState", () => {
-  const baseSessionState: SessionState = {
-    schemaVersion: 2,
-    sessionId: "session-1",
-    sessionName: "rr-test-123",
-    startTime: Date.now(),
-    lastHeartbeat: Date.now(),
-    pid: process.pid,
-    projectPath: "/test/project",
-    branch: "main",
-    state: "running",
-    mode: "background",
-  };
+  const baseSessionState = createSessionState();
 
   test("returns null when session state is null", () => {
     expect(getCurrentAgentFromSessionState(null)).toBeNull();
@@ -33,12 +22,12 @@ describe("getCurrentAgentFromSessionState", () => {
   });
 
   test("returns reviewer when currentAgent is reviewer", () => {
-    const data: SessionState = { ...baseSessionState, currentAgent: "reviewer" };
+    const data = { ...baseSessionState, currentAgent: "reviewer" as const };
     expect(getCurrentAgentFromSessionState(data)).toBe("reviewer");
   });
 
   test("returns fixer when currentAgent is fixer", () => {
-    const data: SessionState = { ...baseSessionState, currentAgent: "fixer" };
+    const data = { ...baseSessionState, currentAgent: "fixer" as const };
     expect(getCurrentAgentFromSessionState(data)).toBe("fixer");
   });
 });
@@ -314,20 +303,10 @@ describe("mergeIncrementalLogEntries", () => {
 });
 
 describe("live metadata helpers", () => {
-  const baseSessionState: SessionState = {
-    schemaVersion: 2,
-    sessionId: "session-1",
-    sessionName: "rr-test-123",
-    startTime: Date.now(),
-    lastHeartbeat: Date.now(),
-    pid: process.pid,
-    projectPath: "/test/project",
-    branch: "main",
-    state: "running",
-    mode: "background",
+  const baseSessionState = createSessionState({
     iteration: 2,
     currentAgent: "fixer",
-  };
+  });
 
   test("builds metadata shape from session state", () => {
     const meta = getLiveRefreshMeta(baseSessionState);

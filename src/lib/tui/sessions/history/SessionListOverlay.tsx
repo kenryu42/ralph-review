@@ -2,7 +2,10 @@ import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import { useCallback, useMemo, useState } from "react";
 import type { LogSession } from "@/lib/logger";
 import { formatProjectNameForDisplay } from "@/lib/tui/sessions/session-display";
+import { CenteredModal } from "@/lib/tui/shared/CenteredModal";
 import { TUI_COLORS } from "@/lib/tui/shared/colors";
+import { KeyboardShortcutsModal } from "@/lib/tui/shared/KeyboardShortcutsModal";
+import { ShortcutHint } from "@/lib/tui/shared/ShortcutHint";
 import { SessionDetailPane } from "./SessionListDetailPane";
 import {
   buildSessionOverlayOptions,
@@ -27,47 +30,15 @@ function SessionHelpModal({ onClose }: { onClose: () => void }) {
     }
   });
 
-  return (
-    <box
-      position="absolute"
-      left={0}
-      top={0}
-      width="100%"
-      height="100%"
-      justifyContent="center"
-      alignItems="center"
-    >
-      <box
-        border
-        borderStyle="double"
-        title="Keyboard Shortcuts"
-        titleAlignment="left"
-        padding={2}
-        width={44}
-        backgroundColor="#1a1a2e"
-      >
-        <box flexDirection="column" gap={1}>
-          <text>
-            <span fg={TUI_COLORS.accent.key}>[Tab ←/→]</span>
-            <span fg={TUI_COLORS.text.muted}> Switch pane focus</span>
-          </text>
-          <text>
-            <span fg={TUI_COLORS.accent.key}>[↑/↓ j/k]</span>
-            <span fg={TUI_COLORS.text.muted}> Navigate / Scroll</span>
-          </text>
-          <text>
-            <span fg={TUI_COLORS.accent.key}>[d]</span>
-            <span fg={TUI_COLORS.text.muted}> Delete selected log</span>
-          </text>
-          <text>
-            <span fg={TUI_COLORS.accent.key}>[h/?]</span>
-            <span fg={TUI_COLORS.text.muted}> Toggle help</span>
-          </text>
-        </box>
-      </box>
-    </box>
-  );
+  return <KeyboardShortcutsModal shortcuts={SESSION_OVERLAY_SHORTCUTS} />;
 }
+
+const SESSION_OVERLAY_SHORTCUTS = [
+  { keys: "[Tab ←/→]", label: "Switch pane focus" },
+  { keys: "[↑/↓ j/k]", label: "Navigate / Scroll" },
+  { keys: "[d]", label: "Delete selected log" },
+  { keys: "[h/?]", label: "Toggle help" },
+] as const;
 
 interface SessionDeleteModalProps {
   sessionName: string;
@@ -77,26 +48,8 @@ interface SessionDeleteModalProps {
 
 function SessionDeleteModal({ sessionName, error, isDeleting }: SessionDeleteModalProps) {
   return (
-    <box
-      position="absolute"
-      left={0}
-      top={0}
-      width="100%"
-      height="100%"
-      justifyContent="center"
-      alignItems="center"
-    >
-      <box
-        border
-        borderStyle="double"
-        title="Delete Session Log"
-        titleAlignment="left"
-        padding={2}
-        width={58}
-        backgroundColor="#1a1a2e"
-        flexDirection="column"
-        gap={1}
-      >
+    <CenteredModal title="Delete Session Log" width={58}>
+      <box flexDirection="column" gap={1}>
         <text fg={TUI_COLORS.text.primary}>{sessionName}</text>
         <text fg={TUI_COLORS.status.error}>This cannot be undone.</text>
         <text>
@@ -109,7 +62,7 @@ function SessionDeleteModal({ sessionName, error, isDeleting }: SessionDeleteMod
         {isDeleting && <text fg={TUI_COLORS.text.muted}>Deleting...</text>}
         {error && <text fg={TUI_COLORS.status.error}>{error}</text>}
       </box>
-    </box>
+    </CenteredModal>
   );
 }
 
@@ -339,20 +292,9 @@ export function SessionOverlay({ onClose }: SessionOverlayProps) {
         paddingBottom={1}
       >
         <box flexDirection="row" gap={2}>
-          {isNarrow && (
-            <text>
-              <span fg={TUI_COLORS.accent.key}>[Tab]</span>
-              <span fg={TUI_COLORS.text.muted}> Switch</span>
-            </text>
-          )}
-          <text>
-            <span fg={TUI_COLORS.accent.key}>[d]</span>
-            <span fg={TUI_COLORS.text.muted}> Delete</span>
-          </text>
-          <text>
-            <span fg={TUI_COLORS.accent.key}>[h]</span>
-            <span fg={TUI_COLORS.text.muted}> Help</span>
-          </text>
+          {isNarrow && <ShortcutHint keys="[Tab]" label="Switch" />}
+          <ShortcutHint keys="[d]" label="Delete" />
+          <ShortcutHint keys="[h]" label="Help" />
         </box>
         <text fg={TUI_COLORS.text.dim}>Focus: {focusedPane === "list" ? "List" : "Detail"}</text>
       </box>

@@ -24,6 +24,58 @@ type FixtureExpectation =
     };
 
 const FIXTURE_ROOT = "tests/fixtures/structured-output";
+const FIXER_EXPECTED_VALUE = {
+  decision: "APPLY_SELECTIVELY",
+  fixes: [
+    {
+      id: 1,
+      title: "Guard null access",
+      priority: "P1",
+      file: "src/lib/engine.ts",
+      claim: "Null access can throw",
+      evidence: "src/lib/engine.ts:42",
+      fix: "Added null guard before dereference",
+    },
+  ],
+  skipped: [
+    {
+      id: 2,
+      title: "Non-actionable style note",
+      priority: "P3",
+      reason: "SKIP: style-only concern",
+    },
+  ],
+};
+const REVIEWER_EXPECTED_VALUE = {
+  findings: [
+    {
+      title: "Handle undefined config",
+      body: "Config access can throw when the optional field is missing.",
+      confidence_score: 0.88,
+      priority: 1,
+      code_location: {
+        absolute_file_path: "/repo/src/lib/config.ts",
+        line_range: {
+          start: 10,
+          end: 12,
+        },
+      },
+    },
+  ],
+  overall_correctness: "patch is incorrect",
+  overall_explanation: "One reliability issue was found.",
+  overall_confidence_score: 0.88,
+};
+const EXPECTED_FIXTURE_VALUES: Record<FixtureRole, Record<string, unknown>> = {
+  fixer: {
+    "framed-valid": FIXER_EXPECTED_VALUE,
+    "framed-repairable-trailing-comma": FIXER_EXPECTED_VALUE,
+  },
+  reviewer: {
+    "framed-valid": REVIEWER_EXPECTED_VALUE,
+    "framed-repairable-trailing-comma": REVIEWER_EXPECTED_VALUE,
+  },
+};
 
 function listFixtureFiles(): string[] {
   const glob = new Bun.Glob("**/*.jsonl");
@@ -43,6 +95,29 @@ function parseFixturePath(path: string): { agent: AgentType; role: FixtureRole; 
   return { agent: agentRaw as AgentType, role, caseName };
 }
 
+function createExpectedFixture(role: FixtureRole, caseName: string): FixtureExpectation {
+  if (caseName === "framed-unrepairable") {
+    return {
+      ok: false,
+      source: null,
+      usedRepair: true,
+      failureReason: "no structured output candidate matched the required schema",
+    };
+  }
+
+  const value = EXPECTED_FIXTURE_VALUES[role][caseName];
+  if (value === undefined) {
+    throw new Error(`No expected structured-output fixture for ${role}/${caseName}`);
+  }
+
+  return {
+    ok: true,
+    source: "framed-extracted",
+    usedRepair: caseName === "framed-repairable-trailing-comma",
+    value,
+  };
+}
+
 describe("structured output parser contract fixtures", () => {
   const fixtureFiles = listFixtureFiles();
 
@@ -55,8 +130,7 @@ describe("structured output parser contract fixtures", () => {
 
     test(`${agent}/${role}/${caseName}`, async () => {
       const rawOutput = await Bun.file(`${FIXTURE_ROOT}/${fixtureFile}`).text();
-      const expectedPath = `${FIXTURE_ROOT}/${fixtureFile.replace(/\.jsonl$/, ".expected.json")}`;
-      const expected = (await Bun.file(expectedPath).json()) as FixtureExpectation;
+      const expected = createExpectedFixture(role, caseName);
 
       const extracted = await AGENTS[agent].extractResult(rawOutput);
       const parsed =

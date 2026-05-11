@@ -31,6 +31,38 @@ function mockDeps(overrides: Partial<RemediationDependencies> = {}): Remediation
   };
 }
 
+function brewDeps(overrides: Partial<RemediationDependencies> = {}) {
+  return mockDeps({
+    platform: "darwin",
+    which: (command: string) => (command === "brew" ? "/opt/homebrew/bin/brew" : null),
+    ...overrides,
+  });
+}
+
+function createSpawnRecorder(
+  exitCode = 0,
+  onSpawn?: (args: string[], options?: { stdin?: string | null }) => void
+) {
+  const calls: Array<{ args: string[]; stdin?: string | null }> = [];
+  const spawn = ((args: string[], options?: { stdin?: string | null }) => {
+    calls.push({ args, stdin: options?.stdin });
+    onSpawn?.(args, options);
+    return { exited: Promise.resolve(exitCode) };
+  }) as unknown as typeof Bun.spawn;
+
+  return { calls, spawn };
+}
+
+async function applyFixWithRecordedSpawn(
+  item: DiagnosticItem,
+  deps: Partial<RemediationDependencies> = {}
+) {
+  const recorder = createSpawnRecorder();
+  const result = await applyFix(item, mockDeps({ spawn: recorder.spawn, ...deps }));
+
+  return { calls: recorder.calls, result };
+}
+
 describe("isFixable", () => {
   test("returns true for fixable IDs", () => {
     expect(isFixable("tmux-installed")).toBe(true);
@@ -53,32 +85,18 @@ describe("isFixable", () => {
 
 describe("applyFix", () => {
   test("uses brew on darwin when available", async () => {
-    let spawnedArgs: string[] = [];
-    const deps = mockDeps({
-      spawn: ((args: string[]) => {
-        spawnedArgs = args;
-        return { exited: Promise.resolve(0) };
-      }) as unknown as typeof Bun.spawn,
+    const { calls, result } = await applyFixWithRecordedSpawn(makeItem("tmux-installed"), {
       platform: "darwin",
       which: (command: string) => (command === "brew" ? "/opt/homebrew/bin/brew" : null),
     });
 
-    const result = await applyFix(makeItem("tmux-installed"), deps);
-
     expect(result.success).toBe(true);
     expect(result.id).toBe("tmux-installed");
-    expect(spawnedArgs).toEqual(["brew", "install", "tmux"]);
+    expect(calls[0]?.args).toEqual(["brew", "install", "tmux"]);
   });
 
   test("uses apt-get with sudo on linux when both are available", async () => {
-    let spawnedArgs: string[] = [];
-    let spawnedStdin: string | null | undefined;
-    const deps = mockDeps({
-      spawn: ((args: string[], options?: { stdin?: string | null }) => {
-        spawnedArgs = args;
-        spawnedStdin = options?.stdin;
-        return { exited: Promise.resolve(0) };
-      }) as unknown as typeof Bun.spawn,
+    const { calls, result } = await applyFixWithRecordedSpawn(makeItem("tmux-installed"), {
       platform: "linux",
       which: (command: string) => {
         if (command === "apt-get") return "/usr/bin/apt-get";
@@ -87,45 +105,29 @@ describe("applyFix", () => {
       },
     });
 
-    const result = await applyFix(makeItem("tmux-installed"), deps);
-
     expect(result.success).toBe(true);
-    expect(spawnedArgs).toEqual(["sudo", "apt-get", "install", "-y", "tmux"]);
-    expect(spawnedStdin).toBe("inherit");
+    expect(calls[0]?.args).toEqual(["sudo", "apt-get", "install", "-y", "tmux"]);
+    expect(calls[0]?.stdin).toBe("inherit");
   });
 
   test("uses apt-get without sudo on linux when sudo is unavailable", async () => {
-    let spawnedArgs: string[] = [];
-    const deps = mockDeps({
-      spawn: ((args: string[]) => {
-        spawnedArgs = args;
-        return { exited: Promise.resolve(0) };
-      }) as unknown as typeof Bun.spawn,
+    const { calls, result } = await applyFixWithRecordedSpawn(makeItem("tmux-installed"), {
       platform: "linux",
       which: (command: string) => (command === "apt-get" ? "/usr/bin/apt-get" : null),
     });
 
-    const result = await applyFix(makeItem("tmux-installed"), deps);
-
     expect(result.success).toBe(true);
-    expect(spawnedArgs).toEqual(["apt-get", "install", "-y", "tmux"]);
+    expect(calls[0]?.args).toEqual(["apt-get", "install", "-y", "tmux"]);
   });
 
   test("falls back to choco on windows when winget is unavailable", async () => {
-    let spawnedArgs: string[] = [];
-    const deps = mockDeps({
-      spawn: ((args: string[]) => {
-        spawnedArgs = args;
-        return { exited: Promise.resolve(0) };
-      }) as unknown as typeof Bun.spawn,
+    const { calls, result } = await applyFixWithRecordedSpawn(makeItem("tmux-installed"), {
       platform: "win32",
       which: (command: string) => (command === "choco" ? "C:\\choco\\bin\\choco" : null),
     });
 
-    const result = await applyFix(makeItem("tmux-installed"), deps);
-
     expect(result.success).toBe(true);
-    expect(spawnedArgs).toEqual(["choco", "install", "tmux", "-y"]);
+    expect(calls[0]?.args).toEqual(["choco", "install", "tmux", "-y"]);
   });
 
   test("returns manual guidance when no supported package manager is found", async () => {
@@ -142,10 +144,8 @@ describe("applyFix", () => {
   });
 
   test("reports failure when install command exits non-zero", async () => {
-    const deps = mockDeps({
+    const deps = brewDeps({
       spawn: (() => ({ exited: Promise.resolve(1) })) as unknown as typeof Bun.spawn,
-      platform: "darwin",
-      which: (command: string) => (command === "brew" ? "/opt/homebrew/bin/brew" : null),
     });
 
     const result = await applyFix(makeItem("tmux-installed"), deps);
@@ -156,12 +156,10 @@ describe("applyFix", () => {
   });
 
   test("reports failure when tmux install command throws", async () => {
-    const deps = mockDeps({
+    const deps = brewDeps({
       spawn: (() => {
         throw new Error("spawn failed");
       }) as unknown as typeof Bun.spawn,
-      platform: "darwin",
-      which: (command: string) => (command === "brew" ? "/opt/homebrew/bin/brew" : null),
     });
 
     const result = await applyFix(makeItem("tmux-installed"), deps);
@@ -174,19 +172,11 @@ describe("applyFix", () => {
   });
 
   test("fixes config-missing by spawning rr init", async () => {
-    let spawnedArgs: string[] = [];
-    const deps = mockDeps({
-      spawn: ((args: string[]) => {
-        spawnedArgs = args;
-        return { exited: Promise.resolve(0) };
-      }) as unknown as typeof Bun.spawn,
-    });
-
-    const result = await applyFix(makeItem("config-missing"), deps);
+    const { calls, result } = await applyFixWithRecordedSpawn(makeItem("config-missing"));
 
     expect(result.success).toBe(true);
     expect(result.id).toBe("config-missing");
-    expect(spawnedArgs).toEqual(["/usr/bin/bun", "/path/to/cli.ts", "init"]);
+    expect(calls[0]?.args).toEqual(["/usr/bin/bun", "/path/to/cli.ts", "init"]);
   });
 
   test("fixes config-invalid by spawning rr init", async () => {
@@ -198,39 +188,21 @@ describe("applyFix", () => {
   });
 
   test("uses rr init for repo-local config issues", async () => {
-    let spawnedArgs: string[] = [];
-    const deps = mockDeps({
-      spawn: ((args: string[]) => {
-        spawnedArgs = args;
-        return { exited: Promise.resolve(0) };
-      }) as unknown as typeof Bun.spawn,
-    });
-
-    const result = await applyFix(
-      makeItem("config-invalid", "error", { configScope: "local" }),
-      deps
+    const { calls, result } = await applyFixWithRecordedSpawn(
+      makeItem("config-invalid", "error", { configScope: "local" })
     );
 
     expect(result.success).toBe(true);
-    expect(spawnedArgs).toEqual(["/usr/bin/bun", "/path/to/cli.ts", "init", "--local"]);
+    expect(calls[0]?.args).toEqual(["/usr/bin/bun", "/path/to/cli.ts", "init", "--local"]);
   });
 
   test("uses rr init --global for global config issues", async () => {
-    let spawnedArgs: string[] = [];
-    const deps = mockDeps({
-      spawn: ((args: string[]) => {
-        spawnedArgs = args;
-        return { exited: Promise.resolve(0) };
-      }) as unknown as typeof Bun.spawn,
-    });
-
-    const result = await applyFix(
-      makeItem("config-invalid", "error", { configScope: "global" }),
-      deps
+    const { calls, result } = await applyFixWithRecordedSpawn(
+      makeItem("config-invalid", "error", { configScope: "global" })
     );
 
     expect(result.success).toBe(true);
-    expect(spawnedArgs).toEqual(["/usr/bin/bun", "/path/to/cli.ts", "init", "--global"]);
+    expect(calls[0]?.args).toEqual(["/usr/bin/bun", "/path/to/cli.ts", "init", "--global"]);
   });
 
   test("does not report mixed config repairs as auto-fixed", async () => {
@@ -289,19 +261,13 @@ describe("applyFix", () => {
   });
 
   test("routes config pattern IDs to rr init remediation", async () => {
-    let spawnedArgs: string[] = [];
-    const deps = mockDeps({
-      spawn: ((args: string[]) => {
-        spawnedArgs = args;
-        return { exited: Promise.resolve(0) };
-      }) as unknown as typeof Bun.spawn,
-    });
-
-    const result = await applyFix(makeItem("config-reviewer-model-missing"), deps);
+    const { calls, result } = await applyFixWithRecordedSpawn(
+      makeItem("config-reviewer-model-missing")
+    );
 
     expect(result.success).toBe(true);
     expect(result.id).toBe("config-reviewer-model-missing");
-    expect(spawnedArgs).toEqual(["/usr/bin/bun", "/path/to/cli.ts", "init"]);
+    expect(calls[0]?.args).toEqual(["/usr/bin/bun", "/path/to/cli.ts", "init"]);
   });
 
   test("returns failure for unknown fix ID", async () => {
@@ -332,10 +298,7 @@ describe("applyFixes", () => {
 
   test("applies fixes to fixable error items", async () => {
     const items = [makeItem("tmux-installed", "error"), makeItem("config-missing", "error")];
-    const deps = mockDeps({
-      which: (command: string) => (command === "brew" ? "/opt/homebrew/bin/brew" : null),
-      platform: "darwin",
-    });
+    const deps = brewDeps();
 
     const results = await applyFixes(items, deps);
 
@@ -370,10 +333,7 @@ describe("applyFixes", () => {
 
   test("applies fixes to fixable warning items", async () => {
     const items = [makeItem("tmux-installed", "warning")];
-    const deps = mockDeps({
-      which: (command: string) => (command === "brew" ? "/opt/homebrew/bin/brew" : null),
-      platform: "darwin",
-    });
+    const deps = brewDeps();
     const results = await applyFixes(items, deps);
 
     expect(results).toHaveLength(1);

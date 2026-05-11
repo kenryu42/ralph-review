@@ -5,6 +5,17 @@ import {
   parseClaudeStreamEvent,
 } from "@/lib/agents/claude";
 
+function expectAssistantEvent(
+  line: string
+): Extract<NonNullable<ReturnType<typeof parseClaudeStreamEvent>>, { type: "assistant" }> {
+  const event = parseClaudeStreamEvent(line);
+  expect(event?.type).toBe("assistant");
+  if (event?.type !== "assistant") {
+    throw new Error("Expected event to be parsed");
+  }
+  return event;
+}
+
 describe("claude-stream", () => {
   describe("parseClaudeStreamEvent", () => {
     test("parses system init event", () => {
@@ -19,12 +30,11 @@ describe("claude-stream", () => {
 
       const event = parseClaudeStreamEvent(line);
 
-      expect(event).not.toBeNull();
-      expect(event?.type).toBe("system");
-      if (event?.type === "system") {
-        expect(event.subtype).toBe("init");
-        expect(event.session_id).toBe("abc-123");
-      }
+      expect(event).toMatchObject({
+        type: "system",
+        subtype: "init",
+        session_id: "abc-123",
+      });
     });
 
     test("parses assistant event with text content", () => {
@@ -63,15 +73,11 @@ describe("claude-stream", () => {
         },
       });
 
-      const event = parseClaudeStreamEvent(line);
-
-      expect(event).not.toBeNull();
-      if (event?.type === "assistant") {
-        const block = event.message.content[0];
-        expect(block?.type).toBe("thinking");
-        if (block?.type === "thinking") {
-          expect(block.thinking).toBe("Let me analyze this...");
-        }
+      const event = expectAssistantEvent(line);
+      const block = event.message.content[0];
+      expect(block?.type).toBe("thinking");
+      if (block?.type === "thinking") {
+        expect(block.thinking).toBe("Let me analyze this...");
       }
     });
 
@@ -95,15 +101,11 @@ describe("claude-stream", () => {
         },
       });
 
-      const event = parseClaudeStreamEvent(line);
-
-      expect(event).not.toBeNull();
-      if (event?.type === "assistant") {
-        const block = event.message.content[0];
-        expect(block?.type).toBe("tool_use");
-        if (block?.type === "tool_use") {
-          expect(block.name).toBe("Bash");
-        }
+      const event = expectAssistantEvent(line);
+      const block = event.message.content[0];
+      expect(block?.type).toBe("tool_use");
+      if (block?.type === "tool_use") {
+        expect(block.name).toBe("Bash");
       }
     });
 
@@ -266,7 +268,7 @@ describe("claude-stream", () => {
     });
 
     test("formats result event", () => {
-      const event = {
+      const output = formatClaudeEventForDisplay({
         type: "result" as const,
         subtype: "success",
         is_error: false,
@@ -274,9 +276,7 @@ describe("claude-stream", () => {
         session_id: "abc",
         duration_ms: 1000,
         num_turns: 2,
-      };
-
-      const output = formatClaudeEventForDisplay(event);
+      });
 
       expect(output).toContain("Result");
       expect(output).toContain("Final answer here");
@@ -325,12 +325,7 @@ describe("claude-stream", () => {
         type: "assistant",
         session_id: "abc",
       });
-      const event = parseClaudeStreamEvent(line);
-
-      expect(event?.type).toBe("assistant");
-      if (!event) {
-        throw new Error("Expected event to be parsed");
-      }
+      const event = expectAssistantEvent(line);
 
       const output = formatClaudeEventForDisplay(event);
       expect(output).toBeNull();
@@ -352,12 +347,7 @@ describe("claude-stream", () => {
         },
       });
 
-      const event = parseClaudeStreamEvent(line);
-
-      expect(event?.type).toBe("assistant");
-      if (!event) {
-        throw new Error("Expected event to be parsed");
-      }
+      const event = expectAssistantEvent(line);
 
       const output = formatClaudeEventForDisplay(event);
       expect(output).toContain("Visible text");
@@ -429,13 +419,10 @@ describe("claude-stream", () => {
     });
 
     test("returns null when no result event found", () => {
-      const jsonl = [
-        JSON.stringify({ type: "system", subtype: "init", session_id: "abc" }),
-        JSON.stringify({
-          type: "assistant",
-          message: { content: [{ type: "text", text: "Working..." }] },
-        }),
-      ].join("\n");
+      const jsonl = JSON.stringify({
+        type: "assistant",
+        message: { content: [{ type: "text", text: "Working..." }] },
+      });
 
       const result = extractClaudeResult(jsonl);
 

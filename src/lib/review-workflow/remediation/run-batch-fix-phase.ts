@@ -19,7 +19,7 @@ import type { Config } from "@/lib/types";
 import type { FixDecision } from "@/lib/types/domain";
 
 interface BatchFixerResultEntry {
-  status: "resolved" | "unresolved";
+  status: "resolved" | "skipped" | "unresolved";
   summary: string;
 }
 
@@ -66,7 +66,9 @@ function isBatchFixerResultEntry(value: unknown): value is BatchFixerResultEntry
 
   const candidate = value as Record<string, unknown>;
   return (
-    (candidate.status === "resolved" || candidate.status === "unresolved") &&
+    (candidate.status === "resolved" ||
+      candidate.status === "skipped" ||
+      candidate.status === "unresolved") &&
     typeof candidate.summary === "string"
   );
 }
@@ -124,6 +126,30 @@ function toFixResults(
   });
 }
 
+async function appendBatchFixLog(
+  deps: RunBatchFixPhaseDependencies,
+  options: RunBatchFixPhaseOptions,
+  startedAt: number,
+  fixResults: FindingFixResult[],
+  error?: unknown
+): Promise<void> {
+  await deps.appendLog(options.artifact.logPath, {
+    type: "batch_fix",
+    timestamp: Date.now(),
+    duration: Date.now() - startedAt,
+    selectedFindingIds: options.selection.selectedFindingIds,
+    fixResults,
+    ...(error === undefined
+      ? {}
+      : {
+          error: {
+            phase: "fixer" as const,
+            message: error instanceof Error ? error.message : String(error),
+          },
+        }),
+  });
+}
+
 export async function runBatchFixPhase(
   options: RunBatchFixPhaseOptions,
   deps: RunBatchFixPhaseDependencies = DEFAULT_RUN_BATCH_FIX_PHASE_DEPENDENCIES
@@ -168,13 +194,7 @@ export async function runBatchFixPhase(
     const fixResults = toFixResults(options.selection.selectedFindingIds, parsed);
 
     deps.discardCheckpoint(options.worktree.worktreeProjectPath, checkpoint);
-    await deps.appendLog(options.artifact.logPath, {
-      type: "batch_fix",
-      timestamp: Date.now(),
-      duration: Date.now() - startedAt,
-      selectedFindingIds: options.selection.selectedFindingIds,
-      fixResults,
-    });
+    await appendBatchFixLog(deps, options, startedAt, fixResults);
 
     return {
       phase: "batch-fix",
@@ -183,17 +203,7 @@ export async function runBatchFixPhase(
     };
   } catch (error) {
     deps.rollbackToCheckpoint(options.worktree.worktreeProjectPath, checkpoint);
-    await deps.appendLog(options.artifact.logPath, {
-      type: "batch_fix",
-      timestamp: Date.now(),
-      duration: Date.now() - startedAt,
-      selectedFindingIds: options.selection.selectedFindingIds,
-      fixResults: [],
-      error: {
-        phase: "fixer",
-        message: error instanceof Error ? error.message : String(error),
-      },
-    });
+    await appendBatchFixLog(deps, options, startedAt, [], error);
     throw error;
   }
 }

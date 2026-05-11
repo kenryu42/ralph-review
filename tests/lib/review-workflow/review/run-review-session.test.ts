@@ -1,55 +1,16 @@
 import { describe, expect, test } from "bun:test";
 import type { RunReviewSessionDependencies } from "@/lib/review-workflow/review/run-review-session";
 import { runReviewSession } from "@/lib/review-workflow/review/run-review-session";
+import type { ReviewOptions } from "@/lib/types";
 import {
-  CONFIG_SCHEMA_URI,
-  CONFIG_VERSION,
-  type Config,
-  type ReviewOptions,
-  type ReviewSummary,
-} from "@/lib/types";
-
-function createConfig(overrides: Partial<Config> = {}): Config {
-  return {
-    $schema: CONFIG_SCHEMA_URI,
-    version: CONFIG_VERSION,
-    reviewer: { agent: "claude" },
-    fixer: { agent: "claude" },
-    maxIterations: 3,
-    iterationTimeout: 10,
-    defaultReview: { type: "uncommitted" },
-    notifications: { sound: { enabled: false } },
-    ...overrides,
-  };
-}
-
-function createReviewFinding(
-  overrides: Partial<ReviewSummary["findings"][number]> = {}
-): ReviewSummary["findings"][number] {
-  return {
-    title: "Guard missing config",
-    body: "A null check is missing before dereference.",
-    confidence_score: 0.97,
-    priority: 1,
-    code_location: {
-      absolute_file_path: "/repo/project/src/file.ts",
-      line_range: {
-        start: 10,
-        end: 12,
-      },
-    },
-    ...overrides,
-  };
-}
-
-function createReviewSummary(findings: ReviewSummary["findings"] = []): ReviewSummary {
-  return {
-    findings,
-    overall_correctness: "patch is incorrect",
-    overall_explanation: "Actionable findings remain.",
-    overall_confidence_score: 0.91,
-  };
-}
+  createAgentResult,
+  createMockAgentRegistry,
+  createReviewFinding,
+  createReviewParse,
+  createReviewSummary,
+  createReviewWorkflowConfig,
+  createSessionWorktree,
+} from "../../../helpers/review-workflow";
 
 function createDependencies(overrides: {
   runAgent: RunReviewSessionDependencies["runAgent"];
@@ -58,53 +19,13 @@ function createDependencies(overrides: {
   deleteSessionRefs?: RunReviewSessionDependencies["deleteSessionRefs"];
   saveFindingsArtifact?: RunReviewSessionDependencies["saveFindingsArtifact"];
 }): RunReviewSessionDependencies {
-  const emptySummary: ReviewSummary = {
-    findings: [],
-    overall_correctness: "patch is correct",
-    overall_explanation: "No actionable findings",
-    overall_confidence_score: 0.9,
-  };
-
   return {
     createReviewerPrompt: overrides.createReviewerPrompt ?? (() => "REVIEW_PROMPT"),
     createReviewerSummaryRetryReminder: () => "RETRY_REMINDER",
-    AGENTS: {
-      claude: {
-        config: {
-          command: "mock",
-          buildArgs: () => [],
-          buildEnv: () => ({}),
-        },
-        extractResult: async (output: string) => output,
-        detectSessionId: () => null,
-        getUpdateInstructions: () => [],
-      },
-      codex: {
-        config: {
-          command: "mock",
-          buildArgs: () => [],
-          buildEnv: () => ({}),
-        },
-        extractResult: async (output: string) => output,
-        detectSessionId: () => null,
-        getUpdateInstructions: () => [],
-      },
-    } as unknown as RunReviewSessionDependencies["AGENTS"],
+    AGENTS: createMockAgentRegistry(["claude", "codex"]),
     runAgent: overrides.runAgent,
     createCheckpoint: () => ({ kind: "clean", id: "checkpoint-1" }),
-    createSessionWorktree: () => ({
-      sourceProjectPath: "/repo/project",
-      sourceRepoPath: "/repo/project",
-      worktreeProjectPath: "/tmp/worktree",
-      agentProjectPath: "/tmp/worktree",
-      retainedBranch: "rr-worktree-session-123",
-      headKind: "detached",
-      baselineCommitSha: "baseline-sha-123",
-      baselineRef: "refs/ralph-review/sessions/session-123/baseline",
-      sourceBaselineCommitSha: "source-baseline-sha-123",
-      sourceBaselineRef: "refs/ralph-review/sessions/session-123/source",
-      sourceBaselineFingerprint: "baseline-fingerprint",
-    }),
+    createSessionWorktree: () => createSessionWorktree(),
     deleteSessionRefs: overrides.deleteSessionRefs ?? (() => {}),
     discardCheckpoint: () => {},
     discardSessionWorktree: () => {},
@@ -113,30 +34,83 @@ function createDependencies(overrides: {
     appendLog: async () => {},
     createLogSession: async () => "/tmp/session-123.jsonl",
     getGitBranch: async () => "main",
-    parseReviewSummaryOutput:
-      overrides.parseReviewSummaryOutput ??
-      (() => ({
-        ok: true,
-        value: emptySummary,
-        source: "framed-raw",
-        usedRepair: false,
-        failureReason: null,
-      })),
+    parseReviewSummaryOutput: overrides.parseReviewSummaryOutput ?? (() => createReviewParse()),
     saveFindingsArtifact:
       overrides.saveFindingsArtifact ?? (async (_storageRoot, artifact) => artifact),
   };
+}
+
+async function runTestReviewSession(
+  deps: RunReviewSessionDependencies,
+  reviewOptions?: ReviewOptions,
+  config = createReviewWorkflowConfig()
+) {
+  return await runReviewSession(
+    config,
+    reviewOptions,
+    {
+      projectPath: "/repo/project",
+      sessionId: "session-123",
+      sessionPath: "/tmp/session-123.jsonl",
+    },
+    () => false,
+    deps
+  );
+}
+
+function createArtifactRecorder() {
+  const savedArtifacts: Array<{ findings: unknown[] }> = [];
+
+  return {
+    savedArtifacts,
+    saveFindingsArtifact: async (
+      _storageRoot: string,
+      artifact: Parameters<RunReviewSessionDependencies["saveFindingsArtifact"]>[1]
+    ) => {
+      savedArtifacts.push({ findings: artifact.findings });
+      return artifact;
+    },
+  };
+}
+
+function expectSinglePreservedFinding(
+  result: Awaited<ReturnType<typeof runTestReviewSession>>,
+  savedArtifacts: Array<{ findings: unknown[] }>
+) {
+  expect(result.result.artifact).toMatchObject({
+    sessionId: "session-123",
+    findings: [
+      expect.objectContaining({
+        id: "F001",
+        filePath: "src/file.ts",
+      }),
+    ],
+  });
+  expect(savedArtifacts).toHaveLength(1);
+  expect(savedArtifacts[0]?.findings).toMatchObject([
+    {
+      id: "F001",
+      filePath: "src/file.ts",
+    },
+  ]);
+}
+
+function expectPendingFailure(
+  result: Awaited<ReturnType<typeof runTestReviewSession>>,
+  iterations: number,
+  reason: string
+) {
+  expect(result.result.sessionStatus).toBe("failed");
+  expect(result.result.reviewOutcome).toBe("findings-pending");
+  expect(result.result.iterations).toBe(iterations);
+  expect(result.result.reason).toContain(reason);
 }
 
 describe("review-workflow/review/runReviewSession", () => {
   test("generates unique fallback session ids when runtime context omits sessionId", async () => {
     const createdWorktreeIds: string[] = [];
     const baseDeps = createDependencies({
-      runAgent: async () => ({
-        success: true,
-        output: "",
-        exitCode: 0,
-        duration: 1,
-      }),
+      runAgent: async () => createAgentResult(),
     });
     const deps: RunReviewSessionDependencies = {
       ...baseDeps,
@@ -147,22 +121,16 @@ describe("review-workflow/review/runReviewSession", () => {
     };
 
     await runReviewSession(
-      createConfig(),
+      createReviewWorkflowConfig(),
       undefined,
-      {
-        projectPath: "/repo/project",
-        sessionPath: "/tmp/session-123.jsonl",
-      },
+      { projectPath: "/repo/project", sessionPath: "/tmp/session-123.jsonl" },
       () => false,
       deps
     );
     await runReviewSession(
-      createConfig(),
+      createReviewWorkflowConfig(),
       undefined,
-      {
-        projectPath: "/repo/project",
-        sessionPath: "/tmp/session-123.jsonl",
-      },
+      { projectPath: "/repo/project", sessionPath: "/tmp/session-123.jsonl" },
       () => false,
       deps
     );
@@ -175,25 +143,10 @@ describe("review-workflow/review/runReviewSession", () => {
 
   test("classifies exit code 130 as interrupted even without parent SIGINT", async () => {
     const deps = createDependencies({
-      runAgent: async () => ({
-        success: false,
-        output: "",
-        exitCode: 130,
-        duration: 1,
-      }),
+      runAgent: async () => createAgentResult({ success: false, exitCode: 130 }),
     });
 
-    const result = await runReviewSession(
-      createConfig(),
-      undefined,
-      {
-        projectPath: "/repo/project",
-        sessionId: "session-123",
-        sessionPath: "/tmp/session-123.jsonl",
-      },
-      () => false,
-      deps
-    );
+    const result = await runTestReviewSession(deps);
 
     expect(result.result.sessionStatus).toBe("interrupted");
     expect(result.result.reviewOutcome).toBe("incomplete");
@@ -201,54 +154,29 @@ describe("review-workflow/review/runReviewSession", () => {
   });
 
   test("preserves completed iteration count when reviewer parsing errors after progress", async () => {
-    const savedArtifacts: Array<{ findings: unknown[] }> = [];
+    const artifactRecorder = createArtifactRecorder();
     const deletedSessionRefs: string[] = [];
     let parseCalls = 0;
     const deps = createDependencies({
       runAgent: async () => ({
-        success: true,
-        output: "structured output",
-        exitCode: 0,
-        duration: 1,
+        ...createAgentResult({ output: "structured output" }),
       }),
       parseReviewSummaryOutput: () => {
         parseCalls += 1;
         if (parseCalls === 1) {
-          return {
-            ok: true,
-            value: createReviewSummary([createReviewFinding()]),
-            source: "framed-raw",
-            usedRepair: false,
-            failureReason: null,
-          };
+          return createReviewParse(createReviewSummary([createReviewFinding()]));
         }
         throw new Error("parse failed after first iteration");
       },
       deleteSessionRefs: (_repoPath, sessionId) => {
         deletedSessionRefs.push(sessionId);
       },
-      saveFindingsArtifact: async (_storageRoot, artifact) => {
-        savedArtifacts.push({ findings: artifact.findings });
-        return artifact;
-      },
+      saveFindingsArtifact: artifactRecorder.saveFindingsArtifact,
     });
 
-    const result = await runReviewSession(
-      createConfig(),
-      { forceMaxIterations: true },
-      {
-        projectPath: "/repo/project",
-        sessionId: "session-123",
-        sessionPath: "/tmp/session-123.jsonl",
-      },
-      () => false,
-      deps
-    );
+    const result = await runTestReviewSession(deps, { forceMaxIterations: true });
 
-    expect(result.result.sessionStatus).toBe("failed");
-    expect(result.result.reviewOutcome).toBe("findings-pending");
-    expect(result.result.iterations).toBe(1);
-    expect(result.result.reason).toContain("parse failed after first iteration");
+    expectPendingFailure(result, 1, "parse failed after first iteration");
     expect(result.result.reason).toContain("Findings were preserved");
     expect(result.result.findings).toEqual([
       expect.objectContaining({
@@ -256,52 +184,25 @@ describe("review-workflow/review/runReviewSession", () => {
         filePath: "src/file.ts",
       }),
     ]);
-    expect(result.result.artifact).toMatchObject({
-      sessionId: "session-123",
-      findings: [
-        expect.objectContaining({
-          id: "F001",
-          filePath: "src/file.ts",
-        }),
-      ],
-    });
-    expect(savedArtifacts).toHaveLength(1);
-    expect(savedArtifacts[0]?.findings).toMatchObject([
-      {
-        id: "F001",
-        filePath: "src/file.ts",
-      },
-    ]);
+    expectSinglePreservedFinding(result, artifactRecorder.savedArtifacts);
     expect(deletedSessionRefs).toEqual([]);
   });
 
   test("preserves accumulated findings when reviewer parsing errors after multiple iterations", async () => {
-    const savedArtifacts: Array<{ findings: unknown[] }> = [];
+    const artifactRecorder = createArtifactRecorder();
     let parseCalls = 0;
     const deps = createDependencies({
-      runAgent: async () => ({
-        success: true,
-        output: "structured output",
-        exitCode: 0,
-        duration: 1,
-      }),
+      runAgent: async () => createAgentResult({ output: "structured output" }),
       parseReviewSummaryOutput: () => {
         parseCalls += 1;
 
         if (parseCalls === 1) {
-          return {
-            ok: true,
-            value: createReviewSummary([createReviewFinding()]),
-            source: "framed-raw",
-            usedRepair: false,
-            failureReason: null,
-          };
+          return createReviewParse(createReviewSummary([createReviewFinding()]));
         }
 
         if (parseCalls === 2) {
-          return {
-            ok: true,
-            value: createReviewSummary([
+          return createReviewParse(
+            createReviewSummary([
               createReviewFinding({
                 title: "Avoid stale cache",
                 code_location: {
@@ -309,39 +210,20 @@ describe("review-workflow/review/runReviewSession", () => {
                   line_range: { start: 20, end: 22 },
                 },
               }),
-            ]),
-            source: "framed-raw",
-            usedRepair: false,
-            failureReason: null,
-          };
+            ])
+          );
         }
 
         throw new Error("parse failed after second iteration");
       },
-      saveFindingsArtifact: async (_storageRoot, artifact) => {
-        savedArtifacts.push({ findings: artifact.findings });
-        return artifact;
-      },
+      saveFindingsArtifact: artifactRecorder.saveFindingsArtifact,
     });
 
-    const result = await runReviewSession(
-      createConfig(),
-      { forceMaxIterations: true },
-      {
-        projectPath: "/repo/project",
-        sessionId: "session-123",
-        sessionPath: "/tmp/session-123.jsonl",
-      },
-      () => false,
-      deps
-    );
+    const result = await runTestReviewSession(deps, { forceMaxIterations: true });
 
-    expect(result.result.sessionStatus).toBe("failed");
-    expect(result.result.reviewOutcome).toBe("findings-pending");
-    expect(result.result.iterations).toBe(2);
-    expect(result.result.reason).toContain("parse failed after second iteration");
+    expectPendingFailure(result, 2, "parse failed after second iteration");
     expect(result.result.findings.map((finding) => finding.id)).toEqual(["F001", "F002"]);
-    expect(savedArtifacts[0]?.findings).toMatchObject([
+    expect(artifactRecorder.savedArtifacts[0]?.findings).toMatchObject([
       {
         id: "F001",
         filePath: "src/file.ts",
@@ -354,7 +236,7 @@ describe("review-workflow/review/runReviewSession", () => {
   });
 
   test("preserves findings artifact when an interrupted reviewer run happens after progress", async () => {
-    const savedArtifacts: Array<{ findings: unknown[] }> = [];
+    const artifactRecorder = createArtifactRecorder();
     const deletedSessionRefs: string[] = [];
     let runAgentCalls = 0;
     const deps = createDependencies({
@@ -362,96 +244,38 @@ describe("review-workflow/review/runReviewSession", () => {
         runAgentCalls += 1;
 
         if (runAgentCalls === 1) {
-          return {
-            success: true,
-            output: "structured output",
-            exitCode: 0,
-            duration: 1,
-          };
+          return createAgentResult({ output: "structured output" });
         }
 
-        return {
-          success: false,
-          output: "",
-          exitCode: 130,
-          duration: 1,
-        };
+        return createAgentResult({ success: false, exitCode: 130 });
       },
-      parseReviewSummaryOutput: () => ({
-        ok: true,
-        value: createReviewSummary([createReviewFinding()]),
-        source: "framed-raw",
-        usedRepair: false,
-        failureReason: null,
-      }),
+      parseReviewSummaryOutput: () =>
+        createReviewParse(createReviewSummary([createReviewFinding()])),
       deleteSessionRefs: (_repoPath, sessionId) => {
         deletedSessionRefs.push(sessionId);
       },
-      saveFindingsArtifact: async (_storageRoot, artifact) => {
-        savedArtifacts.push({ findings: artifact.findings });
-        return artifact;
-      },
+      saveFindingsArtifact: artifactRecorder.saveFindingsArtifact,
     });
 
-    const result = await runReviewSession(
-      createConfig(),
-      undefined,
-      {
-        projectPath: "/repo/project",
-        sessionId: "session-123",
-        sessionPath: "/tmp/session-123.jsonl",
-      },
-      () => false,
-      deps
-    );
+    const result = await runTestReviewSession(deps);
 
     expect(result.result.sessionStatus).toBe("interrupted");
     expect(result.result.reviewOutcome).toBe("findings-pending");
     expect(result.result.iterations).toBe(1);
     expect(result.result.reason).toContain("Findings were preserved");
-    expect(result.result.artifact).toMatchObject({
-      sessionId: "session-123",
-      findings: [
-        expect.objectContaining({
-          id: "F001",
-          filePath: "src/file.ts",
-        }),
-      ],
-    });
-    expect(savedArtifacts).toHaveLength(1);
-    expect(savedArtifacts[0]?.findings).toMatchObject([
-      {
-        id: "F001",
-        filePath: "src/file.ts",
-      },
-    ]);
+    expectSinglePreservedFinding(result, artifactRecorder.savedArtifacts);
     expect(deletedSessionRefs).toEqual([]);
   });
 
   test("keeps failed sessions incomplete when parsing fails before findings are preserved", async () => {
     const deps = createDependencies({
-      runAgent: async () => ({
-        success: true,
-        output: "structured output",
-        exitCode: 0,
-        duration: 1,
-      }),
+      runAgent: async () => createAgentResult({ output: "structured output" }),
       parseReviewSummaryOutput: () => {
         throw new Error("parse failed before findings");
       },
     });
 
-    const result = await runReviewSession(
-      createConfig(),
-      undefined,
-      {
-        projectPath: "/repo/project",
-        sessionId: "session-123",
-        sessionPath: "/tmp/session-123.jsonl",
-      },
-      () => false,
-      deps
-    );
+    const result = await runTestReviewSession(deps);
 
     expect(result.result.sessionStatus).toBe("failed");
     expect(result.result.reviewOutcome).toBe("incomplete");
@@ -487,25 +311,14 @@ describe("review-workflow/review/runReviewSession", () => {
           cwd,
         };
 
-        return {
-          success: true,
-          output: "structured output",
-          exitCode: 0,
-          duration: 1,
-        };
+        return createAgentResult({ output: "structured output" });
       },
     });
 
-    const result = await runReviewSession(
-      createConfig({ reviewer: { agent: "codex" } }),
+    const result = await runTestReviewSession(
+      deps,
       reviewOptions,
-      {
-        projectPath: "/repo/project",
-        sessionId: "session-123",
-        sessionPath: "/tmp/session-123.jsonl",
-      },
-      () => false,
-      deps
+      createReviewWorkflowConfig({ reviewer: { agent: "codex" } })
     );
 
     expect(result.result.sessionStatus).toBe("completed");
@@ -532,24 +345,13 @@ describe("review-workflow/review/runReviewSession", () => {
         capturedPromptOptions = options;
         return "GENERATED_REVIEW_PROMPT";
       },
-      runAgent: async () => ({
-        success: true,
-        output: "structured output",
-        exitCode: 0,
-        duration: 1,
-      }),
+      runAgent: async () => createAgentResult({ output: "structured output" }),
     });
 
-    const result = await runReviewSession(
-      createConfig({ reviewer: { agent: "codex" } }),
+    const result = await runTestReviewSession(
+      deps,
       { commitSha: "abc1234" },
-      {
-        projectPath: "/repo/project",
-        sessionId: "session-123",
-        sessionPath: "/tmp/session-123.jsonl",
-      },
-      () => false,
-      deps
+      createReviewWorkflowConfig({ reviewer: { agent: "codex" } })
     );
 
     expect(result.result.sessionStatus).toBe("completed");

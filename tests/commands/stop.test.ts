@@ -2,8 +2,8 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 import type { PendingHandoffArtifact } from "@/lib/handoff";
 import type { ActiveSession, SessionState } from "@/lib/session-state";
 import type { SessionStats } from "@/lib/types";
-
-const EXIT_PREFIX = "__FORCED_EXIT__:";
+import { captureExitCode, createPromptLogCapture, withStdoutTTY } from "../helpers/capture";
+import { createPendingHandoff } from "../helpers/review-workflow";
 
 interface StopHarnessOptions {
   activeSessions?: ActiveSession[];
@@ -60,6 +60,38 @@ function createActiveSession(overrides: Partial<ActiveSession> = {}): ActiveSess
   };
 }
 
+function createCurrentSession(overrides: Partial<ActiveSession> = {}): ActiveSession {
+  return createActiveSession({
+    sessionId: "current-session-id",
+    sessionName: "rr-current-session",
+    projectPath: process.cwd(),
+    ...overrides,
+  });
+}
+
+function createOrderedProjectSessions(
+  projectPath: string,
+  first: Partial<ActiveSession> = {},
+  second: Partial<ActiveSession> = {}
+): ActiveSession[] {
+  return [
+    createActiveSession({
+      sessionId: "session-alpha",
+      sessionName: "rr-alpha",
+      projectPath,
+      startTime: 100,
+      ...first,
+    }),
+    createActiveSession({
+      sessionId: "session-beta",
+      sessionName: "rr-beta",
+      projectPath,
+      startTime: 200,
+      ...second,
+    }),
+  ];
+}
+
 function createSessionStats(overrides: Partial<SessionStats> = {}): SessionStats {
   return {
     sessionPath: "/tmp/session.jsonl",
@@ -89,25 +121,11 @@ function createSessionStats(overrides: Partial<SessionStats> = {}): SessionStats
   };
 }
 
-function createPendingHandoff(
-  overrides: Partial<PendingHandoffArtifact> = {}
-): PendingHandoffArtifact {
-  const projectPath = process.cwd();
-  return {
-    handoffId: overrides.handoffId ?? overrides.sessionId ?? "session-id",
-    sessionId: "session-id",
-    projectPath,
-    sourceRepoPath: projectPath,
-    logPath: `${projectPath}/.ralph-review/logs/session.jsonl`,
-    hiddenRef: "refs/ralph-review/sessions/session-id/final",
-    patchPath: `${projectPath}/.ralph-review/handoffs/session-id.patch`,
-    sourceBaselineFingerprint: "fingerprint-1",
-    commitSha: "commit-sha-1",
-    state: "pending-apply",
-    createdAt: 1,
-    updatedAt: 1,
-    ...overrides,
-  };
+function expectNoStopActions(result: StopHarnessResult) {
+  expect(result.sendInterruptCalls).toEqual([]);
+  expect(result.killSessionCalls).toEqual([]);
+  expect(result.updateSessionStateCalls).toEqual([]);
+  expect(result.exitCode).toBeUndefined();
 }
 
 async function runStopWithHarness(
@@ -130,17 +148,11 @@ async function runStopWithHarness(
   let removeAllSessionStatesCalls = 0;
   const sendInterruptCalls: string[] = [];
   const killSessionCalls: string[] = [];
-  const infos: string[] = [];
-  const errors: string[] = [];
-  const steps: string[] = [];
-  const messages: string[] = [];
-  const successes: string[] = [];
+  const prompts = createPromptLogCapture(options.selectValues);
 
   const activeSessions = options.activeSessions ?? [];
   const tmuxSessions = options.tmuxSessions ?? [];
   const hasStopCommandDef = options.hasStopCommandDef ?? true;
-  const selectValues = [...(options.selectValues ?? [])];
-  const selectMessages: string[] = [];
   const readSessionState =
     options.readSessionState ??
     (async (projectPath: string, sessionId: string) => {
@@ -241,30 +253,7 @@ async function runStopWithHarness(
     },
   }));
 
-  mock.module("@clack/prompts", () => ({
-    log: {
-      info: (message: string) => {
-        infos.push(message);
-      },
-      error: (message: string) => {
-        errors.push(message);
-      },
-      step: (message: string) => {
-        steps.push(message);
-      },
-      message: (message: string) => {
-        messages.push(message);
-      },
-      success: (message: string) => {
-        successes.push(message);
-      },
-    },
-    select: async (input: { message: string }) => {
-      selectMessages.push(input.message);
-      return selectValues.shift();
-    },
-    isCancel: (value: unknown) => value === "__CANCEL__",
-  }));
+  mock.module("@clack/prompts", () => prompts.module);
 
   const originalSetTimeout = globalThis.setTimeout;
   if (options.fastTimeout) {
@@ -277,41 +266,25 @@ async function runStopWithHarness(
     }) as typeof setTimeout;
   }
 
-  const originalExit = process.exit;
-  const originalIsTTY = process.stdout.isTTY;
-  process.exit = ((code?: number) => {
-    throw new Error(`${EXIT_PREFIX}${code ?? 0}`);
-  }) as typeof process.exit;
-  Object.defineProperty(process.stdout, "isTTY", {
-    configurable: true,
-    value: options.isTTY ?? true,
-  });
+  const exitCode = await (async () => {
+    try {
+      return await withStdoutTTY(options.isTTY ?? true, async () =>
+        captureExitCode(async () => {
+          const { runStop } = await import("@/commands/stop");
+          if (hasStopCommandDef) {
+            await runStop(args);
+            return;
+          }
 
-  const { runStop } = await import("@/commands/stop");
-  let exitCode: number | undefined;
-
-  try {
-    if (hasStopCommandDef) {
-      await runStop(args);
-    } else {
-      await runStop(args, {
-        getCommandDef: () => undefined,
-      });
+          await runStop(args, {
+            getCommandDef: () => undefined,
+          });
+        })
+      );
+    } finally {
+      globalThis.setTimeout = originalSetTimeout;
     }
-  } catch (error) {
-    if (error instanceof Error && error.message.startsWith(EXIT_PREFIX)) {
-      exitCode = Number.parseInt(error.message.slice(EXIT_PREFIX.length), 10);
-    } else {
-      throw error;
-    }
-  } finally {
-    process.exit = originalExit;
-    globalThis.setTimeout = originalSetTimeout;
-    Object.defineProperty(process.stdout, "isTTY", {
-      configurable: true,
-      value: originalIsTTY,
-    });
-  }
+  })();
 
   return {
     listProjectActiveSessionsCalls,
@@ -322,13 +295,13 @@ async function runStopWithHarness(
     removeAllSessionStatesCalls,
     sendInterruptCalls,
     killSessionCalls,
-    infos,
-    errors,
-    steps,
-    messages,
-    successes,
+    infos: prompts.infos,
+    errors: prompts.errors,
+    steps: prompts.steps,
+    messages: prompts.messages,
+    successes: prompts.successes,
     exitCode,
-    selectMessages,
+    selectMessages: prompts.selectMessages,
   };
 }
 
@@ -453,10 +426,7 @@ describe("runStop", () => {
 
     expect(result.infos).toEqual(["No active review session for current working directory."]);
     expect(result.messages).toEqual([]);
-    expect(result.sendInterruptCalls).toEqual([]);
-    expect(result.killSessionCalls).toEqual([]);
-    expect(result.updateSessionStateCalls).toEqual([]);
-    expect(result.exitCode).toBeUndefined();
+    expectNoStopActions(result);
   });
 
   test("stop without active session state shows hint when other sessions are running", async () => {
@@ -471,23 +441,14 @@ describe("runStop", () => {
       "\nThere are 1 other session(s) running.",
       'Use "rr stop --all" to stop all running review sessions, or "rr" to see details.',
     ]);
-    expect(result.sendInterruptCalls).toEqual([]);
-    expect(result.killSessionCalls).toEqual([]);
-    expect(result.updateSessionStateCalls).toEqual([]);
-    expect(result.exitCode).toBeUndefined();
+    expectNoStopActions(result);
   });
 
   test("stop without --all stops the current project session", async () => {
     const cwd = process.cwd();
     const result = await runStopWithHarness([], {
       fastTimeout: true,
-      activeSessions: [
-        createActiveSession({
-          sessionId: "current-session-id",
-          sessionName: "rr-current-session",
-          projectPath: cwd,
-        }),
-      ],
+      activeSessions: [createCurrentSession()],
     });
 
     expect(result.listProjectActiveSessionsCalls).toEqual([cwd]);
@@ -512,14 +473,7 @@ describe("runStop", () => {
     const sessionPath = `${cwd}/.ralph-review/logs/session.jsonl`;
     const result = await runStopWithHarness([], {
       fastTimeout: true,
-      activeSessions: [
-        createActiveSession({
-          sessionId: "current-session-id",
-          sessionName: "rr-current-session",
-          projectPath: cwd,
-          sessionPath,
-        }),
-      ],
+      activeSessions: [createCurrentSession({ sessionPath })],
       computeSessionStats: async (path) =>
         createSessionStats({
           sessionPath: path,
@@ -539,13 +493,7 @@ describe("runStop", () => {
     const cwd = process.cwd();
     const result = await runStopWithHarness([], {
       fastTimeout: true,
-      activeSessions: [
-        createActiveSession({
-          sessionId: "current-session-id",
-          sessionName: "rr-current-session",
-          projectPath: cwd,
-        }),
-      ],
+      activeSessions: [createCurrentSession()],
       readPendingHandoff: async () =>
         createPendingHandoff({
           sessionId: "current-session-id",
@@ -567,14 +515,7 @@ describe("runStop", () => {
     const sessionPath = `${cwd}/.ralph-review/logs/session-apply-conflicted.jsonl`;
     const result = await runStopWithHarness([], {
       fastTimeout: true,
-      activeSessions: [
-        createActiveSession({
-          sessionId: "current-session-id",
-          sessionName: "rr-current-session",
-          projectPath: cwd,
-          sessionPath,
-        }),
-      ],
+      activeSessions: [createCurrentSession({ sessionPath })],
       computeSessionStats: async (path) =>
         createSessionStats({
           sessionPath: path,
@@ -594,14 +535,7 @@ describe("runStop", () => {
     const sessionPath = `${cwd}/.ralph-review/logs/session-apply-conflicted-fallback.jsonl`;
     const result = await runStopWithHarness([], {
       fastTimeout: true,
-      activeSessions: [
-        createActiveSession({
-          sessionId: "current-session-id",
-          sessionName: "rr-current-session",
-          projectPath: cwd,
-          sessionPath,
-        }),
-      ],
+      activeSessions: [createCurrentSession({ sessionPath })],
       computeSessionStats: async () => {
         throw new Error("session stats unavailable");
       },
@@ -659,14 +593,7 @@ describe("runStop", () => {
     const sessionPath = `${cwd}/.ralph-review/logs/session-no-handoff.jsonl`;
     const result = await runStopWithHarness([], {
       fastTimeout: true,
-      activeSessions: [
-        createActiveSession({
-          sessionId: "current-session-id",
-          sessionName: "rr-current-session",
-          projectPath: cwd,
-          sessionPath,
-        }),
-      ],
+      activeSessions: [createCurrentSession({ sessionPath })],
       computeSessionStats: async (path) =>
         createSessionStats({
           sessionPath: path,
@@ -684,20 +611,11 @@ describe("runStop", () => {
     const cwd = process.cwd();
     const result = await runStopWithHarness([], {
       fastTimeout: true,
-      activeSessions: [
-        createActiveSession({
-          sessionId: "session-older",
-          sessionName: "rr-older",
-          projectPath: cwd,
-          startTime: 100,
-        }),
-        createActiveSession({
-          sessionId: "session-newer",
-          sessionName: "rr-newer",
-          projectPath: cwd,
-          startTime: 200,
-        }),
-      ],
+      activeSessions: createOrderedProjectSessions(
+        cwd,
+        { sessionId: "session-older", sessionName: "rr-older" },
+        { sessionId: "session-newer", sessionName: "rr-newer" }
+      ),
       selectValues: ["session-newer"],
     });
 
@@ -715,20 +633,11 @@ describe("runStop", () => {
     const cwd = process.cwd();
     const result = await runStopWithHarness([], {
       isTTY: false,
-      activeSessions: [
-        createActiveSession({
-          sessionId: "session-a",
-          sessionName: "rr-a",
-          projectPath: cwd,
-          startTime: 100,
-        }),
-        createActiveSession({
-          sessionId: "session-b",
-          sessionName: "rr-b",
-          projectPath: cwd,
-          startTime: 200,
-        }),
-      ],
+      activeSessions: createOrderedProjectSessions(
+        cwd,
+        { sessionId: "session-a", sessionName: "rr-a" },
+        { sessionId: "session-b", sessionName: "rr-b" }
+      ),
     });
 
     expect(result.errors).toEqual([
@@ -744,20 +653,7 @@ describe("runStop", () => {
     const cwd = process.cwd();
     const result = await runStopWithHarness(["--session", "session-be"], {
       fastTimeout: true,
-      activeSessions: [
-        createActiveSession({
-          sessionId: "session-alpha",
-          sessionName: "rr-alpha",
-          projectPath: cwd,
-          startTime: 100,
-        }),
-        createActiveSession({
-          sessionId: "session-beta",
-          sessionName: "rr-beta",
-          projectPath: cwd,
-          startTime: 200,
-        }),
-      ],
+      activeSessions: createOrderedProjectSessions(cwd),
     });
 
     expect(result.steps).toEqual(["Stopping session: rr-beta"]);
@@ -771,20 +667,7 @@ describe("runStop", () => {
   test("stop --session rejects ambiguous prefixes within the current project", async () => {
     const cwd = process.cwd();
     const result = await runStopWithHarness(["--session", "session-"], {
-      activeSessions: [
-        createActiveSession({
-          sessionId: "session-alpha",
-          sessionName: "rr-alpha",
-          projectPath: cwd,
-          startTime: 100,
-        }),
-        createActiveSession({
-          sessionId: "session-beta",
-          sessionName: "rr-beta",
-          projectPath: cwd,
-          startTime: 200,
-        }),
-      ],
+      activeSessions: createOrderedProjectSessions(cwd),
     });
 
     expect(result.errors).toEqual([

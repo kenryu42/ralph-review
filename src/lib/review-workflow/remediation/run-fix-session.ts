@@ -56,7 +56,9 @@ export interface RunFixSessionDependencies {
   discardSessionWorktree: typeof discardSessionWorktree;
 }
 
-async function defaultPromptForSelection(artifact: FindingsArtifact): Promise<FindingId[] | null> {
+export async function promptForFixSelection(
+  artifact: FindingsArtifact
+): Promise<FindingId[] | null> {
   const selection = await p.multiselect({
     message: "Choose findings to fix",
     options: artifact.findings.map((finding) => ({
@@ -80,7 +82,7 @@ const DEFAULT_RUN_FIX_SESSION_DEPENDENCIES: RunFixSessionDependencies = {
   createSessionWorktreeAt,
   updateSelection,
   appendLog,
-  promptForSelection: defaultPromptForSelection,
+  promptForSelection: promptForFixSelection,
   runBatchFixPhase,
   appendFixResults,
   updateRetainedWorktree,
@@ -121,6 +123,26 @@ function buildRetainedCleanupWorktree(
     retainedBranch: retainedWorktree.worktreeBranch,
     preserveBranchOnDiscard: false,
   };
+}
+
+async function discardRetainedWorktree(
+  deps: RunFixSessionDependencies,
+  artifact: FindingsArtifact,
+  worktree: GitSessionWorktree,
+  retainedWorktree: RetainedSessionWorktree
+): Promise<FindingsArtifact> {
+  deps.discardSessionWorktree(buildRetainedCleanupWorktree(worktree, retainedWorktree));
+  try {
+    await deps.updateRetainedWorktree(
+      CONFIG_DIR,
+      artifact.projectPath,
+      artifact.sessionId,
+      undefined
+    );
+  } catch {
+    // Best-effort cleanup; the remediation result is still returned.
+  }
+  return artifact;
 }
 
 function resolveSelectionMode(selector: FixSessionSelector | undefined): {
@@ -232,6 +254,26 @@ async function emitProgress(
   await onProgress?.(updates);
 }
 
+async function emitResultProgress(
+  onProgress: RunFixSessionOptions["onProgress"],
+  result: FixSessionResult,
+  updates: Partial<SessionState> = {}
+): Promise<void> {
+  await emitProgress(onProgress, {
+    currentPhase: result.phase,
+    phase: result.phase,
+    sessionStatus: result.sessionStatus,
+    currentAgent: null,
+    selectedFindingIds: result.selection.selectedFindingIds,
+    reviewOutcome: result.reviewOutcome,
+    handoffStatus: result.handoffStatus,
+    handoffId: result.handoffId,
+    handoffUpdatedAt: result.handoffUpdatedAt,
+    commitSha: result.commitSha,
+    ...updates,
+  });
+}
+
 export async function runFixSession(
   config: Config,
   options: RunFixSessionOptions,
@@ -263,18 +305,7 @@ export async function runFixSession(
         unselectedFindings: [...artifact.findings],
         reason: resolvedSelection.error,
       });
-      await emitProgress(options.onProgress, {
-        currentPhase: result.phase,
-        phase: result.phase,
-        sessionStatus: result.sessionStatus,
-        currentAgent: null,
-        selectedFindingIds: result.selection.selectedFindingIds,
-        reviewOutcome: result.reviewOutcome,
-        handoffStatus: result.handoffStatus,
-        handoffId: result.handoffId,
-        handoffUpdatedAt: result.handoffUpdatedAt,
-        commitSha: result.commitSha,
-      });
+      await emitResultProgress(options.onProgress, result);
       return result;
     }
 
@@ -287,18 +318,7 @@ export async function runFixSession(
         reason: "Selection cancelled. Findings remain pending.",
         unselectedFindings: [...artifact.findings],
       });
-      await emitProgress(options.onProgress, {
-        currentPhase: result.phase,
-        phase: result.phase,
-        sessionStatus: result.sessionStatus,
-        currentAgent: null,
-        selectedFindingIds: result.selection.selectedFindingIds,
-        reviewOutcome: result.reviewOutcome,
-        handoffStatus: result.handoffStatus,
-        handoffId: result.handoffId,
-        handoffUpdatedAt: result.handoffUpdatedAt,
-        commitSha: result.commitSha,
-      });
+      await emitResultProgress(options.onProgress, result);
       return result;
     }
 
@@ -334,18 +354,7 @@ export async function runFixSession(
         selection: resolvedSelection.selection,
         unselectedFindings: [...artifact.findings],
       });
-      await emitProgress(options.onProgress, {
-        currentPhase: result.phase,
-        phase: result.phase,
-        sessionStatus: result.sessionStatus,
-        currentAgent: null,
-        selectedFindingIds: result.selection.selectedFindingIds,
-        reviewOutcome: result.reviewOutcome,
-        handoffStatus: result.handoffStatus,
-        handoffId: result.handoffId,
-        handoffUpdatedAt: result.handoffUpdatedAt,
-        commitSha: result.commitSha,
-      });
+      await emitResultProgress(options.onProgress, result);
       return result;
     }
 
@@ -412,7 +421,21 @@ export async function runFixSession(
       worktree,
     });
 
-    if (result.reviewOutcome === "incomplete") {
+    if (result.handoffStatus) {
+      if (artifactWithFixResults.retainedWorktree) {
+        const artifactWithoutRetainedWorktree = await discardRetainedWorktree(
+          deps,
+          artifact,
+          worktree,
+          artifactWithFixResults.retainedWorktree
+        );
+        artifactForResult = artifactWithoutRetainedWorktree;
+        result = {
+          ...result,
+          artifact: artifactWithoutRetainedWorktree,
+        };
+      }
+    } else if (result.reviewOutcome === "incomplete") {
       try {
         retainedWorktree = deps.finalizeSessionWorktree(worktree) ?? undefined;
       } catch {
@@ -435,14 +458,11 @@ export async function runFixSession(
         };
       }
     } else if (artifactWithFixResults.retainedWorktree) {
-      deps.discardSessionWorktree(
-        buildRetainedCleanupWorktree(worktree, artifactWithFixResults.retainedWorktree)
-      );
-      const artifactWithoutRetainedWorktree = await deps.updateRetainedWorktree(
-        CONFIG_DIR,
-        artifact.projectPath,
-        artifact.sessionId,
-        undefined
+      const artifactWithoutRetainedWorktree = await discardRetainedWorktree(
+        deps,
+        artifact,
+        worktree,
+        artifactWithFixResults.retainedWorktree
       );
       artifactForResult = artifactWithoutRetainedWorktree;
       result = {
@@ -451,17 +471,7 @@ export async function runFixSession(
       };
     }
 
-    await emitProgress(options.onProgress, {
-      currentPhase: result.phase,
-      phase: result.phase,
-      sessionStatus: result.sessionStatus,
-      currentAgent: null,
-      selectedFindingIds: result.selection.selectedFindingIds,
-      reviewOutcome: result.reviewOutcome,
-      handoffStatus: result.handoffStatus,
-      handoffId: result.handoffId,
-      handoffUpdatedAt: result.handoffUpdatedAt,
-      commitSha: result.commitSha,
+    await emitResultProgress(options.onProgress, result, {
       worktreeProjectPath: result.retainedWorktree?.worktreeProjectPath,
       worktreeBranch: result.retainedWorktree?.worktreeBranch,
       worktreeMergeReady: result.retainedWorktree?.mergeReady,
@@ -491,17 +501,9 @@ export async function runFixSession(
           (finding) => !selection.selectedFindingIds.includes(finding.id)
         ) ?? [],
     });
-    await emitProgress(options.onProgress, {
+    await emitResultProgress(options.onProgress, result, {
       currentPhase: phase,
-      phase: phase,
-      sessionStatus: result.sessionStatus,
-      currentAgent: null,
-      selectedFindingIds: result.selection.selectedFindingIds,
-      reviewOutcome: result.reviewOutcome,
-      handoffStatus: result.handoffStatus,
-      handoffId: result.handoffId,
-      handoffUpdatedAt: result.handoffUpdatedAt,
-      commitSha: result.commitSha,
+      phase,
       worktreeProjectPath: retainedWorktree?.worktreeProjectPath,
       worktreeBranch: retainedWorktree?.worktreeBranch,
       worktreeMergeReady: retainedWorktree?.mergeReady,

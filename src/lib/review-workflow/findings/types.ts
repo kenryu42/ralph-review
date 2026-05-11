@@ -19,7 +19,7 @@ export interface StoredFinding {
 
 export interface FindingFixResult {
   findingId: FindingId;
-  status: "resolved" | "unresolved";
+  status: "resolved" | "skipped" | "unresolved";
   summary: string;
 }
 

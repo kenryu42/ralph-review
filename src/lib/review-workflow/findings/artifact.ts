@@ -79,7 +79,9 @@ function isFixResultArray(value: unknown): value is FindingFixResult[] {
 
     return (
       isFindingId(entry.findingId) &&
-      (entry.status === "resolved" || entry.status === "unresolved") &&
+      (entry.status === "resolved" ||
+        entry.status === "skipped" ||
+        entry.status === "unresolved") &&
       typeof entry.summary === "string"
     );
   });

@@ -1,53 +1,20 @@
 import { describe, expect, test } from "bun:test";
-import type { GitSessionWorktree } from "@/lib/git";
 import type { FindingsArtifact, StoredFinding } from "@/lib/review-workflow/findings/types";
 import { finalizeResult } from "@/lib/review-workflow/results/finalize-result";
+import {
+  createFindingsArtifact,
+  createSessionWorktree,
+  createStoredFinding,
+} from "../../../helpers/review-workflow";
 
-function createFinding(
-  id: StoredFinding["id"],
-  priority: StoredFinding["priority"] = "P1"
-): StoredFinding {
-  return {
-    id,
-    fingerprint: `fp-${id}`,
-    locationKey: `src/file-${id}.ts:10:12`,
-    title: `Finding ${id}`,
-    body: `Body for ${id}`,
-    priority,
-    confidenceScore: 0.91,
-    filePath: `src/file-${id}.ts`,
-    startLine: 10,
-    endLine: 12,
-  };
-}
+type FixResult = Parameters<typeof finalizeResult>[0]["fixResults"][number];
 
-function createArtifact(findings: StoredFinding[]): FindingsArtifact {
-  return {
-    artifactVersion: 1,
-    sessionId: "session-123",
-    projectPath: "/repo/project",
-    logPath: "/tmp/session-123.jsonl",
-    baselineRef: "refs/ralph-review/sessions/session-123/baseline",
-    baselineCommitSha: "baseline-sha-123",
-    sourceBaselineRef: "refs/ralph-review/sessions/session-123/source",
-    sourceBaselineCommitSha: "source-baseline-sha-123",
-    sourceBaselineFingerprint: "tracked-fingerprint-1",
-    findings,
-    selectedFindingIds: [],
-    createdAt: "2026-01-01T00:00:00.000Z",
-    updatedAt: "2026-01-01T00:00:00.000Z",
-  };
-}
-
-function createWorktree(): GitSessionWorktree {
-  return {
-    sourceProjectPath: "/repo/project",
-    sourceRepoPath: "/repo/project",
-    worktreeProjectPath: "/tmp/worktree",
-    agentProjectPath: "/tmp/worktree",
-    retainedBranch: "rr-worktree-session-123",
-    headKind: "detached",
-  };
+function createFixResult(
+  findingId: FixResult["findingId"],
+  status: FixResult["status"],
+  summary: string
+): FixResult {
+  return { findingId, status, summary };
 }
 
 function getFirstFinding(artifact: FindingsArtifact): StoredFinding {
@@ -59,41 +26,78 @@ function getFirstFinding(artifact: FindingsArtifact): StoredFinding {
   return firstFinding;
 }
 
+async function finalizeWithBlockedHandoff(artifact: FindingsArtifact, fixResults: FixResult[]) {
+  return await finalizeResult(
+    {
+      artifact,
+      selection: {
+        selectedFindingIds: fixResults.map((result) => result.findingId),
+        selectedFindings: artifact.findings.filter((finding) =>
+          fixResults.some((result) => result.findingId === finding.id)
+        ),
+      },
+      fixResults,
+      worktree: createSessionWorktree(),
+    },
+    {
+      createOrAutoApplyHandoff: async () => {
+        throw new Error("handoff should not be created");
+      },
+      appendLog: async () => {
+        throw new Error("handoff log should not be written");
+      },
+    }
+  );
+}
+
+async function finalizeWithCreatedHandoff(
+  artifact: FindingsArtifact,
+  fixResults: FixResult[],
+  handoffStatus: "pending-apply" | "applied-auto"
+) {
+  const calls: string[] = [];
+  const result = await finalizeResult(
+    {
+      artifact,
+      selection: {
+        selectedFindingIds: fixResults.map((fixResult) => fixResult.findingId),
+        selectedFindings: artifact.findings.filter((finding) =>
+          fixResults.some((fixResult) => fixResult.findingId === finding.id)
+        ),
+      },
+      fixResults,
+      worktree: createSessionWorktree(),
+    },
+    {
+      createOrAutoApplyHandoff: async () => {
+        calls.push("handoff");
+        return {
+          handoffId: "session-123-handoff-1",
+          handoffStatus,
+          commitSha: "commit-123",
+          handoffUpdatedAt: 123,
+        };
+      },
+      appendLog: async () => {
+        calls.push("log");
+      },
+    }
+  );
+
+  return { calls, result };
+}
+
 describe("review-workflow/results/finalizeResult", () => {
   test("returns fixed-selected and creates a handoff when all selected findings are resolved", async () => {
-    const calls: string[] = [];
-    const artifact = createArtifact([createFinding("F001"), createFinding("F002")]);
+    const artifact = createFindingsArtifact([
+      createStoredFinding("F001"),
+      createStoredFinding("F002"),
+    ]);
 
-    const result = await finalizeResult(
-      {
-        artifact,
-        selection: {
-          selectedFindingIds: ["F001"],
-          selectedFindings: [getFirstFinding(artifact)],
-        },
-        fixResults: [
-          {
-            findingId: "F001",
-            status: "resolved",
-            summary: "Resolved with a focused code change.",
-          },
-        ],
-        worktree: createWorktree(),
-      },
-      {
-        createOrAutoApplyHandoff: async () => {
-          calls.push("handoff");
-          return {
-            handoffId: "session-123-handoff-1",
-            handoffStatus: "pending-apply",
-            commitSha: "commit-123",
-            handoffUpdatedAt: 123,
-          };
-        },
-        appendLog: async () => {
-          calls.push("log");
-        },
-      }
+    const { calls, result } = await finalizeWithCreatedHandoff(
+      artifact,
+      [createFixResult("F001", "resolved", "Resolved with a focused code change.")],
+      "pending-apply"
     );
 
     expect(result.reviewOutcome).toBe("fixed-selected");
@@ -104,47 +108,73 @@ describe("review-workflow/results/finalizeResult", () => {
     expect(calls).toEqual(["handoff", "log"]);
   });
 
-  test("returns incomplete and skips handoff creation when any selected finding is unresolved", async () => {
-    const artifact = createArtifact([createFinding("F001"), createFinding("F002")]);
+  test("returns fixed-selected and creates a handoff when selected findings are resolved or skipped", async () => {
+    const artifact = createFindingsArtifact([
+      createStoredFinding("F001"),
+      createStoredFinding("F002"),
+    ]);
 
-    const result = await finalizeResult(
-      {
-        artifact,
-        selection: {
-          selectedFindingIds: ["F001", "F002"],
-          selectedFindings: [...artifact.findings],
-        },
-        fixResults: [
-          {
-            findingId: "F001",
-            status: "resolved",
-            summary: "Resolved with a focused code change.",
-          },
-          {
-            findingId: "F002",
-            status: "unresolved",
-            summary: "Could not prove a safe remediation.",
-          },
-        ],
-        worktree: createWorktree(),
-      },
-      {
-        createOrAutoApplyHandoff: async () => {
-          throw new Error("handoff should not be created");
-        },
-        appendLog: async () => {
-          throw new Error("handoff log should not be written");
-        },
-      }
+    const { calls, result } = await finalizeWithCreatedHandoff(
+      artifact,
+      [
+        createFixResult("F001", "resolved", "Resolved with a focused code change."),
+        createFixResult("F002", "skipped", "SKIP: false positive."),
+      ],
+      "applied-auto"
     );
 
+    expect(result.reviewOutcome).toBe("fixed-selected");
+    expect(result.unresolvedSelectedFindings).toEqual([]);
+    expect(result.handoffStatus).toBe("applied-auto");
+    expect(result.handoffId).toBe("session-123-handoff-1");
+    expect(calls).toEqual(["handoff", "log"]);
+  });
+
+  test("returns fixed-selected without a handoff when selected findings are skipped only", async () => {
+    const artifact = createFindingsArtifact([createStoredFinding("F001")]);
+
+    const result = await finalizeWithBlockedHandoff(artifact, [
+      createFixResult("F001", "skipped", "SKIP: not actionable."),
+    ]);
+
+    expect(result.reviewOutcome).toBe("fixed-selected");
+    expect(result.reason).toBe("Selected findings were skipped after verification.");
+    expect(result.unresolvedSelectedFindings).toEqual([]);
+    expect(result.handoffStatus).toBeUndefined();
+  });
+
+  test("returns incomplete and skips handoff creation when selected findings are resolved and unresolved", async () => {
+    const artifact = createFindingsArtifact([
+      createStoredFinding("F001"),
+      createStoredFinding("F002"),
+    ]);
+
+    const result = await finalizeWithBlockedHandoff(artifact, [
+      createFixResult("F001", "resolved", "Resolved with a focused code change."),
+      createFixResult("F002", "unresolved", "Could not safely finish remediation."),
+    ]);
+
     expect(result.reviewOutcome).toBe("incomplete");
+    expect(result.reason).toBe(
+      "Some selected findings were resolved, but others remain unresolved. Ralph retained the remediation worktree instead of creating a handoff because the partial edits may be unsafe to apply automatically."
+    );
     expect(result.unresolvedSelectedFindings.map((finding) => finding.id)).toEqual(["F002"]);
     expect(result.handoffStatus).toBeUndefined();
   });
 
+  test("returns incomplete and skips handoff creation when no selected findings are resolved", async () => {
+    const artifact = createFindingsArtifact([createStoredFinding("F001")]);
+
+    const result = await finalizeWithBlockedHandoff(artifact, [
+      createFixResult("F001", "unresolved", "Could not prove a safe remediation."),
+    ]);
+
+    expect(result.reviewOutcome).toBe("incomplete");
+    expect(result.handoffStatus).toBeUndefined();
+  });
+
   test("keeps a clean no-op remediation fixed-selected when no handoff is created", async () => {
-    const artifact = createArtifact([createFinding("F001")]);
+    const artifact = createFindingsArtifact([createStoredFinding("F001")]);
 
     const result = await finalizeResult(
       {
@@ -160,7 +190,7 @@ describe("review-workflow/results/finalizeResult", () => {
             summary: "Confirmed the finding was already resolved in the selected baseline.",
           },
         ],
-        worktree: createWorktree(),
+        worktree: createSessionWorktree(),
       },
       {
         createOrAutoApplyHandoff: async () => null,

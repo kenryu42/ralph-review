@@ -517,6 +517,7 @@ function applyEntryToSummary(
     const unresolvedFindings = entry.fixResults.filter(
       (result) => result.status === "unresolved"
     ).length;
+    const skippedFindings = entry.fixResults.filter((result) => result.status === "skipped").length;
     const failed = entry.error !== undefined;
     const interrupted = entry.error?.message.toLowerCase().includes("interrupt") === true;
 
@@ -528,7 +529,7 @@ function applyEntryToSummary(
     next.totalResolvedSelectedFindings = resolvedFindings;
     next.totalUnresolvedSelectedFindings = unresolvedFindings;
     next.totalFixes = resolvedFindings;
-    next.totalSkipped = unresolvedFindings;
+    next.totalSkipped = skippedFindings + unresolvedFindings;
 
     if (entry.duration !== undefined) {
       next.totalDuration = (summary.totalDuration ?? 0) + entry.duration;

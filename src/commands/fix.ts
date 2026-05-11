@@ -12,7 +12,10 @@ import {
 } from "@/lib/priority-list";
 import { loadFindingsArtifactBySessionId } from "@/lib/review-workflow/findings/artifact";
 import type { FindingId, FindingsArtifact } from "@/lib/review-workflow/findings/types";
-import { runFixSession } from "@/lib/review-workflow/remediation/run-fix-session";
+import {
+  promptForFixSelection,
+  runFixSession,
+} from "@/lib/review-workflow/remediation/run-fix-session";
 import {
   createSessionState,
   HEARTBEAT_INTERVAL_MS,
@@ -67,30 +70,19 @@ export interface FixCommandDeps {
   exit: (code: number) => void;
 }
 
-function defaultPromptForSelection(artifact: FindingsArtifact): Promise<FindingId[] | null> {
-  return p
-    .multiselect({
-      message: "Choose findings to fix",
-      options: artifact.findings.map((finding) => ({
-        value: finding.id,
-        label: `${finding.id} [${finding.priority}] ${finding.title}`,
-        hint: `${finding.filePath}:${finding.startLine}-${finding.endLine}`,
-      })),
-      required: false,
-    })
-    .then((selection) => {
-      if (p.isCancel(selection)) {
-        return null;
-      }
+interface LoadedFixArtifact {
+  parsed: ParsedFixCommandOptions;
+  artifact: FindingsArtifact;
+}
 
-      return (selection as FindingId[]) ?? [];
-    });
+interface PreparedFixCommand extends LoadedFixArtifact {
+  commandDeps: FixCommandDeps;
 }
 
 const DEFAULT_FIX_COMMAND_DEPS: FixCommandDeps = {
   loadConfig: loadEffectiveConfig,
   loadFindingsArtifactBySessionId,
-  promptForSelection: defaultPromptForSelection,
+  promptForSelection: promptForFixSelection,
   runFixSession,
   isTTY: () => process.stdout.isTTY === true,
   isTmuxInstalled,
@@ -332,31 +324,69 @@ export function parseFixCommandOptions(args: string[]): ParsedFixCommandOptions 
   };
 }
 
-export async function runFix(
-  args: string[] = [],
-  deps: Partial<FixCommandDeps> = {}
-): Promise<void> {
-  const commandDeps = { ...DEFAULT_FIX_COMMAND_DEPS, ...deps };
-
+async function loadFixCommandArtifact(
+  args: string[],
+  commandDeps: FixCommandDeps
+): Promise<LoadedFixArtifact | null> {
   let parsed: ParsedFixCommandOptions;
   try {
     parsed = parseFixCommandOptions(args);
   } catch (error) {
     commandDeps.logError(`${error}`);
     commandDeps.exit(1);
-    return;
+    return null;
   }
 
   const artifact = await commandDeps.loadFindingsArtifactBySessionId(CONFIG_DIR, parsed.sessionId);
   if (!artifact) {
     commandDeps.logError(`Findings artifact not found for session ${parsed.sessionId}`);
     commandDeps.exit(1);
+    return null;
+  }
+
+  return { parsed, artifact };
+}
+
+async function prepareFixCommand(
+  args: string[],
+  deps: Partial<FixCommandDeps>
+): Promise<PreparedFixCommand | null> {
+  const commandDeps = { ...DEFAULT_FIX_COMMAND_DEPS, ...deps };
+  const loaded = await loadFixCommandArtifact(args, commandDeps);
+  return loaded ? { commandDeps, ...loaded } : null;
+}
+
+async function withPreparedFixCommand(
+  args: string[],
+  deps: Partial<FixCommandDeps>,
+  run: (prepared: PreparedFixCommand) => Promise<void>
+): Promise<void> {
+  const prepared = await prepareFixCommand(args, deps);
+  if (!prepared) {
     return;
   }
 
-  if (!(await commandDeps.loadConfig(artifact.projectPath))) {
+  await run(prepared);
+}
+
+async function loadRequiredFixConfig(
+  commandDeps: FixCommandDeps,
+  projectPath: string
+): ReturnType<FixCommandDeps["loadConfig"]> {
+  const config = await commandDeps.loadConfig(projectPath);
+  if (!config) {
     commandDeps.logError("Failed to load configuration");
     commandDeps.exit(1);
+  }
+  return config;
+}
+
+async function runPreparedFix({
+  commandDeps,
+  parsed,
+  artifact,
+}: PreparedFixCommand): Promise<void> {
+  if (!(await loadRequiredFixConfig(commandDeps, artifact.projectPath))) {
     return;
   }
 
@@ -423,33 +453,18 @@ export async function runFix(
   }
 }
 
-export async function runFixForeground(
-  args: string[] = [],
-  deps: Partial<FixCommandDeps> = {}
-): Promise<void> {
-  const commandDeps = { ...DEFAULT_FIX_COMMAND_DEPS, ...deps };
+export function runFix(args: string[] = [], deps: Partial<FixCommandDeps> = {}): Promise<void> {
+  return withPreparedFixCommand(args, deps, runPreparedFix);
+}
 
-  let parsed: ParsedFixCommandOptions;
-  try {
-    parsed = parseFixCommandOptions(args);
-  } catch (error) {
-    commandDeps.logError(`${error}`);
-    commandDeps.exit(1);
-    return;
-  }
-
-  const artifact = await commandDeps.loadFindingsArtifactBySessionId(CONFIG_DIR, parsed.sessionId);
-  if (!artifact) {
-    commandDeps.logError(`Findings artifact not found for session ${parsed.sessionId}`);
-    commandDeps.exit(1);
-    return;
-  }
-
+async function runPreparedFixForeground({
+  commandDeps,
+  parsed,
+  artifact,
+}: PreparedFixCommand): Promise<void> {
   const projectPath = commandDeps.env.RR_PROJECT_PATH || artifact.projectPath || commandDeps.cwd();
-  const config = await commandDeps.loadConfig(projectPath);
+  const config = await loadRequiredFixConfig(commandDeps, projectPath);
   if (!config) {
-    commandDeps.logError("Failed to load configuration");
-    commandDeps.exit(1);
     return;
   }
 
@@ -592,4 +607,11 @@ export async function runFixForeground(
       expectedSessionId: sessionId,
     });
   }
+}
+
+export function runFixForeground(
+  args: string[] = [],
+  deps: Partial<FixCommandDeps> = {}
+): Promise<void> {
+  return withPreparedFixCommand(args, deps, runPreparedFixForeground);
 }

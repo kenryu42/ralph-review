@@ -6,48 +6,83 @@ import {
   parsePiListModelsOutput,
   reviewAgentCapabilities,
 } from "@/lib/diagnostics";
-
-type SpawnProcess = ReturnType<typeof Bun.spawn>;
+import { createMockProcess, createTextStream, useImmediateTimeout } from "../../helpers/process";
 
 let originalSpawn: typeof Bun.spawn;
 let originalWhich: typeof Bun.which;
 
-function createTextStream(text: string): ReadableStream<Uint8Array> {
-  const encoder = new TextEncoder();
-  return new ReadableStream<Uint8Array>({
-    start(controller) {
-      controller.enqueue(encoder.encode(text));
-      controller.close();
-    },
-  });
-}
-
-function createMockProcess(
-  stdout: ReadableStream<Uint8Array> | null,
-  stderr: ReadableStream<Uint8Array> | null,
-  exitCode: number,
-  onKill?: () => void
-): SpawnProcess {
-  return {
-    stdout,
-    stderr,
-    exited: Promise.resolve(exitCode),
-    kill: () => {
-      onKill?.();
-      return true;
-    },
-  } as unknown as SpawnProcess;
-}
-
-function createDynamicAvailability() {
+function createAvailability(
+  overrides: Partial<
+    Record<"codex" | "claude" | "droid" | "gemini" | "opencode" | "pi", boolean>
+  > = {}
+) {
   return {
     codex: false,
     claude: false,
     droid: false,
     gemini: false,
-    opencode: true,
-    pi: true,
+    opencode: false,
+    pi: false,
+    ...overrides,
   } as const;
+}
+
+function createDynamicAvailability(
+  overrides: Partial<
+    Record<"codex" | "claude" | "droid" | "gemini" | "opencode" | "pi", boolean>
+  > = {}
+) {
+  return createAvailability({ opencode: true, pi: true, ...overrides });
+}
+
+function reviewDroidOnlyCapabilities() {
+  return reviewAgentCapabilities({
+    availabilityOverride: createAvailability({ droid: true }),
+  });
+}
+
+function reviewCodexOnlyCapabilities() {
+  return reviewAgentCapabilities({
+    availabilityOverride: createAvailability({ codex: true }),
+  });
+}
+
+function reviewDynamicPiCapabilities() {
+  return reviewAgentCapabilities({
+    availabilityOverride: {
+      ...createDynamicAvailability(),
+      opencode: false,
+    },
+  });
+}
+
+function setSpawnProbe(
+  expectedArgs: string[],
+  stdout = "",
+  stderr = "",
+  exitCode = 0,
+  onKill?: () => void
+) {
+  Bun.spawn = ((args) => {
+    expect(args).toEqual(expectedArgs);
+    return createMockProcess(createTextStream(stdout), createTextStream(stderr), exitCode, onKill);
+  }) as typeof Bun.spawn;
+}
+
+function createOpencodeFetchOptions(onFetch: () => void, forceRefresh = false) {
+  return {
+    availabilityOverride: {
+      ...createDynamicAvailability(),
+      pi: false,
+    },
+    deps: {
+      fetchOpencodeModels: async () => {
+        onFetch();
+        return [{ value: "gpt-5.2", label: "gpt-5.2" }];
+      },
+    },
+    forceRefresh,
+  };
 }
 
 function createCodexDebugModelsOutput(): string {
@@ -191,20 +226,9 @@ describe("diagnostics capabilities", () => {
 
   test("reuses in-memory cache between calls", async () => {
     let calls = 0;
-
-    const options = {
-      availabilityOverride: {
-        ...createDynamicAvailability(),
-        opencode: true,
-        pi: false,
-      },
-      deps: {
-        fetchOpencodeModels: async () => {
-          calls += 1;
-          return [{ value: "gpt-5.2", label: "gpt-5.2" }];
-        },
-      },
-    };
+    const options = createOpencodeFetchOptions(() => {
+      calls += 1;
+    });
 
     await reviewAgentCapabilities(options);
     await reviewAgentCapabilities(options);
@@ -214,18 +238,9 @@ describe("diagnostics capabilities", () => {
 
   test("bypasses cache when forceRefresh is true", async () => {
     let calls = 0;
-    const options = {
-      availabilityOverride: {
-        ...createDynamicAvailability(),
-        pi: false,
-      },
-      deps: {
-        fetchOpencodeModels: async () => {
-          calls += 1;
-          return [{ value: "gpt-5.2", label: "gpt-5.2" }];
-        },
-      },
-    };
+    const options = createOpencodeFetchOptions(() => {
+      calls += 1;
+    });
 
     await reviewAgentCapabilities(options);
     await reviewAgentCapabilities(options);
@@ -266,7 +281,6 @@ describe("diagnostics capabilities", () => {
 
   test("returns timeout warning when opencode probe times out", async () => {
     let killed = false;
-    const originalSetTimeout = globalThis.setTimeout;
     Bun.spawn = ((args) => {
       expect(args).toEqual(["opencode", "models"]);
       return createMockProcess(
@@ -278,13 +292,7 @@ describe("diagnostics capabilities", () => {
         }
       );
     }) as typeof Bun.spawn;
-    globalThis.setTimeout = ((...args: Parameters<typeof setTimeout>) => {
-      const handler = args[0];
-      if (typeof handler === "function") {
-        handler();
-      }
-      return 0 as unknown as ReturnType<typeof setTimeout>;
-    }) as typeof setTimeout;
+    const restoreSetTimeout = useImmediateTimeout();
 
     try {
       const capabilities = await reviewAgentCapabilities({
@@ -298,26 +306,14 @@ describe("diagnostics capabilities", () => {
       expect(capabilities.opencode.modelCatalogSource).toBe("none");
       expect(capabilities.opencode.probeWarnings[0]).toContain("probe timed out after 8000ms");
     } finally {
-      globalThis.setTimeout = originalSetTimeout;
+      restoreSetTimeout();
     }
   });
 
   test("returns fallback message when droid probe exits non-zero without stderr", async () => {
-    Bun.spawn = ((args) => {
-      expect(args).toEqual(["droid", "exec", "--help"]);
-      return createMockProcess(createTextStream(""), createTextStream("   "), 3);
-    }) as typeof Bun.spawn;
+    setSpawnProbe(["droid", "exec", "--help"], "", "   ", 3);
 
-    const capabilities = await reviewAgentCapabilities({
-      availabilityOverride: {
-        codex: false,
-        claude: false,
-        droid: true,
-        gemini: false,
-        opencode: false,
-        pi: false,
-      },
-    });
+    const capabilities = await reviewDroidOnlyCapabilities();
 
     expect(capabilities.droid.modelCatalogSource).toBe("none");
     expect(capabilities.droid.models).toEqual([]);
@@ -325,25 +321,12 @@ describe("diagnostics capabilities", () => {
   });
 
   test("warns when droid help returns no parseable models", async () => {
-    Bun.spawn = ((args) => {
-      expect(args).toEqual(["droid", "exec", "--help"]);
-      return createMockProcess(
-        createTextStream("Usage: droid exec [options] [prompt]\n\nModel details:\n"),
-        createTextStream(""),
-        0
-      );
-    }) as typeof Bun.spawn;
+    setSpawnProbe(
+      ["droid", "exec", "--help"],
+      "Usage: droid exec [options] [prompt]\n\nModel details:\n"
+    );
 
-    const capabilities = await reviewAgentCapabilities({
-      availabilityOverride: {
-        codex: false,
-        claude: false,
-        droid: true,
-        gemini: false,
-        opencode: false,
-        pi: false,
-      },
-    });
+    const capabilities = await reviewDroidOnlyCapabilities();
 
     expect(capabilities.droid.modelCatalogSource).toBe("none");
     expect(capabilities.droid.models).toEqual([]);
@@ -358,12 +341,7 @@ describe("diagnostics capabilities", () => {
       return createMockProcess(createTextStream(""), createTextStream("   "), 3);
     }) as typeof Bun.spawn;
 
-    const capabilities = await reviewAgentCapabilities({
-      availabilityOverride: {
-        ...createDynamicAvailability(),
-        opencode: false,
-      },
-    });
+    const capabilities = await reviewDynamicPiCapabilities();
 
     expect(capabilities.pi.modelCatalogSource).toBe("none");
     expect(capabilities.pi.probeWarnings[0]).toContain("pi --list-models exited with code 3");
@@ -385,12 +363,7 @@ describe("diagnostics capabilities", () => {
       );
     }) as typeof Bun.spawn;
 
-    const capabilities = await reviewAgentCapabilities({
-      availabilityOverride: {
-        ...createDynamicAvailability(),
-        opencode: false,
-      },
-    });
+    const capabilities = await reviewDynamicPiCapabilities();
 
     expect(capabilities.pi.modelCatalogSource).toBe("dynamic");
     expect(capabilities.pi.models).toEqual([
@@ -536,10 +509,7 @@ describe("diagnostics capabilities", () => {
       whichCalls += 1;
       return command === "codex" ? "/usr/local/bin/codex" : null;
     }) as typeof Bun.which;
-    Bun.spawn = ((args) => {
-      expect(args).toEqual(["codex", "debug", "models"]);
-      return createMockProcess(createTextStream(""), createTextStream("failed"), 2);
-    }) as typeof Bun.spawn;
+    setSpawnProbe(["codex", "debug", "models"], "", "failed", 2);
 
     const capabilities = await reviewAgentCapabilities();
 
@@ -551,21 +521,9 @@ describe("diagnostics capabilities", () => {
   });
 
   test("returns warning when codex probe exits non-zero", async () => {
-    Bun.spawn = ((args) => {
-      expect(args).toEqual(["codex", "debug", "models"]);
-      return createMockProcess(createTextStream(""), createTextStream("failed"), 2);
-    }) as typeof Bun.spawn;
+    setSpawnProbe(["codex", "debug", "models"], "", "failed", 2);
 
-    const capabilities = await reviewAgentCapabilities({
-      availabilityOverride: {
-        codex: true,
-        claude: false,
-        droid: false,
-        gemini: false,
-        opencode: false,
-        pi: false,
-      },
-    });
+    const capabilities = await reviewCodexOnlyCapabilities();
 
     expect(capabilities.codex.modelCatalogSource).toBe("none");
     expect(capabilities.codex.models).toEqual([]);
@@ -573,25 +531,12 @@ describe("diagnostics capabilities", () => {
   });
 
   test("warns when codex debug models returns no usable models", async () => {
-    Bun.spawn = ((args) => {
-      expect(args).toEqual(["codex", "debug", "models"]);
-      return createMockProcess(
-        createTextStream(JSON.stringify({ models: [{ slug: "codex-auto-review" }] })),
-        createTextStream(""),
-        0
-      );
-    }) as typeof Bun.spawn;
+    setSpawnProbe(
+      ["codex", "debug", "models"],
+      JSON.stringify({ models: [{ slug: "codex-auto-review" }] })
+    );
 
-    const capabilities = await reviewAgentCapabilities({
-      availabilityOverride: {
-        codex: true,
-        claude: false,
-        droid: false,
-        gemini: false,
-        opencode: false,
-        pi: false,
-      },
-    });
+    const capabilities = await reviewCodexOnlyCapabilities();
 
     expect(capabilities.codex.modelCatalogSource).toBe("none");
     expect(capabilities.codex.models).toEqual([]);

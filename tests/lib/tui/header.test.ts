@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { testRender } from "@opentui/react/test-utils";
 import { act, createElement } from "react";
-import type { SessionState } from "@/lib/session-state";
 import { getHeaderAgentDisplays, Header } from "@/lib/tui/dashboard/Header";
 import { createConfig } from "../../helpers/diagnostics";
+import { createSessionState, destroyTestRender } from "../../helpers/tui";
 
 describe("getHeaderAgentDisplays", () => {
   test("returns unknown defaults when config is missing", () => {
@@ -18,28 +18,9 @@ describe("Header", () => {
   let testSetup: Awaited<ReturnType<typeof testRender>> | null = null;
 
   afterEach(async () => {
-    if (testSetup) {
-      await act(async () => {
-        testSetup?.renderer.destroy();
-      });
-      testSetup = null;
-    }
+    await destroyTestRender(testSetup);
+    testSetup = null;
   });
-
-  function createSession(): SessionState {
-    return {
-      schemaVersion: 2,
-      sessionId: "session-1",
-      sessionName: "rr-test-123",
-      startTime: Date.now(),
-      lastHeartbeat: Date.now(),
-      pid: process.pid,
-      projectPath: "/test/project",
-      branch: "main",
-      state: "running",
-      mode: "background",
-    };
-  }
 
   async function renderFrame(props: Partial<Parameters<typeof Header>[0]> = {}): Promise<string> {
     const defaultProps: Parameters<typeof Header>[0] = {
@@ -81,7 +62,7 @@ describe("Header", () => {
   });
 
   test("renders active icon when session is present", async () => {
-    const frame = await renderFrame({ session: createSession() });
+    const frame = await renderFrame({ session: createSessionState() });
     expect(frame).toContain("●");
   });
 

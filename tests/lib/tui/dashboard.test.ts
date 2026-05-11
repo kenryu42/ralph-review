@@ -1,45 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import type { ActiveSession } from "@/lib/session-state";
 import {
   resolveDashboardCloseAction,
   resolveDashboardKeyAction,
 } from "@/lib/tui/dashboard/dashboard-keyboard";
 import { stopSelectedDashboardSession } from "@/lib/tui/dashboard/dashboard-stop";
-
-interface Deferred<T> {
-  promise: Promise<T>;
-  resolve: (value: T) => void;
-  reject: (reason?: unknown) => void;
-}
-
-function createDeferred<T>(): Deferred<T> {
-  let resolve!: (value: T) => void;
-  let reject!: (reason?: unknown) => void;
-  const promise = new Promise<T>((res, rej) => {
-    resolve = res;
-    reject = rej;
-  });
-  return { promise, resolve, reject };
-}
-
-function createActiveSession(overrides: Partial<ActiveSession> = {}): ActiveSession {
-  return {
-    schemaVersion: 2,
-    sessionId: "session-1",
-    sessionName: "rr-project-main",
-    startTime: Date.now() - 5_000,
-    lastHeartbeat: Date.now(),
-    pid: process.pid,
-    projectPath: "/repo/project",
-    branch: "main",
-    state: "running",
-    mode: "background",
-    iteration: 1,
-    currentAgent: "reviewer",
-    sessionStatePath: "/tmp/rr-project-main.lock",
-    ...overrides,
-  };
-}
+import { createDeferred } from "../../helpers/async";
+import { createActiveSession } from "../../helpers/tui";
 
 describe("stopSelectedDashboardSession", () => {
   test("closes the stop picker and waits for the stop request to resolve", async () => {

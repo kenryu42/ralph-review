@@ -1882,6 +1882,45 @@ describe("logger", () => {
       expect(projectStats.displayName).toBe("project");
     });
 
+    test("counts unresolved batch-fix results in fix-rate stats", async () => {
+      const logPath = await createLogSession(tempDir, "/path/to/project", "main");
+      await appendLog(logPath, {
+        type: "system",
+        timestamp: Date.now(),
+        projectPath: "/path/to/project",
+        gitBranch: "main",
+        reviewer: { agent: "codex" },
+        fixer: { agent: "claude" },
+        maxIterations: 5,
+      } as SystemEntry);
+      await appendLog(logPath, {
+        type: "batch_fix",
+        timestamp: Date.now(),
+        selectedFindingIds: ["F001", "F002"],
+        fixResults: [
+          {
+            findingId: "F001",
+            status: "resolved",
+            summary: "Resolved F001",
+          },
+          {
+            findingId: "F002",
+            status: "unresolved",
+            summary: "Could not safely remediate F002",
+          },
+        ],
+      });
+
+      const sessions = await listProjectLogSessions(tempDir, "/path/to/project");
+      const projectStats = await computeProjectStats(getProjectName("/path/to/project"), sessions);
+
+      expect(projectStats.totalFixes).toBe(1);
+      expect(projectStats.totalSkipped).toBe(1);
+      expect(projectStats.fixRate).toBe(0.5);
+      expect(projectStats.sessions[0]?.totalResolvedSelectedFindings).toBe(1);
+      expect(projectStats.sessions[0]?.totalUnresolvedSelectedFindings).toBe(1);
+    });
+
     test("derives displayName from older sessions when latest lacks system entry", async () => {
       const projectPath = "/path/to/project";
 

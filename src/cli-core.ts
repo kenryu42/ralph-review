@@ -1,5 +1,52 @@
 import { type CommandDef, formatCommandHelp, formatMainHelp } from "./lib/cli-parser";
 
+const RUN_REVIEW_OPTIONS: CommandDef["options"] = [
+  { name: "max", alias: "m", type: "number", description: "Max iterations" },
+  {
+    name: "force",
+    alias: "f",
+    type: "boolean",
+    description: "Run full max iterations even if no issues are found",
+  },
+  {
+    name: "auto",
+    type: "boolean",
+    description: "Automatically run remediation after review completes",
+  },
+  {
+    name: "priority",
+    type: "string",
+    placeholder: "P0,P1",
+    description: "Priority filter for --auto using comma-separated values",
+  },
+];
+
+const FIX_SELECTION_OPTIONS: CommandDef["options"] = [
+  {
+    name: "session",
+    alias: "s",
+    type: "string",
+    description: "Session ID whose persisted findings should be fixed",
+  },
+  {
+    name: "all",
+    type: "boolean",
+    description: "Select all persisted findings for remediation",
+  },
+  {
+    name: "priority",
+    type: "string",
+    placeholder: "P0,P1,P2,P3",
+    description: "Select findings by priority (comma-separated values)",
+  },
+  {
+    name: "id",
+    type: "string",
+    placeholder: "F001",
+    description: "Select findings by ID (repeatable)",
+  },
+];
+
 export const COMMANDS: CommandDef[] = [
   {
     name: "init",
@@ -67,24 +114,7 @@ export const COMMANDS: CommandDef[] = [
     name: "run",
     description: "Run review only and persist findings for later fixing",
     options: [
-      { name: "max", alias: "m", type: "number", description: "Max iterations" },
-      {
-        name: "force",
-        alias: "f",
-        type: "boolean",
-        description: "Run full max iterations even if no issues are found",
-      },
-      {
-        name: "auto",
-        type: "boolean",
-        description: "Automatically run remediation after review completes",
-      },
-      {
-        name: "priority",
-        type: "string",
-        placeholder: "P0,P1",
-        description: "Priority filter for --auto using comma-separated values",
-      },
+      ...RUN_REVIEW_OPTIONS,
       {
         name: "base",
         type: "string",
@@ -130,31 +160,7 @@ export const COMMANDS: CommandDef[] = [
   {
     name: "fix",
     description: "Fix selected findings from a persisted review session",
-    options: [
-      {
-        name: "session",
-        alias: "s",
-        type: "string",
-        description: "Session ID whose persisted findings should be fixed",
-      },
-      {
-        name: "all",
-        type: "boolean",
-        description: "Select all persisted findings for remediation",
-      },
-      {
-        name: "priority",
-        type: "string",
-        placeholder: "P0|P1|P2|P3",
-        description: "Select findings by priority (repeatable)",
-      },
-      {
-        name: "id",
-        type: "string",
-        placeholder: "F001",
-        description: "Select findings by ID (repeatable)",
-      },
-    ],
+    options: FIX_SELECTION_OPTIONS,
     examples: [
       "rr fix --session session-123 --all",
       "rr fix --session session-123 --priority P0,P1",
@@ -312,56 +318,13 @@ export const COMMANDS: CommandDef[] = [
     name: "_run-foreground",
     description: "Internal: run review session in tmux foreground",
     hidden: true,
-    options: [
-      { name: "max", type: "number", description: "Max iterations" },
-      {
-        name: "force",
-        alias: "f",
-        type: "boolean",
-        description: "Run full max iterations even if no issues are found",
-      },
-      {
-        name: "auto",
-        type: "boolean",
-        description: "Automatically run remediation after review completes",
-      },
-      {
-        name: "priority",
-        type: "string",
-        placeholder: "P0,P1",
-        description: "Priority filter for --auto using comma-separated values",
-      },
-    ],
+    options: RUN_REVIEW_OPTIONS,
   },
   {
     name: "_fix-foreground",
     description: "Internal: run fixer session in tmux foreground",
     hidden: true,
-    options: [
-      {
-        name: "session",
-        alias: "s",
-        type: "string",
-        description: "Session ID whose persisted findings should be fixed",
-      },
-      {
-        name: "all",
-        type: "boolean",
-        description: "Select all persisted findings for remediation",
-      },
-      {
-        name: "priority",
-        type: "string",
-        placeholder: "P0|P1|P2|P3",
-        description: "Select findings by priority (repeatable)",
-      },
-      {
-        name: "id",
-        type: "string",
-        placeholder: "F001",
-        description: "Select findings by ID (repeatable)",
-      },
-    ],
+    options: FIX_SELECTION_OPTIONS,
   },
 ];
 

@@ -9,6 +9,7 @@ import * as sessionState from "@/lib/session-state";
 import { SessionDetailPane } from "@/lib/tui/sessions/history/SessionListDetailPane";
 import { SessionOverlay } from "@/lib/tui/sessions/history/SessionListOverlay";
 import type { IterationEntry, SessionEndEntry, SessionStats, SystemEntry } from "@/lib/types";
+import { createDeferred } from "../../helpers/async";
 import { buildFixEntry, buildSkippedEntry } from "../../test-utils/fix-summary";
 
 function buildSessionStats(overrides: Partial<SessionStats> = {}): SessionStats {
@@ -94,20 +95,6 @@ function buildActiveSession(overrides: Partial<ActiveSession> = {}): ActiveSessi
     mode: "background",
     sessionStatePath: "/tmp/session-1.json",
     ...overrides,
-  };
-}
-
-function createDeferred<T>() {
-  let resolve: ((value: T) => void) | undefined;
-  const promise = new Promise<T>((resolver) => {
-    resolve = resolver;
-  });
-
-  return {
-    promise,
-    resolve: (value: T) => {
-      resolve?.(value);
-    },
   };
 }
 

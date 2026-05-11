@@ -8,6 +8,7 @@ import {
   isAgentType,
   isReasoningLevel,
   type ReasoningLevel,
+  type RetryOverrideConfig,
 } from "@/lib/types";
 
 type ConfigRole = "reviewer" | "fixer";
@@ -116,6 +117,40 @@ function parseInteger(value: string, key: ConfigKey): number {
   return parsed;
 }
 
+function parseBoundedIntegerUpdate(
+  key: ParsedScalarConfigUpdate["key"],
+  rawValue: string,
+  minimum: number
+): ParsedScalarConfigUpdate {
+  const parsed = parseInteger(requireNonNullRawValue(key, rawValue), key);
+  if (parsed < minimum) {
+    throw new Error(`Value for "${key}" must be greater than or equal to ${minimum}.`);
+  }
+  return { key, value: parsed } as ParsedScalarConfigUpdate;
+}
+
+function requireNumberConfigValue(key: ConfigKey, value: ConfigValue, requirement: string): number {
+  if (typeof value === "number") {
+    return value;
+  }
+
+  throw new Error(`Value for "${key}" must be an integer ${requirement}.`);
+}
+
+function requirePiRoleSettings<T extends AgentSettings | AgentOverrideSettings>(
+  current: T | undefined,
+  role: ConfigRole,
+  command: string
+): T {
+  if (!current || current.agent !== "pi") {
+    throw new Error(
+      `Cannot set "${role}.agent" to "pi" in a single-key update. Run "${command}" for pi setup.`
+    );
+  }
+
+  return current;
+}
+
 function requireNonNullRawValue(key: ConfigKey, rawValue: string): string {
   if (rawValue === "null") {
     throw new Error(`Value "null" is not allowed for "${key}".`);
@@ -205,36 +240,20 @@ export function parseConfigUpdate(key: ConfigKey, rawValue: string): ParsedConfi
       return createRoleReasoningUpdate(key, rawValue);
 
     case "maxIterations": {
-      const parsed = parseInteger(requireNonNullRawValue(key, rawValue), key);
-      if (parsed <= 0) {
-        throw new Error(`Value for "${key}" must be greater than 0.`);
-      }
-      return { key, value: parsed };
+      return parseBoundedIntegerUpdate(key, rawValue, 1);
     }
 
     case "iterationTimeout": {
-      const parsed = parseInteger(requireNonNullRawValue(key, rawValue), key);
-      if (parsed <= 0) {
-        throw new Error(`Value for "${key}" must be greater than 0.`);
-      }
-      return { key, value: parsed };
+      return parseBoundedIntegerUpdate(key, rawValue, 1);
     }
 
     case "retry.maxRetries": {
-      const parsed = parseInteger(requireNonNullRawValue(key, rawValue), key);
-      if (parsed < 0) {
-        throw new Error(`Value for "${key}" must be greater than or equal to 0.`);
-      }
-      return { key, value: parsed };
+      return parseBoundedIntegerUpdate(key, rawValue, 0);
     }
 
     case "retry.baseDelayMs":
     case "retry.maxDelayMs": {
-      const parsed = parseInteger(requireNonNullRawValue(key, rawValue), key);
-      if (parsed <= 0) {
-        throw new Error(`Value for "${key}" must be greater than 0.`);
-      }
-      return { key, value: parsed };
+      return parseBoundedIntegerUpdate(key, rawValue, 1);
     }
 
     case "defaultReview.type":
@@ -329,18 +348,9 @@ function ensureRoleForMutation(
 function applyRoleAgentUpdate(config: Config, role: ConfigRole, nextAgent: AgentType): Config {
   const current = readRoleSettings(role, config);
   if (nextAgent === "pi") {
-    if (!current || current.agent !== "pi") {
-      throw new Error(
-        `Cannot set "${role}.agent" to "pi" in a single-key update. Run "rr init" for pi setup.`
-      );
-    }
+    const piSettings = requirePiRoleSettings(current, role, "rr init");
 
-    writeRoleSettings(role, config, {
-      agent: "pi",
-      provider: current.provider,
-      model: current.model,
-      reasoning: current.reasoning,
-    });
+    writeRoleSettings(role, config, piSettings);
     return config;
   }
 
@@ -360,6 +370,86 @@ function applyRoleAgentUpdate(config: Config, role: ConfigRole, nextAgent: Agent
 
   writeRoleSettings(role, config, { ...current, agent: nextAgent });
   return config;
+}
+
+function setRequiredRetryValue(
+  config: Config,
+  field: keyof typeof DEFAULT_RETRY_CONFIG,
+  value: number
+): void {
+  config.retry = config.retry ? { ...config.retry } : { ...DEFAULT_RETRY_CONFIG };
+  config.retry[field] = value;
+}
+
+function setOverrideRetryValue(
+  config: ConfigOverride,
+  field: keyof RetryOverrideConfig,
+  value: number
+): void {
+  config.retry = {
+    ...(config.retry && config.retry !== null ? config.retry : {}),
+    [field]: value,
+  };
+}
+
+function applyRoleProviderUpdate(
+  settings: AgentSettings | AgentOverrideSettings,
+  role: ConfigRole,
+  key: RoleConfigKey,
+  value: ConfigValue,
+  clearNonPiProvider: boolean
+): void {
+  if (value === null) {
+    if (settings.agent !== "pi") {
+      if (clearNonPiProvider) {
+        delete settings.provider;
+      }
+      return;
+    }
+    throw new Error(`Cannot unset "${role}.provider" while "${role}.agent" is "pi".`);
+  }
+
+  if (typeof value !== "string") {
+    throw new Error(`Value for "${key}" must be a string or null.`);
+  }
+
+  if (settings.agent !== "pi") {
+    throw new Error(`"${role}.provider" is only valid when "${role}.agent" is "pi".`);
+  }
+
+  settings.provider = value;
+}
+
+function applyRoleModelUpdate(
+  settings: AgentSettings | AgentOverrideSettings,
+  role: ConfigRole,
+  key: RoleConfigKey,
+  value: ConfigValue,
+  assignNullForNonPi: boolean
+): void {
+  if (settings.agent === "pi") {
+    if (value === null || typeof value !== "string") {
+      throw new Error(`Cannot unset "${role}.model" while "${role}.agent" is "pi".`);
+    }
+    settings.model = value;
+    return;
+  }
+
+  if (value === null) {
+    if (assignNullForNonPi) {
+      settings.model = value;
+      return;
+    }
+    delete settings.model;
+    return;
+  }
+
+  if (typeof value === "string") {
+    settings.model = value;
+    return;
+  }
+
+  throw new Error(`Value for "${key}" must be a string or null.`);
 }
 
 export function setConfigValue(config: Config, key: ConfigKey, value: ConfigValue): Config {
@@ -385,49 +475,12 @@ export function setConfigValue(config: Config, key: ConfigKey, value: ConfigValu
     const settings = ensureRoleForMutation(next, role, field);
 
     if (field === "provider") {
-      if (value === null) {
-        if (settings.agent !== "pi") {
-          return next;
-        }
-        throw new Error(`Cannot unset "${role}.provider" while "${role}.agent" is "pi".`);
-      }
-      if (typeof value !== "string") {
-        throw new Error(`Value for "${key}" must be a string or null.`);
-      }
-      if (settings.agent !== "pi") {
-        throw new Error(`"${role}.provider" is only valid when "${role}.agent" is "pi".`);
-      }
-      settings.provider = value;
+      applyRoleProviderUpdate(settings, role, key as RoleConfigKey, value, false);
       return next;
     }
 
     if (field === "model") {
-      if (settings.agent === "pi") {
-        if (value === null || typeof value !== "string") {
-          throw new Error(`Cannot unset "${role}.model" while "${role}.agent" is "pi".`);
-        }
-        settings.model = value;
-        return next;
-      }
-
-      if (value === null) {
-        delete settings.model;
-      } else if (typeof value === "string") {
-        settings.model = value;
-      } else {
-        throw new Error(`Value for "${key}" must be a string or null.`);
-      }
-      return next;
-    }
-
-    if (settings.agent === "pi") {
-      if (value === null) {
-        delete settings.reasoning;
-      } else if (typeof value === "string" && isReasoningLevel(value)) {
-        settings.reasoning = value;
-      } else {
-        throw new Error(`Value for "${key}" must be one of: low, medium, high, xhigh, max.`);
-      }
+      applyRoleModelUpdate(settings, role, key as RoleConfigKey, value, false);
       return next;
     }
 
@@ -479,25 +532,25 @@ export function setConfigValue(config: Config, key: ConfigKey, value: ConfigValu
       next.defaultReview = { type: "base", branch: value };
       return next;
     case "retry.maxRetries":
-      next.retry = next.retry ? { ...next.retry } : { ...DEFAULT_RETRY_CONFIG };
-      if (typeof value !== "number") {
-        throw new Error(`Value for "${key}" must be an integer greater than or equal to 0.`);
-      }
-      next.retry.maxRetries = value;
+      setRequiredRetryValue(
+        next,
+        "maxRetries",
+        requireNumberConfigValue(key, value, "greater than or equal to 0")
+      );
       return next;
     case "retry.baseDelayMs":
-      next.retry = next.retry ? { ...next.retry } : { ...DEFAULT_RETRY_CONFIG };
-      if (typeof value !== "number") {
-        throw new Error(`Value for "${key}" must be an integer greater than 0.`);
-      }
-      next.retry.baseDelayMs = value;
+      setRequiredRetryValue(
+        next,
+        "baseDelayMs",
+        requireNumberConfigValue(key, value, "greater than 0")
+      );
       return next;
     case "retry.maxDelayMs":
-      next.retry = next.retry ? { ...next.retry } : { ...DEFAULT_RETRY_CONFIG };
-      if (typeof value !== "number") {
-        throw new Error(`Value for "${key}" must be an integer greater than 0.`);
-      }
-      next.retry.maxDelayMs = value;
+      setRequiredRetryValue(
+        next,
+        "maxDelayMs",
+        requireNumberConfigValue(key, value, "greater than 0")
+      );
       return next;
     case "notifications.sound.enabled":
       if (typeof value !== "boolean") {
@@ -552,17 +605,13 @@ function applyOverrideRoleAgentUpdate(
 ): ConfigOverride {
   const current = readOverrideRoleSettings(role, config);
   if (nextAgent === "pi") {
-    if (!current || current.agent !== "pi") {
-      throw new Error(
-        `Cannot set "${role}.agent" to "pi" in a single-key update. Run "rr init --local" for pi setup.`
-      );
-    }
+    const piSettings = requirePiRoleSettings(current, role, "rr init --local");
 
     writeOverrideRoleSettings(role, config, {
       agent: "pi",
-      provider: current.provider,
-      model: current.model,
-      reasoning: current.reasoning,
+      provider: piSettings.provider,
+      model: piSettings.model,
+      reasoning: piSettings.reasoning,
     });
     return config;
   }
@@ -600,30 +649,12 @@ export function setConfigOverrideValue(
     const settings = ensureOverrideRoleForMutation(next, role);
 
     if (field === "provider") {
-      if (value === null) {
-        if (settings.agent !== "pi") {
-          delete settings.provider;
-          return next;
-        }
-        throw new Error(`Cannot unset "${role}.provider" while "${role}.agent" is "pi".`);
-      }
-      if (settings.agent !== "pi") {
-        throw new Error(`"${role}.provider" is only valid when "${role}.agent" is "pi".`);
-      }
-      settings.provider = value;
+      applyRoleProviderUpdate(settings, role, update.key, value, true);
       return next;
     }
 
     if (field === "model") {
-      if (settings.agent === "pi") {
-        if (value === null) {
-          throw new Error(`Cannot unset "${role}.model" while "${role}.agent" is "pi".`);
-        }
-        settings.model = value;
-        return next;
-      }
-
-      settings.model = value;
+      applyRoleModelUpdate(settings, role, update.key, value, true);
       return next;
     }
 
@@ -657,22 +688,13 @@ export function setConfigOverrideValue(
       next.defaultReview = { type: "base", branch: update.value };
       return next;
     case "retry.maxRetries":
-      next.retry = {
-        ...(next.retry && next.retry !== null ? next.retry : {}),
-        maxRetries: update.value,
-      };
+      setOverrideRetryValue(next, "maxRetries", update.value);
       return next;
     case "retry.baseDelayMs":
-      next.retry = {
-        ...(next.retry && next.retry !== null ? next.retry : {}),
-        baseDelayMs: update.value,
-      };
+      setOverrideRetryValue(next, "baseDelayMs", update.value);
       return next;
     case "retry.maxDelayMs":
-      next.retry = {
-        ...(next.retry && next.retry !== null ? next.retry : {}),
-        maxDelayMs: update.value,
-      };
+      setOverrideRetryValue(next, "maxDelayMs", update.value);
       return next;
     case "notifications.sound.enabled":
       next.notifications = {

@@ -45,34 +45,39 @@ interface SessionStateGuardOptions {
   expectedSessionId?: string;
 }
 
-interface CreateSessionStateOptions {
-  branch?: string;
+interface CreateSessionStateOptions
+  extends Partial<
+    Pick<
+      SessionState,
+      | "branch"
+      | "state"
+      | "mode"
+      | "pid"
+      | "startTime"
+      | "lastHeartbeat"
+      | "sessionPath"
+      | "worktreeProjectPath"
+      | "worktreeBranch"
+      | "worktreeMergeReady"
+      | "worktreeCommitSha"
+      | "endTime"
+      | "reason"
+      | "currentPhase"
+      | "phase"
+      | "sessionStatus"
+      | "reviewOutcome"
+      | "handoffStatus"
+      | "handoffId"
+      | "handoffUpdatedAt"
+      | "commitSha"
+      | "artifactPath"
+      | "baselineCommitSha"
+      | "sourceBaselineFingerprint"
+      | "accumulatedFindings"
+      | "selectedFindingIds"
+    >
+  > {
   sessionId: string;
-  state?: SessionStatus;
-  mode?: SessionMode;
-  pid?: number;
-  startTime?: number;
-  lastHeartbeat?: number;
-  sessionPath?: string;
-  worktreeProjectPath?: string;
-  worktreeBranch?: string;
-  worktreeMergeReady?: boolean;
-  worktreeCommitSha?: string;
-  endTime?: number;
-  reason?: string;
-  currentPhase?: ReviewPhase;
-  phase?: ReviewPhase;
-  sessionStatus?: WorkflowSessionStatus;
-  reviewOutcome?: ReviewOutcome;
-  handoffStatus?: HandoffStatus;
-  handoffId?: string;
-  handoffUpdatedAt?: number;
-  commitSha?: string;
-  artifactPath?: string;
-  baselineCommitSha?: string;
-  sourceBaselineFingerprint?: string;
-  accumulatedFindings?: StoredFinding[];
-  selectedFindingIds?: FindingId[];
 }
 
 export interface SessionState {
@@ -201,17 +206,28 @@ async function readSessionStateByPath(sessionStatePath: string): Promise<Session
   }
 }
 
+async function readExpectedSessionStateByPath(
+  sessionStatePath: string,
+  options: SessionStateGuardOptions
+): Promise<SessionState | null> {
+  const existing = await readSessionStateByPath(sessionStatePath);
+  if (!existing) {
+    return null;
+  }
+
+  if (options.expectedSessionId && existing.sessionId !== options.expectedSessionId) {
+    return null;
+  }
+
+  return existing;
+}
+
 async function removeSessionStateByPath(
   sessionStatePath: string,
   options: SessionStateGuardOptions = {}
 ): Promise<boolean> {
   return queueSessionStateWrite(sessionStatePath, async () => {
-    const existing = await readSessionStateByPath(sessionStatePath);
-    if (!existing) {
-      return false;
-    }
-
-    if (options.expectedSessionId && existing.sessionId !== options.expectedSessionId) {
+    if (!(await readExpectedSessionStateByPath(sessionStatePath, options))) {
       return false;
     }
 
@@ -351,12 +367,8 @@ export async function updateSessionState(
   const sessionStatePath = getSessionStatePath(storageRoot, projectPath, sessionId);
 
   return await queueSessionStateWrite(sessionStatePath, async () => {
-    const existing = await readSessionStateByPath(sessionStatePath);
+    const existing = await readExpectedSessionStateByPath(sessionStatePath, options);
     if (!existing) {
-      return false;
-    }
-
-    if (options.expectedSessionId && existing.sessionId !== options.expectedSessionId) {
       return false;
     }
 

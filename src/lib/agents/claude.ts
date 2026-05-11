@@ -3,7 +3,7 @@
  */
 
 import type { AgentConfig, AgentRole, ReviewOptions } from "@/lib/types";
-import { createLineFormatter, parseJsonlEvent } from "./core";
+import { createLineFormatter, extractLastParsedValue, parseJsonlEvent } from "./core";
 import type {
   AssistantContentBlock,
   AssistantEvent,
@@ -128,21 +128,9 @@ export function formatClaudeEventForDisplay(event: ClaudeStreamEvent): string | 
 }
 
 export function extractClaudeResult(output: string): string | null {
-  if (!output.trim()) {
-    return null;
-  }
-
-  const lines = output.split("\n");
-  let lastResult: string | null = null;
-
-  for (const line of lines) {
-    const event = parseClaudeStreamEvent(line);
-    if (event && isResultEvent(event)) {
-      lastResult = event.result;
-    }
-  }
-
-  return lastResult;
+  return extractLastParsedValue(output, parseClaudeStreamEvent, (event) =>
+    isResultEvent(event) ? event.result : null
+  );
 }
 
 export const formatClaudeLine = createLineFormatter(

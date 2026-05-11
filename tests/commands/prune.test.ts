@@ -3,6 +3,7 @@ import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getCommandDef } from "@/cli";
+import type { PruneCommandDeps } from "@/commands/prune";
 import { runPrune } from "@/commands/prune";
 import { parseCommand } from "@/lib/cli-parser";
 import { getProjectWorktreesDir } from "@/lib/logger";
@@ -10,56 +11,28 @@ import {
   getFindingsArtifactPath,
   saveFindingsArtifact,
 } from "@/lib/review-workflow/findings/artifact";
-import type { FindingsArtifact, StoredFinding } from "@/lib/review-workflow/findings/types";
+import type { FindingsArtifact } from "@/lib/review-workflow/findings/types";
 import type { LogEntry, PendingHandoffArtifact } from "@/lib/types";
-
-function runGitIn(repoPath: string, args: string[]): void {
-  const result = Bun.spawnSync(["git", ...args], {
-    cwd: repoPath,
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  if (result.exitCode !== 0) {
-    throw new Error(`git ${args.join(" ")} failed: ${result.stderr.toString()}`);
-  }
-}
+import {
+  createStorageBackedRepo,
+  removeStorageBackedRepo,
+  runGitIn,
+  runGitResult,
+} from "../helpers/git";
+import {
+  createFindingsArtifact,
+  createPendingHandoff as createReviewWorkflowPendingHandoff,
+  createStoredFinding,
+} from "../helpers/review-workflow";
 
 function gitExitCode(repoPath: string, args: string[]): number {
-  return Bun.spawnSync(["git", ...args], {
-    cwd: repoPath,
-    stdout: "ignore",
-    stderr: "ignore",
-  }).exitCode;
-}
-
-function initTestRepo(repoPath: string): void {
-  runGitIn(repoPath, ["init", "--initial-branch=main"]);
-  runGitIn(repoPath, ["config", "core.autocrlf", "false"]);
-  runGitIn(repoPath, ["config", "user.name", "Tester"]);
-  runGitIn(repoPath, ["config", "user.email", "test@example.com"]);
-  runGitIn(repoPath, ["config", "commit.gpgsign", "false"]);
-}
-
-function createFinding(id: StoredFinding["id"]): StoredFinding {
-  return {
-    id,
-    fingerprint: `fp-${id}`,
-    locationKey: `src/file-${id}.ts:1:1`,
-    title: `Finding ${id}`,
-    body: `Body for ${id}`,
-    priority: "P1",
-    confidenceScore: 0.5,
-    filePath: `src/file-${id}.ts`,
-    startLine: 1,
-    endLine: 1,
-  };
+  return runGitResult(repoPath, args).exitCode;
 }
 
 function createArtifact(repoPath: string, sessionId: string, updatedAt: string): FindingsArtifact {
   const normalizedSessionId = sessionId.replace(/[^a-zA-Z0-9_.-]/g, "-");
 
-  return {
-    artifactVersion: 1,
+  return createFindingsArtifact([createStoredFinding("F001", "P1")], {
     sessionId,
     projectPath: repoPath,
     logPath: join(repoPath, ".ralph-review", "logs", `${sessionId}.jsonl`),
@@ -68,11 +41,8 @@ function createArtifact(repoPath: string, sessionId: string, updatedAt: string):
     sourceBaselineRef: `refs/ralph-review/sessions/${normalizedSessionId}/source`,
     sourceBaselineCommitSha: "source-baseline-sha-123",
     sourceBaselineFingerprint: "tracked-fingerprint-1",
-    findings: [createFinding("F001")],
-    selectedFindingIds: [],
-    createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt,
-  };
+  });
 }
 
 async function saveFindingsArtifactWithUpdatedAt(
@@ -95,21 +65,24 @@ function createPendingHandoff(
   repoPath: string,
   overrides: Partial<PendingHandoffArtifact> = {}
 ): PendingHandoffArtifact {
-  return {
-    handoffId: overrides.handoffId ?? overrides.sessionId ?? "session-id",
-    sessionId: overrides.sessionId ?? "session-id",
+  const sessionId = overrides.sessionId ?? "session-id";
+  const handoffId = overrides.handoffId ?? overrides.sessionId ?? "session-id";
+
+  return createReviewWorkflowPendingHandoff({
+    handoffId,
+    sessionId,
     projectPath: repoPath,
     sourceRepoPath: repoPath,
-    logPath: join(repoPath, ".ralph-review", "logs", "session.jsonl"),
-    hiddenRef: "refs/ralph-review/sessions/session-id/final",
-    patchPath: join(repoPath, ".ralph-review", "handoffs", "session-id.patch"),
+    logPath: join(repoPath, ".ralph-review", "logs", `${sessionId}.jsonl`),
+    hiddenRef: `refs/ralph-review/sessions/${handoffId}/final`,
+    patchPath: join(repoPath, ".ralph-review", "handoffs", `${handoffId}.patch`),
     sourceBaselineFingerprint: "fingerprint-1",
     commitSha: "commit-sha-1",
     state: "pending-apply",
     createdAt: 1,
     updatedAt: 1,
     ...overrides,
-  };
+  });
 }
 
 describe("prune command", () => {
@@ -117,48 +90,95 @@ describe("prune command", () => {
   let repoPath: string;
 
   beforeEach(async () => {
-    storageRoot = await mkdtemp(join(tmpdir(), "ralph-prune-storage-"));
-    repoPath = await mkdtemp(join(tmpdir(), "ralph-prune-repo-"));
-    initTestRepo(repoPath);
-    await Bun.write(join(repoPath, "app.txt"), "base\n");
-    runGitIn(repoPath, ["add", "app.txt"]);
-    runGitIn(repoPath, ["commit", "-m", "initial commit"]);
+    ({ repoPath, storageRoot } = await createStorageBackedRepo(
+      "ralph-prune-storage-",
+      "ralph-prune-repo-"
+    ));
   });
 
   afterEach(async () => {
-    await rm(storageRoot, { recursive: true, force: true });
-    await rm(repoPath, { recursive: true, force: true });
+    await removeStorageBackedRepo({ repoPath, storageRoot });
   });
 
-  test("dry-run lists prunable sessions without deleting files", async () => {
-    const sessionId = "session-applied";
-    const infos: string[] = [];
-    const successes: string[] = [];
-    const artifact = createArtifact(repoPath, sessionId, "2026-01-01T00:00:00.000Z");
-    await saveFindingsArtifact(storageRoot, artifact);
-    await Bun.write(artifact.logPath, "session log\n", { createPath: true });
-
-    await runPrune(["--dry-run"], {
+  function runPruneTest(args: string[], deps: Partial<PruneCommandDeps> = {}): Promise<void> {
+    return runPrune(args, {
       getCommandDef,
       parseCommand,
       cwd: () => repoPath,
       storageRoot,
       listProjectPendingHandoffs: listPendingFromStorage,
-      logInfo: (message) => infos.push(message),
-      logSuccess: (message) => successes.push(message),
+      logInfo: () => {},
+      logStep: () => {},
+      logSuccess: () => {},
       logWarn: () => {},
       logError: () => {},
       exit: () => {},
+      isTTY: () => true,
       now: () => 1_800_000_000_000,
+      ...deps,
+    });
+  }
+
+  async function expectSessionArtifactAndLog(
+    artifact: FindingsArtifact,
+    exists: boolean
+  ): Promise<void> {
+    expect(
+      await Bun.file(getFindingsArtifactPath(storageRoot, repoPath, artifact.sessionId)).exists()
+    ).toBe(exists);
+    expect(await Bun.file(artifact.logPath).exists()).toBe(exists);
+  }
+
+  async function savePrunableArtifact(sessionId = "session-applied", writeLog = false) {
+    const artifact = createArtifact(repoPath, sessionId, "2026-01-01T00:00:00.000Z");
+    await saveFindingsArtifact(storageRoot, artifact);
+    if (writeLog) {
+      await Bun.write(artifact.logPath, "session log\n", { createPath: true });
+    }
+    return artifact;
+  }
+
+  function findHandoffById(handoffs: PendingHandoffArtifact[], handoffId: string) {
+    const matched = handoffs.find((handoff) => handoff.handoffId === handoffId);
+    if (!matched) {
+      throw new Error(`Unknown handoff ${handoffId}`);
+    }
+    return matched;
+  }
+
+  async function runDiscardWithHandoffs(
+    args: string[],
+    handoffs: PendingHandoffArtifact[],
+    deps: Partial<PruneCommandDeps> = {}
+  ) {
+    const discardCalls: Array<{ projectPath: string; handoffId: string }> = [];
+    await runPruneTest(args, {
+      listProjectPendingHandoffs: async () => handoffs,
+      discardPendingHandoff: async (_storageRoot, projectPath, handoffId) => {
+        discardCalls.push({ projectPath, handoffId });
+        return findHandoffById(handoffs, handoffId);
+      },
+      appendLog: async () => {},
+      ...deps,
+    });
+    return discardCalls;
+  }
+
+  test("dry-run lists prunable sessions without deleting files", async () => {
+    const sessionId = "session-applied";
+    const infos: string[] = [];
+    const successes: string[] = [];
+    const artifact = await savePrunableArtifact(sessionId, true);
+
+    await runPruneTest(["--dry-run"], {
+      logInfo: (message) => infos.push(message),
+      logSuccess: (message) => successes.push(message),
     });
 
     expect(infos).toContain("Found 1 prunable review session.");
     expect(infos.some((message) => message.includes(sessionId))).toBe(true);
     expect(infos.at(-1)).toBe("Run rr prune to delete these artifacts.");
-    expect(await Bun.file(getFindingsArtifactPath(storageRoot, repoPath, sessionId)).exists()).toBe(
-      true
-    );
-    expect(await Bun.file(artifact.logPath).exists()).toBe(true);
+    await expectSessionArtifactAndLog(artifact, true);
     expect(successes).toEqual([]);
   });
 
@@ -166,35 +186,19 @@ describe("prune command", () => {
     const sessionId = "session-applied";
     const confirms: string[] = [];
     const successes: string[] = [];
-    const artifact = createArtifact(repoPath, sessionId, "2026-01-01T00:00:00.000Z");
-    await saveFindingsArtifact(storageRoot, artifact);
-    await Bun.write(artifact.logPath, "session log\n", { createPath: true });
+    const artifact = await savePrunableArtifact(sessionId, true);
     runGitIn(repoPath, ["update-ref", artifact.baselineRef, "HEAD"]);
     runGitIn(repoPath, ["update-ref", "refs/ralph-review/sessions/session-applied/final", "HEAD"]);
 
-    await runPrune([], {
-      getCommandDef,
-      parseCommand,
-      cwd: () => repoPath,
-      storageRoot,
-      listProjectPendingHandoffs: listPendingFromStorage,
-      logInfo: () => {},
+    await runPruneTest([], {
       logSuccess: (message) => successes.push(message),
-      logWarn: () => {},
-      logError: () => {},
-      exit: () => {},
-      isTTY: () => true,
       confirm: async (input) => {
         confirms.push(input.message);
         return true;
       },
-      now: () => 1_800_000_000_000,
     });
 
-    expect(await Bun.file(getFindingsArtifactPath(storageRoot, repoPath, sessionId)).exists()).toBe(
-      false
-    );
-    expect(await Bun.file(artifact.logPath).exists()).toBe(false);
+    await expectSessionArtifactAndLog(artifact, false);
     expect(gitExitCode(repoPath, ["show-ref", "--verify", artifact.baselineRef])).not.toBe(0);
     expect(
       gitExitCode(repoPath, [
@@ -209,24 +213,14 @@ describe("prune command", () => {
 
   test("bare prune requires --yes or --dry-run in non-interactive terminals", async () => {
     const sessionId = "session-applied";
-    const artifact = createArtifact(repoPath, sessionId, "2026-01-01T00:00:00.000Z");
     const errors: string[] = [];
     const exits: number[] = [];
-    await saveFindingsArtifact(storageRoot, artifact);
+    await savePrunableArtifact(sessionId);
 
-    await runPrune([], {
-      getCommandDef,
-      parseCommand,
-      cwd: () => repoPath,
-      storageRoot,
-      listProjectPendingHandoffs: listPendingFromStorage,
-      logInfo: () => {},
-      logSuccess: () => {},
-      logWarn: () => {},
+    await runPruneTest([], {
       logError: (message) => errors.push(message),
       exit: (code) => exits.push(code),
       isTTY: () => false,
-      now: () => 1_800_000_000_000,
     });
 
     expect(await Bun.file(getFindingsArtifactPath(storageRoot, repoPath, sessionId)).exists()).toBe(
@@ -238,63 +232,21 @@ describe("prune command", () => {
     expect(exits).toEqual([1]);
   });
 
-  test("yes removes prunable sessions without prompting", async () => {
+  test.each([
+    ["yes", "--yes"],
+    ["short yes alias", "-y"],
+  ])("%s removes prunable sessions without prompting", async (_name, option) => {
     const sessionId = "session-applied";
-    const artifact = createArtifact(repoPath, sessionId, "2026-01-01T00:00:00.000Z");
+    await savePrunableArtifact(sessionId);
     const successes: string[] = [];
     const confirms: string[] = [];
-    await saveFindingsArtifact(storageRoot, artifact);
 
-    await runPrune(["--yes"], {
-      getCommandDef,
-      parseCommand,
-      cwd: () => repoPath,
-      storageRoot,
-      listProjectPendingHandoffs: listPendingFromStorage,
-      logInfo: () => {},
+    await runPruneTest([option], {
       logSuccess: (message) => successes.push(message),
-      logWarn: () => {},
-      logError: () => {},
-      exit: () => {},
-      isTTY: () => true,
       confirm: async (input) => {
         confirms.push(input.message);
         return true;
       },
-      now: () => 1_800_000_000_000,
-    });
-
-    expect(await Bun.file(getFindingsArtifactPath(storageRoot, repoPath, sessionId)).exists()).toBe(
-      false
-    );
-    expect(confirms).toEqual([]);
-    expect(successes.at(-1)).toContain("Pruned 1 review session");
-  });
-
-  test("short yes alias removes prunable sessions without prompting", async () => {
-    const sessionId = "session-applied";
-    const artifact = createArtifact(repoPath, sessionId, "2026-01-01T00:00:00.000Z");
-    const successes: string[] = [];
-    const confirms: string[] = [];
-    await saveFindingsArtifact(storageRoot, artifact);
-
-    await runPrune(["-y"], {
-      getCommandDef,
-      parseCommand,
-      cwd: () => repoPath,
-      storageRoot,
-      listProjectPendingHandoffs: listPendingFromStorage,
-      logInfo: () => {},
-      logSuccess: (message) => successes.push(message),
-      logWarn: () => {},
-      logError: () => {},
-      exit: () => {},
-      isTTY: () => true,
-      confirm: async (input) => {
-        confirms.push(input.message);
-        return true;
-      },
-      now: () => 1_800_000_000_000,
     });
 
     expect(await Bun.file(getFindingsArtifactPath(storageRoot, repoPath, sessionId)).exists()).toBe(
@@ -306,24 +258,12 @@ describe("prune command", () => {
 
   test("declining confirmation cancels prune without deleting files", async () => {
     const sessionId = "session-applied";
-    const artifact = createArtifact(repoPath, sessionId, "2026-01-01T00:00:00.000Z");
     const infos: string[] = [];
-    await saveFindingsArtifact(storageRoot, artifact);
+    await savePrunableArtifact(sessionId);
 
-    await runPrune([], {
-      getCommandDef,
-      parseCommand,
-      cwd: () => repoPath,
-      storageRoot,
-      listProjectPendingHandoffs: listPendingFromStorage,
+    await runPruneTest([], {
       logInfo: (message) => infos.push(message),
-      logSuccess: () => {},
-      logWarn: () => {},
-      logError: () => {},
-      exit: () => {},
-      isTTY: () => true,
       confirm: async () => false,
-      now: () => 1_800_000_000_000,
     });
 
     expect(await Bun.file(getFindingsArtifactPath(storageRoot, repoPath, sessionId)).exists()).toBe(
@@ -347,18 +287,8 @@ describe("prune command", () => {
     );
 
     const infos: string[] = [];
-    await runPrune(["--older-than", "14d", "--dry-run"], {
-      getCommandDef,
-      parseCommand,
-      cwd: () => repoPath,
-      storageRoot,
-      listProjectPendingHandoffs: listPendingFromStorage,
+    await runPruneTest(["--older-than", "14d", "--dry-run"], {
       logInfo: (message) => infos.push(message),
-      logSuccess: () => {},
-      logWarn: () => {},
-      logError: () => {},
-      exit: () => {},
-      now: () => 1_800_000_000_000,
     });
 
     expect(infos.some((message) => message.includes(oldSessionId))).toBe(true);
@@ -367,28 +297,11 @@ describe("prune command", () => {
 
   test("force session prune removes the targeted session", async () => {
     const sessionId = "session-force";
-    const artifact = createArtifact(repoPath, sessionId, "2026-01-01T00:00:00.000Z");
-    await saveFindingsArtifact(storageRoot, artifact);
-    await Bun.write(artifact.logPath, "session log\n", { createPath: true });
+    const artifact = await savePrunableArtifact(sessionId, true);
 
-    await runPrune(["--session", sessionId, "--force", "--yes"], {
-      getCommandDef,
-      parseCommand,
-      cwd: () => repoPath,
-      storageRoot,
-      listProjectPendingHandoffs: listPendingFromStorage,
-      logInfo: () => {},
-      logSuccess: () => {},
-      logWarn: () => {},
-      logError: () => {},
-      exit: () => {},
-      now: () => 1_800_000_000_000,
-    });
+    await runPruneTest(["--session", sessionId, "--force", "--yes"]);
 
-    expect(await Bun.file(getFindingsArtifactPath(storageRoot, repoPath, sessionId)).exists()).toBe(
-      false
-    );
-    expect(await Bun.file(artifact.logPath).exists()).toBe(false);
+    await expectSessionArtifactAndLog(artifact, false);
   });
 
   test("force session prune removes orphaned worktree-only sessions", async () => {
@@ -402,18 +315,10 @@ describe("prune command", () => {
     const exits: number[] = [];
     const successes: string[] = [];
 
-    await runPrune(["--session", sessionId, "--force", "--yes"], {
-      getCommandDef,
-      parseCommand,
-      cwd: () => repoPath,
-      storageRoot,
-      listProjectPendingHandoffs: listPendingFromStorage,
-      logInfo: () => {},
+    await runPruneTest(["--session", sessionId, "--force", "--yes"], {
       logSuccess: (message) => successes.push(message),
-      logWarn: () => {},
       logError: (message) => errors.push(message),
       exit: (code) => exits.push(code),
-      now: () => 1_800_000_000_000,
     });
 
     const remainingEntries = await readdir(worktreesDir).catch(() => []);
@@ -436,18 +341,9 @@ describe("prune command", () => {
     const infos: string[] = [];
     const successes: string[] = [];
     await expect(
-      runPrune(["--all-projects", "--dry-run"], {
-        getCommandDef,
-        parseCommand,
-        cwd: () => repoPath,
-        storageRoot,
-        listProjectPendingHandoffs: listPendingFromStorage,
+      runPruneTest(["--all-projects", "--dry-run"], {
         logInfo: (message) => infos.push(message),
         logSuccess: (message) => successes.push(message),
-        logWarn: () => {},
-        logError: () => {},
-        exit: () => {},
-        now: () => 1_800_000_000_000,
       })
     ).resolves.toBeUndefined();
 
@@ -464,18 +360,8 @@ describe("prune command", () => {
 
     const successes: string[] = [];
     await expect(
-      runPrune(["--all-projects", "--yes"], {
-        getCommandDef,
-        parseCommand,
-        cwd: () => repoPath,
-        storageRoot,
-        listProjectPendingHandoffs: listPendingFromStorage,
-        logInfo: () => {},
+      runPruneTest(["--all-projects", "--yes"], {
         logSuccess: (message) => successes.push(message),
-        logWarn: () => {},
-        logError: () => {},
-        exit: () => {},
-        now: () => 1_800_000_000_000,
       })
     ).resolves.toBeUndefined();
 
@@ -489,20 +375,9 @@ describe("prune command", () => {
       const errors: string[] = [];
       const exits: number[] = [];
 
-      await runPrune(["--dry-run", "--yes"], {
-        getCommandDef,
-        parseCommand,
-        cwd: () => repoPath,
-        storageRoot,
-        listProjectPendingHandoffs: listPendingFromStorage,
-        logInfo: () => {},
-        logSuccess: () => {},
-        logWarn: () => {},
+      await runPruneTest(["--dry-run", "--yes"], {
         logError: (message) => errors.push(message),
-        logStep: () => {},
         exit: (code) => exits.push(code),
-        isTTY: () => true,
-        now: () => 1_800_000_000_000,
       });
 
       expect(errors).toEqual([
@@ -515,25 +390,13 @@ describe("prune command", () => {
       const infos: string[] = [];
       const discardCalls: Array<{ projectPath: string; handoffId: string }> = [];
 
-      await runPrune(["--discard"], {
-        getCommandDef,
-        parseCommand,
-        cwd: () => repoPath,
-        storageRoot,
-        listProjectPendingHandoffs: listPendingFromStorage,
+      await runPruneTest(["--discard"], {
         discardPendingHandoff: async (_storageRoot, projectPath, handoffId) => {
           discardCalls.push({ projectPath, handoffId });
           throw new Error("discardPendingHandoff should not be called");
         },
         appendLog: async () => {},
         logInfo: (message) => infos.push(message),
-        logSuccess: () => {},
-        logWarn: () => {},
-        logError: () => {},
-        logStep: () => {},
-        exit: () => {},
-        isTTY: () => true,
-        now: () => 1_800_000_000_000,
       });
 
       expect(infos).toEqual(["No pending review handoffs for current working directory."]);
@@ -547,11 +410,7 @@ describe("prune command", () => {
       const steps: string[] = [];
       const successes: string[] = [];
 
-      await runPrune(["--discard"], {
-        getCommandDef,
-        parseCommand,
-        cwd: () => repoPath,
-        storageRoot,
+      await runPruneTest(["--discard"], {
         listProjectPendingHandoffs: async () => [handoff],
         discardPendingHandoff: async (_storageRoot, projectPath, handoffId) => {
           discardCalls.push({ projectPath, handoffId });
@@ -560,14 +419,8 @@ describe("prune command", () => {
         appendLog: async (logPath, entry) => {
           appendCalls.push({ logPath, entry });
         },
-        logInfo: () => {},
         logSuccess: (message) => successes.push(message),
-        logWarn: () => {},
-        logError: () => {},
         logStep: (message) => steps.push(message),
-        exit: () => {},
-        isTTY: () => true,
-        now: () => 1_800_000_000_000,
       });
 
       expect(discardCalls).toEqual([{ projectPath: repoPath, handoffId: "session-id" }]);
@@ -589,32 +442,13 @@ describe("prune command", () => {
         createPendingHandoff(repoPath, { handoffId: "handoff-a", sessionId: "session-alpha" }),
         createPendingHandoff(repoPath, { handoffId: "handoff-b", sessionId: "session-beta" }),
       ];
-      const discardCalls: Array<{ projectPath: string; handoffId: string }> = [];
-
-      await runPrune(["--discard", "--session", "session-a"], {
-        getCommandDef,
-        parseCommand,
-        cwd: () => repoPath,
-        storageRoot,
-        listProjectPendingHandoffs: async () => handoffs,
-        discardPendingHandoff: async (_storageRoot, projectPath, handoffId) => {
-          discardCalls.push({ projectPath, handoffId });
-          const matched = handoffs.find((handoff) => handoff.handoffId === handoffId);
-          if (!matched) {
-            throw new Error(`Unknown handoff ${handoffId}`);
-          }
-          return matched;
-        },
-        appendLog: async () => {},
-        logInfo: () => {},
-        logSuccess: () => {},
-        logWarn: () => {},
-        logError: () => {},
-        logStep: () => {},
-        exit: () => {},
-        isTTY: () => false,
-        now: () => 1_800_000_000_000,
-      });
+      const discardCalls = await runDiscardWithHandoffs(
+        ["--discard", "--session", "session-a"],
+        handoffs,
+        {
+          isTTY: () => false,
+        }
+      );
 
       expect(discardCalls).toEqual([{ projectPath: repoPath, handoffId: "handoff-a" }]);
     });
@@ -623,20 +457,10 @@ describe("prune command", () => {
       const errors: string[] = [];
       const exits: number[] = [];
 
-      await runPrune(["--discard", "--session", "   "], {
-        getCommandDef,
-        parseCommand,
-        cwd: () => repoPath,
-        storageRoot,
+      await runPruneTest(["--discard", "--session", "   "], {
         listProjectPendingHandoffs: async () => [createPendingHandoff(repoPath)],
-        logInfo: () => {},
-        logSuccess: () => {},
-        logWarn: () => {},
         logError: (message) => errors.push(message),
-        logStep: () => {},
         exit: (code) => exits.push(code),
-        isTTY: () => true,
-        now: () => 1_800_000_000_000,
       });
 
       expect(errors).toEqual(["Session selector cannot be empty."]);
@@ -647,22 +471,12 @@ describe("prune command", () => {
       const errors: string[] = [];
       const exits: number[] = [];
 
-      await runPrune(["--discard", "--session", "session-z"], {
-        getCommandDef,
-        parseCommand,
-        cwd: () => repoPath,
-        storageRoot,
+      await runPruneTest(["--discard", "--session", "session-z"], {
         listProjectPendingHandoffs: async () => [
           createPendingHandoff(repoPath, { sessionId: "session-alpha" }),
         ],
-        logInfo: () => {},
-        logSuccess: () => {},
-        logWarn: () => {},
         logError: (message) => errors.push(message),
-        logStep: () => {},
         exit: (code) => exits.push(code),
-        isTTY: () => true,
-        now: () => 1_800_000_000_000,
       });
 
       expect(errors).toEqual([
@@ -675,23 +489,13 @@ describe("prune command", () => {
       const errors: string[] = [];
       const exits: number[] = [];
 
-      await runPrune(["--discard", "--session", "session-a"], {
-        getCommandDef,
-        parseCommand,
-        cwd: () => repoPath,
-        storageRoot,
+      await runPruneTest(["--discard", "--session", "session-a"], {
         listProjectPendingHandoffs: async () => [
           createPendingHandoff(repoPath, { sessionId: "session-alpha" }),
           createPendingHandoff(repoPath, { sessionId: "session-atom" }),
         ],
-        logInfo: () => {},
-        logSuccess: () => {},
-        logWarn: () => {},
         logError: (message) => errors.push(message),
-        logStep: () => {},
         exit: (code) => exits.push(code),
-        isTTY: () => true,
-        now: () => 1_800_000_000_000,
       });
 
       expect(errors).toEqual([
@@ -706,36 +510,12 @@ describe("prune command", () => {
         createPendingHandoff(repoPath, { handoffId: "handoff-beta", sessionId: "session-beta" }),
       ];
       const selectMessages: string[] = [];
-      const discardCalls: Array<{ projectPath: string; handoffId: string }> = [];
-
-      await runPrune(["--discard"], {
-        getCommandDef,
-        parseCommand,
-        cwd: () => repoPath,
-        storageRoot,
-        listProjectPendingHandoffs: async () => handoffs,
-        discardPendingHandoff: async (_storageRoot, projectPath, handoffId) => {
-          discardCalls.push({ projectPath, handoffId });
-          const matched = handoffs.find((handoff) => handoff.handoffId === handoffId);
-          if (!matched) {
-            throw new Error(`Unknown handoff ${handoffId}`);
-          }
-          return matched;
-        },
-        appendLog: async () => {},
-        logInfo: () => {},
-        logSuccess: () => {},
-        logWarn: () => {},
-        logError: () => {},
-        logStep: () => {},
-        exit: () => {},
-        isTTY: () => true,
+      const discardCalls = await runDiscardWithHandoffs(["--discard"], handoffs, {
         select: async (input) => {
           selectMessages.push(input.message);
           return "handoff-beta";
         },
         isCancel: () => false,
-        now: () => 1_800_000_000_000,
       });
 
       expect(selectMessages).toEqual(["Choose a review handoff to discard"]);
@@ -746,11 +526,7 @@ describe("prune command", () => {
       const discardCalls: Array<{ projectPath: string; handoffId: string }> = [];
       const successes: string[] = [];
 
-      await runPrune(["--discard"], {
-        getCommandDef,
-        parseCommand,
-        cwd: () => repoPath,
-        storageRoot,
+      await runPruneTest(["--discard"], {
         listProjectPendingHandoffs: async () => [
           createPendingHandoff(repoPath, { handoffId: "handoff-alpha" }),
           createPendingHandoff(repoPath, { handoffId: "handoff-beta" }),
@@ -760,16 +536,9 @@ describe("prune command", () => {
           return createPendingHandoff(repoPath);
         },
         appendLog: async () => {},
-        logInfo: () => {},
         logSuccess: (message) => successes.push(message),
-        logWarn: () => {},
-        logError: () => {},
-        logStep: () => {},
-        exit: () => {},
-        isTTY: () => true,
         select: async () => "__CANCEL__",
         isCancel: (value) => value === "__CANCEL__",
-        now: () => 1_800_000_000_000,
       });
 
       expect(discardCalls).toEqual([]);
@@ -780,23 +549,14 @@ describe("prune command", () => {
       const errors: string[] = [];
       const exits: number[] = [];
 
-      await runPrune(["--discard"], {
-        getCommandDef,
-        parseCommand,
-        cwd: () => repoPath,
-        storageRoot,
+      await runPruneTest(["--discard"], {
         listProjectPendingHandoffs: async () => [
           createPendingHandoff(repoPath, { handoffId: "handoff-alpha" }),
           createPendingHandoff(repoPath, { handoffId: "handoff-beta" }),
         ],
-        logInfo: () => {},
-        logSuccess: () => {},
-        logWarn: () => {},
         logError: (message) => errors.push(message),
-        logStep: () => {},
         exit: (code) => exits.push(code),
         isTTY: () => false,
-        now: () => 1_800_000_000_000,
       });
 
       expect(errors).toEqual([
@@ -818,20 +578,10 @@ describe("prune command", () => {
         const errors: string[] = [];
         const exits: number[] = [];
 
-        await runPrune(args, {
-          getCommandDef,
-          parseCommand,
-          cwd: () => repoPath,
-          storageRoot,
+        await runPruneTest(args, {
           listProjectPendingHandoffs: listPendingFromStorage,
-          logInfo: () => {},
-          logSuccess: () => {},
-          logWarn: () => {},
           logError: (message) => errors.push(message),
-          logStep: () => {},
           exit: (code) => exits.push(code),
-          isTTY: () => true,
-          now: () => 1_800_000_000_000,
         });
 
         expect(errors).toEqual([

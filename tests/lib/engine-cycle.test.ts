@@ -264,6 +264,27 @@ function createDependencies(state: HarnessState): RunReviewCycleDeps {
   };
 }
 
+function runDefaultReviewCycle(state: HarnessState, config = createConfig()) {
+  return runReviewCycle(
+    config,
+    undefined,
+    undefined,
+    {
+      projectPath: TEST_PROJECT_PATH,
+      sessionId: TEST_SESSION_ID,
+      sessionPath: TEST_SESSION_PATH,
+    },
+    createDependencies(state)
+  );
+}
+
+function createCleanReviewState() {
+  const state = createHarnessState();
+  queueRunAgentResults(state, createSuccessResult("review-pass-1"));
+  queueReviewParses(state, createReviewParse(createReviewSummary([])));
+  return state;
+}
+
 describe("runReviewCycle", () => {
   test("runs reviewer against the same baseline worktree, passes known findings forward, and persists findings", async () => {
     const state = createHarnessState();
@@ -343,21 +364,9 @@ describe("runReviewCycle", () => {
   });
 
   test("returns clean and skips artifact persistence when review finds nothing new on the first pass", async () => {
-    const state = createHarnessState();
-    queueRunAgentResults(state, createSuccessResult("review-pass-1"));
-    queueReviewParses(state, createReviewParse(createReviewSummary([])));
+    const state = createCleanReviewState();
 
-    const result = await runReviewCycle(
-      createConfig(),
-      undefined,
-      undefined,
-      {
-        projectPath: TEST_PROJECT_PATH,
-        sessionId: TEST_SESSION_ID,
-        sessionPath: TEST_SESSION_PATH,
-      },
-      createDependencies(state)
-    );
+    const result = await runDefaultReviewCycle(state);
 
     expect(result.success).toBe(true);
     expect(result.finalStatus).toBe("completed");
@@ -371,21 +380,9 @@ describe("runReviewCycle", () => {
   });
 
   test("runs review directly with the reviewer and keeps the original baseline", async () => {
-    const state = createHarnessState();
-    queueRunAgentResults(state, createSuccessResult("review-pass-1"));
-    queueReviewParses(state, createReviewParse(createReviewSummary([])));
+    const state = createCleanReviewState();
 
-    const result = await runReviewCycle(
-      createConfig(),
-      undefined,
-      undefined,
-      {
-        projectPath: TEST_PROJECT_PATH,
-        sessionId: TEST_SESSION_ID,
-        sessionPath: TEST_SESSION_PATH,
-      },
-      createDependencies(state)
-    );
+    const result = await runDefaultReviewCycle(state);
 
     expect(result.reviewOutcome).toBe("clean");
     expect(state.runAgentCalls.map((call) => call.role)).toEqual(["reviewer"]);
