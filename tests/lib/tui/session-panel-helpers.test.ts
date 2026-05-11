@@ -619,6 +619,12 @@ describe("SessionPanel helpers", () => {
       expect(result?.overall_explanation).toBe(escapedReview.overall_explanation);
     });
 
+    test("extracts summaries after a backslash outside JSON strings", () => {
+      const text = `start\n\\${JSON.stringify(baseReview)}\nend`;
+      const result = extractLatestReviewSummary(text);
+      expect(result?.overall_explanation).toBe("looks good");
+    });
+
     test("returns last valid summary when followed by malformed JSON object", () => {
       const valid = JSON.stringify({
         ...baseReview,

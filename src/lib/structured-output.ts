@@ -93,12 +93,12 @@ export function extractBalancedJsonObjectSlices(text: string): JsonObjectSlice[]
       continue;
     }
 
-    if (char === "\\") {
-      escaped = true;
-      continue;
-    }
-
     if (inString) {
+      if (char === "\\") {
+        escaped = true;
+        continue;
+      }
+
       if (char === '"') {
         inString = false;
       }
