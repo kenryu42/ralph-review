@@ -115,6 +115,8 @@ interface ProjectFixture {
   logPaths: string[];
 }
 
+const fixtures: ProjectFixture[] = [];
+
 async function createProjectFixture(): Promise<ProjectFixture> {
   const root = await mkdtemp(join(tmpdir(), "ralph-log-run-"));
   const projectPath = join(root, "project");
@@ -190,8 +192,6 @@ function expectNoSessionsGuidance(logs: CapturedClackLogs) {
   expect(logs.info).toContain("No review sessions found for current working directory.");
   expect(logs.message).toContain('Start a review with "rr run" first.');
 }
-
-const fixtures: ProjectFixture[] = [];
 
 afterEach(async () => {
   while (fixtures.length > 0) {
