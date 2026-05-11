@@ -484,17 +484,6 @@ export function setConfigValue(config: Config, key: ConfigKey, value: ConfigValu
       return next;
     }
 
-    if (settings.agent === "pi") {
-      if (value === null) {
-        delete settings.reasoning;
-      } else if (typeof value === "string" && isReasoningLevel(value)) {
-        settings.reasoning = value;
-      } else {
-        throw new Error(`Value for "${key}" must be one of: low, medium, high, xhigh, max.`);
-      }
-      return next;
-    }
-
     if (value === null) {
       delete settings.reasoning;
     } else if (typeof value === "string" && isReasoningLevel(value)) {
