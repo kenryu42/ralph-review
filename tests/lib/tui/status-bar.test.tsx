@@ -24,6 +24,8 @@ describe("StatusBar", () => {
       configWarning: null,
     };
 
+    await destroyTestRender(testSetup);
+    testSetup = null;
     testSetup = await renderOnce(createElement(StatusBar, { ...defaultProps, ...props }), {
       width: 120,
       height: 4,
