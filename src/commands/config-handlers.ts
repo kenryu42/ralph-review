@@ -39,6 +39,11 @@ interface ParsedShowArgs extends ParsedScopedArgs {
   verbose: boolean;
 }
 
+type LoadedEffectiveConfig = Awaited<
+  ReturnType<ConfigCommandDeps["loadEffectiveConfigWithDiagnostics"]>
+>;
+type ValidEffectiveConfig = LoadedEffectiveConfig & { config: Config };
+
 const SHOW_USAGE = "Usage: rr config show [--local|--global] [--json] [--verbose]";
 
 function shellQuote(value: string): string {
@@ -64,52 +69,34 @@ function printValue(value: unknown, print: (value: string) => void): void {
 async function warnIfEffectiveConfigInvalid(
   deps: ConfigCommandDeps,
   remediation: string
-): Promise<Awaited<ReturnType<ConfigCommandDeps["loadEffectiveConfigWithDiagnostics"]>> | null> {
+): Promise<ValidEffectiveConfig | null> {
   const effective = await deps.loadEffectiveConfigWithDiagnostics(deps.cwd());
   const errors = collectEffectiveConfigValidationErrors(effective);
-  if (effective.config && errors.length === 0) {
-    return effective;
+  if (!effective.config || errors.length > 0) {
+    deps.log.warn(
+      formatConfigValidationMessage(
+        getEffectiveConfigErrorHeader(effective),
+        errors.length > 0 ? errors : ["Configuration format is invalid."],
+        remediation
+      )
+    );
+    return null;
   }
 
-  deps.log.warn(
-    formatConfigValidationMessage(
-      getEffectiveConfigErrorHeader(effective),
-      errors.length > 0 ? errors : ["Configuration format is invalid."],
-      remediation
-    )
-  );
-  return null;
+  return { ...effective, config: effective.config };
 }
 
 function parseScopedArgs(args: string[], defaultScope: ResolvedReadScope): ParsedScopedArgs {
   const positional: string[] = [];
-  let scope = defaultScope;
-  let sawLocal = false;
-  let sawGlobal = false;
+  const state = { scope: defaultScope, sawLocal: false, sawGlobal: false };
 
   for (const arg of args) {
-    if (arg === "--local") {
-      if (sawGlobal) {
-        throw new Error("Cannot use --local and --global together.");
-      }
-      sawLocal = true;
-      scope = "local";
-      continue;
+    if (!parseScopeFlag(arg, state)) {
+      positional.push(arg);
     }
-
-    if (arg === "--global") {
-      if (sawLocal) {
-        throw new Error("Cannot use --local and --global together.");
-      }
-      sawGlobal = true;
-      scope = "global";
-      continue;
-    }
-
-    positional.push(arg);
   }
 
-  return { scope, positional };
+  return { scope: state.scope, positional };
 }
 
 function parseScopeFlag(
@@ -378,9 +365,6 @@ export async function runEdit(args: string[], deps: ConfigCommandDeps): Promise<
     }
 
     const globalBase = await deps.loadConfig(deps.configPath);
-    if (!effective.config) {
-      return;
-    }
     await deps.saveConfigOverride(deps.buildConfigOverride(globalBase, effective.config), path);
     return;
   }
