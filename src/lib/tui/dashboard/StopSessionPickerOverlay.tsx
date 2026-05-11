@@ -1,4 +1,5 @@
 import type { ActiveSession } from "@/lib/session-state";
+import { CenteredModal } from "@/lib/tui/shared/CenteredModal";
 import { TUI_COLORS } from "@/lib/tui/shared/colors";
 
 interface StopSessionPickerOverlayProps {
@@ -38,27 +39,8 @@ export function StopSessionPickerOverlay({
   onClose,
 }: StopSessionPickerOverlayProps) {
   return (
-    <box
-      position="absolute"
-      left={0}
-      top={0}
-      width="100%"
-      height="100%"
-      justifyContent="center"
-      alignItems="center"
-    >
-      <box
-        border
-        borderStyle="double"
-        title="Stop Review Session"
-        titleAlignment="left"
-        padding={1}
-        width={80}
-        height={16}
-        backgroundColor="#1a1a2e"
-        flexDirection="column"
-        gap={1}
-      >
+    <CenteredModal title="Stop Review Session" width={80} height={16} padding={1}>
+      <box flexDirection="column" gap={1}>
         <text fg={TUI_COLORS.text.muted}>Choose which active worktree session to stop.</text>
         <select
           focused
@@ -84,6 +66,6 @@ export function StopSessionPickerOverlay({
           }}
         />
       </box>
-    </box>
+    </CenteredModal>
   );
 }
