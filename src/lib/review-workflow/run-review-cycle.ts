@@ -24,6 +24,7 @@ import {
   type RunReviewSessionDependencies,
   runReviewSession,
 } from "@/lib/review-workflow/review/run-review-session";
+import { mapSessionStatusToFinalStatus } from "@/lib/review-workflow/session-status";
 import { updateSessionState } from "@/lib/session";
 import { parseFixSummaryOutput, parseReviewSummaryOutput } from "@/lib/structured-output";
 import type {
@@ -201,18 +202,6 @@ function wasInterrupted(): boolean {
 
 function resetInterrupt(): void {
   interrupted = false;
-}
-
-function mapSessionStatusToFinalStatus(status: SessionStatus): CycleResult["finalStatus"] {
-  if (status === "failed") {
-    return "failed";
-  }
-
-  if (status === "interrupted") {
-    return "interrupted";
-  }
-
-  return "completed";
 }
 
 function createSessionEndEntry(
