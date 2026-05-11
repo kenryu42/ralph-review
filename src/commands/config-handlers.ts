@@ -61,6 +61,26 @@ function printValue(value: unknown, print: (value: string) => void): void {
   print(String(value));
 }
 
+async function warnIfEffectiveConfigInvalid(
+  deps: ConfigCommandDeps,
+  remediation: string
+): Promise<Awaited<ReturnType<ConfigCommandDeps["loadEffectiveConfigWithDiagnostics"]>> | null> {
+  const effective = await deps.loadEffectiveConfigWithDiagnostics(deps.cwd());
+  const errors = collectEffectiveConfigValidationErrors(effective);
+  if (effective.config && errors.length === 0) {
+    return effective;
+  }
+
+  deps.log.warn(
+    formatConfigValidationMessage(
+      getEffectiveConfigErrorHeader(effective),
+      errors.length > 0 ? errors : ["Configuration format is invalid."],
+      remediation
+    )
+  );
+  return null;
+}
+
 function parseScopedArgs(args: string[], defaultScope: ResolvedReadScope): ParsedScopedArgs {
   const positional: string[] = [];
   let scope = defaultScope;
@@ -92,30 +112,39 @@ function parseScopedArgs(args: string[], defaultScope: ResolvedReadScope): Parse
   return { scope, positional };
 }
 
+function parseScopeFlag(
+  arg: string,
+  state: { scope: ResolvedReadScope; sawLocal: boolean; sawGlobal: boolean }
+): boolean {
+  if (arg === "--local") {
+    if (state.sawGlobal) {
+      throw new Error("Cannot use --local and --global together.");
+    }
+    state.sawLocal = true;
+    state.scope = "local";
+    return true;
+  }
+
+  if (arg === "--global") {
+    if (state.sawLocal) {
+      throw new Error("Cannot use --local and --global together.");
+    }
+    state.sawGlobal = true;
+    state.scope = "global";
+    return true;
+  }
+
+  return false;
+}
+
 function parseShowArgs(args: string[]): ParsedShowArgs {
   const positional: string[] = [];
-  let scope: ResolvedReadScope = "effective";
-  let sawLocal = false;
-  let sawGlobal = false;
+  const scopeState = { scope: "effective" as ResolvedReadScope, sawLocal: false, sawGlobal: false };
   let json = false;
   let verbose = false;
 
   for (const arg of args) {
-    if (arg === "--local") {
-      if (sawGlobal) {
-        throw new Error("Cannot use --local and --global together.");
-      }
-      sawLocal = true;
-      scope = "local";
-      continue;
-    }
-
-    if (arg === "--global") {
-      if (sawLocal) {
-        throw new Error("Cannot use --local and --global together.");
-      }
-      sawGlobal = true;
-      scope = "global";
+    if (parseScopeFlag(arg, scopeState)) {
       continue;
     }
 
@@ -132,7 +161,7 @@ function parseShowArgs(args: string[]): ParsedShowArgs {
     positional.push(arg);
   }
 
-  return { scope, positional, json, verbose };
+  return { scope: scopeState.scope, positional, json, verbose };
 }
 
 export async function runShow(args: string[], deps: ConfigCommandDeps): Promise<void> {
@@ -296,17 +325,10 @@ export async function runSet(args: string[], deps: ConfigCommandDeps): Promise<v
   await deps.saveConfig(normalized.config);
   deps.log.success(`Updated "${key}" to ${formatValue(parsedValue)}.`);
 
-  const effective = await deps.loadEffectiveConfigWithDiagnostics(deps.cwd());
-  const effectiveErrors = collectEffectiveConfigValidationErrors(effective);
-  if (!effective.config || effectiveErrors.length > 0) {
-    deps.log.warn(
-      formatConfigValidationMessage(
-        getEffectiveConfigErrorHeader(effective),
-        effectiveErrors.length > 0 ? effectiveErrors : ["Configuration format is invalid."],
-        "Fix the repo-local override or restore compatible global values, then try again."
-      )
-    );
-  }
+  await warnIfEffectiveConfigInvalid(
+    deps,
+    "Fix the repo-local override or restore compatible global values, then try again."
+  );
 }
 
 export async function runEdit(args: string[], deps: ConfigCommandDeps): Promise<void> {
@@ -347,20 +369,18 @@ export async function runEdit(args: string[], deps: ConfigCommandDeps): Promise<
   }
 
   if (parsed.scope === "local") {
-    const effective = await deps.loadEffectiveConfigWithDiagnostics(deps.cwd());
-    const errors = collectEffectiveConfigValidationErrors(effective);
-    if (!effective.config || errors.length > 0) {
-      deps.log.warn(
-        formatConfigValidationMessage(
-          getEffectiveConfigErrorHeader(effective),
-          errors.length > 0 ? errors : ["Configuration format is invalid."],
-          'Run "rr init" and choose Repo-local config to regenerate the file, or fix it manually.'
-        )
-      );
+    const effective = await warnIfEffectiveConfigInvalid(
+      deps,
+      'Run "rr init" and choose Repo-local config to regenerate the file, or fix it manually.'
+    );
+    if (!effective) {
       return;
     }
 
     const globalBase = await deps.loadConfig(deps.configPath);
+    if (!effective.config) {
+      return;
+    }
     await deps.saveConfigOverride(deps.buildConfigOverride(globalBase, effective.config), path);
     return;
   }
@@ -378,16 +398,11 @@ export async function runEdit(args: string[], deps: ConfigCommandDeps): Promise<
     return;
   }
 
-  const effective = await deps.loadEffectiveConfigWithDiagnostics(deps.cwd());
-  const effectiveErrors = collectEffectiveConfigValidationErrors(effective);
-  if (!effective.config || effectiveErrors.length > 0) {
-    deps.log.warn(
-      formatConfigValidationMessage(
-        getEffectiveConfigErrorHeader(effective),
-        effectiveErrors.length > 0 ? effectiveErrors : ["Configuration format is invalid."],
-        "Fix the repo-local override or restore compatible global values, then try again."
-      )
-    );
+  const effective = await warnIfEffectiveConfigInvalid(
+    deps,
+    "Fix the repo-local override or restore compatible global values, then try again."
+  );
+  if (!effective) {
     return;
   }
 

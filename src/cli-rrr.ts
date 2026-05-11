@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 
 import { printCommandHelp } from "@/cli-core";
+import { CONSOLE_ERROR, CONSOLE_LOG, PROCESS_EXIT } from "@/cli-io";
 import { startReview } from "@/commands/run";
 
 export interface RrrDeps {
@@ -10,10 +11,6 @@ export interface RrrDeps {
   error: (message: string) => void;
   exit: (code: number) => void;
 }
-
-const CONSOLE_LOG = console.log.bind(console) as (message: string) => void;
-const CONSOLE_ERROR = console.error.bind(console) as (message: string) => void;
-const PROCESS_EXIT = process.exit.bind(process) as (code: number) => void;
 
 const DEFAULT_RRR_DEPS: RrrDeps = {
   printCommandHelp,

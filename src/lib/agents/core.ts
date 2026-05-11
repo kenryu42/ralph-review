@@ -46,6 +46,22 @@ export function createLineFormatter<T>(
   };
 }
 
+export function extractLastParsedValue<T>(
+  output: string,
+  parser: (line: string) => T | null,
+  selectValue: (event: T) => string | null
+): string | null {
+  if (!output.trim()) {
+    return null;
+  }
+
+  return output.split("\n").reduce<string | null>((lastResult, line) => {
+    const event = parser(line);
+    const value = event ? selectValue(event) : null;
+    return value ?? lastResult;
+  }, null);
+}
+
 export function stripSystemReminders(text: unknown): string {
   const normalized = typeof text === "string" ? text : String(text ?? "");
   return normalized.replace(/<system-reminder>[\s\S]*?<\/system-reminder>\s*/g, "").trim();

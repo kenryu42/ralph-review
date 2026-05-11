@@ -82,6 +82,16 @@ function isUnknownEmptySession(session: SessionStats): boolean {
   return session.status === "unknown" && session.iterations === 0;
 }
 
+function printNoProjectSessions(projectName: string, json: boolean): void {
+  if (json) {
+    console.log(JSON.stringify({ project: projectName, sessions: [] }, null, 2));
+    return;
+  }
+
+  p.log.info("No review sessions found for current working directory.");
+  p.log.message('Start a review with "rr run" first.');
+}
+
 function formatDate(timestamp: number): string {
   return new Date(timestamp).toLocaleString();
 }
@@ -412,12 +422,7 @@ export async function runLog(args: string[]): Promise<void> {
   const projectSessions = await listProjectLogSessions(CONFIG_DIR, currentProjectPath);
 
   if (projectSessions.length === 0) {
-    if (options.json) {
-      console.log(JSON.stringify({ project: projectName, sessions: [] }, null, 2));
-    } else {
-      p.log.info("No review sessions found for current working directory.");
-      p.log.message('Start a review with "rr run" first.');
-    }
+    printNoProjectSessions(projectName, options.json);
     return;
   }
 
@@ -451,12 +456,7 @@ export async function runLog(args: string[]): Promise<void> {
   }
 
   if (sessionStats.length === 0) {
-    if (options.json) {
-      console.log(JSON.stringify({ project: projectName, sessions: [] }, null, 2));
-    } else {
-      p.log.info("No review sessions found for current working directory.");
-      p.log.message('Start a review with "rr run" first.');
-    }
+    printNoProjectSessions(projectName, options.json);
     return;
   }
 

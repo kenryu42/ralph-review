@@ -11,6 +11,7 @@ import {
 import {
   createLineFormatter,
   defaultBuildEnv,
+  extractLastParsedValue,
   parseJsonlEvent,
   stripSystemReminders,
 } from "./core";
@@ -109,21 +110,9 @@ export function formatDroidEventForDisplay(event: DroidStreamEvent): string | nu
 }
 
 export function extractDroidResult(output: string): string | null {
-  if (!output.trim()) {
-    return null;
-  }
-
-  const lines = output.split("\n");
-  let lastResult: string | null = null;
-
-  for (const line of lines) {
-    const event = parseDroidStreamEvent(line);
-    if (event?.type === "completion") {
-      lastResult = event.finalText;
-    }
-  }
-
-  return lastResult;
+  return extractLastParsedValue(output, parseDroidStreamEvent, (event) =>
+    event.type === "completion" ? event.finalText : null
+  );
 }
 
 export const formatDroidLine = createLineFormatter(

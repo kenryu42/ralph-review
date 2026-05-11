@@ -386,8 +386,8 @@ export async function listProjectPendingHandoffs(
   );
 }
 
-export async function applyPendingHandoff(
-  storageRoot: string = CONFIG_DIR,
+async function requirePendingHandoff(
+  storageRoot: string,
   projectPath: string,
   handoffId: string
 ): Promise<PendingHandoffArtifact> {
@@ -396,7 +396,19 @@ export async function applyPendingHandoff(
     throw new Error(`Pending review handoff "${handoffId}" was not found.`);
   }
 
-  return await applyPendingHandoffArtifact(storageRoot, artifact, "manual");
+  return artifact;
+}
+
+export async function applyPendingHandoff(
+  storageRoot: string = CONFIG_DIR,
+  projectPath: string,
+  handoffId: string
+): Promise<PendingHandoffArtifact> {
+  return await applyPendingHandoffArtifact(
+    storageRoot,
+    await requirePendingHandoff(storageRoot, projectPath, handoffId),
+    "manual"
+  );
 }
 
 export async function discardPendingHandoff(
@@ -404,10 +416,7 @@ export async function discardPendingHandoff(
   projectPath: string,
   handoffId: string
 ): Promise<PendingHandoffArtifact> {
-  const artifact = await readPendingHandoff(storageRoot, projectPath, handoffId);
-  if (!artifact) {
-    throw new Error(`Pending review handoff "${handoffId}" was not found.`);
-  }
+  const artifact = await requirePendingHandoff(storageRoot, projectPath, handoffId);
 
   if (artifact.state === "apply-conflicted") {
     throw new Error(

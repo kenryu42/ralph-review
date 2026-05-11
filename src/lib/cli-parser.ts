@@ -162,6 +162,23 @@ function consumeOptionValue(
   throw new Error(`Option --${opt.name} requires a value`);
 }
 
+function assignOptionValue(
+  values: Record<string, unknown>,
+  opt: OptionDef,
+  argv: string[],
+  currentIndex: number,
+  inlineValue?: string
+): number {
+  if (opt.type === "boolean") {
+    values[opt.name] = true;
+    return currentIndex;
+  }
+
+  const { value, nextIndex } = consumeOptionValue(opt, argv, currentIndex, inlineValue);
+  values[opt.name] = parseValue(opt, value);
+  return nextIndex;
+}
+
 export function parseCommand<T = Record<string, unknown>>(
   def: CommandDef,
   argv: string[]
@@ -216,13 +233,7 @@ export function parseCommand<T = Record<string, unknown>>(
         throw new CliError(def.name, "unknown_option", arg, validOptions, suggestion);
       }
 
-      if (opt.type === "boolean") {
-        values[opt.name] = true;
-      } else {
-        const { value, nextIndex } = consumeOptionValue(opt, argv, i, inlineValue);
-        i = nextIndex;
-        values[opt.name] = parseValue(opt, value);
-      }
+      i = assignOptionValue(values, opt, argv, i, inlineValue);
 
       i++;
       continue;
@@ -249,13 +260,7 @@ export function parseCommand<T = Record<string, unknown>>(
         throw new CliError(def.name, "unknown_option", `-${alias}`, validOptions);
       }
 
-      if (opt.type === "boolean") {
-        values[opt.name] = true;
-      } else {
-        const { value, nextIndex } = consumeOptionValue(opt, argv, i);
-        i = nextIndex;
-        values[opt.name] = parseValue(opt, value);
-      }
+      i = assignOptionValue(values, opt, argv, i);
 
       i++;
       continue;

@@ -1,5 +1,8 @@
 import * as p from "@clack/prompts";
-import { getCommandDef } from "@/cli";
+import {
+  createInteractiveCommandDeps,
+  type InteractiveCommandDeps,
+} from "@/commands/interactive-deps";
 import { parseCommand } from "@/lib/cli-parser";
 import { listProjectPendingHandoffs } from "@/lib/handoff";
 import { formatHandoffNote } from "@/lib/handoff-note";
@@ -22,19 +25,9 @@ interface StopOptions {
   session?: string;
 }
 
-interface StopDeps {
-  getCommandDef: typeof getCommandDef;
-  logError: (message: string) => void;
-  exit: (code: number) => void;
-  isTTY: () => boolean;
-}
+type StopDeps = InteractiveCommandDeps;
 
-const DEFAULT_STOP_DEPS: StopDeps = {
-  getCommandDef,
-  logError: (message: string) => p.log.error(message),
-  exit: (code: number) => process.exit(code),
-  isTTY: () => process.stdout.isTTY === true,
-};
+const DEFAULT_STOP_DEPS = createInteractiveCommandDeps();
 
 type ResolvedStopHandoff = {
   handoffStatus: Extract<HandoffStatus, "applied-auto" | "pending-apply" | "apply-conflicted">;
