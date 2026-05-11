@@ -19,26 +19,29 @@ function asRecordWithStringField(value: unknown, field: string): Record<string, 
   return obj;
 }
 
-export function isLineRange(
+function isLineRange(
   value: unknown,
   options: { requirePositive?: boolean } = {}
 ): value is { start: number; end: number } {
   const obj = asRecord(value);
-  if (obj === null || !isInteger(obj.start) || !isInteger(obj.end)) {
+  if (obj === null || !isInteger(obj.start) || !isInteger(obj.end) || obj.end < obj.start) {
     return false;
   }
 
-  if (options.requirePositive && (obj.start <= 0 || obj.end < obj.start)) {
+  if (options.requirePositive && (obj.start <= 0 || obj.end <= 0)) {
     return false;
   }
 
   return true;
 }
 
-export function isCodeLocation(value: unknown): value is {
+export function isCodeLocation(
+  value: unknown,
+  options: { requirePositive?: boolean } = {}
+): value is {
   absolute_file_path: string;
   line_range: { start: number; end: number };
 } {
   const obj = asRecordWithStringField(value, "absolute_file_path");
-  return obj !== null && isLineRange(obj.line_range);
+  return obj !== null && isLineRange(obj.line_range, options);
 }

@@ -1,6 +1,6 @@
 import type { FixDecision, Priority } from "./domain";
 import { VALID_FIX_DECISIONS, VALID_PRIORITIES } from "./domain";
-import { asRecord, isCodeLocation, isLineRange } from "./guards";
+import { asRecord, isCodeLocation } from "./guards";
 import type { CodeLocation } from "./review";
 
 export interface FixEntry {
@@ -47,8 +47,7 @@ function isFixEntry(value: unknown): value is FixEntry {
     (obj.file === undefined || obj.file === null || typeof obj.file === "string") &&
     (obj.code_location === undefined ||
       obj.code_location === null ||
-      (isCodeLocation(obj.code_location) &&
-        isLineRange(obj.code_location.line_range, { requirePositive: true }))) &&
+      isCodeLocation(obj.code_location, { requirePositive: true })) &&
     typeof obj.claim === "string" &&
     typeof obj.evidence === "string" &&
     typeof obj.fix === "string"
