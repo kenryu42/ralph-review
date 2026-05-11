@@ -1,71 +1,5 @@
+import { extractBalancedJsonObjectSlices } from "@/lib/structured-output";
 import { isReviewSummary, type ReviewSummary } from "@/lib/types";
-
-interface JsonObjectSlice {
-  start: number;
-  end: number;
-  value: string;
-}
-
-function extractBalancedJsonObjects(text: string): JsonObjectSlice[] {
-  const results: JsonObjectSlice[] = [];
-  let depth = 0;
-  let startIndex = -1;
-  let inString = false;
-  let isEscaped = false;
-
-  for (let index = 0; index < text.length; index += 1) {
-    const char = text[index];
-
-    if (inString) {
-      if (isEscaped) {
-        isEscaped = false;
-        continue;
-      }
-
-      if (char === "\\") {
-        isEscaped = true;
-        continue;
-      }
-
-      if (char === '"') {
-        inString = false;
-      }
-      continue;
-    }
-
-    if (char === '"') {
-      inString = true;
-      continue;
-    }
-
-    if (char === "{") {
-      if (depth === 0) {
-        startIndex = index;
-      }
-      depth += 1;
-      continue;
-    }
-
-    if (char === "}") {
-      if (depth === 0) {
-        continue;
-      }
-
-      depth -= 1;
-      if (depth === 0 && startIndex >= 0) {
-        const endIndex = index + 1;
-        results.push({
-          start: startIndex,
-          end: endIndex,
-          value: text.slice(startIndex, endIndex),
-        });
-        startIndex = -1;
-      }
-    }
-  }
-
-  return results;
-}
 
 export function extractLatestReviewSummary(
   text: string,
@@ -75,7 +9,7 @@ export function extractLatestReviewSummary(
     return null;
   }
 
-  const objects = extractBalancedJsonObjects(text);
+  const objects = extractBalancedJsonObjectSlices(text);
   for (let index = objects.length - 1; index >= 0; index -= 1) {
     const candidate = objects[index];
     if (!candidate) {
