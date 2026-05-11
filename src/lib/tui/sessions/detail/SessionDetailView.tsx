@@ -36,7 +36,7 @@ import {
   toSingleLine,
 } from "./session-detail-parts";
 
-interface SessionDetailViewProps {
+export interface SessionDetailViewProps {
   session: SessionState;
   fixes: FixEntry[];
   skipped: SkippedEntry[];

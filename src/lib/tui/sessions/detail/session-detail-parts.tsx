@@ -19,6 +19,56 @@ function formatConfidenceScore(value: number): string {
   return `${Math.round(value * 100)}%`;
 }
 
+function EmptyListMessage() {
+  return (
+    <text fg={TUI_COLORS.text.dim} paddingLeft={2}>
+      None yet
+    </text>
+  );
+}
+
+function ScrollableList({
+  content,
+  focused,
+  height,
+  scrollable,
+}: {
+  content: React.ReactNode;
+  focused: boolean;
+  height: BoxHeight;
+  scrollable: boolean;
+}) {
+  if (!scrollable) {
+    return <box paddingLeft={2}>{content}</box>;
+  }
+
+  return (
+    <scrollbox paddingLeft={2} height={height} focused={focused}>
+      {content}
+    </scrollbox>
+  );
+}
+
+function PriorityTitleRow({
+  priority,
+  title,
+}: {
+  priority: Finding["priority"] | FixEntry["priority"];
+  title: string;
+}) {
+  return (
+    <box flexDirection="row">
+      <text>
+        <PriorityText priority={priority} />
+      </text>
+      <text fg={TUI_COLORS.text.dim}> ▸ </text>
+      <text fg={TUI_COLORS.text.secondary} wrapMode="none">
+        {toSingleLine(title)}
+      </text>
+    </box>
+  );
+}
+
 export function SectionHeader({
   title,
   count,
@@ -55,11 +105,7 @@ export function FindingsList({
   showConfidence?: boolean;
 }) {
   if (findings.length === 0) {
-    return (
-      <text fg={TUI_COLORS.text.dim} paddingLeft={2}>
-        None yet
-      </text>
-    );
+    return <EmptyListMessage />;
   }
 
   const content = findings.map((finding, index) => {
@@ -70,15 +116,10 @@ export function FindingsList({
     return (
       <box key={key} flexDirection="column">
         {showBody && index > 0 && <text> </text>}
-        <box flexDirection="row">
-          <text>
-            <PriorityText priority={finding.priority} />
-          </text>
-          <text fg={TUI_COLORS.text.dim}> ▸ </text>
-          <text fg={TUI_COLORS.text.secondary} wrapMode="none">
-            {toSingleLine(formatFindingTitleForDisplay(finding.title))}
-          </text>
-        </box>
+        <PriorityTitleRow
+          priority={finding.priority}
+          title={formatFindingTitleForDisplay(finding.title)}
+        />
         {showBody && (
           <>
             <text> </text>
@@ -99,14 +140,8 @@ export function FindingsList({
     );
   });
 
-  if (!scrollable) {
-    return <box paddingLeft={2}>{content}</box>;
-  }
-
   return (
-    <scrollbox paddingLeft={2} height={height} focused={focused}>
-      {content}
-    </scrollbox>
+    <ScrollableList content={content} focused={focused} height={height} scrollable={scrollable} />
   );
 }
 
@@ -153,11 +188,7 @@ export function SelectableStoredFindingsList({
   selectedFirst?: boolean;
 }) {
   if (findings.length === 0) {
-    return (
-      <text fg={TUI_COLORS.text.dim} paddingLeft={2}>
-        None yet
-      </text>
-    );
+    return <EmptyListMessage />;
   }
 
   const selectedIdSet = new Set(selectedFindingIds);
@@ -193,14 +224,8 @@ export function SelectableStoredFindingsList({
     );
   });
 
-  if (!scrollable) {
-    return <box paddingLeft={2}>{content}</box>;
-  }
-
   return (
-    <scrollbox paddingLeft={2} height={height} focused={focused}>
-      {content}
-    </scrollbox>
+    <ScrollableList content={content} focused={focused} height={height} scrollable={scrollable} />
   );
 }
 
@@ -218,24 +243,12 @@ export function FixList({
   scrollable?: boolean;
 }) {
   if (fixes.length === 0) {
-    return (
-      <text fg={TUI_COLORS.text.dim} paddingLeft={2}>
-        None yet
-      </text>
-    );
+    return <EmptyListMessage />;
   }
 
   const content = fixes.map((fix, index) => (
     <box key={`${index}-${fix.id}`} flexDirection="column">
-      <box flexDirection="row">
-        <text>
-          <PriorityText priority={fix.priority} />
-        </text>
-        <text fg={TUI_COLORS.text.dim}> ▸ </text>
-        <text fg={TUI_COLORS.text.secondary} wrapMode="none">
-          {toSingleLine(fix.title)}
-        </text>
-      </box>
+      <PriorityTitleRow priority={fix.priority} title={fix.title} />
       {showFiles && fix.file && (
         <text fg={TUI_COLORS.text.dim} paddingLeft={5} wrapMode="none">
           {toSingleLine(fix.file)}
@@ -244,14 +257,8 @@ export function FixList({
     </box>
   ));
 
-  if (!scrollable) {
-    return <box paddingLeft={2}>{content}</box>;
-  }
-
   return (
-    <scrollbox paddingLeft={2} height={height} focused={focused}>
-      {content}
-    </scrollbox>
+    <ScrollableList content={content} focused={focused} height={height} scrollable={scrollable} />
   );
 }
 
@@ -267,38 +274,20 @@ export function SkippedList({
   scrollable?: boolean;
 }) {
   if (skipped.length === 0) {
-    return (
-      <text fg={TUI_COLORS.text.dim} paddingLeft={2}>
-        None yet
-      </text>
-    );
+    return <EmptyListMessage />;
   }
 
   const content = skipped.map((entry, index) => (
     <box key={`${index}-${entry.id}`} flexDirection="column">
-      <box flexDirection="row">
-        <text>
-          <PriorityText priority={entry.priority} />
-        </text>
-        <text fg={TUI_COLORS.text.dim}> ▸ </text>
-        <text fg={TUI_COLORS.text.secondary} wrapMode="none">
-          {toSingleLine(entry.title)}
-        </text>
-      </box>
+      <PriorityTitleRow priority={entry.priority} title={entry.title} />
       <text fg={TUI_COLORS.text.dim} paddingLeft={5} wrapMode="none">
         {toSingleLine(entry.reason)}
       </text>
     </box>
   ));
 
-  if (!scrollable) {
-    return <box paddingLeft={2}>{content}</box>;
-  }
-
   return (
-    <scrollbox paddingLeft={2} height={height} focused={focused}>
-      {content}
-    </scrollbox>
+    <ScrollableList content={content} focused={focused} height={height} scrollable={scrollable} />
   );
 }
 
@@ -327,11 +316,7 @@ export function FindingFixResultList({
   scrollable?: boolean;
 }) {
   if (results.length === 0) {
-    return (
-      <text fg={TUI_COLORS.text.dim} paddingLeft={2}>
-        None yet
-      </text>
-    );
+    return <EmptyListMessage />;
   }
 
   const content = results.map((result) => {
@@ -359,13 +344,7 @@ export function FindingFixResultList({
     );
   });
 
-  if (!scrollable) {
-    return <box paddingLeft={2}>{content}</box>;
-  }
-
   return (
-    <scrollbox paddingLeft={2} height={height} focused={focused}>
-      {content}
-    </scrollbox>
+    <ScrollableList content={content} focused={focused} height={height} scrollable={scrollable} />
   );
 }

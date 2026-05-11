@@ -1,4 +1,5 @@
 import { TUI_COLORS } from "@/lib/tui/shared/colors";
+import { ShortcutHint } from "@/lib/tui/shared/ShortcutHint";
 import type { FocusedPane } from "@/lib/tui/workspace/workspace-types";
 
 interface StatusBarProps {
@@ -41,18 +42,9 @@ export function StatusBar({
         paddingTop={1}
       >
         <box flexDirection="row" gap={2}>
-          <text>
-            <span fg={TUI_COLORS.accent.key}>[↑/↓]</span>
-            <span fg={TUI_COLORS.text.muted}> Choose</span>
-          </text>
-          <text>
-            <span fg={TUI_COLORS.accent.key}>[Enter]</span>
-            <span fg={TUI_COLORS.text.muted}> Stop</span>
-          </text>
-          <text>
-            <span fg={TUI_COLORS.accent.key}>[Esc]</span>
-            <span fg={TUI_COLORS.text.muted}> Cancel</span>
-          </text>
+          <ShortcutHint keys="[↑/↓]" label="Choose" />
+          <ShortcutHint keys="[Enter]" label="Stop" />
+          <ShortcutHint keys="[Esc]" label="Cancel" />
         </box>
         <text fg={TUI_COLORS.text.dim}>Focus: Session Picker</text>
       </box>
@@ -69,44 +61,14 @@ export function StatusBar({
       paddingBottom={1}
     >
       <box flexDirection="row" gap={2}>
-        <text>
-          <span fg={TUI_COLORS.accent.key}>[Esc/q]</span>
-          <span fg={TUI_COLORS.text.muted}> Quit</span>
-        </text>
-        {!hasSession && (
-          <text>
-            <span fg={TUI_COLORS.accent.key}>[r]</span>
-            <span fg={TUI_COLORS.text.muted}> Run Review</span>
-          </text>
-        )}
-        {hasSession && (
-          <text>
-            <span fg={TUI_COLORS.accent.key}>[s]</span>
-            <span fg={TUI_COLORS.text.muted}> Stop Review</span>
-          </text>
-        )}
-        <text>
-          <span fg={TUI_COLORS.accent.key}>[o]</span>
-          <span fg={TUI_COLORS.text.muted}> {outputVisible ? "Hide Output" : "Output"}</span>
-        </text>
-        <text>
-          <span fg={TUI_COLORS.accent.key}>[Tab ←/→]</span>
-          <span fg={TUI_COLORS.text.muted}> Switch</span>
-        </text>
-        <text>
-          <span fg={TUI_COLORS.accent.key}>[l]</span>
-          <span fg={TUI_COLORS.text.muted}> Logs</span>
-        </text>
-        {canFixPendingSession && (
-          <text>
-            <span fg={TUI_COLORS.accent.key}>[f]</span>
-            <span fg={TUI_COLORS.text.muted}> Fix</span>
-          </text>
-        )}
-        <text>
-          <span fg={TUI_COLORS.accent.key}>[h]</span>
-          <span fg={TUI_COLORS.text.muted}> Help</span>
-        </text>
+        <ShortcutHint keys="[Esc/q]" label="Quit" />
+        {!hasSession && <ShortcutHint keys="[r]" label="Run Review" />}
+        {hasSession && <ShortcutHint keys="[s]" label="Stop Review" />}
+        <ShortcutHint keys="[o]" label={outputVisible ? "Hide Output" : "Output"} />
+        <ShortcutHint keys="[Tab ←/→]" label="Switch" />
+        <ShortcutHint keys="[l]" label="Logs" />
+        {canFixPendingSession && <ShortcutHint keys="[f]" label="Fix" />}
+        <ShortcutHint keys="[h]" label="Help" />
       </box>
       <box flexDirection="column" alignItems="flex-end">
         {liveRefreshError && (
