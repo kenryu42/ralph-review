@@ -3,10 +3,16 @@ import type { ReactNode } from "react";
 interface CenteredModalProps {
   title: string;
   width: number;
+  backgroundColor?: string;
   children: ReactNode;
 }
 
-export function CenteredModal({ title, width, children }: CenteredModalProps) {
+export function CenteredModal({
+  title,
+  width,
+  backgroundColor = "#1a1a2e",
+  children,
+}: CenteredModalProps) {
   return (
     <box
       position="absolute"
@@ -24,7 +30,7 @@ export function CenteredModal({ title, width, children }: CenteredModalProps) {
         titleAlignment="left"
         padding={2}
         width={width}
-        backgroundColor="#1a1a2e"
+        backgroundColor={backgroundColor}
       >
         {children}
       </box>

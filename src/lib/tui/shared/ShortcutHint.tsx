@@ -21,8 +21,12 @@ export function ShortcutHint({ keys, label }: ShortcutHintProps) {
 export function ShortcutHintList({ shortcuts }: ShortcutHintListProps) {
   return (
     <box flexDirection="column" gap={1}>
-      {shortcuts.map((shortcut) => (
-        <ShortcutHint key={shortcut.keys} keys={shortcut.keys} label={shortcut.label} />
+      {shortcuts.map((shortcut, index) => (
+        <ShortcutHint
+          key={`${shortcut.keys}-${index}`}
+          keys={shortcut.keys}
+          label={shortcut.label}
+        />
       ))}
     </box>
   );
