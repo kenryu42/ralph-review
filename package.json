@@ -71,7 +71,7 @@
     "@types/bun": "latest",
     "@types/react": "^19.0.0",
     "husky": "^9.1.7",
-    "jscpd": "^4.1.0",
+    "jscpd": "^4.0.9",
     "knip": "^5.82.1",
     "lint-staged": "^16.2.7",
     "typescript": "^5",
