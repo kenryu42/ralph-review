@@ -1,5 +1,6 @@
 import type { OverallCorrectness } from "./domain";
 import { VALID_OVERALL_CORRECTNESS } from "./domain";
+import { asRecord, isCodeLocation } from "./guards";
 
 export interface LineRange {
   start: number;
@@ -32,45 +33,11 @@ export interface CodexReviewSummary {
 
 const DEFAULT_CODEX_CONFIDENCE = 0.69;
 
-function isLineRange(value: unknown): value is LineRange {
-  if (typeof value !== "object" || value === null) {
-    return false;
-  }
-
-  const obj = value as Record<string, unknown>;
-
-  return (
-    typeof obj.start === "number" &&
-    Number.isInteger(obj.start) &&
-    typeof obj.end === "number" &&
-    Number.isInteger(obj.end)
-  );
-}
-
-function isCodeLocation(value: unknown): value is CodeLocation {
-  if (typeof value !== "object" || value === null) {
-    return false;
-  }
-
-  const obj = value as Record<string, unknown>;
-
-  if (typeof obj.absolute_file_path !== "string") {
-    return false;
-  }
-
-  if (!isLineRange(obj.line_range)) {
-    return false;
-  }
-
-  return true;
-}
-
 function isFinding(value: unknown): value is Finding {
-  if (typeof value !== "object" || value === null) {
+  const obj = asRecord(value);
+  if (obj === null) {
     return false;
   }
-
-  const obj = value as Record<string, unknown>;
 
   if (typeof obj.title !== "string" || typeof obj.body !== "string") {
     return false;
@@ -99,11 +66,10 @@ function isFinding(value: unknown): value is Finding {
 }
 
 export function isReviewSummary(value: unknown): value is ReviewSummary {
-  if (typeof value !== "object" || value === null) {
+  const obj = asRecord(value);
+  if (obj === null) {
     return false;
   }
-
-  const obj = value as Record<string, unknown>;
 
   if (!Array.isArray(obj.findings)) {
     return false;
