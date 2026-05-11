@@ -468,30 +468,12 @@ describe("tmux", () => {
     });
 
     test("defaults invalid line counts to fifty", async () => {
-      let capturedLines = 0;
-
-      await getSessionOutput("rr-main", Number.NaN, {
-        spawnCapturePane: (_name, lines) => {
-          capturedLines = lines;
-          return {
-            exited: Promise.resolve(0),
-            exitCode: 0,
-            stdout: {} as ReadableStream<Uint8Array>,
-            kill: () => true,
-          };
-        },
-        readText: async () => "",
-        setTimeout,
-        clearTimeout,
-      });
-
-      expect(capturedLines).toBe(50);
+      expect(await captureRequestedLines(Number.NaN)).toBe(50);
     });
 
-    test("floors fractional line counts", async () => {
+    async function captureRequestedLines(requestedLines: number) {
       let capturedLines = 0;
-
-      await getSessionOutput("rr-main", 80.9, {
+      await getSessionOutput("rr-main", requestedLines, {
         spawnCapturePane: (_name, lines) => {
           capturedLines = lines;
           return {
@@ -505,8 +487,11 @@ describe("tmux", () => {
         setTimeout,
         clearTimeout,
       });
+      return capturedLines;
+    }
 
-      expect(capturedLines).toBe(80);
+    test("floors fractional line counts", async () => {
+      expect(await captureRequestedLines(80.9)).toBe(80);
     });
 
     test("returns empty string when capture process exits non-zero", async () => {

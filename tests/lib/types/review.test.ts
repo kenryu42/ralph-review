@@ -1,6 +1,17 @@
 import { describe, expect, test } from "bun:test";
 import { parseCodexReviewText } from "@/lib/types";
 
+function expectEmptyCorrectReview(text: string, explanation: string) {
+  const result = parseCodexReviewText(text);
+
+  expect(result).not.toBeNull();
+  expect(result?.findings).toHaveLength(0);
+  expect(result?.overall_correctness).toBe("patch is correct");
+  expect(result?.overall_explanation).toBe(explanation);
+
+  return result;
+}
+
 describe("parseCodexReviewText", () => {
   test("returns null for empty or whitespace input", () => {
     expect(parseCodexReviewText(" \n\t  ")).toBeNull();
@@ -58,24 +69,15 @@ describe("parseCodexReviewText", () => {
   });
 
   test("returns a valid summary when only a summary is present", () => {
-    const text = "No issues found.";
-    const result = parseCodexReviewText(text);
+    const result = expectEmptyCorrectReview("No issues found.", "No issues found.");
 
-    expect(result).not.toBeNull();
-    expect(result?.findings).toHaveLength(0);
-    expect(result?.overall_correctness).toBe("patch is correct");
-    expect(result?.overall_explanation).toBe("No issues found.");
     expect(result?.overall_confidence_score).toBe(0.69);
   });
 
   test("parses 'Full review comments: None' as valid empty review", () => {
     const text = ["The changes look good.", "", "Full review comments:", "", "None"].join("\n");
 
-    const result = parseCodexReviewText(text);
-    expect(result).not.toBeNull();
-    expect(result?.findings).toHaveLength(0);
-    expect(result?.overall_correctness).toBe("patch is correct");
-    expect(result?.overall_explanation).toBe("The changes look good.");
+    expectEmptyCorrectReview(text, "The changes look good.");
   });
 
   test("returns null when marker comments are non-empty and lack finding headers", () => {

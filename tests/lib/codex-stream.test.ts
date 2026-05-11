@@ -32,6 +32,20 @@ function buildSessionPath(
   return `${homeDir}/.codex/sessions/${year}/${month}/${day}/rollout-${year}-${month}-${day}T${timePart}-${threadId}.jsonl`;
 }
 
+function expectCompletedItem(
+  line: string,
+  itemType: "reasoning" | "command_execution" | "agent_message"
+) {
+  const event = parseCodexStreamEvent(line);
+  expect(event).not.toBeNull();
+  expect(event?.type).toBe("item.completed");
+  if (event?.type !== "item.completed") {
+    throw new Error("expected item.completed event");
+  }
+  expect(event.item.type).toBe(itemType);
+  return event.item;
+}
+
 async function writeSessionLines(
   homeDir: string,
   threadId: string,
@@ -232,18 +246,12 @@ describe("codex-stream", () => {
         },
       });
 
-      const event = parseCodexStreamEvent(line);
-
-      expect(event).not.toBeNull();
-      expect(event?.type).toBe("item.completed");
-      if (event?.type === "item.completed") {
-        expect(event.item.type).toBe("command_execution");
-        if (event.item.type === "command_execution") {
-          expect(event.item.command).toContain("git diff");
-          expect(event.item.exit_code).toBe(0);
-          expect(event.item.status).toBe("completed");
-          expect(event.item.aggregated_output).toContain("diff --git");
-        }
+      const item = expectCompletedItem(line, "command_execution");
+      if (item.type === "command_execution") {
+        expect(item.command).toContain("git diff");
+        expect(item.exit_code).toBe(0);
+        expect(item.status).toBe("completed");
+        expect(item.aggregated_output).toContain("diff --git");
       }
     });
 
@@ -257,15 +265,9 @@ describe("codex-stream", () => {
         },
       });
 
-      const event = parseCodexStreamEvent(line);
-
-      expect(event).not.toBeNull();
-      expect(event?.type).toBe("item.completed");
-      if (event?.type === "item.completed") {
-        expect(event.item.type).toBe("agent_message");
-        if (event.item.type === "agent_message") {
-          expect(event.item.text).toContain("[P2]");
-        }
+      const item = expectCompletedItem(line, "agent_message");
+      if (item.type === "agent_message") {
+        expect(item.text).toContain("[P2]");
       }
     });
 
@@ -482,20 +484,10 @@ describe("codex-stream", () => {
     });
 
     test("returns null when no agent_message found", async () => {
-      const jsonl = [
-        JSON.stringify({
-          type: "thread.started",
-          thread_id: "abc-123",
-        }),
-        JSON.stringify({
-          type: "item.completed",
-          item: {
-            id: "item_0",
-            type: "reasoning",
-            text: "Thinking...",
-          },
-        }),
-      ].join("\n");
+      const jsonl = JSON.stringify({
+        type: "item.completed",
+        item: { id: "item_0", type: "reasoning", text: "Thinking..." },
+      });
 
       const result = await extractCodexResult(jsonl);
 

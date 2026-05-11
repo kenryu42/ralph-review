@@ -8,6 +8,7 @@ import { PRIORITY_COLORS } from "@/lib/tui/sessions/session-display";
 import * as clipboard from "@/lib/tui/shared/clipboard";
 import { TUI_COLORS } from "@/lib/tui/shared/colors";
 import { SelectionCopyToastBoundary } from "@/lib/tui/shared/SelectionCopyToastBoundary";
+import { destroyTestRender, findTextLocation, settleRender } from "../../helpers/tui";
 
 function createFinding(
   id: `F${string}`,
@@ -26,18 +27,6 @@ function createFinding(
     endLine: 12,
     ...overrides,
   };
-}
-
-function findTextLocation(frame: string, text: string): { x: number; y: number } {
-  const lines = frame.split("\n");
-  for (const [y, line] of lines.entries()) {
-    const x = line.indexOf(text);
-    if (x >= 0) {
-      return { x, y };
-    }
-  }
-
-  throw new Error(`Could not find "${text}" in frame:\n${frame}`);
 }
 
 function expectedFindingMarkdown(findings: StoredFinding[]): string {
@@ -63,12 +52,8 @@ describe("FixIssuesOverlay", () => {
   let testSetup: Awaited<ReturnType<typeof testRender>> | null = null;
 
   afterEach(async () => {
-    if (testSetup) {
-      await act(async () => {
-        testSetup?.renderer.destroy();
-      });
-      testSetup = null;
-    }
+    await destroyTestRender(testSetup);
+    testSetup = null;
     mock.restore();
   });
 
@@ -145,6 +130,16 @@ describe("FixIssuesOverlay", () => {
       await testSetup?.renderOnce();
     });
 
+    async function settleOverlay() {
+      await settleRender(testSetup);
+
+      if (!testSetup) {
+        throw new Error("expected rendered overlay");
+      }
+
+      return testSetup.captureCharFrame();
+    }
+
     async function press(sequence: string): Promise<string> {
       const sequenceMap: Record<string, string> = {
         "\u001B[A": "up",
@@ -179,21 +174,7 @@ describe("FixIssuesOverlay", () => {
         }
       });
 
-      await act(async () => {
-        await Promise.resolve();
-        await testSetup?.renderOnce();
-      });
-
-      await act(async () => {
-        await Promise.resolve();
-        await testSetup?.renderOnce();
-      });
-
-      if (!testSetup) {
-        throw new Error("expected rendered overlay");
-      }
-
-      return testSetup.captureCharFrame();
+      return await settleOverlay();
     }
 
     async function typeText(value: string): Promise<string> {
@@ -201,21 +182,7 @@ describe("FixIssuesOverlay", () => {
         await testSetup?.mockInput.typeText(value);
       });
 
-      await act(async () => {
-        await Promise.resolve();
-        await testSetup?.renderOnce();
-      });
-
-      await act(async () => {
-        await Promise.resolve();
-        await testSetup?.renderOnce();
-      });
-
-      if (!testSetup) {
-        throw new Error("expected rendered overlay");
-      }
-
-      return testSetup.captureCharFrame();
+      return await settleOverlay();
     }
 
     return {
@@ -239,6 +206,34 @@ describe("FixIssuesOverlay", () => {
     return frame;
   }
 
+  async function pressKeys(overlay: Awaited<ReturnType<typeof renderOverlay>>, keys: string[]) {
+    for (const key of keys) {
+      await overlay.press(key);
+    }
+  }
+
+  function findModalPaneHeaders(frame: string) {
+    return {
+      selection: findTextLocation(frame, "Selection"),
+      details: findTextLocation(frame, "Details"),
+    };
+  }
+
+  function expectBaseModalFrame(frame: string) {
+    expect(frame).toContain("Fix Issues");
+    expect(frame).toContain("3 pending");
+  }
+
+  async function filterForF002(overlay: Awaited<ReturnType<typeof renderOverlay>>) {
+    let frame = await overlay.press("/");
+    expect(frame).toContain("Filter the issue list");
+
+    frame = await overlay.typeText("F002");
+    expect(frame).toContain("F002");
+    expect(frame).not.toContain("Race condition in worker shutdown");
+    return frame;
+  }
+
   test("renders the command preview line above the action message without overlap", async () => {
     const overlay = await renderOverlay({ width: 100, height: 28 });
     const frame = overlay.frame();
@@ -255,11 +250,9 @@ describe("FixIssuesOverlay", () => {
   test("renders the wide modal with selection and details side by side", async () => {
     const overlay = await renderOverlay({ width: 120, height: 36 });
     const frame = overlay.frame();
-    const selection = findTextLocation(frame, "Selection");
-    const details = findTextLocation(frame, "Details");
+    const { selection, details } = findModalPaneHeaders(frame);
 
-    expect(frame).toContain("Fix Issues");
-    expect(frame).toContain("3 pending");
+    expectBaseModalFrame(frame);
     expect(frame).toContain("Selected 3 of 3");
     expect(frame).toContain("rr fix --session session-123 --all");
     expect(selection.y).toBe(details.y);
@@ -280,11 +273,9 @@ describe("FixIssuesOverlay", () => {
   test("renders the compact modal with stacked selection and details", async () => {
     const overlay = await renderOverlay({ width: 96, height: 24 });
     const frame = overlay.frame();
-    const selection = findTextLocation(frame, "Selection");
-    const details = findTextLocation(frame, "Details");
+    const { selection, details } = findModalPaneHeaders(frame);
 
-    expect(frame).toContain("Fix Issues");
-    expect(frame).toContain("3 pending");
+    expectBaseModalFrame(frame);
     expect(frame).toContain("[Tab]");
     expect(frame).not.toContain("[←/→]");
     expect(details.y).toBeGreaterThan(selection.y);
@@ -488,12 +479,7 @@ describe("FixIssuesOverlay", () => {
 
   test("supports j/k navigation across priorities", async () => {
     const overlay = await renderOverlay();
-    await overlay.press("j");
-    await overlay.press("j");
-    await overlay.press(" ");
-    await overlay.press("k");
-    await overlay.press(" ");
-    await overlay.press("\r");
+    await pressKeys(overlay, ["j", "j", " ", "k", " ", "\r"]);
 
     expect(overlay.getSubmitCalls()).toEqual([
       ["fix", "--session", "session-123", "--priority", "P0,P1"],
@@ -542,20 +528,18 @@ describe("FixIssuesOverlay", () => {
 
     const prioritySegments = row.lines[0]?.segments.slice(1, 4);
 
-    expect(prioritySegments).toEqual([
-      { text: "[", color: TUI_COLORS.text.dim },
-      { text: "P0", color: PRIORITY_COLORS.P0 },
-      { text: "]", color: TUI_COLORS.text.dim },
+    expect(prioritySegments?.map((segment) => segment.text)).toEqual(["[", "P0", "]"]);
+    expect(prioritySegments?.map((segment) => segment.color)).toEqual([
+      TUI_COLORS.text.dim,
+      PRIORITY_COLORS.P0,
+      TUI_COLORS.text.dim,
     ]);
   });
 
   test("submits rr fix with repeated id flags", async () => {
     const overlay = await renderOverlay();
     await moveDown(overlay, 5);
-    await overlay.press(" ");
-    await overlay.press("j");
-    await overlay.press(" ");
-    await overlay.press("\r");
+    await pressKeys(overlay, [" ", "j", " ", "\r"]);
 
     expect(overlay.getSubmitCalls()).toEqual([
       ["fix", "--session", "session-123", "--id", "F001", "--id", "F002"],
@@ -565,11 +549,7 @@ describe("FixIssuesOverlay", () => {
   test("submits rr fix with a csv priority flag", async () => {
     const overlay = await renderOverlay();
 
-    await overlay.press("j");
-    await overlay.press(" ");
-    await overlay.press("j");
-    await overlay.press(" ");
-    await overlay.press("\r");
+    await pressKeys(overlay, ["j", " ", "j", " ", "\r"]);
 
     expect(overlay.getSubmitCalls()).toEqual([
       ["fix", "--session", "session-123", "--priority", "P0,P1"],
@@ -598,12 +578,7 @@ describe("FixIssuesOverlay", () => {
     let frame = await overlay.press(" ");
     expect(frame).toContain("--priority P0");
 
-    frame = await overlay.press("/");
-    expect(frame).toContain("Filter the issue list");
-
-    frame = await overlay.typeText("F002");
-    expect(frame).toContain("F002");
-    expect(frame).not.toContain("Race condition in worker shutdown");
+    frame = await filterForF002(overlay);
   });
 
   test("typing j, k, and space in the filter does not change the current selection", async () => {
@@ -715,12 +690,7 @@ describe("FixIssuesOverlay", () => {
     await moveDown(overlay, 5);
     await overlay.press(" ");
 
-    let frame = await overlay.press("/");
-    expect(frame).toContain("Filter the issue list");
-
-    frame = await overlay.typeText("F002");
-    expect(frame).toContain("F002");
-    expect(frame).not.toContain("Race condition in worker shutdown");
+    let frame = await filterForF002(overlay);
     expect(frame).toContain("Selected 1 of 3");
 
     frame = await overlay.press("\r");

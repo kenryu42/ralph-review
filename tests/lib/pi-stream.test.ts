@@ -1,6 +1,18 @@
 import { describe, expect, test } from "bun:test";
 import { createPiLineFormatter, extractPiResult, parsePiStreamEvent } from "@/lib/agents/pi";
 
+function piAssistantUpdate(type: string, event: Record<string, unknown> = {}): string {
+  return JSON.stringify({
+    type: "message_update",
+    assistantMessageEvent: {
+      type,
+      contentIndex: 0,
+      partial: { role: "assistant", content: [] },
+      ...event,
+    },
+  });
+}
+
 describe("pi-stream", () => {
   describe("parsePiStreamEvent", () => {
     test("parses session event", () => {
@@ -90,58 +102,25 @@ describe("pi-stream", () => {
     test("buffers text deltas and flushes combined content at text end", () => {
       const formatPiLine = createPiLineFormatter();
 
-      const textStart = formatPiLine(
-        JSON.stringify({
-          type: "message_update",
-          assistantMessageEvent: {
-            type: "text_start",
-            contentIndex: 0,
-            partial: { role: "assistant", content: [] },
-          },
-        })
-      );
+      const textStart = formatPiLine(piAssistantUpdate("text_start"));
       const firstDelta = formatPiLine(
-        JSON.stringify({
-          type: "message_update",
-          assistantMessageEvent: {
-            type: "text_delta",
-            contentIndex: 0,
-            delta: "/Users",
-            partial: { role: "assistant", content: [] },
-          },
+        piAssistantUpdate("text_delta", {
+          delta: "/Users",
         })
       );
       const secondDelta = formatPiLine(
-        JSON.stringify({
-          type: "message_update",
-          assistantMessageEvent: {
-            type: "text_delta",
-            contentIndex: 0,
-            delta: "/ken",
-            partial: { role: "assistant", content: [] },
-          },
+        piAssistantUpdate("text_delta", {
+          delta: "/ken",
         })
       );
       const thirdDelta = formatPiLine(
-        JSON.stringify({
-          type: "message_update",
-          assistantMessageEvent: {
-            type: "text_delta",
-            contentIndex: 0,
-            delta: "ryu",
-            partial: { role: "assistant", content: [] },
-          },
+        piAssistantUpdate("text_delta", {
+          delta: "ryu",
         })
       );
       const textEnd = formatPiLine(
-        JSON.stringify({
-          type: "message_update",
-          assistantMessageEvent: {
-            type: "text_end",
-            contentIndex: 0,
-            content: "/Users/kenryu",
-            partial: { role: "assistant", content: [] },
-          },
+        piAssistantUpdate("text_end", {
+          content: "/Users/kenryu",
         })
       );
 
@@ -155,37 +134,16 @@ describe("pi-stream", () => {
     test("flushes at sentence boundary while still streaming", () => {
       const formatPiLine = createPiLineFormatter();
 
-      formatPiLine(
-        JSON.stringify({
-          type: "message_update",
-          assistantMessageEvent: {
-            type: "text_start",
-            contentIndex: 0,
-            partial: { role: "assistant", content: [] },
-          },
-        })
-      );
+      formatPiLine(piAssistantUpdate("text_start"));
 
       const firstChunk = formatPiLine(
-        JSON.stringify({
-          type: "message_update",
-          assistantMessageEvent: {
-            type: "text_delta",
-            contentIndex: 0,
-            delta: "Sentence one. ",
-            partial: { role: "assistant", content: [] },
-          },
+        piAssistantUpdate("text_delta", {
+          delta: "Sentence one. ",
         })
       );
       const secondChunk = formatPiLine(
-        JSON.stringify({
-          type: "message_update",
-          assistantMessageEvent: {
-            type: "text_delta",
-            contentIndex: 0,
-            delta: "Sentence two. ",
-            partial: { role: "assistant", content: [] },
-          },
+        piAssistantUpdate("text_delta", {
+          delta: "Sentence two. ",
         })
       );
 
@@ -196,26 +154,11 @@ describe("pi-stream", () => {
     test("flushes at paragraph boundary", () => {
       const formatPiLine = createPiLineFormatter();
 
-      formatPiLine(
-        JSON.stringify({
-          type: "message_update",
-          assistantMessageEvent: {
-            type: "text_start",
-            contentIndex: 0,
-            partial: { role: "assistant", content: [] },
-          },
-        })
-      );
+      formatPiLine(piAssistantUpdate("text_start"));
 
       const chunk = formatPiLine(
-        JSON.stringify({
-          type: "message_update",
-          assistantMessageEvent: {
-            type: "text_delta",
-            contentIndex: 0,
-            delta: "Paragraph one.\n\nParagraph two starts here",
-            partial: { role: "assistant", content: [] },
-          },
+        piAssistantUpdate("text_delta", {
+          delta: "Paragraph one.\n\nParagraph two starts here",
         })
       );
 
@@ -225,26 +168,11 @@ describe("pi-stream", () => {
     test("falls back to thinking_end content when no reasoning delta arrived", () => {
       const formatPiLine = createPiLineFormatter();
 
-      formatPiLine(
-        JSON.stringify({
-          type: "message_update",
-          assistantMessageEvent: {
-            type: "thinking_start",
-            contentIndex: 0,
-            partial: { role: "assistant", content: [] },
-          },
-        })
-      );
+      formatPiLine(piAssistantUpdate("thinking_start"));
 
       const thinkingEnd = formatPiLine(
-        JSON.stringify({
-          type: "message_update",
-          assistantMessageEvent: {
-            type: "thinking_end",
-            contentIndex: 0,
-            content: "Reasoning from fallback content",
-            partial: { role: "assistant", content: [] },
-          },
+        piAssistantUpdate("thinking_end", {
+          content: "Reasoning from fallback content",
         })
       );
 
@@ -254,36 +182,15 @@ describe("pi-stream", () => {
     test("shows buffered thinking stream and flushes at thinking end", () => {
       const formatPiLine = createPiLineFormatter();
 
-      const thinkingStart = formatPiLine(
-        JSON.stringify({
-          type: "message_update",
-          assistantMessageEvent: {
-            type: "thinking_start",
-            contentIndex: 0,
-            partial: { role: "assistant", content: [] },
-          },
-        })
-      );
+      const thinkingStart = formatPiLine(piAssistantUpdate("thinking_start"));
       const thinkingDelta = formatPiLine(
-        JSON.stringify({
-          type: "message_update",
-          assistantMessageEvent: {
-            type: "thinking_delta",
-            contentIndex: 0,
-            delta: "Analyzing the repository",
-            partial: { role: "assistant", content: [] },
-          },
+        piAssistantUpdate("thinking_delta", {
+          delta: "Analyzing the repository",
         })
       );
       const thinkingEnd = formatPiLine(
-        JSON.stringify({
-          type: "message_update",
-          assistantMessageEvent: {
-            type: "thinking_end",
-            contentIndex: 0,
-            content: "Analyzing the repository",
-            partial: { role: "assistant", content: [] },
-          },
+        piAssistantUpdate("thinking_end", {
+          content: "Analyzing the repository",
         })
       );
 
@@ -295,26 +202,11 @@ describe("pi-stream", () => {
     test("falls back to text_end content when no text delta arrived", () => {
       const formatPiLine = createPiLineFormatter();
 
-      formatPiLine(
-        JSON.stringify({
-          type: "message_update",
-          assistantMessageEvent: {
-            type: "text_start",
-            contentIndex: 0,
-            partial: { role: "assistant", content: [] },
-          },
-        })
-      );
+      formatPiLine(piAssistantUpdate("text_start"));
 
       const textEnd = formatPiLine(
-        JSON.stringify({
-          type: "message_update",
-          assistantMessageEvent: {
-            type: "text_end",
-            contentIndex: 0,
-            content: "Assistant from fallback content",
-            partial: { role: "assistant", content: [] },
-          },
+        piAssistantUpdate("text_end", {
+          content: "Assistant from fallback content",
         })
       );
 
@@ -324,26 +216,11 @@ describe("pi-stream", () => {
     test("does not emit whitespace-only chunks at text end", () => {
       const formatPiLine = createPiLineFormatter();
 
-      formatPiLine(
-        JSON.stringify({
-          type: "message_update",
-          assistantMessageEvent: {
-            type: "text_start",
-            contentIndex: 0,
-            partial: { role: "assistant", content: [] },
-          },
-        })
-      );
+      formatPiLine(piAssistantUpdate("text_start"));
 
       const textEnd = formatPiLine(
-        JSON.stringify({
-          type: "message_update",
-          assistantMessageEvent: {
-            type: "text_end",
-            contentIndex: 0,
-            content: "\n\n\n",
-            partial: { role: "assistant", content: [] },
-          },
+        piAssistantUpdate("text_end", {
+          content: "\n\n\n",
         })
       );
 
@@ -354,37 +231,16 @@ describe("pi-stream", () => {
       const formatPiLine = createPiLineFormatter();
       const longToken = "a".repeat(161);
 
-      formatPiLine(
-        JSON.stringify({
-          type: "message_update",
-          assistantMessageEvent: {
-            type: "text_start",
-            contentIndex: 0,
-            partial: { role: "assistant", content: [] },
-          },
-        })
-      );
+      formatPiLine(piAssistantUpdate("text_start"));
 
       const chunk = formatPiLine(
-        JSON.stringify({
-          type: "message_update",
-          assistantMessageEvent: {
-            type: "text_delta",
-            contentIndex: 0,
-            delta: longToken,
-            partial: { role: "assistant", content: [] },
-          },
+        piAssistantUpdate("text_delta", {
+          delta: longToken,
         })
       );
       const textEnd = formatPiLine(
-        JSON.stringify({
-          type: "message_update",
-          assistantMessageEvent: {
-            type: "text_end",
-            contentIndex: 0,
-            content: longToken,
-            partial: { role: "assistant", content: [] },
-          },
+        piAssistantUpdate("text_end", {
+          content: longToken,
         })
       );
 
@@ -418,46 +274,16 @@ describe("pi-stream", () => {
     test("flushes both reasoning and assistant buffers on turn_end", () => {
       const formatPiLine = createPiLineFormatter();
 
+      formatPiLine(piAssistantUpdate("thinking_start"));
       formatPiLine(
-        JSON.stringify({
-          type: "message_update",
-          assistantMessageEvent: {
-            type: "thinking_start",
-            contentIndex: 0,
-            partial: { role: "assistant", content: [] },
-          },
+        piAssistantUpdate("thinking_delta", {
+          delta: "Analyzing options",
         })
       );
+      formatPiLine(piAssistantUpdate("text_start"));
       formatPiLine(
-        JSON.stringify({
-          type: "message_update",
-          assistantMessageEvent: {
-            type: "thinking_delta",
-            contentIndex: 0,
-            delta: "Analyzing options",
-            partial: { role: "assistant", content: [] },
-          },
-        })
-      );
-      formatPiLine(
-        JSON.stringify({
-          type: "message_update",
-          assistantMessageEvent: {
-            type: "text_start",
-            contentIndex: 0,
-            partial: { role: "assistant", content: [] },
-          },
-        })
-      );
-      formatPiLine(
-        JSON.stringify({
-          type: "message_update",
-          assistantMessageEvent: {
-            type: "text_delta",
-            contentIndex: 0,
-            delta: "Final answer pending",
-            partial: { role: "assistant", content: [] },
-          },
+        piAssistantUpdate("text_delta", {
+          delta: "Final answer pending",
         })
       );
 
@@ -496,14 +322,8 @@ describe("pi-stream", () => {
       const formatPiLine = createPiLineFormatter();
 
       const firstChunk = formatPiLine(
-        JSON.stringify({
-          type: "message_update",
-          assistantMessageEvent: {
-            type: "text_delta",
-            contentIndex: 0,
-            delta: "Already emitted. ",
-            partial: { role: "assistant", content: [] },
-          },
+        piAssistantUpdate("text_delta", {
+          delta: "Already emitted. ",
         })
       );
       const turnEnd = formatPiLine(

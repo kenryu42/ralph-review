@@ -16,23 +16,12 @@ import type {
   SkippedEntry,
   SystemEntry,
 } from "@/lib/types";
+import { createDeferred } from "../../helpers/async";
 import { createConfig } from "../../helpers/diagnostics";
-
-interface Deferred<T> {
-  promise: Promise<T>;
-  resolve: (value: T) => void;
-  reject: (reason?: unknown) => void;
-}
-
-function createDeferred<T>(): Deferred<T> {
-  let resolve!: (value: T) => void;
-  let reject!: (reason?: unknown) => void;
-  const promise = new Promise<T>((res, rej) => {
-    resolve = res;
-    reject = rej;
-  });
-  return { promise, resolve, reject };
-}
+import {
+  createSessionState,
+  createActiveSession as createTuiActiveSession,
+} from "../../helpers/tui";
 
 function createFix(id: number, title: string, priority: Priority = "P1"): FixEntry {
   return {
@@ -90,28 +79,24 @@ function createIterationEntry(overrides: Partial<IterationEntry> = {}): Iteratio
 }
 
 function createLockData(overrides: Partial<SessionState> = {}): SessionState {
-  return {
-    schemaVersion: 2,
-    sessionId: "session-1",
+  return createSessionState({
     sessionName: "rr-project-main",
     startTime: Date.now() - 5_000,
-    lastHeartbeat: Date.now(),
-    pid: process.pid,
     projectPath: "/repo/project",
-    branch: "main",
-    state: "running",
-    mode: "background",
     iteration: 1,
     currentAgent: "fixer",
     ...overrides,
-  };
+  });
 }
 
 function createActiveSession(overrides: Partial<ActiveSession> = {}): ActiveSession {
-  return {
-    ...createLockData(overrides),
+  return createTuiActiveSession({
+    sessionName: "rr-project-main",
+    projectPath: "/repo/project",
+    currentAgent: "fixer",
     sessionStatePath: "/tmp/rr-project-main.lock",
-  };
+    ...overrides,
+  });
 }
 
 function createSessionStats(entries: (SystemEntry | IterationEntry)[]): SessionStats {

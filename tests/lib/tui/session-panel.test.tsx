@@ -19,18 +19,15 @@ import type {
   SkippedEntry,
   SystemEntry,
 } from "@/lib/types";
+import { destroyTestRender, settleRender } from "../../helpers/tui";
 import { buildFixEntry, buildFixSummary, buildSkippedEntry } from "../../test-utils/fix-summary";
 
 describe("DetailPane", () => {
   let testSetup: Awaited<ReturnType<typeof testRender>> | null = null;
 
   afterEach(async () => {
-    if (testSetup) {
-      await act(async () => {
-        testSetup?.renderer.destroy();
-      });
-      testSetup = null;
-    }
+    await destroyTestRender(testSetup);
+    testSetup = null;
   });
 
   function createSession(overrides: Partial<SessionState> = {}): SessionState {
@@ -59,6 +56,24 @@ describe("DetailPane", () => {
         absolute_file_path: "/test/project/src/file.ts",
         line_range: { start: 10, end: 12 },
       },
+      ...overrides,
+    };
+  }
+
+  function createStoredFinding(
+    id: FindingId,
+    overrides: Partial<StoredFinding> = {}
+  ): StoredFinding {
+    return {
+      id,
+      fingerprint: `fp-${id}`,
+      title: `Finding ${id}`,
+      body: `Body for ${id}`,
+      priority: "P1",
+      confidenceScore: 0.9,
+      filePath: `src/file-${id}.ts`,
+      startLine: 10,
+      endLine: 12,
       ...overrides,
     };
   }
@@ -315,6 +330,24 @@ describe("DetailPane", () => {
     return testSetup.captureCharFrame();
   }
 
+  function createActiveReviewFrameOptions(overrides: { height?: number } = {}) {
+    return {
+      session: createSession({
+        iteration: 2,
+        currentAgent: "reviewer",
+        worktreeBranch: "rr-worktree-session-2",
+      }),
+      currentAgent: "reviewer" as const,
+      reviewOptions: { baseBranch: "main" },
+      latestReviewIteration: 2,
+      findings: [createFinding()],
+      fixes: [buildFixEntry()],
+      skipped: [buildSkippedEntry()],
+      activeSessionCount: 2,
+      ...overrides,
+    };
+  }
+
   test("renders preparing session worktree before the first agent starts", async () => {
     const frame = await renderFrame({
       session: createSession({
@@ -472,18 +505,8 @@ describe("DetailPane", () => {
 
   test("renders an active session summary with findings, fixes, and skipped items", async () => {
     const frame = await renderFrame({
-      session: createSession({
-        iteration: 2,
-        currentAgent: "reviewer",
-        worktreeBranch: "rr-worktree-session-2",
-      }),
-      currentAgent: "reviewer",
-      reviewOptions: { baseBranch: "main" },
-      latestReviewIteration: 2,
+      ...createActiveReviewFrameOptions(),
       findings: [createFinding({ title: "[P1] Trailing spaces in title" })],
-      fixes: [buildFixEntry()],
-      skipped: [buildSkippedEntry()],
-      activeSessionCount: 2,
     });
 
     expect(frame).toContain("running reviewer agent");
@@ -504,62 +527,32 @@ describe("DetailPane", () => {
   });
 
   test("renders batch-first workflow findings with selected state markers", async () => {
+    const staleFinding = createStoredFinding("F001", {
+      title: "Guard missing config",
+      body: "Null check is missing",
+      priority: "P0",
+      confidenceScore: 0.97,
+      filePath: "src/config.ts",
+    });
+    const cacheFinding = createStoredFinding("F002", {
+      title: "Avoid stale cache",
+      body: "Cache can be stale",
+      priority: "P2",
+      confidenceScore: 0.91,
+      filePath: "src/cache.ts",
+      startLine: 20,
+      endLine: 22,
+    });
     const frame = await renderFrame({
       session: createSession({
         currentPhase: "complete",
         sessionStatus: "completed",
         reviewOutcome: "incomplete",
-        accumulatedFindings: [
-          {
-            id: "F001",
-            fingerprint: "fp-1",
-            title: "Guard missing config",
-            body: "Null check is missing",
-            priority: "P0",
-            confidenceScore: 0.97,
-            filePath: "src/config.ts",
-            startLine: 10,
-            endLine: 12,
-          },
-          {
-            id: "F002",
-            fingerprint: "fp-2",
-            title: "Avoid stale cache",
-            body: "Cache can be stale",
-            priority: "P2",
-            confidenceScore: 0.91,
-            filePath: "src/cache.ts",
-            startLine: 20,
-            endLine: 22,
-          },
-        ],
+        accumulatedFindings: [staleFinding, cacheFinding],
         selectedFindingIds: ["F002"],
       }),
       reviewOptions: { baseBranch: "main" },
-      storedFindings: [
-        {
-          id: "F001",
-          fingerprint: "fp-1",
-          title: "Guard missing config",
-          body: "Null check is missing",
-          priority: "P0",
-          confidenceScore: 0.97,
-          filePath: "src/config.ts",
-          startLine: 10,
-          endLine: 12,
-        },
-        {
-          id: "F002",
-          fingerprint: "fp-2",
-          title: "Avoid stale cache",
-          body: "Cache can be stale",
-          priority: "P2",
-          confidenceScore: 0.91,
-          filePath: "src/cache.ts",
-          startLine: 20,
-          endLine: 22,
-        },
-      ],
+      storedFindings: [staleFinding, cacheFinding],
       selectedFindingIds: ["F002"],
       fixResults: [
         {
@@ -568,23 +561,9 @@ describe("DetailPane", () => {
           summary: "Added a null guard",
         },
       ],
-      unresolvedSelectedFindings: [
-        {
-          id: "F002",
-          fingerprint: "fp-2",
-          title: "Avoid stale cache",
-          body: "Cache can be stale",
-          priority: "P2",
-          confidenceScore: 0.91,
-          filePath: "src/cache.ts",
-          startLine: 20,
-          endLine: 22,
-        },
-      ],
+      unresolvedSelectedFindings: [cacheFinding],
       auditRegressionFindings: [
-        {
-          id: "F010",
-          fingerprint: "fp-10",
+        createStoredFinding("F010", {
           title: "Regression in cache invalidation",
           body: "Fix introduced a cache regression",
           priority: "P1",
@@ -592,7 +571,7 @@ describe("DetailPane", () => {
           filePath: "src/cache.ts",
           startLine: 30,
           endLine: 32,
-        },
+        }),
       ],
     });
 
@@ -632,14 +611,7 @@ describe("DetailPane", () => {
     let setTmuxOutput!: (value: string) => void;
 
     async function settleHarness() {
-      await act(async () => {
-        await Promise.resolve();
-        await testSetup?.renderOnce();
-      });
-      await act(async () => {
-        await Promise.resolve();
-        await testSetup?.renderOnce();
-      });
+      await settleRender(testSetup);
     }
 
     function Harness() {
@@ -710,21 +682,7 @@ describe("DetailPane", () => {
   });
 
   test("keeps section labels readable when the pane height is constrained", async () => {
-    const frame = await renderFrame({
-      session: createSession({
-        iteration: 2,
-        currentAgent: "reviewer",
-        worktreeBranch: "rr-worktree-session-2",
-      }),
-      currentAgent: "reviewer",
-      reviewOptions: { baseBranch: "main" },
-      latestReviewIteration: 2,
-      findings: [createFinding()],
-      fixes: [buildFixEntry()],
-      skipped: [buildSkippedEntry()],
-      activeSessionCount: 2,
-      height: 22,
-    });
+    const frame = await renderFrame(createActiveReviewFrameOptions({ height: 22 }));
 
     expect(frame).toContain("Session");
     expect(frame).toContain("Issues found");

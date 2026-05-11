@@ -1,27 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { resolvePendingHandoffSelection } from "@/commands/handoff-selection";
-import type { PendingHandoffArtifact } from "@/lib/handoff";
-
-function createPendingHandoff(
-  overrides: Partial<PendingHandoffArtifact> = {}
-): PendingHandoffArtifact {
-  const projectPath = process.cwd();
-  return {
-    handoffId: overrides.handoffId ?? overrides.sessionId ?? "session-id",
-    sessionId: "session-id",
-    projectPath,
-    sourceRepoPath: projectPath,
-    logPath: `${projectPath}/.ralph-review/logs/session.jsonl`,
-    hiddenRef: "refs/ralph-review/sessions/session-id/final",
-    patchPath: `${projectPath}/.ralph-review/handoffs/session-id.patch`,
-    sourceBaselineFingerprint: "fingerprint-1",
-    commitSha: "commit-sha-1",
-    state: "pending-apply",
-    createdAt: 1,
-    updatedAt: 1,
-    ...overrides,
-  };
-}
+import { createPendingHandoff } from "../helpers/review-workflow";
 
 describe("resolvePendingHandoffSelection", () => {
   test("returns the only pending handoff without prompting", async () => {

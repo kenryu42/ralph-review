@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import type { PendingHandoffArtifact } from "@/lib/handoff";
-
-const EXIT_PREFIX = "__FORCED_EXIT__:";
+import { captureExitCode, createPromptLogCapture, withStdoutTTY } from "../helpers/capture";
+import { createPendingHandoff } from "../helpers/review-workflow";
 
 interface ApplyHarnessOptions {
   handoffs?: PendingHandoffArtifact[];
@@ -24,27 +24,6 @@ interface ApplyHarnessResult {
   exitCode: number | undefined;
 }
 
-function createPendingHandoff(
-  overrides: Partial<PendingHandoffArtifact> = {}
-): PendingHandoffArtifact {
-  const projectPath = process.cwd();
-  return {
-    handoffId: overrides.handoffId ?? overrides.sessionId ?? "session-id",
-    sessionId: "session-id",
-    projectPath,
-    sourceRepoPath: projectPath,
-    logPath: `${projectPath}/.ralph-review/logs/session.jsonl`,
-    hiddenRef: "refs/ralph-review/sessions/session-id/final",
-    patchPath: `${projectPath}/.ralph-review/handoffs/session-id.patch`,
-    sourceBaselineFingerprint: "fingerprint-1",
-    commitSha: "commit-sha-1",
-    state: "pending-apply",
-    createdAt: 1,
-    updatedAt: 1,
-    ...overrides,
-  };
-}
-
 async function runApplyWithHarness(
   args: string[],
   options: ApplyHarnessOptions = {}
@@ -53,13 +32,7 @@ async function runApplyWithHarness(
   const listPendingCalls: string[] = [];
   const applyCalls: Array<{ projectPath: string; sessionId: string }> = [];
   const appendCalls: Array<{ logPath: string; entry: Record<string, unknown> }> = [];
-  const infos: string[] = [];
-  const errors: string[] = [];
-  const steps: string[] = [];
-  const messages: string[] = [];
-  const successes: string[] = [];
-  const selectMessages: string[] = [];
-  const selectValues = [...(options.selectValues ?? [])];
+  const prompts = createPromptLogCapture(options.selectValues);
   const actualLogger = await import("@/lib/logger");
 
   mock.module("@/lib/handoff", () => ({
@@ -98,76 +71,32 @@ async function runApplyWithHarness(
     },
   }));
 
-  mock.module("@clack/prompts", () => ({
-    log: {
-      info: (message: string) => {
-        infos.push(message);
-      },
-      error: (message: string) => {
-        errors.push(message);
-      },
-      step: (message: string) => {
-        steps.push(message);
-      },
-      message: (message: string) => {
-        messages.push(message);
-      },
-      success: (message: string) => {
-        successes.push(message);
-      },
-    },
-    select: async (input: { message: string }) => {
-      selectMessages.push(input.message);
-      return selectValues.shift();
-    },
-    isCancel: (value: unknown) => value === "__CANCEL__",
-  }));
+  mock.module("@clack/prompts", () => prompts.module);
 
-  const originalExit = process.exit;
-  const originalIsTTY = process.stdout.isTTY;
-  process.exit = ((code?: number) => {
-    throw new Error(`${EXIT_PREFIX}${code ?? 0}`);
-  }) as typeof process.exit;
-  Object.defineProperty(process.stdout, "isTTY", {
-    configurable: true,
-    value: options.isTTY ?? true,
-  });
+  const exitCode = await withStdoutTTY(options.isTTY ?? true, async () =>
+    captureExitCode(async () => {
+      const { runApply } = await import("@/commands/apply");
+      if (options.hasApplyCommandDef === false) {
+        await runApply(args, {
+          getCommandDef: () => undefined,
+        });
+        return;
+      }
 
-  const { runApply } = await import("@/commands/apply");
-  let exitCode: number | undefined;
-
-  try {
-    if (options.hasApplyCommandDef === false) {
-      await runApply(args, {
-        getCommandDef: () => undefined,
-      });
-    } else {
       await runApply(args);
-    }
-  } catch (error) {
-    if (error instanceof Error && error.message.startsWith(EXIT_PREFIX)) {
-      exitCode = Number.parseInt(error.message.slice(EXIT_PREFIX.length), 10);
-    } else {
-      throw error;
-    }
-  } finally {
-    process.exit = originalExit;
-    Object.defineProperty(process.stdout, "isTTY", {
-      configurable: true,
-      value: originalIsTTY,
-    });
-  }
+    })
+  );
 
   return {
     listPendingCalls,
     applyCalls,
     appendCalls,
-    infos,
-    errors,
-    steps,
-    messages,
-    successes,
-    selectMessages,
+    infos: prompts.infos,
+    errors: prompts.errors,
+    steps: prompts.steps,
+    messages: prompts.messages,
+    successes: prompts.successes,
+    selectMessages: prompts.selectMessages,
     exitCode,
   };
 }

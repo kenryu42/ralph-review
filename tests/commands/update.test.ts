@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { runUpdate } from "@/commands/update";
 import type { CommandDef, ParseResult } from "@/lib/cli-parser";
 import { SelfUpdateError, type SelfUpdateOptions, type SelfUpdateResult } from "@/lib/self-update";
+import { createSpinnerCapture } from "../helpers/capture";
 
 interface UpdateHarness {
   overrides: NonNullable<Parameters<typeof runUpdate>[1]>;
@@ -35,8 +36,7 @@ function createUpdateHarness(
   const successes: string[] = [];
   const exits: number[] = [];
   const performCalls: SelfUpdateOptions[] = [];
-  const spinnerStarts: string[] = [];
-  const spinnerStops: string[] = [];
+  const spinner = createSpinnerCapture();
 
   const updateDef: CommandDef = {
     name: "update",
@@ -57,10 +57,7 @@ function createUpdateHarness(
         }
         return result;
       },
-      spinner: () => ({
-        start: (message: string) => spinnerStarts.push(message),
-        stop: (message: string) => spinnerStops.push(message),
-      }),
+      spinner: spinner.spinner,
       log: {
         error: (message: string) => errors.push(message),
         info: (message: string) => infos.push(message),
@@ -84,9 +81,27 @@ function createUpdateHarness(
     successes,
     exits,
     performCalls,
-    spinnerStarts,
-    spinnerStops,
+    spinnerStarts: spinner.starts,
+    spinnerStops: spinner.stops,
   };
+}
+
+function createCheckUpdateHarness(manager: "brew" | "npm", latestVersion?: string) {
+  return createUpdateHarness(
+    {
+      status: "update-available",
+      manager,
+      currentVersion: "0.1.6",
+      latestVersion,
+    },
+    {
+      values: {
+        check: true,
+        manager,
+      },
+      positional: [],
+    }
+  );
 }
 
 describe("update command", () => {
@@ -134,21 +149,7 @@ describe("update command", () => {
   });
 
   test("prints npm check-mode availability with both versions", async () => {
-    const harness = createUpdateHarness(
-      {
-        status: "update-available",
-        manager: "npm",
-        currentVersion: "0.1.6",
-        latestVersion: "0.1.7",
-      },
-      {
-        values: {
-          check: true,
-          manager: "npm",
-        },
-        positional: [],
-      }
-    );
+    const harness = createCheckUpdateHarness("npm", "0.1.7");
 
     await runUpdate(["--check", "--manager", "npm"], harness.overrides);
 
@@ -157,21 +158,7 @@ describe("update command", () => {
   });
 
   test("prints brew check-mode availability with both versions", async () => {
-    const harness = createUpdateHarness(
-      {
-        status: "update-available",
-        manager: "brew",
-        currentVersion: "0.1.6",
-        latestVersion: "0.1.7",
-      },
-      {
-        values: {
-          check: true,
-          manager: "brew",
-        },
-        positional: [],
-      }
-    );
+    const harness = createCheckUpdateHarness("brew", "0.1.7");
 
     await runUpdate(["--check", "--manager", "brew"], harness.overrides);
 
@@ -180,20 +167,7 @@ describe("update command", () => {
   });
 
   test("prints update-available with only current version when latest is unknown", async () => {
-    const harness = createUpdateHarness(
-      {
-        status: "update-available",
-        manager: "brew",
-        currentVersion: "0.1.6",
-      },
-      {
-        values: {
-          check: true,
-          manager: "brew",
-        },
-        positional: [],
-      }
-    );
+    const harness = createCheckUpdateHarness("brew");
 
     await runUpdate(["--check", "--manager", "brew"], harness.overrides);
 

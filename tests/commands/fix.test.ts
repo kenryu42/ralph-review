@@ -5,49 +5,43 @@ import {
   runFix,
   runFixForeground,
 } from "@/commands/fix";
-import type {
-  FindingId,
-  FindingsArtifact,
-  StoredFinding,
-} from "@/lib/review-workflow/findings/types";
+import type { FindingId, FindingsArtifact } from "@/lib/review-workflow/findings/types";
+import { captureExitCode, EXIT_PREFIX } from "../helpers/capture";
 import { createConfig } from "../helpers/diagnostics";
-
-const EXIT_PREFIX = "__FORCED_EXIT__:";
-
-function createFinding(
-  id: StoredFinding["id"],
-  priority: StoredFinding["priority"]
-): StoredFinding {
-  return {
-    id,
-    fingerprint: `fp-${id}`,
-    locationKey: `src/file-${id}.ts:10:12`,
-    title: `Finding ${id}`,
-    body: `Body for ${id}`,
-    priority,
-    confidenceScore: 0.91,
-    filePath: `src/file-${id}.ts`,
-    startLine: 10,
-    endLine: 12,
-  };
-}
+import { createFindingsArtifact, createStoredFinding } from "../helpers/review-workflow";
+import type {
+  RemoveSessionStateCall,
+  UpdateSessionStateCall,
+} from "../helpers/session-state-calls";
 
 function createArtifact(): FindingsArtifact {
-  return {
-    artifactVersion: 1,
-    sessionId: "session-123",
-    projectPath: "/repo/project",
-    logPath: "/tmp/session-123.jsonl",
-    baselineRef: "refs/ralph-review/sessions/session-123/baseline",
-    baselineCommitSha: "baseline-sha-123",
-    sourceBaselineRef: "refs/ralph-review/sessions/session-123/source",
-    sourceBaselineCommitSha: "source-baseline-sha-123",
-    sourceBaselineFingerprint: "repo-fingerprint-1",
-    findings: [createFinding("F001", "P0"), createFinding("F002", "P1")],
-    selectedFindingIds: [],
-    createdAt: "2026-01-01T00:00:00.000Z",
-    updatedAt: "2026-01-01T00:00:00.000Z",
-  };
+  return createFindingsArtifact(
+    [createStoredFinding("F001", "P0"), createStoredFinding("F002", "P1")],
+    {
+      sourceBaselineFingerprint: "repo-fingerprint-1",
+    }
+  );
+}
+
+function getDefaultFindingPair(artifact: FindingsArtifact) {
+  const selectedFinding = artifact.findings[0];
+  const unselectedFinding = artifact.findings[1];
+  if (!selectedFinding || !unselectedFinding) {
+    throw new Error("expected default findings to exist");
+  }
+
+  return { selectedFinding, unselectedFinding };
+}
+
+function runForegroundFixWithArtifact(harness: FixHarness, artifact: FindingsArtifact) {
+  return runFixForeground(["--session", "session-123", "--id", "F001"], {
+    ...harness.deps,
+    env: {
+      RR_PROJECT_PATH: "/repo/project",
+      RR_SESSION_ID: "session-123",
+      RR_SESSION_PATH: artifact.logPath,
+    },
+  });
 }
 
 interface FixHarness {
@@ -60,17 +54,8 @@ interface FixHarness {
   exits: number[];
   createSessionCalls: Array<{ sessionName: string; command: string }>;
   createSessionStateCalls: Array<{ projectPath: string; sessionName: string; options: unknown }>;
-  updateSessionStateCalls: Array<{
-    projectPath: string;
-    sessionId: string;
-    updates: Record<string, unknown>;
-    expectedSessionId?: string;
-  }>;
-  removeSessionStateCalls: Array<{
-    projectPath: string;
-    sessionId: string;
-    expectedSessionId?: string;
-  }>;
+  updateSessionStateCalls: UpdateSessionStateCall[];
+  removeSessionStateCalls: RemoveSessionStateCall[];
   promptCalls: FindingsArtifact[];
   runFixSessionCalls: Array<Record<string, unknown>>;
   touchHeartbeatCalls: Array<{ projectPath: string; sessionId: string }>;
@@ -113,17 +98,8 @@ function createFixHarness(
     sessionName: string;
     options: unknown;
   }> = [];
-  const updateSessionStateCalls: Array<{
-    projectPath: string;
-    sessionId: string;
-    updates: Record<string, unknown>;
-    expectedSessionId?: string;
-  }> = [];
-  const removeSessionStateCalls: Array<{
-    projectPath: string;
-    sessionId: string;
-    expectedSessionId?: string;
-  }> = [];
+  const updateSessionStateCalls: UpdateSessionStateCall[] = [];
+  const removeSessionStateCalls: RemoveSessionStateCall[] = [];
   const promptCalls: FindingsArtifact[] = [];
   const runFixSessionCalls: Array<Record<string, unknown>> = [];
   const touchHeartbeatCalls: Array<{ projectPath: string; sessionId: string }> = [];
@@ -255,19 +231,6 @@ function createFixHarness(
   };
 }
 
-async function captureExit(run: () => Promise<void>): Promise<number | undefined> {
-  try {
-    await run();
-    return undefined;
-  } catch (error) {
-    if (error instanceof Error && error.message.startsWith(EXIT_PREFIX)) {
-      return Number.parseInt(error.message.slice(EXIT_PREFIX.length), 10);
-    }
-
-    throw error;
-  }
-}
-
 describe("fix command", () => {
   test("parses csv priority values as a union", () => {
     const options = parseFixCommandOptions(["--session", "session-123", "--priority", "P0, P2"]);
@@ -386,7 +349,9 @@ describe("fix command", () => {
   test("fails with guidance when no selector is provided in a non-interactive terminal", async () => {
     const harness = createFixHarness();
 
-    const exitCode = await captureExit(() => runFix(["--session", "session-123"], harness.deps));
+    const exitCode = await captureExitCode(() =>
+      runFix(["--session", "session-123"], harness.deps)
+    );
 
     expect(exitCode).toBe(1);
     expect(harness.errors).toEqual([
@@ -400,7 +365,7 @@ describe("fix command", () => {
       createSessionError: new Error("tmux create-session failed"),
     });
 
-    const exitCode = await captureExit(() =>
+    const exitCode = await captureExitCode(() =>
       runFix(["--session", "session-123", "--all"], harness.deps)
     );
 
@@ -416,11 +381,7 @@ describe("fix command", () => {
 
   test("runs the foreground fixer with non-interactive selector args and persists final state", async () => {
     const artifact = createArtifact();
-    const selectedFinding = artifact.findings[0];
-    const unselectedFinding = artifact.findings[1];
-    if (!selectedFinding || !unselectedFinding) {
-      throw new Error("expected default findings to exist");
-    }
+    const { selectedFinding, unselectedFinding } = getDefaultFindingPair(artifact);
     const harness = createFixHarness({
       sessionStateData: {
         schemaVersion: 2,
@@ -471,14 +432,7 @@ describe("fix command", () => {
       },
     });
 
-    await runFixForeground(["--session", "session-123", "--id", "F001"], {
-      ...harness.deps,
-      env: {
-        RR_PROJECT_PATH: "/repo/project",
-        RR_SESSION_ID: "session-123",
-        RR_SESSION_PATH: artifact.logPath,
-      },
-    });
+    await runForegroundFixWithArtifact(harness, artifact);
 
     expect(harness.runFixSessionCalls).toEqual([
       {
@@ -528,11 +482,7 @@ describe("fix command", () => {
 
   test("reports a retained worktree when remediation remains incomplete after fixes", async () => {
     const artifact = createArtifact();
-    const selectedFinding = artifact.findings[0];
-    const unselectedFinding = artifact.findings[1];
-    if (!selectedFinding || !unselectedFinding) {
-      throw new Error("expected default findings to exist");
-    }
+    const { selectedFinding, unselectedFinding } = getDefaultFindingPair(artifact);
 
     const harness = createFixHarness({
       runFixSessionResult: {
@@ -563,14 +513,7 @@ describe("fix command", () => {
       },
     });
 
-    await runFixForeground(["--session", "session-123", "--id", "F001"], {
-      ...harness.deps,
-      env: {
-        RR_PROJECT_PATH: "/repo/project",
-        RR_SESSION_ID: "session-123",
-        RR_SESSION_PATH: artifact.logPath,
-      },
-    });
+    await runForegroundFixWithArtifact(harness, artifact);
 
     expect(harness.warnings).toEqual([
       "Some selected findings remain unresolved after remediation.",

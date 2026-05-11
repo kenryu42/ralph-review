@@ -20,46 +20,7 @@ import {
   rollbackToCheckpoint,
 } from "@/lib/git";
 import { getProjectWorktreesDir } from "@/lib/logger";
-
-/**
- * Helper to run git commands in a directory
- */
-function runGitIn(repoPath: string, args: string[]): void {
-  const result = Bun.spawnSync(["git", ...args], {
-    cwd: repoPath,
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  if (result.exitCode !== 0) {
-    throw new Error(`git ${args.join(" ")} failed: ${result.stderr.toString()}`);
-  }
-}
-
-/**
- * Helper to run git and return stdout
- */
-function runGitStdout(repoPath: string, args: string[]): string {
-  const result = Bun.spawnSync(["git", ...args], {
-    cwd: repoPath,
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  if (result.exitCode !== 0) {
-    throw new Error(`git ${args.join(" ")} failed: ${result.stderr.toString()}`);
-  }
-  return result.stdout.toString().trim();
-}
-
-/**
- * Initialize a test git repo
- */
-function initTestRepo(repoPath: string): void {
-  runGitIn(repoPath, ["init", "--initial-branch=main"]);
-  runGitIn(repoPath, ["config", "core.autocrlf", "false"]);
-  runGitIn(repoPath, ["config", "user.name", "Tester"]);
-  runGitIn(repoPath, ["config", "user.email", "test@example.com"]);
-  runGitIn(repoPath, ["config", "commit.gpgsign", "false"]);
-}
+import { initTestRepo, runGitIn, runGitStdout } from "../helpers/git";
 
 /**
  * Create a commit with an empty file
@@ -118,27 +79,60 @@ function directoryExists(path: string): boolean {
   );
 }
 
-describe("ensureGitRepository", () => {
-  let tempDir: string;
+function createGitTempDir(prefix: string) {
+  return mkdtemp(join(tmpdir(), prefix));
+}
 
-  beforeEach(async () => {
-    tempDir = await mkdtemp(join(tmpdir(), "git-test-"));
-  });
+async function createRemoteAndLocalRepos(tempDir: string) {
+  const repoPath = join(tempDir, "repo");
+  const remotePath = join(tempDir, "remote.git");
 
-  afterEach(async () => {
-    await rm(tempDir, { recursive: true, force: true });
-  });
+  await Bun.write(join(repoPath, ".gitkeep"), "");
+  await Bun.write(join(remotePath, ".gitkeep"), "");
 
-  test("returns true for a git repository", () => {
-    initTestRepo(tempDir);
-    expect(ensureGitRepository(tempDir)).toBe(true);
-  });
+  runGitIn(remotePath, ["init", "--bare"]);
+  initTestRepo(repoPath);
+  commit(repoPath, "base.txt", "base commit");
 
-  test("returns false for a non-git directory", () => {
-    // tempDir without git init
-    expect(ensureGitRepository(tempDir)).toBe(false);
+  return { remotePath, repoPath };
+}
+
+async function initializeRepoWithIgnoreRule(repoPath: string, message = "add ignore rules") {
+  initTestRepo(repoPath);
+  commit(repoPath, "base.txt", "base commit");
+  await Bun.write(join(repoPath, ".gitignore"), ".env\n");
+  runGitIn(repoPath, ["add", ".gitignore"]);
+  runGitIn(repoPath, ["commit", "-m", message]);
+}
+
+function describeGitRepositoryCheck(
+  name: string,
+  checkRepository: (path: string) => boolean | Promise<boolean>
+) {
+  describe(name, () => {
+    let tempDir: string;
+
+    beforeEach(async () => {
+      tempDir = await createGitTempDir("git-test-");
+    });
+
+    afterEach(async () => {
+      await rm(tempDir, { recursive: true, force: true });
+    });
+
+    test("returns true for a git repository", async () => {
+      initTestRepo(tempDir);
+      expect(await checkRepository(tempDir)).toBe(true);
+    });
+
+    test("returns false for a non-git directory", async () => {
+      expect(await checkRepository(tempDir)).toBe(false);
+    });
   });
-});
+}
+
+describeGitRepositoryCheck("ensureGitRepository", ensureGitRepository);
+describeGitRepositoryCheck("ensureGitRepositoryAsync", ensureGitRepositoryAsync);
 
 describe("binary patch rewriting", () => {
   let tempDir: string;
@@ -185,32 +179,11 @@ describe("binary patch rewriting", () => {
   });
 });
 
-describe("ensureGitRepositoryAsync", () => {
-  let tempDir: string;
-
-  beforeEach(async () => {
-    tempDir = await mkdtemp(join(tmpdir(), "git-test-"));
-  });
-
-  afterEach(async () => {
-    await rm(tempDir, { recursive: true, force: true });
-  });
-
-  test("returns true for a git repository", async () => {
-    initTestRepo(tempDir);
-    await expect(ensureGitRepositoryAsync(tempDir)).resolves.toBe(true);
-  });
-
-  test("returns false for a non-git directory", async () => {
-    await expect(ensureGitRepositoryAsync(tempDir)).resolves.toBe(false);
-  });
-});
-
 describe("mergeBaseWithHead", () => {
   let tempDir: string;
 
   beforeEach(async () => {
-    tempDir = await mkdtemp(join(tmpdir(), "git-test-"));
+    tempDir = await createGitTempDir("git-merge-base-test-");
   });
 
   afterEach(async () => {
@@ -243,21 +216,7 @@ describe("mergeBaseWithHead", () => {
   });
 
   test("prefers upstream when remote is ahead of local", async () => {
-    // Setup: bare remote, local repo with tracking branch
-    const repoPath = join(tempDir, "repo");
-    const remotePath = join(tempDir, "remote.git");
-
-    await Bun.write(join(repoPath, ".gitkeep"), "");
-    await Bun.write(join(remotePath, ".gitkeep"), "");
-
-    // Initialize bare remote
-    runGitIn(remotePath, ["init", "--bare"]);
-
-    // Initialize local repo
-    initTestRepo(repoPath);
-
-    // Base commit
-    commit(repoPath, "base.txt", "base commit");
+    const { remotePath, repoPath } = await createRemoteAndLocalRepos(tempDir);
 
     // Push to remote and set tracking
     runGitIn(repoPath, ["remote", "add", "origin", remotePath]);
@@ -288,15 +247,7 @@ describe("mergeBaseWithHead", () => {
   });
 
   test("keeps local branch when upstream is not ahead", async () => {
-    const repoPath = join(tempDir, "repo");
-    const remotePath = join(tempDir, "remote.git");
-
-    await Bun.write(join(repoPath, ".gitkeep"), "");
-    await Bun.write(join(remotePath, ".gitkeep"), "");
-
-    runGitIn(remotePath, ["init", "--bare"]);
-    initTestRepo(repoPath);
-    commit(repoPath, "base.txt", "base commit");
+    const { remotePath, repoPath } = await createRemoteAndLocalRepos(tempDir);
 
     runGitIn(repoPath, ["remote", "add", "origin", remotePath]);
     runGitIn(repoPath, ["push", "-u", "origin", "main"]);
@@ -365,11 +316,7 @@ describe("checkpoint management", () => {
   });
 
   test("rolls back tracked and untracked changes while preserving ignored files", async () => {
-    initTestRepo(tempDir);
-    commit(tempDir, "base.txt", "base commit");
-    await Bun.write(join(tempDir, ".gitignore"), ".env\n");
-    runGitIn(tempDir, ["add", ".gitignore"]);
-    runGitIn(tempDir, ["commit", "-m", "add ignore rules"]);
+    await initializeRepoWithIgnoreRule(tempDir);
 
     await Bun.write(join(tempDir, "base.txt"), "tracked change before checkpoint");
     await Bun.write(join(tempDir, "notes.txt"), "untracked change before checkpoint");
@@ -425,11 +372,7 @@ describe("session worktree management", () => {
   });
 
   test("creates a baseline worktree from dirty repository state including non-ignored untracked files", async () => {
-    initTestRepo(tempDir);
-    commit(tempDir, "base.txt", "base commit");
-    await Bun.write(join(tempDir, ".gitignore"), ".env\n");
-    runGitIn(tempDir, ["add", ".gitignore"]);
-    runGitIn(tempDir, ["commit", "-m", "add ignore rules"]);
+    await initializeRepoWithIgnoreRule(tempDir);
 
     await Bun.write(join(tempDir, "base.txt"), "base with unstaged changes");
     await Bun.write(join(tempDir, "staged.txt"), "staged content");
@@ -469,11 +412,7 @@ describe("session worktree management", () => {
   });
 
   test("computes review-scope fingerprints including non-ignored untracked files but excluding ignored files", async () => {
-    initTestRepo(tempDir);
-    commit(tempDir, "base.txt", "base commit");
-    await Bun.write(join(tempDir, ".gitignore"), ".env\n");
-    runGitIn(tempDir, ["add", ".gitignore"]);
-    runGitIn(tempDir, ["commit", "-m", "add ignore rule"]);
+    await initializeRepoWithIgnoreRule(tempDir, "add ignore rule");
 
     const fingerprintBefore = computeWorkingTreeFingerprint(tempDir);
 

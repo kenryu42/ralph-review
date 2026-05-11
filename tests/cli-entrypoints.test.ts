@@ -141,6 +141,35 @@ function createCliHarness(overrides: Partial<CliDeps> = {}): CliHarness {
   };
 }
 
+function expectUsageOnly(harness: CliHarness) {
+  expect(harness.logs).toEqual(["USAGE"]);
+  expect(harness.calls).toEqual([]);
+  expect(harness.exits).toEqual([]);
+}
+
+async function runUnknownCommand(command: string) {
+  const harness = createCliHarness({
+    parseArgs: () => ({ command, args: [], showHelp: false, showVersion: false }),
+    printUsage: () => "USAGE",
+    getCommandDef: () => undefined,
+  });
+
+  await runCli([], harness.deps);
+  return harness;
+}
+
+async function runParserFailure(parseCommand: CliDeps["parseCommand"]) {
+  const runDef = createCommandDef("run");
+  const harness = createCliHarness({
+    parseArgs: () => ({ command: "run", args: ["--bad"], showHelp: false, showVersion: false }),
+    getCommandDef: (name) => (name === "run" ? runDef : undefined),
+    parseCommand,
+  });
+
+  await runCli([], harness.deps);
+  return harness;
+}
+
 describe("cli entrypoints", () => {
   test("prints version and returns when --version is requested", async () => {
     const harness = createCliHarness({
@@ -178,9 +207,7 @@ describe("cli entrypoints", () => {
       await runCli([], harness.deps);
     });
 
-    expect(harness.logs).toEqual(["USAGE"]);
-    expect(harness.calls).toEqual([]);
-    expect(harness.exits).toEqual([]);
+    expectUsageOnly(harness);
   });
 
   test("prints usage when stdin is redirected even if stdout is still a tty", async () => {
@@ -192,9 +219,7 @@ describe("cli entrypoints", () => {
       await runCli([], harness.deps);
     });
 
-    expect(harness.logs).toEqual(["USAGE"]);
-    expect(harness.calls).toEqual([]);
-    expect(harness.exits).toEqual([]);
+    expectUsageOnly(harness);
   });
 
   test("reports bare rr session panel failures and exits", async () => {
@@ -220,9 +245,7 @@ describe("cli entrypoints", () => {
 
     await runCli([], harness.deps);
 
-    expect(harness.logs).toEqual(["USAGE"]);
-    expect(harness.calls).toEqual([]);
-    expect(harness.exits).toEqual([]);
+    expectUsageOnly(harness);
   });
 
   test("prints usage when no command is provided with leftover args", async () => {
@@ -233,9 +256,7 @@ describe("cli entrypoints", () => {
 
     await runCli([], harness.deps);
 
-    expect(harness.logs).toEqual(["USAGE"]);
-    expect(harness.calls).toEqual([]);
-    expect(harness.exits).toEqual([]);
+    expectUsageOnly(harness);
   });
 
   test("prints command help when --help is passed with a valid command", async () => {
@@ -356,16 +377,9 @@ describe("cli entrypoints", () => {
   });
 
   test("formats CliError output and exits with status 1", async () => {
-    const runDef = createCommandDef("run");
-    const harness = createCliHarness({
-      parseArgs: () => ({ command: "run", args: ["--bad"], showHelp: false, showVersion: false }),
-      getCommandDef: (name) => (name === "run" ? runDef : undefined),
-      parseCommand: () => {
-        throw new CliError("run", "unknown_option", "--bad", ["--max"], "--max 5");
-      },
+    const harness = await runParserFailure(() => {
+      throw new CliError("run", "unknown_option", "--bad", ["--max"], "--max 5");
     });
-
-    await runCli([], harness.deps);
 
     expect(harness.errors).toEqual(['run: unknown option "--bad"']);
     expect(harness.messages).toContain('Did you mean "--max 5"?');
@@ -375,29 +389,16 @@ describe("cli entrypoints", () => {
   });
 
   test("reports non-CliError parser failures and exits", async () => {
-    const runDef = createCommandDef("run");
-    const harness = createCliHarness({
-      parseArgs: () => ({ command: "run", args: ["--bad"], showHelp: false, showVersion: false }),
-      getCommandDef: (name) => (name === "run" ? runDef : undefined),
-      parseCommand: () => {
-        throw new Error("parser failed");
-      },
+    const harness = await runParserFailure(() => {
+      throw new Error("parser failed");
     });
-
-    await runCli([], harness.deps);
 
     expect(harness.errors).toEqual(["Error: parser failed"]);
     expect(harness.exits).toEqual([1]);
   });
 
   test("prints unknown command error, usage, and exits", async () => {
-    const harness = createCliHarness({
-      parseArgs: () => ({ command: "mystery", args: [], showHelp: false, showVersion: false }),
-      printUsage: () => "USAGE",
-      getCommandDef: () => undefined,
-    });
-
-    await runCli([], harness.deps);
+    const harness = await runUnknownCommand("mystery");
 
     expect(harness.errors).toEqual(["Unknown command: mystery"]);
     expect(harness.logs).toEqual(["\nUSAGE"]);
@@ -405,13 +406,7 @@ describe("cli entrypoints", () => {
   });
 
   test("treats renamed logs command as unknown", async () => {
-    const harness = createCliHarness({
-      parseArgs: () => ({ command: "logs", args: [], showHelp: false, showVersion: false }),
-      printUsage: () => "USAGE",
-      getCommandDef: () => undefined,
-    });
-
-    await runCli([], harness.deps);
+    const harness = await runUnknownCommand("logs");
 
     expect(harness.errors).toEqual(["Unknown command: logs"]);
     expect(harness.logs).toEqual(["\nUSAGE"]);

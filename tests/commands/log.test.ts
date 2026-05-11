@@ -86,6 +86,19 @@ function createActiveSession(projectPath: string, branch: string): ActiveSession
   };
 }
 
+function createProjectSession(
+  projectPath: string,
+  overrides: Partial<SessionStats> = {}
+): SessionStats {
+  return createSessionStats({
+    sessionPath: `/logs/${getProjectName(projectPath)}/session.jsonl`,
+    gitBranch: "main",
+    status: "unknown",
+    iterations: 0,
+    ...overrides,
+  });
+}
+
 describe("formatStatus", () => {
   test("returns checkmark for completed status", () => {
     expect(formatStatus("completed")).toBe("completed");
@@ -149,15 +162,7 @@ describe("markSessionStatsRunning", () => {
 
   test("marks session as running when it matches an active session", () => {
     const projectPath = "/work/project-a";
-    const projectName = getProjectName(projectPath);
-    const sessions = [
-      createSessionStats({
-        sessionPath: `/logs/${projectName}/session.jsonl`,
-        gitBranch: "main",
-        status: "unknown",
-        iterations: 0,
-      }),
-    ];
+    const sessions = [createProjectSession(projectPath)];
 
     const active = createActiveSession(projectPath, "main");
     markSessionStatsRunning(sessions, [active]);
@@ -215,15 +220,7 @@ describe("markSessionStatsRunning", () => {
   test("does not mark session when project does not match", () => {
     const projectPath = "/work/project-a";
     const otherProject = "/work/project-b";
-    const projectName = getProjectName(projectPath);
-    const sessions = [
-      createSessionStats({
-        sessionPath: `/logs/${projectName}/session.jsonl`,
-        gitBranch: "main",
-        status: "unknown",
-        iterations: 0,
-      }),
-    ];
+    const sessions = [createProjectSession(projectPath)];
 
     const active = createActiveSession(otherProject, "main");
     markSessionStatsRunning(sessions, [active]);

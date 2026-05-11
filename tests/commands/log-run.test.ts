@@ -12,9 +12,8 @@ import {
   getSummaryPath,
 } from "@/lib/logger";
 import type { FixEntry, IterationEntry, LogEntry, SessionEndEntry, SystemEntry } from "@/lib/types";
+import { captureExitCode, captureJsonOutput, withMutedTerminalLogs } from "../helpers/capture";
 import { buildFixEntry, buildFixSummary, buildSkippedEntry } from "../test-utils/fix-summary";
-
-const EXIT_PREFIX = "__FORCED_EXIT__:";
 
 function createSystemEntry(projectPath: string): SystemEntry {
   return {
@@ -64,41 +63,6 @@ async function writeLogEntries(logPath: string, entries: LogEntry[]): Promise<vo
   await Bun.write(logPath, withTrailingNewline);
 }
 
-async function captureJsonOutput(run: () => Promise<void>): Promise<unknown[]> {
-  const outputs: unknown[] = [];
-  const originalConsoleLog = console.log;
-  console.log = ((...args: unknown[]) => {
-    if (args.length === 1 && typeof args[0] === "string") {
-      outputs.push(JSON.parse(args[0]));
-      return;
-    }
-    outputs.push(args);
-  }) as typeof console.log;
-
-  try {
-    await run();
-  } finally {
-    console.log = originalConsoleLog;
-  }
-
-  return outputs;
-}
-
-async function withMutedTerminalLogs<T>(run: () => Promise<T>): Promise<T> {
-  const originalStdoutWrite = process.stdout.write;
-  const originalStderrWrite = process.stderr.write;
-
-  process.stdout.write = (() => true) as typeof process.stdout.write;
-  process.stderr.write = (() => true) as typeof process.stderr.write;
-
-  try {
-    return await run();
-  } finally {
-    process.stdout.write = originalStdoutWrite;
-    process.stderr.write = originalStderrWrite;
-  }
-}
-
 interface CapturedClackLogs {
   info: string[];
   message: string[];
@@ -144,25 +108,6 @@ async function captureClackLogs<T>(
   }
 }
 
-async function captureExitCode(run: () => Promise<void>): Promise<number | undefined> {
-  const originalExit = process.exit;
-  process.exit = ((code?: number) => {
-    throw new Error(`${EXIT_PREFIX}${code ?? 0}`);
-  }) as typeof process.exit;
-
-  try {
-    await run();
-    return undefined;
-  } catch (error) {
-    if (error instanceof Error && error.message.startsWith(EXIT_PREFIX)) {
-      return Number.parseInt(error.message.slice(EXIT_PREFIX.length), 10);
-    }
-    throw error;
-  } finally {
-    process.exit = originalExit;
-  }
-}
-
 interface ProjectFixture {
   rootPath: string;
   projectPath: string;
@@ -182,6 +127,12 @@ async function createProjectFixture(): Promise<ProjectFixture> {
     projectName: getProjectName(resolvedProjectPath),
     logPaths: [],
   };
+}
+
+async function createTrackedProjectFixture() {
+  const fixture = await createProjectFixture();
+  fixtures.push(fixture);
+  return fixture;
 }
 
 async function cleanupProjectFixture(fixture: ProjectFixture): Promise<void> {
@@ -209,6 +160,35 @@ async function withProjectCwd<T>(projectPath: string, run: () => Promise<T>): Pr
   } finally {
     process.chdir(originalCwd);
   }
+}
+
+async function captureLogJsonForFixture(fixture: ProjectFixture) {
+  return withProjectCwd(fixture.projectPath, async () =>
+    captureJsonOutput(async () => {
+      await runLog(["--json"]);
+    })
+  );
+}
+
+async function captureTerminalLogForFixture(fixture: ProjectFixture) {
+  return withProjectCwd(fixture.projectPath, async () =>
+    withMutedTerminalLogs(async () =>
+      captureClackLogs(async () => {
+        await runLog([]);
+      })
+    )
+  );
+}
+
+async function writeUnknownLog(fixture: ProjectFixture) {
+  const unknownLog = join(getProjectLogsDir(CONFIG_DIR, fixture.projectPath), "unknown.jsonl");
+  fixture.logPaths.push(unknownLog);
+  await writeLogEntries(unknownLog, []);
+}
+
+function expectNoSessionsGuidance(logs: CapturedClackLogs) {
+  expect(logs.info).toContain("No review sessions found for current working directory.");
+  expect(logs.message).toContain('Start a review with "rr run" first.');
 }
 
 const fixtures: ProjectFixture[] = [];
@@ -253,74 +233,33 @@ describe("runLog integration", () => {
     expect(exitCode).toBe(1);
   });
 
-  test("prints empty project JSON when no sessions exist", async () => {
-    const fixture = await createProjectFixture();
-    fixtures.push(fixture);
+  test.each([
+    ["no sessions exist", false],
+    ["all discovered sessions are unknown and empty", true],
+  ])("prints empty project JSON when %s", async (_name, hasUnknownLog) => {
+    const fixture = await createTrackedProjectFixture();
+    if (hasUnknownLog) {
+      await writeUnknownLog(fixture);
+    }
 
-    const outputs = await withProjectCwd(fixture.projectPath, async () =>
-      captureJsonOutput(async () => {
-        await runLog(["--json"]);
-      })
-    );
-
-    expect(outputs).toHaveLength(1);
-    expect(outputs[0]).toEqual({ project: fixture.projectName, sessions: [] });
-  });
-
-  test("prints terminal guidance when no sessions exist", async () => {
-    const fixture = await createProjectFixture();
-    fixtures.push(fixture);
-
-    const { logs } = await withProjectCwd(fixture.projectPath, async () =>
-      withMutedTerminalLogs(async () =>
-        captureClackLogs(async () => {
-          await runLog([]);
-        })
-      )
-    );
-
-    expect(logs.info).toContain("No review sessions found for current working directory.");
-    expect(logs.message).toContain('Start a review with "rr run" first.');
-  });
-
-  test("prints empty project JSON when all discovered sessions are unknown and empty", async () => {
-    const fixture = await createProjectFixture();
-    fixtures.push(fixture);
-    const logsProjectDir = getProjectLogsDir(CONFIG_DIR, fixture.projectPath);
-    const unknownLog = join(logsProjectDir, "unknown.jsonl");
-    fixture.logPaths.push(unknownLog);
-
-    await writeLogEntries(unknownLog, []);
-
-    const outputs = await withProjectCwd(fixture.projectPath, async () =>
-      captureJsonOutput(async () => {
-        await runLog(["--json"]);
-      })
-    );
+    const outputs = await captureLogJsonForFixture(fixture);
 
     expect(outputs).toHaveLength(1);
     expect(outputs[0]).toEqual({ project: fixture.projectName, sessions: [] });
   });
 
-  test("prints terminal guidance when all discovered sessions are unknown and empty", async () => {
-    const fixture = await createProjectFixture();
-    fixtures.push(fixture);
-    const logsProjectDir = getProjectLogsDir(CONFIG_DIR, fixture.projectPath);
-    const unknownLog = join(logsProjectDir, "unknown.jsonl");
-    fixture.logPaths.push(unknownLog);
+  test.each([
+    ["no sessions exist", false],
+    ["all discovered sessions are unknown and empty", true],
+  ])("prints terminal guidance when %s", async (_name, hasUnknownLog) => {
+    const fixture = await createTrackedProjectFixture();
+    if (hasUnknownLog) {
+      await writeUnknownLog(fixture);
+    }
 
-    await writeLogEntries(unknownLog, []);
+    const { logs } = await captureTerminalLogForFixture(fixture);
 
-    const { logs } = await withProjectCwd(fixture.projectPath, async () =>
-      withMutedTerminalLogs(async () =>
-        captureClackLogs(async () => {
-          await runLog([]);
-        })
-      )
-    );
-
-    expect(logs.info).toContain("No review sessions found for current working directory.");
-    expect(logs.message).toContain('Start a review with "rr run" first.');
+    expectNoSessionsGuidance(logs);
   });
 
   test("renders handoff summary when reviewed fixes are pending apply", async () => {
@@ -341,13 +280,7 @@ describe("runLog integration", () => {
       },
     ]);
 
-    const { logs } = await withProjectCwd(fixture.projectPath, async () =>
-      withMutedTerminalLogs(async () =>
-        captureClackLogs(async () => {
-          await runLog([]);
-        })
-      )
-    );
+    const { logs } = await captureTerminalLogForFixture(fixture);
 
     expect(logs.message).toContain("Handoff: pending-apply · commit-sha-1");
   });
@@ -370,13 +303,7 @@ describe("runLog integration", () => {
       },
     ]);
 
-    const { logs } = await withProjectCwd(fixture.projectPath, async () =>
-      withMutedTerminalLogs(async () =>
-        captureClackLogs(async () => {
-          await runLog([]);
-        })
-      )
-    );
+    const { logs } = await captureTerminalLogForFixture(fixture);
 
     expect(logs.message.some((entry) => entry.includes("Pending findings: run rr fix"))).toBe(true);
     expect(logs.success).not.toContain("No issues found - code is clean!");

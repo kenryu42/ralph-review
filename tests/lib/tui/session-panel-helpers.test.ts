@@ -27,7 +27,43 @@ import type {
   SkippedEntry,
   SystemEntry,
 } from "@/lib/types";
+import { createSessionStats as createTuiSessionStats } from "../../helpers/tui";
 import { buildFixEntry, buildFixSummary, buildSkippedEntry } from "../../test-utils/fix-summary";
+
+function createSystemEntry(): SystemEntry {
+  return {
+    type: "system",
+    timestamp: Date.now(),
+    projectPath: "/test/project",
+    reviewer: { agent: "claude", model: "opus" },
+    fixer: { agent: "claude", model: "opus" },
+    maxIterations: 3,
+  };
+}
+
+function createSessionStats(entries: SessionStats["entries"]): SessionStats {
+  return createTuiSessionStats({
+    sessionPath: "/test/path",
+    sessionName: "test-session",
+    totalFixes: 0,
+    totalSkipped: 0,
+    priorityCounts: { P0: 0, P1: 0, P2: 0, P3: 0 },
+    iterations: 0,
+    entries,
+    reviewerModel: "opus",
+    reviewerModelDisplayName: "Claude Opus 4.5",
+    fixerModel: "opus",
+    fixerModelDisplayName: "Claude Opus 4.5",
+  });
+}
+
+function createIterationWithoutFixes(): IterationEntry {
+  return {
+    type: "iteration",
+    timestamp: Date.now(),
+    iteration: 1,
+  };
+}
 
 describe("SessionPanel helpers", () => {
   const originalDateNow = Date.now;
@@ -45,35 +81,6 @@ describe("SessionPanel helpers", () => {
       timestamp: Date.now(),
       iteration,
       fixes: buildFixSummary({ decision: "APPLY_MOST", fixes }),
-    });
-
-    const createSystemEntry = (): SystemEntry => ({
-      type: "system",
-      timestamp: Date.now(),
-      projectPath: "/test/project",
-      reviewer: { agent: "claude", model: "opus" },
-      fixer: { agent: "claude", model: "opus" },
-      maxIterations: 3,
-    });
-
-    const createSessionStats = (entries: (SystemEntry | IterationEntry)[]): SessionStats => ({
-      sessionPath: "/test/path",
-      sessionName: "test-session",
-      timestamp: Date.now(),
-      status: "completed",
-      totalFixes: 0,
-      totalSkipped: 0,
-      priorityCounts: { P0: 0, P1: 0, P2: 0, P3: 0 },
-      iterations: 0,
-      entries,
-      reviewer: "claude",
-      reviewerModel: "opus",
-      reviewerDisplayName: "Claude",
-      reviewerModelDisplayName: "Claude Opus 4.5",
-      fixer: "claude",
-      fixerModel: "opus",
-      fixerDisplayName: "Claude",
-      fixerModelDisplayName: "Claude Opus 4.5",
     });
 
     test("extracts fixes from single iteration", () => {
@@ -112,12 +119,7 @@ describe("SessionPanel helpers", () => {
     });
 
     test("handles iterations without fixes property", () => {
-      const entry: IterationEntry = {
-        type: "iteration",
-        timestamp: Date.now(),
-        iteration: 1,
-      };
-      const stats = createSessionStats([entry]);
+      const stats = createSessionStats([createIterationWithoutFixes()]);
 
       const result = extractFixesFromStats(stats);
       expect(result).toEqual([]);
@@ -158,35 +160,6 @@ describe("SessionPanel helpers", () => {
         overall_explanation: "ok",
         overall_confidence_score: 0.95,
       },
-    });
-
-    const createSystemEntry = (): SystemEntry => ({
-      type: "system",
-      timestamp: Date.now(),
-      projectPath: "/test/project",
-      reviewer: { agent: "claude", model: "opus" },
-      fixer: { agent: "claude", model: "opus" },
-      maxIterations: 3,
-    });
-
-    const createSessionStats = (entries: SessionStats["entries"]): SessionStats => ({
-      sessionPath: "/test/path",
-      sessionName: "test-session",
-      timestamp: Date.now(),
-      status: "completed",
-      totalFixes: 0,
-      totalSkipped: 0,
-      priorityCounts: { P0: 0, P1: 0, P2: 0, P3: 0 },
-      iterations: 0,
-      entries,
-      reviewer: "claude",
-      reviewerModel: "opus",
-      reviewerDisplayName: "Claude",
-      reviewerModelDisplayName: "Claude Opus 4.5",
-      fixer: "claude",
-      fixerModel: "opus",
-      fixerDisplayName: "Claude",
-      fixerModelDisplayName: "Claude Opus 4.5",
     });
 
     test("extracts unique findings from review iterations", () => {
@@ -273,35 +246,6 @@ describe("SessionPanel helpers", () => {
       fixes: buildFixSummary({ decision: "APPLY_MOST", skipped }),
     });
 
-    const createSystemEntry = (): SystemEntry => ({
-      type: "system",
-      timestamp: Date.now(),
-      projectPath: "/test/project",
-      reviewer: { agent: "claude", model: "opus" },
-      fixer: { agent: "claude", model: "opus" },
-      maxIterations: 3,
-    });
-
-    const createSessionStats = (entries: (SystemEntry | IterationEntry)[]): SessionStats => ({
-      sessionPath: "/test/path",
-      sessionName: "test-session",
-      timestamp: Date.now(),
-      status: "completed",
-      totalFixes: 0,
-      totalSkipped: 0,
-      priorityCounts: { P0: 0, P1: 0, P2: 0, P3: 0 },
-      iterations: 0,
-      entries,
-      reviewer: "claude",
-      reviewerModel: "opus",
-      reviewerDisplayName: "Claude",
-      reviewerModelDisplayName: "Claude Opus 4.5",
-      fixer: "claude",
-      fixerModel: "opus",
-      fixerDisplayName: "Claude",
-      fixerModelDisplayName: "Claude Opus 4.5",
-    });
-
     test("extracts skipped from single iteration", () => {
       const skipped1 = createSkipped(1, "Need context", "P1");
       const skipped2 = createSkipped(2, "Cannot reproduce", "P2");
@@ -342,12 +286,7 @@ describe("SessionPanel helpers", () => {
     });
 
     test("handles iterations without fixes property", () => {
-      const entry: IterationEntry = {
-        type: "iteration",
-        timestamp: Date.now(),
-        iteration: 1,
-      };
-      const stats = createSessionStats([entry]);
+      const stats = createSessionStats([createIterationWithoutFixes()]);
 
       const result = extractSkippedFromStats(stats);
       expect(result).toEqual([]);

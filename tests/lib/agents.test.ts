@@ -35,6 +35,16 @@ describe("agents", () => {
     let codexHome: string;
     let originalCodexHome: string | undefined;
 
+    function expectCodexReviewArgs(args: string[], prompt: string): void {
+      expect(args).toContain("exec");
+      expect(args).toContain("review");
+      expect(args).toContain("--json");
+      expect(args).toContain(prompt);
+      expect(args).not.toContain("--uncommitted");
+      expect(args).not.toContain("--commit");
+      expect(args).not.toContain("--base");
+    }
+
     beforeEach(async () => {
       originalCodexHome = process.env.CODEX_HOME;
       codexHome = await mkdtemp(join(tmpdir(), "ralph-codex-config-test-"));
@@ -80,26 +90,14 @@ describe("agents", () => {
         customInstructions: "check security",
       });
 
-      expect(args).toContain("exec");
-      expect(args).toContain("review");
-      expect(args).toContain("--json");
-      expect(args).toContain(reviewerPrompt);
-      expect(args).not.toContain("--uncommitted");
-      expect(args).not.toContain("--commit");
-      expect(args).not.toContain("--base");
+      expectCodexReviewArgs(args, reviewerPrompt);
     });
 
     test("uses review mode when reviewer instructions are provided", async () => {
       const args = await AGENTS.codex.config.buildArgs("reviewer", "check security", undefined, {
         customInstructions: "check security",
       });
-      expect(args).toContain("exec");
-      expect(args).toContain("review");
-      expect(args).toContain("--json");
-      expect(args).toContain("check security");
-      expect(args).not.toContain("--uncommitted");
-      expect(args).not.toContain("--commit");
-      expect(args).not.toContain("--base");
+      expectCodexReviewArgs(args, "check security");
     });
 
     test("uses review mode when reviewer prompt has no repo review target", async () => {
@@ -119,13 +117,7 @@ describe("agents", () => {
         commitSha: "abc123",
         customInstructions: "check security",
       });
-      expect(args).toContain("exec");
-      expect(args).toContain("review");
-      expect(args).toContain("--json");
-      expect(args).toContain("ignored");
-      expect(args).not.toContain("--commit");
-      expect(args).not.toContain("--base");
-      expect(args).not.toContain("--uncommitted");
+      expectCodexReviewArgs(args, "ignored");
     });
 
     test("uses review mode when prompt is combined with baseBranch", async () => {
@@ -133,13 +125,7 @@ describe("agents", () => {
         baseBranch: "main",
         customInstructions: "check security",
       });
-      expect(args).toContain("exec");
-      expect(args).toContain("review");
-      expect(args).toContain("--json");
-      expect(args).toContain("ignored");
-      expect(args).not.toContain("--commit");
-      expect(args).not.toContain("--base");
-      expect(args).not.toContain("--uncommitted");
+      expectCodexReviewArgs(args, "ignored");
     });
 
     test("uses configured reasoning level when valid", async () => {

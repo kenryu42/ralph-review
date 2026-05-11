@@ -1,19 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { runReviewPhase } from "@/lib/review-workflow/review/run-review-phase";
-import { CONFIG_SCHEMA_URI, CONFIG_VERSION, type Config, type Finding } from "@/lib/types";
-
-function createConfig(maxIterations: number): Config {
-  return {
-    $schema: CONFIG_SCHEMA_URI,
-    version: CONFIG_VERSION,
-    reviewer: { agent: "claude" },
-    fixer: { agent: "claude" },
-    maxIterations,
-    iterationTimeout: 10,
-    defaultReview: { type: "uncommitted" },
-    notifications: { sound: { enabled: false } },
-  };
-}
+import type { Finding, ReviewOptions } from "@/lib/types";
+import { createReviewWorkflowConfig } from "../../../helpers/review-workflow";
 
 function createFinding(title: string, startLine: number): Finding {
   return {
@@ -28,26 +16,32 @@ function createFinding(title: string, startLine: number): Finding {
   };
 }
 
+async function runPhaseWithEmptyFindings(reviewOptions?: ReviewOptions) {
+  let calls = 0;
+  const result = await runReviewPhase({
+    config: createReviewWorkflowConfig({ maxIterations: 3 }),
+    reviewOptions,
+    projectPath: "/repo/project",
+    findingPathRoots: ["/repo/project"],
+    sessionPath: "/tmp/session.jsonl",
+    runReviewerIteration: async () => {
+      calls += 1;
+      return {
+        findings: [],
+        duration: 1,
+      };
+    },
+    appendLog: async () => {},
+    updateSessionState: async () => true,
+    wasInterrupted: () => false,
+  });
+
+  return { calls, result };
+}
+
 describe("review-workflow/review/runReviewPhase", () => {
   test("stops on no-new-findings when forceMaxIterations is not enabled", async () => {
-    let calls = 0;
-
-    const result = await runReviewPhase({
-      config: createConfig(3),
-      projectPath: "/repo/project",
-      findingPathRoots: ["/repo/project"],
-      sessionPath: "/tmp/session.jsonl",
-      runReviewerIteration: async () => {
-        calls += 1;
-        return {
-          findings: [],
-          duration: 1,
-        };
-      },
-      appendLog: async () => {},
-      updateSessionState: async () => true,
-      wasInterrupted: () => false,
-    });
+    const { calls, result } = await runPhaseWithEmptyFindings();
 
     expect(calls).toBe(1);
     expect(result.iterations).toBe(1);
@@ -55,27 +49,7 @@ describe("review-workflow/review/runReviewPhase", () => {
   });
 
   test("continues to max iterations when forceMaxIterations is enabled", async () => {
-    let calls = 0;
-
-    const result = await runReviewPhase({
-      config: createConfig(3),
-      reviewOptions: {
-        forceMaxIterations: true,
-      },
-      projectPath: "/repo/project",
-      findingPathRoots: ["/repo/project"],
-      sessionPath: "/tmp/session.jsonl",
-      runReviewerIteration: async () => {
-        calls += 1;
-        return {
-          findings: [],
-          duration: 1,
-        };
-      },
-      appendLog: async () => {},
-      updateSessionState: async () => true,
-      wasInterrupted: () => false,
-    });
+    const { calls, result } = await runPhaseWithEmptyFindings({ forceMaxIterations: true });
 
     expect(calls).toBe(3);
     expect(result.iterations).toBe(3);
@@ -92,7 +66,7 @@ describe("review-workflow/review/runReviewPhase", () => {
     const secondFinding = createFinding("Avoid stale cache", 20);
 
     const result = await runReviewPhase({
-      config: createConfig(3),
+      config: createReviewWorkflowConfig({ maxIterations: 3 }),
       reviewOptions: {
         forceMaxIterations: true,
       },

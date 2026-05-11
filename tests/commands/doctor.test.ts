@@ -4,6 +4,7 @@ import { runDoctor } from "@/commands/doctor";
 import type { FixResult } from "@/lib/diagnostics/remediation";
 import type { DiagnosticItem, DiagnosticsReport } from "@/lib/diagnostics/types";
 import { stripAnsi, theme } from "@/terminal/theme";
+import { createSpinnerCapture } from "../helpers/capture";
 import { createCapabilities } from "../helpers/diagnostics";
 
 function createReport(items: DiagnosticItem[]): DiagnosticsReport {
@@ -18,6 +19,75 @@ function createReport(items: DiagnosticItem[]): DiagnosticsReport {
   };
 }
 
+function codexInstalledItem(): DiagnosticItem {
+  return {
+    id: "agent-codex-binary",
+    category: "agents",
+    title: "codex binary",
+    severity: "ok",
+    summary: "Command 'codex' is installed.",
+    remediation: [],
+    context: {
+      agent: "codex",
+      installed: true,
+    },
+  };
+}
+
+function agentCountItem(
+  severity: DiagnosticItem["severity"],
+  summary: string,
+  remediation: string[] = []
+): DiagnosticItem {
+  return {
+    id: "agents-installed-count",
+    category: "agents",
+    title: "Installed coding agents",
+    severity,
+    summary,
+    remediation,
+  };
+}
+
+async function runDoctorForNote(items: DiagnosticItem[], title: string) {
+  const runtime = createRuntime(createReport(items));
+  await runDoctor([], runtime.overrides);
+  return runtime.notes.find((entry) => stripAnsi(entry.title) === title);
+}
+
+function tmuxMissingItem(): DiagnosticItem {
+  return {
+    id: "tmux-installed",
+    category: "tmux",
+    title: "tmux availability",
+    severity: "error",
+    summary: "tmux is not installed.",
+    remediation: ["Run: brew install tmux", "Then run: rr doctor --fix"],
+  };
+}
+
+function configMissingItem(): DiagnosticItem {
+  return {
+    id: "config-missing",
+    category: "config",
+    title: "Configuration file",
+    severity: "error",
+    summary: "Configuration file was not found.",
+    remediation: ["Run: rr init", "Then run: rr doctor --fix"],
+  };
+}
+
+function configValidItem(): DiagnosticItem {
+  return {
+    id: "config-valid",
+    category: "config",
+    title: "Configuration file",
+    severity: "ok",
+    summary: "Configuration loaded successfully.",
+    remediation: [],
+  };
+}
+
 function createRuntime(report: DiagnosticsReport) {
   const intros: string[] = [];
   const notes: { body: string; title: string }[] = [];
@@ -27,8 +97,7 @@ function createRuntime(report: DiagnosticsReport) {
   const infos: string[] = [];
   const steps: string[] = [];
   const exits: number[] = [];
-  const spinnerStarts: string[] = [];
-  const spinnerStops: string[] = [];
+  const spinner = createSpinnerCapture();
   const fixedItems: DiagnosticItem[][] = [];
 
   return {
@@ -40,8 +109,8 @@ function createRuntime(report: DiagnosticsReport) {
     infos,
     steps,
     exits,
-    spinnerStarts,
-    spinnerStops,
+    spinnerStarts: spinner.starts,
+    spinnerStops: spinner.stops,
     fixedItems,
     overrides: {
       runDiagnostics: async () => report,
@@ -55,10 +124,7 @@ function createRuntime(report: DiagnosticsReport) {
       },
       intro: (message: string) => intros.push(message),
       note: (body: string, title: string) => notes.push({ body, title }),
-      spinner: () => ({
-        start: (message: string) => spinnerStarts.push(message),
-        stop: (message: string) => spinnerStops.push(message),
-      }),
+      spinner: spinner.spinner,
       log: {
         error: (message: string) => errors.push(message),
         warn: (message: string) => warnings.push(message),
@@ -71,6 +137,18 @@ function createRuntime(report: DiagnosticsReport) {
       },
     },
   };
+}
+
+function useDiagnosticsReports(
+  runtime: ReturnType<typeof createRuntime>,
+  reports: [DiagnosticsReport, ...DiagnosticsReport[]]
+) {
+  let diagnosticsRunCount = 0;
+  runtime.overrides.runDiagnostics = async () => {
+    diagnosticsRunCount++;
+    return reports[diagnosticsRunCount - 1] ?? reports.at(-1) ?? reports[0];
+  };
+  return () => diagnosticsRunCount;
 }
 
 function expectNoDoctorEmoji(value: string | undefined): void {
@@ -201,14 +279,7 @@ describe("doctor command", () => {
           installed: false,
         },
       },
-      {
-        id: "agents-installed-count",
-        category: "agents",
-        title: "Installed coding agents",
-        severity: "ok",
-        summary: "Detected 1 installed coding agent.",
-        remediation: [],
-      },
+      agentCountItem("ok", "Detected 1 installed coding agent."),
     ]);
     const runtime = createRuntime(report);
 
@@ -224,66 +295,37 @@ describe("doctor command", () => {
   });
 
   test("renders remediation steps when installed agent count is an error", async () => {
-    const report = createReport([
-      {
-        id: "agent-codex-binary",
-        category: "agents",
-        title: "codex binary",
-        severity: "ok",
-        summary: "Command 'codex' is installed.",
-        remediation: [],
-        context: {
-          agent: "codex",
-          installed: true,
-        },
-      },
-      {
-        id: "agents-installed-count",
-        category: "agents",
-        title: "Installed coding agents",
-        severity: "error",
-        summary: "No supported coding agents are installed.",
-        remediation: ["Run: brew install codex", "Then run: rr doctor --fix"],
-      },
-    ]);
-    const runtime = createRuntime(report);
+    const agentsNote = await runDoctorForNote(
+      [
+        codexInstalledItem(),
+        agentCountItem("error", "No supported coding agents are installed.", [
+          "Run: brew install codex",
+          "Then run: rr doctor --fix",
+        ]),
+      ],
+      "Coding Agents"
+    );
 
-    await runDoctor([], runtime.overrides);
-
-    const agentsNote = runtime.notes.find((entry) => stripAnsi(entry.title) === "Coding Agents");
     expect(stripAnsi(agentsNote?.body ?? "")).toContain("-> Run: brew install codex");
     expect(stripAnsi(agentsNote?.body ?? "")).toContain("-> Then run: rr doctor --fix");
     expectNoDoctorEmoji(agentsNote?.body);
   });
 
   test("separates supplemental agent items after binary status entries", async () => {
-    const report = createReport([
-      {
-        id: "agent-codex-binary",
-        category: "agents",
-        title: "codex binary",
-        severity: "ok",
-        summary: "Command 'codex' is installed.",
-        remediation: [],
-        context: {
-          agent: "codex",
-          installed: true,
+    const agentsNote = await runDoctorForNote(
+      [
+        codexInstalledItem(),
+        {
+          id: "agent-opencode-probe",
+          category: "agents",
+          title: "opencode capability probe",
+          severity: "warning",
+          summary: "Model review probe returned warnings.",
+          remediation: ["Run: codex --version"],
         },
-      },
-      {
-        id: "agent-opencode-probe",
-        category: "agents",
-        title: "opencode capability probe",
-        severity: "warning",
-        summary: "Model review probe returned warnings.",
-        remediation: ["Run: codex --version"],
-      },
-    ]);
-    const runtime = createRuntime(report);
-
-    await runDoctor([], runtime.overrides);
-
-    const agentsNote = runtime.notes.find((entry) => stripAnsi(entry.title) === "Coding Agents");
+      ],
+      "Coding Agents"
+    );
     expect(stripAnsi(agentsNote?.body ?? "")).toContain(
       "OK codex\n\nWARN Model review probe returned warnings."
     );
@@ -438,45 +480,16 @@ describe("doctor command", () => {
 
 describe("doctor --fix", () => {
   test("runs multi-pass remediation until diagnostics are clean", async () => {
-    const passOneReport = createReport([
-      {
-        id: "tmux-installed",
-        category: "tmux",
-        title: "tmux availability",
-        severity: "error",
-        summary: "tmux is not installed.",
-        remediation: ["Run: brew install tmux", "Then run: rr doctor --fix"],
-      },
-    ]);
-    const passTwoReport = createReport([
-      {
-        id: "config-missing",
-        category: "config",
-        title: "Configuration file",
-        severity: "error",
-        summary: "Configuration file was not found.",
-        remediation: ["Run: rr init", "Then run: rr doctor --fix"],
-      },
-    ]);
-    const cleanReport = createReport([
-      {
-        id: "config-valid",
-        category: "config",
-        title: "Configuration file",
-        severity: "ok",
-        summary: "Configuration loaded successfully.",
-        remediation: [],
-      },
-    ]);
+    const passOneReport = createReport([tmuxMissingItem()]);
+    const passTwoReport = createReport([configMissingItem()]);
+    const cleanReport = createReport([configValidItem()]);
 
     const runtime = createRuntime(passOneReport);
-    let diagnosticsRunCount = 0;
-    runtime.overrides.runDiagnostics = async () => {
-      diagnosticsRunCount++;
-      if (diagnosticsRunCount === 1) return passOneReport;
-      if (diagnosticsRunCount === 2) return passTwoReport;
-      return cleanReport;
-    };
+    const getDiagnosticsRunCount = useDiagnosticsReports(runtime, [
+      passOneReport,
+      passTwoReport,
+      cleanReport,
+    ]);
 
     let fixPass = 0;
     runtime.overrides.applyFixes = async (items: DiagnosticItem[]): Promise<FixResult[]> => {
@@ -491,7 +504,7 @@ describe("doctor --fix", () => {
 
     await runDoctor(["--fix"], runtime.overrides);
 
-    expect(diagnosticsRunCount).toBe(3);
+    expect(getDiagnosticsRunCount()).toBe(3);
     expect(runtime.steps).toContain("Remediation pass 1/3");
     expect(runtime.steps).toContain("Remediation pass 2/3");
     expect(runtime.notes.some((note) => stripAnsi(note.title) === "Re-diagnosis")).toBe(true);
@@ -540,53 +553,16 @@ describe("doctor --fix", () => {
   });
 
   test("continues remediation when unresolved fixable set size changes", async () => {
-    const passOneReport = createReport([
-      {
-        id: "tmux-installed",
-        category: "tmux",
-        title: "tmux availability",
-        severity: "error",
-        summary: "tmux is not installed.",
-        remediation: ["Run: brew install tmux", "Then run: rr doctor --fix"],
-      },
-    ]);
-    const passTwoReport = createReport([
-      {
-        id: "tmux-installed",
-        category: "tmux",
-        title: "tmux availability",
-        severity: "error",
-        summary: "tmux is not installed.",
-        remediation: ["Run: brew install tmux", "Then run: rr doctor --fix"],
-      },
-      {
-        id: "config-missing",
-        category: "config",
-        title: "Configuration file",
-        severity: "error",
-        summary: "Configuration file was not found.",
-        remediation: ["Run: rr init", "Then run: rr doctor --fix"],
-      },
-    ]);
-    const cleanReport = createReport([
-      {
-        id: "config-valid",
-        category: "config",
-        title: "Configuration file",
-        severity: "ok",
-        summary: "Configuration loaded successfully.",
-        remediation: [],
-      },
-    ]);
+    const passOneReport = createReport([tmuxMissingItem()]);
+    const passTwoReport = createReport([tmuxMissingItem(), configMissingItem()]);
+    const cleanReport = createReport([configValidItem()]);
 
     const runtime = createRuntime(passOneReport);
-    let diagnosticsRunCount = 0;
-    runtime.overrides.runDiagnostics = async () => {
-      diagnosticsRunCount++;
-      if (diagnosticsRunCount === 1) return passOneReport;
-      if (diagnosticsRunCount === 2) return passTwoReport;
-      return cleanReport;
-    };
+    const getDiagnosticsRunCount = useDiagnosticsReports(runtime, [
+      passOneReport,
+      passTwoReport,
+      cleanReport,
+    ]);
 
     runtime.overrides.applyFixes = async (items: DiagnosticItem[]): Promise<FixResult[]> =>
       items.map((item) => ({
@@ -597,7 +573,7 @@ describe("doctor --fix", () => {
 
     await runDoctor(["--fix"], runtime.overrides);
 
-    expect(diagnosticsRunCount).toBe(3);
+    expect(getDiagnosticsRunCount()).toBe(3);
     expect(runtime.steps).toEqual(["Remediation pass 1/3", "Remediation pass 2/3"]);
     expect(runtime.infos.some((line) => line.includes("No remediation progress detected"))).toBe(
       false

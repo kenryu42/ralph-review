@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { AGENTS } from "@/lib/agents/registry";
 import { resolveAgentSettings, runAgent } from "@/lib/agents/runner";
 import { CONFIG_SCHEMA_URI, CONFIG_VERSION, type Config, type ReviewOptions } from "@/lib/types";
+import { withMutedTerminalLogs } from "../../helpers/capture";
+import { createErroringStream, createMockProcess, createTextStream } from "../../helpers/process";
 
 const baseConfig: Config = {
   $schema: CONFIG_SCHEMA_URI,
@@ -15,58 +17,22 @@ const baseConfig: Config = {
 };
 
 type AgentModule = (typeof AGENTS)["codex"];
-type SpawnProcess = ReturnType<typeof Bun.spawn>;
 
 let originalCodexModule: AgentModule;
 let originalClaudeModule: (typeof AGENTS)["claude"];
 let originalPiModule: (typeof AGENTS)["pi"];
 let originalSpawn: typeof Bun.spawn;
 
-function createTextStream(text: string): ReadableStream<Uint8Array> {
-  const encoder = new TextEncoder();
-  return new ReadableStream<Uint8Array>({
-    start(controller) {
-      controller.enqueue(encoder.encode(text));
-      controller.close();
+function configureCodexAgent(command: string) {
+  AGENTS.codex = {
+    config: {
+      command,
+      buildArgs: () => [],
+      buildEnv: () => ({ PATH: process.env.PATH ?? "" }),
     },
-  });
-}
-
-function createErroringStream(delayMs: number): ReadableStream<Uint8Array> {
-  return new ReadableStream<Uint8Array>({
-    start(controller) {
-      setTimeout(() => {
-        controller.error(new Error("stream failure"));
-      }, delayMs);
-    },
-  });
-}
-
-function createMockProcess(
-  stdout: ReadableStream<Uint8Array> | null,
-  stderr: ReadableStream<Uint8Array> | null,
-  exited: Promise<number>
-): SpawnProcess {
-  return {
-    stdout,
-    stderr,
-    exited,
-  } as unknown as SpawnProcess;
-}
-
-async function withMutedTerminalStreams<T>(run: () => Promise<T>): Promise<T> {
-  const originalStdoutWrite = process.stdout.write;
-  const originalStderrWrite = process.stderr.write;
-
-  process.stdout.write = (() => true) as typeof process.stdout.write;
-  process.stderr.write = (() => true) as typeof process.stderr.write;
-
-  try {
-    return await run();
-  } finally {
-    process.stdout.write = originalStdoutWrite;
-    process.stderr.write = originalStderrWrite;
-  }
+    usesJsonl: false,
+    extractResult: (output) => output,
+  };
 }
 
 beforeEach(() => {
@@ -137,7 +103,7 @@ describe("runAgent", () => {
       );
     }) as typeof Bun.spawn;
 
-    const result = await withMutedTerminalStreams(() =>
+    const result = await withMutedTerminalLogs(() =>
       runAgent("reviewer", baseConfig, "review prompt", 5000, reviewOptions)
     );
 
@@ -176,7 +142,7 @@ describe("runAgent", () => {
       return createMockProcess(createTextStream("ok\n"), null, Promise.resolve(0));
     }) as typeof Bun.spawn;
 
-    const result = await withMutedTerminalStreams(() => runAgent("reviewer", claudeReviewerConfig));
+    const result = await withMutedTerminalLogs(() => runAgent("reviewer", claudeReviewerConfig));
 
     expect(capturedPrompt).toBe("");
     expect(result.success).toBe(true);
@@ -213,7 +179,7 @@ describe("runAgent", () => {
       return createMockProcess(createTextStream("pi output\n"), null, Promise.resolve(0));
     }) as typeof Bun.spawn;
 
-    const result = await withMutedTerminalStreams(() =>
+    const result = await withMutedTerminalLogs(() =>
       runAgent("reviewer", piConfig, "pi prompt", 5000)
     );
 
@@ -222,21 +188,13 @@ describe("runAgent", () => {
   });
 
   test("returns timeout result when stream processing fails after timeout abort", async () => {
-    AGENTS.codex = {
-      config: {
-        command: "mock-timeout-command",
-        buildArgs: () => [],
-        buildEnv: () => ({ PATH: process.env.PATH ?? "" }),
-      },
-      usesJsonl: false,
-      extractResult: (output) => output,
-    };
+    configureCodexAgent("mock-timeout-command");
 
     Bun.spawn = (() => {
       return createMockProcess(createErroringStream(20), null, Promise.resolve(0));
     }) as typeof Bun.spawn;
 
-    const result = await withMutedTerminalStreams(() =>
+    const result = await withMutedTerminalLogs(() =>
       runAgent("reviewer", baseConfig, "slow prompt", 1)
     );
 
@@ -246,21 +204,13 @@ describe("runAgent", () => {
   });
 
   test("returns error output when spawn throws before timeout", async () => {
-    AGENTS.codex = {
-      config: {
-        command: "mock-error-command",
-        buildArgs: () => [],
-        buildEnv: () => ({ PATH: process.env.PATH ?? "" }),
-      },
-      usesJsonl: false,
-      extractResult: (output) => output,
-    };
+    configureCodexAgent("mock-error-command");
 
     Bun.spawn = (() => {
       throw new Error("spawn exploded");
     }) as typeof Bun.spawn;
 
-    const result = await withMutedTerminalStreams(() =>
+    const result = await withMutedTerminalLogs(() =>
       runAgent("reviewer", baseConfig, "prompt", 5000)
     );
 
@@ -272,22 +222,14 @@ describe("runAgent", () => {
   test("passes an explicit working directory to the spawned agent process", async () => {
     let spawnCwd: string | undefined;
 
-    AGENTS.codex = {
-      config: {
-        command: "mock-cwd-command",
-        buildArgs: () => [],
-        buildEnv: () => ({ PATH: process.env.PATH ?? "" }),
-      },
-      usesJsonl: false,
-      extractResult: (output) => output,
-    };
+    configureCodexAgent("mock-cwd-command");
 
     Bun.spawn = ((_command, options) => {
       spawnCwd = (options as { cwd?: string }).cwd;
       return createMockProcess(createTextStream("ok\n"), null, Promise.resolve(0));
     }) as typeof Bun.spawn;
 
-    const result = await withMutedTerminalStreams(() =>
+    const result = await withMutedTerminalLogs(() =>
       runAgent("reviewer", baseConfig, "prompt", 5000, undefined, "/tmp/sandbox-repo")
     );
 
