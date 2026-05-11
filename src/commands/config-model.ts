@@ -124,9 +124,7 @@ function parseBoundedIntegerUpdate(
 ): ParsedScalarConfigUpdate {
   const parsed = parseInteger(requireNonNullRawValue(key, rawValue), key);
   if (parsed < minimum) {
-    throw new Error(
-      `Value for "${key}" must be ${minimum === 0 ? "greater than or equal to 0" : "greater than 0"}.`
-    );
+    throw new Error(`Value for "${key}" must be greater than or equal to ${minimum}.`);
   }
   return { key, value: parsed } as ParsedScalarConfigUpdate;
 }
@@ -400,13 +398,13 @@ function applyRoleProviderUpdate(
   key: RoleConfigKey,
   value: ConfigValue,
   clearNonPiProvider: boolean
-): "updated" | "unchanged" {
+): void {
   if (value === null) {
     if (settings.agent !== "pi") {
       if (clearNonPiProvider) {
         delete settings.provider;
       }
-      return "unchanged";
+      return;
     }
     throw new Error(`Cannot unset "${role}.provider" while "${role}.agent" is "pi".`);
   }
@@ -420,7 +418,6 @@ function applyRoleProviderUpdate(
   }
 
   settings.provider = value;
-  return "updated";
 }
 
 function applyRoleModelUpdate(
