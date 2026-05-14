@@ -1023,7 +1023,7 @@ export function ReviewModeOverlay({
               width={textareaWidth}
               height={isWideOptionsLayout ? 5 : 4}
               wrapMode="word"
-              keyBindings={[{ name: "return", shift: true, action: "submit" }]}
+              keyBindings={[{ name: "return", ctrl: true, action: "submit" }]}
               onSubmit={() => {
                 submitWithOptions();
               }}
@@ -1090,7 +1090,7 @@ export function ReviewModeOverlay({
   function renderOptions() {
     const isPriorityFocusActive = optionsFocus === "execution-auto-priority";
     const isForceControlActive = optionsFocus === "force-max-iterations";
-    const reviewStartKeyLabel = isCustomInstructionsFocused ? "[Shift+Enter]" : "[Enter]";
+    const reviewStartKeyLabel = isCustomInstructionsFocused ? "[Ctrl+Enter]" : "[Enter]";
 
     return (
       <box flexDirection="column" gap={0}>

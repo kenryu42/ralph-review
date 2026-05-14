@@ -61,7 +61,8 @@ describe("ReviewModeOverlay", () => {
       onClose?: () => void;
       onSubmit?: (args: string[]) => void;
     } = {},
-    terminalSize: { width: number; height: number } = { width: 100, height: 30 }
+    terminalSize: { width: number; height: number } = { width: 100, height: 30 },
+    inputOptions: { otherModifiersMode?: boolean } = {}
   ) {
     const defaultProps: Parameters<typeof ReviewModeOverlay>[0] = {
       defaultReview: { type: "uncommitted" },
@@ -74,6 +75,7 @@ describe("ReviewModeOverlay", () => {
     testSetup = await testRender(createElement(ReviewModeOverlay, defaultProps), {
       width: terminalSize.width,
       height: terminalSize.height,
+      ...inputOptions,
     });
 
     await act(async () => {
@@ -390,7 +392,7 @@ describe("ReviewModeOverlay", () => {
     expect(frame).not.toContain("C opens instructions");
   });
 
-  test("shows shift enter in the footer while custom instructions is focused", async () => {
+  test("shows ctrl enter in the footer while custom instructions is focused", async () => {
     const setup = await renderOverlay({}, { width: 120, height: 30 });
 
     await emitKey(setup, "return");
@@ -400,7 +402,7 @@ describe("ReviewModeOverlay", () => {
     });
 
     const frame = setup.captureCharFrame();
-    expect(frame).toContain("[Shift+Enter]");
+    expect(frame).toContain("[Ctrl+Enter]");
     expect(frame).toContain("starts review");
   });
 
@@ -852,7 +854,7 @@ describe("ReviewModeOverlay", () => {
     expect(submitted).toEqual([]);
   });
 
-  test("submits multiline custom instructions with shift enter while focused", async () => {
+  test("submits multiline custom instructions with ctrl enter while focused", async () => {
     const submitted: string[][] = [];
     const setup = await renderOverlay(
       {
@@ -860,7 +862,8 @@ describe("ReviewModeOverlay", () => {
           submitted.push(args);
         },
       },
-      { width: 120, height: 30 }
+      { width: 120, height: 30 },
+      { otherModifiersMode: true }
     );
 
     await emitKey(setup, "return");
@@ -874,7 +877,10 @@ describe("ReviewModeOverlay", () => {
       await setup.mockInput.typeText("check migrations");
       await setup.renderOnce();
     });
-    await emitKey(setup, "return", { shift: true });
+    await act(async () => {
+      setup.mockInput.pressEnter({ ctrl: true });
+      await setup.renderOnce();
+    });
 
     expect(submitted).toEqual([
       ["--uncommitted", "check security\ncheck migrations", "--max", "5"],
