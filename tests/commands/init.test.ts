@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import {
   buildAutoInitInput,
   buildConfig,
@@ -16,13 +16,21 @@ import {
   selectAutoReasoning,
   validateAgentSelection,
 } from "@/commands/init";
-import { registerCodexReasoningOptions, registerDroidReasoningOptions } from "@/lib/agents/models";
+import {
+  registerCodexReasoningOptions,
+  registerDroidReasoningOptions,
+  resetRegisteredReasoningOptions,
+} from "@/lib/agents/models";
 import { CONFIG_PATH } from "@/lib/config";
 import type { AgentCapabilitiesMap } from "@/lib/diagnostics";
 import type { ConfigOverride } from "@/lib/types";
 import { type AgentType, CONFIG_SCHEMA_URI, CONFIG_VERSION, type Config } from "@/lib/types";
 
 const CANCEL = Symbol("cancel");
+
+afterEach(() => {
+  resetRegisteredReasoningOptions();
+});
 
 type CapabilityOverrides = Partial<{
   [K in AgentType]: Partial<AgentCapabilitiesMap[K]>;
@@ -1349,6 +1357,10 @@ describe("init command", () => {
     });
 
     test("runs custom setup with base branch and saves selected values", async () => {
+      registerCodexReasoningOptions({
+        "gpt-5.3-codex": ["low", "medium", "high", "xhigh"],
+      });
+
       const harness = createInitHarness({
         availability: createAvailability({ codex: true, claude: true, droid: true }),
         capabilities: createCapabilities(),

@@ -3,8 +3,16 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AGENTS } from "@/lib/agents";
-import { registerCodexReasoningOptions, registerDroidReasoningOptions } from "@/lib/agents/models";
+import {
+  registerCodexReasoningOptions,
+  registerDroidReasoningOptions,
+  resetRegisteredReasoningOptions,
+} from "@/lib/agents/models";
 import type { AgentConfig } from "@/lib/types";
+
+afterEach(() => {
+  resetRegisteredReasoningOptions();
+});
 
 describe("agents", () => {
   describe("AGENTS registry", () => {

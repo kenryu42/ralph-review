@@ -1,12 +1,17 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import {
   getCodexReasoningOptions,
   getDroidReasoningOptions,
   getReasoningOptions,
   registerCodexReasoningOptions,
   registerDroidReasoningOptions,
+  resetRegisteredReasoningOptions,
   supportsReasoning,
 } from "@/lib/agents/models";
+
+afterEach(() => {
+  resetRegisteredReasoningOptions();
+});
 
 describe("agent model metadata", () => {
   describe("getReasoningOptions", () => {

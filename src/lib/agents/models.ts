@@ -52,6 +52,15 @@ export function registerDroidReasoningOptions(
   }
 }
 
+export function resetRegisteredReasoningOptions(): void {
+  Object.keys(codexReasoningLevelsByModel).forEach((model) => {
+    delete codexReasoningLevelsByModel[model];
+  });
+  Object.keys(droidReasoningLevelsByModel).forEach((model) => {
+    delete droidReasoningLevelsByModel[model];
+  });
+}
+
 export function getDroidReasoningOptions(model: string): ReasoningLevel[] {
   const levels = droidReasoningLevelsByModel[model];
   return levels ? [...levels] : [];
