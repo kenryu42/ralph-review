@@ -12,6 +12,12 @@ function getStepBlock(workflow: string, stepName: string): string {
 }
 
 describe("publish workflow", () => {
+  test("npm publish lifecycle uses stabilized test concurrency", async () => {
+    const packageJson = await Bun.file("package.json").json();
+
+    expect(packageJson.scripts.prepublishOnly).toBe("bun test --max-concurrency=1");
+  });
+
   test("uses a dedicated PAT secret for cross-repo Homebrew tap updates", async () => {
     const workflow = await Bun.file(".github/workflows/publish.yml").text();
     const updateTapStep = getStepBlock(workflow, "Update Homebrew tap");
