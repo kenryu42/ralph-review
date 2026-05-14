@@ -54,7 +54,7 @@
     "publish:recover:execute": "bun run scripts/publish.ts --recover --execute",
     "rr": "bun run src/cli.ts",
     "test": "AGENT=1 bun test --max-concurrency=1",
-    "prepublishOnly": "bun test",
+    "prepublishOnly": "bun test --max-concurrency=1",
     "typecheck": "tsc --noEmit",
     "knip": "knip-bun",
     "check-duplicates": "bunx jscpd src tests --exitCode 1 --reporters ai",
