@@ -1,4 +1,6 @@
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
+
+const actualLogger = await import("@/lib/logger");
 
 type RunStatusResult = {
   getGitBranchCalls: string[];
@@ -34,6 +36,11 @@ async function runStatusWithBranch(branch: string | undefined): Promise<RunStatu
 describe("runStatus", () => {
   afterEach(() => {
     mock.restore();
+  });
+
+  afterAll(() => {
+    mock.restore();
+    mock.module("@/lib/logger", () => actualLogger);
   });
 
   test("passes cwd and resolved branch to dashboard", async () => {

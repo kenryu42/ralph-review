@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
 import { KeyEvent } from "@opentui/core";
 import { useKeyboard } from "@opentui/react";
 import { testRender } from "@opentui/react/test-utils";
@@ -11,6 +11,9 @@ import type { WorkspaceState } from "@/lib/tui/workspace/workspace-types";
 import type { Config } from "@/lib/types";
 import { createConfig } from "../../helpers/diagnostics";
 import { createActiveSession } from "../../helpers/tui";
+
+const actualStopSession = await import("@/lib/stop-session");
+const actualWorkspaceState = await import("@/lib/tui/workspace/use-workspace-state");
 
 interface SpawnResult {
   exitCode: number;
@@ -268,6 +271,12 @@ async function expectFixOverlayForState(workspaceState: Partial<WorkspaceState>)
 
 afterEach(() => {
   mock.restore();
+});
+
+afterAll(() => {
+  mock.restore();
+  mock.module("@/lib/stop-session", () => actualStopSession);
+  mock.module("@/lib/tui/workspace/use-workspace-state", () => actualWorkspaceState);
 });
 
 describe("Dashboard component", () => {

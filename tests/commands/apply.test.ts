@@ -1,7 +1,10 @@
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
 import type { PendingHandoffArtifact } from "@/lib/handoff";
 import { captureExitCode, createPromptLogCapture, withStdoutTTY } from "../helpers/capture";
 import { createPendingHandoff } from "../helpers/review-workflow";
+
+const actualHandoff = await import("@/lib/handoff");
+const actualLogger = await import("@/lib/logger");
 
 interface ApplyHarnessOptions {
   handoffs?: PendingHandoffArtifact[];
@@ -103,6 +106,12 @@ async function runApplyWithHarness(
 
 afterEach(() => {
   mock.restore();
+});
+
+afterAll(() => {
+  mock.restore();
+  mock.module("@/lib/handoff", () => actualHandoff);
+  mock.module("@/lib/logger", () => actualLogger);
 });
 
 describe("apply command", () => {

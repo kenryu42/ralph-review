@@ -1,7 +1,10 @@
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
 import * as p from "@clack/prompts";
 import { getCommandDef } from "@/cli";
 import type { ActiveSession } from "@/lib/session-state";
+
+const actualSessionState = await import("@/lib/session-state");
+const actualTmux = await import("@/lib/tmux");
 
 describe("list command", () => {
   test("command definition exists", () => {
@@ -89,6 +92,12 @@ async function runListWithSessions(options: {
 describe("runList", () => {
   afterEach(() => {
     mock.restore();
+  });
+
+  afterAll(() => {
+    mock.restore();
+    mock.module("@/lib/session-state", () => actualSessionState);
+    mock.module("@/lib/tmux", () => actualTmux);
   });
 
   test("prints empty-state message when there are no active sessions", async () => {

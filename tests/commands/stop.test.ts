@@ -1,9 +1,14 @@
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
 import type { PendingHandoffArtifact } from "@/lib/handoff";
 import type { ActiveSession, SessionState } from "@/lib/session-state";
 import type { SessionStats } from "@/lib/types";
 import { captureExitCode, createPromptLogCapture, withStdoutTTY } from "../helpers/capture";
 import { createPendingHandoff } from "../helpers/review-workflow";
+
+const actualHandoffModule = await import("@/lib/handoff");
+const actualLoggerModule = await import("@/lib/logger");
+const actualSessionStateModule = await import("@/lib/session-state");
+const actualTmuxModule = await import("@/lib/tmux");
 
 interface StopHarnessOptions {
   activeSessions?: ActiveSession[];
@@ -308,6 +313,14 @@ async function runStopWithHarness(
 describe("runStop", () => {
   afterEach(() => {
     mock.restore();
+  });
+
+  afterAll(() => {
+    mock.restore();
+    mock.module("@/lib/handoff", () => actualHandoffModule);
+    mock.module("@/lib/logger", () => actualLoggerModule);
+    mock.module("@/lib/session-state", () => actualSessionStateModule);
+    mock.module("@/lib/tmux", () => actualTmuxModule);
   });
 
   test("logs parser failures and exits", async () => {

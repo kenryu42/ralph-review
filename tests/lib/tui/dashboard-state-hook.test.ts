@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
 import { testRender } from "@opentui/react/test-utils";
 import { act, createElement, useEffect } from "react";
 import type { LogIncrementalResult, LogIncrementalState, LogSession } from "@/lib/logger";
@@ -22,6 +22,12 @@ import {
   createSessionState,
   createActiveSession as createTuiActiveSession,
 } from "../../helpers/tui";
+
+const actualConfig = await import("@/lib/config");
+const actualGit = await import("@/lib/git");
+const actualLogger = await import("@/lib/logger");
+const actualSessionState = await import("@/lib/session-state");
+const actualTmux = await import("@/lib/tmux");
 
 function createFix(id: number, title: string, priority: Priority = "P1"): FixEntry {
   return {
@@ -416,6 +422,15 @@ async function mountDashboardHarness(
 
 afterEach(() => {
   mock.restore();
+});
+
+afterAll(() => {
+  mock.restore();
+  mock.module("@/lib/config", () => actualConfig);
+  mock.module("@/lib/git", () => actualGit);
+  mock.module("@/lib/logger", () => actualLogger);
+  mock.module("@/lib/session-state", () => actualSessionState);
+  mock.module("@/lib/tmux", () => actualTmux);
 });
 
 describe("useWorkspaceState hook", () => {
