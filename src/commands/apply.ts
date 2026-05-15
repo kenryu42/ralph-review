@@ -1,8 +1,9 @@
-import * as p from "@clack/prompts";
 import { resolvePendingHandoffSelection } from "@/commands/handoff-selection";
 import {
   createInteractiveCommandDeps,
+  createPromptDeps,
   type InteractiveCommandDeps,
+  type PromptDeps,
 } from "@/commands/interactive-deps";
 import { parseCommand } from "@/lib/cli-parser";
 import { applyPendingHandoff, listProjectPendingHandoffs } from "@/lib/handoff";
@@ -13,32 +14,21 @@ interface ApplyOptions {
   session?: string;
 }
 
-type ApplyDeps = InteractiveCommandDeps & {
-  cwd: () => string;
-  listProjectPendingHandoffs: typeof listProjectPendingHandoffs;
-  applyPendingHandoff: typeof applyPendingHandoff;
-  appendLog: (logPath: string, entry: LogEntry) => Promise<void>;
-  logInfo: (message: string) => void;
-  logStep: (message: string) => void;
-  logSuccess: (message: string) => void;
-  select: (input: {
-    message: string;
-    options: Array<{ value: string; label: string; hint: string }>;
-  }) => Promise<unknown>;
-  isCancel: (value: unknown) => boolean;
-};
+type ApplyDeps = InteractiveCommandDeps &
+  PromptDeps & {
+    cwd: () => string;
+    listProjectPendingHandoffs: typeof listProjectPendingHandoffs;
+    applyPendingHandoff: typeof applyPendingHandoff;
+    appendLog: (logPath: string, entry: LogEntry) => Promise<void>;
+  };
 
 const DEFAULT_APPLY_DEPS: ApplyDeps = {
   ...createInteractiveCommandDeps(),
+  ...createPromptDeps(),
   cwd: () => process.cwd(),
   listProjectPendingHandoffs,
   applyPendingHandoff,
   appendLog,
-  logInfo: (message) => p.log.info(message),
-  logStep: (message) => p.log.step(message),
-  logSuccess: (message) => p.log.success(message),
-  select: (input) => p.select(input),
-  isCancel: (value) => p.isCancel(value),
 };
 
 const NO_PENDING_HANDOFFS_MESSAGE = "No pending review handoffs for current working directory.";
