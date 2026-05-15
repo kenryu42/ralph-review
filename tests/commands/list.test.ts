@@ -1,10 +1,7 @@
-import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
-import * as p from "@clack/prompts";
+import { describe, expect, test } from "bun:test";
 import { getCommandDef } from "@/cli";
+import { type ListDeps, runList } from "@/commands/list";
 import type { ActiveSession } from "@/lib/session-state";
-
-const actualSessionState = await import("@/lib/session-state");
-const actualTmux = await import("@/lib/tmux");
 
 describe("list command", () => {
   test("command definition exists", () => {
@@ -56,50 +53,21 @@ async function runListWithSessions(options: {
   activeSessions?: ActiveSession[];
   tmuxSessions?: string[];
 }): Promise<RunListResult> {
-  mock.module("@/lib/session-state", () => ({
-    listAllActiveSessions: async () => options.activeSessions ?? [],
-  }));
-
-  mock.module("@/lib/tmux", () => ({
-    listRalphSessions: async () => options.tmuxSessions ?? [],
-  }));
-
-  const { runList } = await import("@/commands/list");
   const infoMessages: string[] = [];
   const outputLines: string[] = [];
+  const deps: ListDeps = {
+    listAllActiveSessions: async () => options.activeSessions ?? [],
+    listRalphSessions: async () => options.tmuxSessions ?? [],
+    logInfo: (message) => infoMessages.push(message),
+    print: (...args) => outputLines.push(args.map((arg) => String(arg)).join(" ")),
+  };
 
-  const originalInfo = p.log.info;
-  const originalConsoleLog = console.log;
-
-  p.log.info = ((message: string) => {
-    infoMessages.push(message);
-  }) as typeof p.log.info;
-
-  console.log = ((...args: unknown[]) => {
-    outputLines.push(args.map((arg) => String(arg)).join(" "));
-  }) as typeof console.log;
-
-  try {
-    await runList();
-  } finally {
-    p.log.info = originalInfo;
-    console.log = originalConsoleLog;
-  }
+  await runList(deps);
 
   return { infoMessages, outputLines };
 }
 
 describe("runList", () => {
-  afterEach(() => {
-    mock.restore();
-  });
-
-  afterAll(() => {
-    mock.restore();
-    mock.module("@/lib/session-state", () => actualSessionState);
-    mock.module("@/lib/tmux", () => actualTmux);
-  });
-
   test("prints empty-state message when there are no active sessions", async () => {
     const result = await runListWithSessions({
       activeSessions: [],
