@@ -1,14 +1,11 @@
-import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
+import { getCommandDef } from "@/cli";
+import type { StopDeps } from "@/commands/stop";
 import type { PendingHandoffArtifact } from "@/lib/handoff";
 import type { ActiveSession, SessionState } from "@/lib/session-state";
 import type { SessionStats } from "@/lib/types";
 import { captureExitCode, createPromptLogCapture, withStdoutTTY } from "../helpers/capture";
 import { createPendingHandoff } from "../helpers/review-workflow";
-
-const actualHandoffModule = await import("@/lib/handoff");
-const actualLoggerModule = await import("@/lib/logger");
-const actualSessionStateModule = await import("@/lib/session-state");
-const actualTmuxModule = await import("@/lib/tmux");
 
 interface StopHarnessOptions {
   activeSessions?: ActiveSession[];
@@ -137,10 +134,6 @@ async function runStopWithHarness(
   args: string[],
   options: StopHarnessOptions = {}
 ): Promise<StopHarnessResult> {
-  const actualSessionState = await import("@/lib/session-state");
-  const actualLogger = await import("@/lib/logger");
-  const actualHandoff = await import("@/lib/handoff");
-  const actualTmux = await import("@/lib/tmux");
   const listProjectActiveSessionsCalls: string[] = [];
   const computeSessionStatsCalls: string[] = [];
   const readPendingHandoffCalls: Array<{ projectPath: string; sessionId: string }> = [];
@@ -178,8 +171,19 @@ async function runStopWithHarness(
     });
   const readPendingHandoff = options.readPendingHandoff ?? (async () => null);
 
-  mock.module("@/lib/session-state", () => ({
-    ...actualSessionState,
+  const deps: Partial<StopDeps> = {
+    getCommandDef: hasStopCommandDef ? getCommandDef : () => undefined,
+    cwd: () => process.cwd(),
+    logInfo: prompts.module.log.info,
+    logMessage: prompts.module.log.message,
+    logStep: prompts.module.log.step,
+    logSuccess: prompts.module.log.success,
+    logError: prompts.module.log.error,
+    exit: (code) => process.exit(code),
+    isTTY: () => process.stdout.isTTY === true,
+    select: prompts.module.select,
+    isCancel: prompts.module.isCancel,
+    sleep: async () => {},
     listAllActiveSessions: async () => activeSessions,
     listProjectActiveSessions: async (_logsDir: string | undefined, projectPath: string) => {
       listProjectActiveSessionsCalls.push(projectPath);
@@ -221,18 +225,10 @@ async function runStopWithHarness(
       });
       return true;
     },
-  }));
-
-  mock.module("@/lib/logger", () => ({
-    ...actualLogger,
     computeSessionStats: async (session: { path: string }) => {
       computeSessionStatsCalls.push(session.path);
       return await computeSessionStats(session.path);
     },
-  }));
-
-  mock.module("@/lib/handoff", () => ({
-    ...actualHandoff,
     listProjectPendingHandoffs: async (_storageRoot: string | undefined, projectPath: string) => {
       const projectHandoffs: PendingHandoffArtifact[] = [];
       for (const session of activeSessions.filter((entry) => entry.projectPath === projectPath)) {
@@ -244,10 +240,6 @@ async function runStopWithHarness(
       }
       return projectHandoffs;
     },
-  }));
-
-  mock.module("@/lib/tmux", () => ({
-    ...actualTmux,
     sessionExists: async (sessionName: string) => await sessionExists(sessionName),
     listRalphSessions: async () => tmuxSessions,
     sendInterrupt: async (sessionName: string) => {
@@ -256,40 +248,14 @@ async function runStopWithHarness(
     killSession: async (sessionName: string) => {
       killSessionCalls.push(sessionName);
     },
-  }));
+  };
 
-  mock.module("@clack/prompts", () => prompts.module);
-
-  const originalSetTimeout = globalThis.setTimeout;
-  if (options.fastTimeout) {
-    globalThis.setTimeout = ((...timeoutArgs: Parameters<typeof setTimeout>) => {
-      const [handler, _timeout, ...rest] = timeoutArgs;
-      if (typeof handler === "function") {
-        (handler as (...args: unknown[]) => void)(...rest);
-      }
-      return 0 as unknown as ReturnType<typeof setTimeout>;
-    }) as typeof setTimeout;
-  }
-
-  const exitCode = await (async () => {
-    try {
-      return await withStdoutTTY(options.isTTY ?? true, async () =>
-        captureExitCode(async () => {
-          const { runStop } = await import("@/commands/stop");
-          if (hasStopCommandDef) {
-            await runStop(args);
-            return;
-          }
-
-          await runStop(args, {
-            getCommandDef: () => undefined,
-          });
-        })
-      );
-    } finally {
-      globalThis.setTimeout = originalSetTimeout;
-    }
-  })();
+  const exitCode = await withStdoutTTY(options.isTTY ?? true, async () =>
+    captureExitCode(async () => {
+      const { runStop } = await import("@/commands/stop");
+      await runStop(args, deps);
+    })
+  );
 
   return {
     listProjectActiveSessionsCalls,
@@ -311,18 +277,6 @@ async function runStopWithHarness(
 }
 
 describe("runStop", () => {
-  afterEach(() => {
-    mock.restore();
-  });
-
-  afterAll(() => {
-    mock.restore();
-    mock.module("@/lib/handoff", () => actualHandoffModule);
-    mock.module("@/lib/logger", () => actualLoggerModule);
-    mock.module("@/lib/session-state", () => actualSessionStateModule);
-    mock.module("@/lib/tmux", () => actualTmuxModule);
-  });
-
   test("logs parser failures and exits", async () => {
     const result = await runStopWithHarness(["--unknown"]);
 

@@ -1,7 +1,8 @@
-import * as p from "@clack/prompts";
 import {
   createInteractiveCommandDeps,
+  createPromptDeps,
   type InteractiveCommandDeps,
+  type PromptDeps,
 } from "@/commands/interactive-deps";
 import { parseCommand } from "@/lib/cli-parser";
 import { listProjectPendingHandoffs } from "@/lib/handoff";
@@ -25,9 +26,47 @@ interface StopOptions {
   session?: string;
 }
 
-type StopDeps = InteractiveCommandDeps;
+type StopDeps = InteractiveCommandDeps &
+  PromptDeps & {
+    cwd: () => string;
+    computeSessionStats: typeof computeSessionStats;
+    listProjectPendingHandoffs: typeof listProjectPendingHandoffs;
+    listAllActiveSessions: typeof listAllActiveSessions;
+    listProjectActiveSessions: typeof listProjectActiveSessions;
+    removeAllSessionStates: typeof removeAllSessionStates;
+    stopActiveSession: typeof stopActiveSession;
+    updateSessionState: typeof updateSessionState;
+    sendInterrupt: typeof sendInterrupt;
+    readSessionState: typeof readSessionState;
+    sessionExists: typeof sessionExists;
+    killSession: typeof killSession;
+    removeSessionState: typeof removeSessionState;
+    listRalphSessions: typeof listRalphSessions;
+    sleep: (ms: number) => Promise<void>;
+  };
 
-const DEFAULT_STOP_DEPS = createInteractiveCommandDeps();
+const DEFAULT_STOP_DEPS: StopDeps = {
+  ...createInteractiveCommandDeps(),
+  ...createPromptDeps(),
+  cwd: () => process.cwd(),
+  computeSessionStats,
+  listProjectPendingHandoffs,
+  listAllActiveSessions,
+  listProjectActiveSessions,
+  removeAllSessionStates,
+  stopActiveSession,
+  updateSessionState,
+  sendInterrupt,
+  readSessionState,
+  sessionExists,
+  killSession,
+  removeSessionState,
+  listRalphSessions,
+  sleep: (ms) =>
+    new Promise<void>((resolve) => {
+      setTimeout(resolve, ms);
+    }),
+};
 
 type ResolvedStopHandoff = {
   handoffStatus: Extract<HandoffStatus, "applied-auto" | "pending-apply" | "apply-conflicted">;
@@ -90,12 +129,13 @@ function createLogSessionFromPath(session: ActiveSession): LogSession | null {
 }
 
 async function resolveStoppedSessionHandoff(
-  session: ActiveSession
+  session: ActiveSession,
+  deps: StopDeps
 ): Promise<ResolvedStopHandoff | null> {
   const logSession = createLogSessionFromPath(session);
   if (logSession) {
     try {
-      const stats = await computeSessionStats(logSession);
+      const stats = await deps.computeSessionStats(logSession);
       if (
         (!stats.sessionId || stats.sessionId === session.sessionId) &&
         isReportedStopHandoffStatus(stats.handoffStatus)
@@ -112,7 +152,7 @@ async function resolveStoppedSessionHandoff(
   }
 
   try {
-    const pendingHandoffs = await listProjectPendingHandoffs(undefined, session.projectPath);
+    const pendingHandoffs = await deps.listProjectPendingHandoffs(undefined, session.projectPath);
     const matchingHandoffs = pendingHandoffs.filter(
       (handoff) => handoff.sessionId === session.sessionId
     );
@@ -153,9 +193,10 @@ function formatProjectScopedCommand(
 
 async function resolveStoppedSessionHandoffNote(
   session: ActiveSession,
-  currentProjectPath: string
+  currentProjectPath: string,
+  deps: StopDeps
 ): Promise<string | null> {
-  const handoff = await resolveStoppedSessionHandoff(session);
+  const handoff = await resolveStoppedSessionHandoff(session, deps);
   if (!handoff) {
     return null;
   }
@@ -181,18 +222,20 @@ async function resolveStoppedSessionHandoffNote(
 
 async function stopSessionWithHandoff(
   session: ActiveSession,
-  currentProjectPath: string
+  currentProjectPath: string,
+  deps: StopDeps
 ): Promise<string | null> {
-  await stopActiveSession(session, {
-    updateSessionState,
-    sendInterrupt,
-    readSessionState,
-    sessionExists,
-    killSession,
-    removeSessionState,
+  await deps.stopActiveSession(session, {
+    updateSessionState: deps.updateSessionState,
+    sendInterrupt: deps.sendInterrupt,
+    readSessionState: deps.readSessionState,
+    sessionExists: deps.sessionExists,
+    killSession: deps.killSession,
+    removeSessionState: deps.removeSessionState,
+    sleep: deps.sleep,
   });
 
-  return await resolveStoppedSessionHandoffNote(session, currentProjectPath);
+  return await resolveStoppedSessionHandoffNote(session, currentProjectPath, deps);
 }
 
 function findSessionBySelector(
@@ -233,9 +276,10 @@ function findSessionBySelector(
 }
 
 async function chooseProjectSession(
-  projectSessions: ActiveSession[]
+  projectSessions: ActiveSession[],
+  deps: StopDeps
 ): Promise<ActiveSession | null> {
-  const selection = await p.select({
+  const selection = await deps.select({
     message: "Choose a review session to stop",
     options: projectSessions.map((session) => ({
       value: session.sessionId,
@@ -244,38 +288,38 @@ async function chooseProjectSession(
     })),
   });
 
-  if (p.isCancel(selection)) {
+  if (deps.isCancel(selection)) {
     return null;
   }
 
   return projectSessions.find((session) => session.sessionId === selection) ?? null;
 }
 
-async function stopSession(session: ActiveSession): Promise<void> {
-  p.log.step(`Stopping session: ${session.sessionName}`);
-  const handoffNote = await stopSessionWithHandoff(session, process.cwd());
-  p.log.success("Review stopped.");
+async function stopSession(session: ActiveSession, deps: StopDeps): Promise<void> {
+  deps.logStep(`Stopping session: ${session.sessionName}`);
+  const handoffNote = await stopSessionWithHandoff(session, deps.cwd(), deps);
+  deps.logSuccess("Review stopped.");
   if (handoffNote) {
-    p.log.message(`Handoff:\n${handoffNote}`);
+    deps.logMessage(`Handoff:\n${handoffNote}`);
   }
 }
 
-async function stopAllSessions(): Promise<void> {
+async function stopAllSessions(deps: StopDeps): Promise<void> {
   const orphanStopGracePeriod = 1_000;
-  const currentProjectPath = process.cwd();
-  const activeSessions = await listAllActiveSessions();
-  const tmuxSessions = await listRalphSessions();
+  const currentProjectPath = deps.cwd();
+  const activeSessions = await deps.listAllActiveSessions();
+  const tmuxSessions = await deps.listRalphSessions();
   const sessionNames = [
     ...new Set([...tmuxSessions, ...activeSessions.map((session) => session.sessionName)]),
   ];
 
   if (sessionNames.length === 0) {
-    p.log.info("No active review sessions.");
-    await removeAllSessionStates();
+    deps.logInfo("No active review sessions.");
+    await deps.removeAllSessionStates();
     return;
   }
 
-  p.log.step(`Stopping ${sessionNames.length} session(s)...`);
+  deps.logStep(`Stopping ${sessionNames.length} session(s)...`);
 
   const activeSessionsByName = new Map(
     activeSessions.map((session) => [session.sessionName, session] as const)
@@ -285,38 +329,36 @@ async function stopAllSessions(): Promise<void> {
   );
   const activeStopPromise = Promise.all(
     activeSessions.map(async (session) => ({
-      handoffNote: await stopSessionWithHandoff(session, currentProjectPath),
+      handoffNote: await stopSessionWithHandoff(session, currentProjectPath, deps),
     }))
   );
 
   for (const sessionName of orphanSessionNames) {
-    await sendInterrupt(sessionName);
+    await deps.sendInterrupt(sessionName);
   }
 
   const stoppedActiveSessions = await activeStopPromise;
 
   if (orphanSessionNames.length > 0) {
-    await new Promise<void>((resolve) => {
-      setTimeout(resolve, orphanStopGracePeriod);
-    });
+    await deps.sleep(orphanStopGracePeriod);
   }
 
   for (const sessionName of orphanSessionNames) {
-    await killSession(sessionName);
+    await deps.killSession(sessionName);
   }
 
   for (const sessionName of sessionNames) {
-    p.log.message(`  Stopped: ${sessionName}`);
+    deps.logMessage(`  Stopped: ${sessionName}`);
   }
 
   for (const stoppedSession of stoppedActiveSessions) {
     if (stoppedSession.handoffNote) {
-      p.log.message(`Handoff:\n${stoppedSession.handoffNote}`);
+      deps.logMessage(`Handoff:\n${stoppedSession.handoffNote}`);
     }
   }
 
-  await removeAllSessionStates();
-  p.log.success(`Stopped ${sessionNames.length} session(s).`);
+  await deps.removeAllSessionStates();
+  deps.logSuccess(`Stopped ${sessionNames.length} session(s).`);
 }
 
 async function stopCurrentProjectSession(
@@ -325,7 +367,7 @@ async function stopCurrentProjectSession(
   deps: StopDeps
 ): Promise<void> {
   const projectSessions = getCurrentProjectSessions(
-    await listProjectActiveSessions(undefined, projectPath),
+    await deps.listProjectActiveSessions(undefined, projectPath),
     projectPath
   );
 
@@ -337,17 +379,17 @@ async function stopCurrentProjectSession(
       return;
     }
 
-    await stopSession(match.session);
+    await stopSession(match.session, deps);
     return;
   }
 
   if (projectSessions.length === 0) {
-    p.log.info("No active review session for current working directory.");
+    deps.logInfo("No active review session for current working directory.");
 
-    const allSessions = await listAllActiveSessions();
+    const allSessions = await deps.listAllActiveSessions();
     if (allSessions.length > 0) {
-      p.log.message(`\nThere are ${allSessions.length} other session(s) running.`);
-      p.log.message(
+      deps.logMessage(`\nThere are ${allSessions.length} other session(s) running.`);
+      deps.logMessage(
         'Use "rr stop --all" to stop all running review sessions, or "rr" to see details.'
       );
     }
@@ -357,7 +399,7 @@ async function stopCurrentProjectSession(
   if (projectSessions.length === 1) {
     const onlySession = projectSessions[0];
     if (onlySession) {
-      await stopSession(onlySession);
+      await stopSession(onlySession, deps);
     }
     return;
   }
@@ -370,12 +412,12 @@ async function stopCurrentProjectSession(
     return;
   }
 
-  const selectedSession = await chooseProjectSession(projectSessions);
+  const selectedSession = await chooseProjectSession(projectSessions, deps);
   if (!selectedSession) {
     return;
   }
 
-  await stopSession(selectedSession);
+  await stopSession(selectedSession, deps);
 }
 
 export async function runStop(args: string[], deps: Partial<StopDeps> = {}): Promise<void> {
@@ -399,9 +441,11 @@ export async function runStop(args: string[], deps: Partial<StopDeps> = {}): Pro
   }
 
   if (options.all) {
-    await stopAllSessions();
+    await stopAllSessions(stopDeps);
     return;
   }
 
-  await stopCurrentProjectSession(process.cwd(), options.session, stopDeps);
+  await stopCurrentProjectSession(stopDeps.cwd(), options.session, stopDeps);
 }
+
+export type { StopDeps };
