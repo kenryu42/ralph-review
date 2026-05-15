@@ -1,10 +1,10 @@
-import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
+import { getCommandDef } from "@/cli";
+import type { ApplyDeps } from "@/commands/apply";
 import type { PendingHandoffArtifact } from "@/lib/handoff";
+import type { LogEntry } from "@/lib/types";
 import { captureExitCode, createPromptLogCapture, withStdoutTTY } from "../helpers/capture";
 import { createPendingHandoff } from "../helpers/review-workflow";
-
-const actualHandoff = await import("@/lib/handoff");
-const actualLogger = await import("@/lib/logger");
 
 interface ApplyHarnessOptions {
   handoffs?: PendingHandoffArtifact[];
@@ -17,7 +17,7 @@ interface ApplyHarnessOptions {
 interface ApplyHarnessResult {
   listPendingCalls: string[];
   applyCalls: Array<{ projectPath: string; sessionId: string }>;
-  appendCalls: Array<{ logPath: string; entry: Record<string, unknown> }>;
+  appendCalls: Array<{ logPath: string; entry: LogEntry }>;
   infos: string[];
   errors: string[];
   steps: string[];
@@ -34,13 +34,12 @@ async function runApplyWithHarness(
   const handoffs = options.handoffs ?? [];
   const listPendingCalls: string[] = [];
   const applyCalls: Array<{ projectPath: string; sessionId: string }> = [];
-  const appendCalls: Array<{ logPath: string; entry: Record<string, unknown> }> = [];
+  const appendCalls: Array<{ logPath: string; entry: LogEntry }> = [];
   const prompts = createPromptLogCapture(options.selectValues);
-  const actualLogger = await import("@/lib/logger");
 
-  mock.module("@/lib/handoff", () => ({
-    createOrAutoApplyHandoff: async () => null,
-    readPendingHandoff: async () => null,
+  const deps: Partial<ApplyDeps> = {
+    getCommandDef: options.hasApplyCommandDef === false ? () => undefined : getCommandDef,
+    cwd: () => process.cwd(),
     listProjectPendingHandoffs: async (_storageRoot: string | undefined, projectPath: string) => {
       listPendingCalls.push(projectPath);
       return handoffs.filter((handoff) => handoff.projectPath === projectPath);
@@ -62,31 +61,23 @@ async function runApplyWithHarness(
 
       return matched;
     },
-    discardPendingHandoff: async () => {
-      throw new Error("discardPendingHandoff should not be called in apply tests");
-    },
-  }));
-
-  mock.module("@/lib/logger", () => ({
-    ...actualLogger,
-    appendLog: async (logPath: string, entry: Record<string, unknown>) => {
+    appendLog: async (logPath, entry) => {
       appendCalls.push({ logPath, entry });
     },
-  }));
-
-  mock.module("@clack/prompts", () => prompts.module);
+    logInfo: prompts.module.log.info,
+    logError: prompts.module.log.error,
+    logStep: prompts.module.log.step,
+    logSuccess: prompts.module.log.success,
+    exit: (code) => process.exit(code),
+    isTTY: () => process.stdout.isTTY === true,
+    select: prompts.module.select,
+    isCancel: prompts.module.isCancel,
+  };
 
   const exitCode = await withStdoutTTY(options.isTTY ?? true, async () =>
     captureExitCode(async () => {
       const { runApply } = await import("@/commands/apply");
-      if (options.hasApplyCommandDef === false) {
-        await runApply(args, {
-          getCommandDef: () => undefined,
-        });
-        return;
-      }
-
-      await runApply(args);
+      await runApply(args, deps);
     })
   );
 
@@ -103,16 +94,6 @@ async function runApplyWithHarness(
     exitCode,
   };
 }
-
-afterEach(() => {
-  mock.restore();
-});
-
-afterAll(() => {
-  mock.restore();
-  mock.module("@/lib/handoff", () => actualHandoff);
-  mock.module("@/lib/logger", () => actualLogger);
-});
 
 describe("apply command", () => {
   test("errors when the apply command definition is missing", async () => {
