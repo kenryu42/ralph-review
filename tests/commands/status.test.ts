@@ -1,6 +1,5 @@
-import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
-
-const actualLogger = await import("@/lib/logger");
+import { describe, expect, test } from "bun:test";
+import { runStatus, type StatusDeps } from "@/commands/status";
 
 type RunStatusResult = {
   getGitBranchCalls: string[];
@@ -10,22 +9,21 @@ type RunStatusResult = {
 async function runStatusWithBranch(branch: string | undefined): Promise<RunStatusResult> {
   const getGitBranchCalls: string[] = [];
   const renderDashboardCalls: Array<{ projectPath: string; branch: string | undefined }> = [];
-
-  mock.module("@/lib/logger", () => ({
-    getGitBranch: async (projectPath: string) => {
+  const deps: Partial<StatusDeps> = {
+    cwd: () => process.cwd(),
+    getGitBranch: async (projectPath?: string) => {
+      if (!projectPath) {
+        throw new Error("Expected projectPath");
+      }
       getGitBranchCalls.push(projectPath);
       return branch;
     },
-  }));
-
-  mock.module("@/lib/tui/index", () => ({
     renderDashboard: async (payload: { projectPath: string; branch: string | undefined }) => {
       renderDashboardCalls.push(payload);
     },
-  }));
+  };
 
-  const { runStatus } = await import("@/commands/status");
-  await runStatus();
+  await runStatus(deps);
 
   return {
     getGitBranchCalls,
@@ -34,15 +32,6 @@ async function runStatusWithBranch(branch: string | undefined): Promise<RunStatu
 }
 
 describe("runStatus", () => {
-  afterEach(() => {
-    mock.restore();
-  });
-
-  afterAll(() => {
-    mock.restore();
-    mock.module("@/lib/logger", () => actualLogger);
-  });
-
   test("passes cwd and resolved branch to dashboard", async () => {
     const cwd = process.cwd();
     const result = await runStatusWithBranch("feature/test");
