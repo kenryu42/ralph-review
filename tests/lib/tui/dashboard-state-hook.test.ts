@@ -1,4 +1,4 @@
-import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { testRender } from "@opentui/react/test-utils";
 import { act, createElement, useEffect } from "react";
 import type { LogIncrementalResult, LogIncrementalState, LogSession } from "@/lib/logger";
@@ -16,18 +16,13 @@ import type {
   SkippedEntry,
   SystemEntry,
 } from "@/lib/types";
+import { useWorkspaceState } from "../../../src/lib/tui/workspace/use-workspace-state";
 import { createDeferred } from "../../helpers/async";
 import { createConfig } from "../../helpers/diagnostics";
 import {
   createSessionState,
   createActiveSession as createTuiActiveSession,
 } from "../../helpers/tui";
-
-const actualConfig = await import("@/lib/config");
-const actualGit = await import("@/lib/git");
-const actualLogger = await import("@/lib/logger");
-const actualSessionState = await import("@/lib/session-state");
-const actualTmux = await import("@/lib/tmux");
 
 function createFix(id: number, title: string, priority: Priority = "P1"): FixEntry {
   return {
@@ -299,41 +294,28 @@ async function mountDashboardHarness(
   const computeNextTmuxCaptureInterval =
     options.computeNextTmuxCaptureInterval ?? (({ previousIntervalMs }) => previousIntervalMs);
 
-  mock.module("@/lib/config", () => ({
+  const deps = {
     loadEffectiveConfig: loadConfig,
-  }));
-
-  mock.module("@/lib/git", () => ({
     ensureGitRepositoryAsync: async (path: string) => {
       ensureGitRepositoryCalls.push(path);
       return ensureGitRepositoryAsync(path);
     },
-  }));
-
-  mock.module("@/lib/session-state", () => ({
     listAllActiveSessions,
     listProjectActiveSessions,
     getLatestProjectActiveSession: async (logsDir: string | undefined, path: string) => {
       getLatestProjectActiveSessionCalls += 1;
       return getLatestProjectActiveSession(logsDir, path);
     },
-  }));
-
-  mock.module("@/lib/logger", () => ({
     computeProjectStats,
     computeSessionStats,
     getLatestProjectLogSession,
     getProjectName,
-    listLogSessions: async () => [],
     listProjectLogSessions,
     readLogIncremental: async (logPath: string, state?: LogIncrementalState) => {
       readLogIncrementalCalls.push({ logPath, state });
       return readLogIncremental(logPath, state);
     },
-  }));
-
-  mock.module("@/lib/tmux", () => ({
-    TMUX_CAPTURE_MIN_INTERVAL_MS: 250,
+    tmuxCaptureMinIntervalMs: 250,
     shouldCaptureTmux: (params: {
       sessionChanged: boolean;
       liveMetaChanged: boolean;
@@ -357,13 +339,12 @@ async function mountDashboardHarness(
       computeNextIntervalCalls.push(params);
       return computeNextTmuxCaptureInterval(params);
     },
-  }));
+  };
 
-  const { useWorkspaceState } = await import("@/lib/tui/workspace/use-workspace-state");
   let latestState: WorkspaceState | null = null;
 
   function Probe() {
-    const state = useWorkspaceState(projectPath, undefined, refreshInterval);
+    const state = useWorkspaceState(projectPath, undefined, refreshInterval, deps);
     useEffect(() => {
       latestState = state;
     }, [state]);
@@ -419,19 +400,6 @@ async function mountDashboardHarness(
     destroy,
   };
 }
-
-afterEach(() => {
-  mock.restore();
-});
-
-afterAll(() => {
-  mock.restore();
-  mock.module("@/lib/config", () => actualConfig);
-  mock.module("@/lib/git", () => actualGit);
-  mock.module("@/lib/logger", () => actualLogger);
-  mock.module("@/lib/session-state", () => actualSessionState);
-  mock.module("@/lib/tmux", () => actualTmux);
-});
 
 describe("useWorkspaceState hook", () => {
   test("hydrates heavy state from incremental logs and computes historical stats", async () => {

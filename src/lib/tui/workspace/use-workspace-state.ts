@@ -2,7 +2,7 @@ import { basename } from "node:path";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { loadEffectiveConfig } from "@/lib/config";
 import { ensureGitRepositoryAsync } from "@/lib/git";
-import type { LogIncrementalState } from "@/lib/logger";
+import type { LogIncrementalState, LogSession } from "@/lib/logger";
 import {
   computeProjectStats,
   computeSessionStats,
@@ -11,7 +11,7 @@ import {
   listProjectLogSessions,
   readLogIncremental,
 } from "@/lib/logger";
-import type { ActiveSession } from "@/lib/session-state";
+import type { ActiveSession, SessionState } from "@/lib/session-state";
 import {
   getLatestProjectActiveSession,
   listAllActiveSessions,
@@ -35,7 +35,48 @@ import {
 import type { SessionGroupData, WorkspaceState } from "./workspace-types";
 
 const DEFAULT_REFRESH_INTERVAL = 1000;
-const LIVE_REFRESH_INTERVAL = TMUX_CAPTURE_MIN_INTERVAL_MS;
+
+export interface WorkspaceStateDeps {
+  loadEffectiveConfig: typeof loadEffectiveConfig;
+  ensureGitRepositoryAsync: typeof ensureGitRepositoryAsync;
+  listAllActiveSessions: typeof listAllActiveSessions;
+  listProjectActiveSessions: typeof listProjectActiveSessions;
+  getLatestProjectActiveSession: (
+    storageRoot: string | undefined,
+    projectPath: string
+  ) => Promise<SessionState | null>;
+  getLatestProjectLogSession: (
+    storageRoot: string | undefined,
+    projectPath: string
+  ) => Promise<LogSession | null>;
+  readLogIncremental: typeof readLogIncremental;
+  listProjectLogSessions: typeof listProjectLogSessions;
+  computeSessionStats: typeof computeSessionStats;
+  computeProjectStats: typeof computeProjectStats;
+  getProjectName: typeof getProjectName;
+  shouldCaptureTmux: typeof shouldCaptureTmux;
+  getSessionOutput: (sessionName: string, lines: number) => Promise<string>;
+  computeNextTmuxCaptureInterval: typeof computeNextTmuxCaptureInterval;
+  tmuxCaptureMinIntervalMs: number;
+}
+
+const defaultWorkspaceStateDeps: WorkspaceStateDeps = {
+  loadEffectiveConfig,
+  ensureGitRepositoryAsync,
+  listAllActiveSessions,
+  listProjectActiveSessions,
+  getLatestProjectActiveSession,
+  getLatestProjectLogSession,
+  readLogIncremental,
+  listProjectLogSessions,
+  computeSessionStats,
+  computeProjectStats,
+  getProjectName,
+  shouldCaptureTmux,
+  getSessionOutput,
+  computeNextTmuxCaptureInterval,
+  tmuxCaptureMinIntervalMs: TMUX_CAPTURE_MIN_INTERVAL_MS,
+};
 
 export function createInitialWorkspaceState(
   overrides: Partial<WorkspaceState> = {}
@@ -121,7 +162,8 @@ function buildSessionGroups(
 export function useWorkspaceState(
   projectPath: string,
   _branch?: string,
-  refreshInterval: number = DEFAULT_REFRESH_INTERVAL
+  refreshInterval: number = DEFAULT_REFRESH_INTERVAL,
+  deps: WorkspaceStateDeps = defaultWorkspaceStateDeps
 ): WorkspaceState {
   const [state, setState] = useState<WorkspaceState>(() => createInitialWorkspaceState());
 
@@ -133,7 +175,7 @@ export function useWorkspaceState(
   const lastTmuxCaptureRef = useRef(0);
   const lastTmuxOutputRef = useRef("");
   const lastTmuxSessionRef = useRef<string | null>(null);
-  const tmuxCaptureIntervalRef = useRef(TMUX_CAPTURE_MIN_INTERVAL_MS);
+  const tmuxCaptureIntervalRef = useRef(deps.tmuxCaptureMinIntervalMs);
   const lastLiveMetaRef = useRef<LiveRefreshMeta | null>(null);
   const logIncrementalStateRef = useRef<LogIncrementalState | undefined>(undefined);
   const lastLogSessionPathRef = useRef<string | null>(null);
@@ -145,12 +187,12 @@ export function useWorkspaceState(
     try {
       const [isGitRepo, allSessions, projectSessions, currentSession, logSession, configResult] =
         await Promise.all([
-          ensureGitRepositoryAsync(projectPath),
-          listAllActiveSessions(),
-          listProjectActiveSessions(undefined, projectPath),
-          getLatestProjectActiveSession(undefined, projectPath),
-          getLatestProjectLogSession(undefined, projectPath),
-          loadWorkspaceConfigSafe(projectPath, loadEffectiveConfig),
+          deps.ensureGitRepositoryAsync(projectPath),
+          deps.listAllActiveSessions(),
+          deps.listProjectActiveSessions(undefined, projectPath),
+          deps.getLatestProjectActiveSession(undefined, projectPath),
+          deps.getLatestProjectLogSession(undefined, projectPath),
+          loadWorkspaceConfigSafe(projectPath, deps.loadEffectiveConfig),
         ]);
 
       const sessionGroups = buildSessionGroups(allSessions, projectPath);
@@ -172,7 +214,7 @@ export function useWorkspaceState(
 
       if (logPath) {
         const logSessionChanged = logPath !== lastLogSessionPathRef.current;
-        const incrementalResult = await readLogIncremental(
+        const incrementalResult = await deps.readLogIncremental(
           logPath,
           logSessionChanged ? undefined : logIncrementalStateRef.current
         );
@@ -209,11 +251,14 @@ export function useWorkspaceState(
       let projectStats: ProjectStats | null = null;
 
       if (!currentSession) {
-        const projectLogSessions = await listProjectLogSessions(undefined, projectPath);
+        const projectLogSessions = await deps.listProjectLogSessions(undefined, projectPath);
         const latestSession = projectLogSessions[0];
         if (latestSession) {
-          lastSessionStats = await computeSessionStats(latestSession);
-          projectStats = await computeProjectStats(getProjectName(projectPath), projectLogSessions);
+          lastSessionStats = await deps.computeSessionStats(latestSession);
+          projectStats = await deps.computeProjectStats(
+            deps.getProjectName(projectPath),
+            projectLogSessions
+          );
         }
       }
 
@@ -261,14 +306,14 @@ export function useWorkspaceState(
     } finally {
       isHeavyRefreshingRef.current = false;
     }
-  }, [projectPath]);
+  }, [deps, projectPath]);
 
   const refreshLive = useCallback(async () => {
     if (isLiveRefreshingRef.current) return;
     isLiveRefreshingRef.current = true;
 
     try {
-      const currentSession = await getLatestProjectActiveSession(undefined, projectPath);
+      const currentSession = await deps.getLatestProjectActiveSession(undefined, projectPath);
 
       let tmuxOutput = lastTmuxOutputRef.current;
       const liveMeta = getLiveRefreshMeta(currentSession);
@@ -281,10 +326,10 @@ export function useWorkspaceState(
         lastTmuxOutputRef.current = "";
         lastTmuxSessionRef.current = null;
         lastTmuxCaptureRef.current = 0;
-        tmuxCaptureIntervalRef.current = TMUX_CAPTURE_MIN_INTERVAL_MS;
+        tmuxCaptureIntervalRef.current = deps.tmuxCaptureMinIntervalMs;
       } else {
         const sessionChanged = sessionName !== lastTmuxSessionRef.current;
-        const shouldCapture = shouldCaptureTmux({
+        const shouldCapture = deps.shouldCaptureTmux({
           sessionChanged,
           liveMetaChanged,
           now,
@@ -293,14 +338,14 @@ export function useWorkspaceState(
         });
 
         if (shouldCapture) {
-          const capturedOutput = await getSessionOutput(sessionName, 1000);
+          const capturedOutput = await deps.getSessionOutput(sessionName, 1000);
           const nextOutput = capturedOutput || (sessionChanged ? "" : lastTmuxOutputRef.current);
           const outputChanged = nextOutput !== lastTmuxOutputRef.current;
           tmuxOutput = nextOutput;
           lastTmuxOutputRef.current = tmuxOutput;
           lastTmuxSessionRef.current = sessionName;
           lastTmuxCaptureRef.current = now;
-          tmuxCaptureIntervalRef.current = computeNextTmuxCaptureInterval({
+          tmuxCaptureIntervalRef.current = deps.computeNextTmuxCaptureInterval({
             sessionChanged,
             liveMetaChanged,
             outputChanged,
@@ -329,7 +374,7 @@ export function useWorkspaceState(
     } finally {
       isLiveRefreshingRef.current = false;
     }
-  }, [projectPath]);
+  }, [deps, projectPath]);
 
   useEffect(() => {
     void refreshHeavy();
@@ -345,9 +390,9 @@ export function useWorkspaceState(
   }, [refreshLive]);
 
   useEffect(() => {
-    const interval = setInterval(refreshLive, LIVE_REFRESH_INTERVAL);
+    const interval = setInterval(refreshLive, deps.tmuxCaptureMinIntervalMs);
     return () => clearInterval(interval);
-  }, [refreshLive]);
+  }, [deps.tmuxCaptureMinIntervalMs, refreshLive]);
 
   return state;
 }
