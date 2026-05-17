@@ -22,13 +22,17 @@ export interface DashboardStopControl {
   stopSelectedSession: (session: ActiveSession) => Promise<void>;
 }
 
-export function useDashboardStopControl({
-  currentSession,
-  setShowStopPicker,
-  onError,
-}: DashboardStopControlOptions): DashboardStopControl {
+interface DashboardStopControlDeps {
+  stopActiveSession?: typeof stopActiveSession;
+}
+
+export function useDashboardStopControl(
+  options: DashboardStopControlOptions,
+  deps?: DashboardStopControlDeps
+): DashboardStopControl {
   const [stoppingSession, setStoppingSession] = useState<StoppingSessionState | null>(null);
   const settleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const stopSession = deps?.stopActiveSession ?? stopActiveSession;
 
   const clearSettleTimer = useMemo(
     () => () => {
@@ -42,7 +46,10 @@ export function useDashboardStopControl({
 
   if (
     stoppingSession &&
-    shouldClearStoppingSessionState({ marker: stoppingSession, currentSession })
+    shouldClearStoppingSessionState({
+      marker: stoppingSession,
+      currentSession: options.currentSession,
+    })
   ) {
     clearSettleTimer();
     setStoppingSession(null);
@@ -57,8 +64,8 @@ export function useDashboardStopControl({
 
       try {
         await stopSelectedDashboardSession(session, {
-          setShowStopPicker,
-          stopActiveSession,
+          setShowStopPicker: options.setShowStopPicker,
+          stopActiveSession: stopSession,
         });
 
         const settled = settleStoppingSessionState(createStoppingSessionState(session));
@@ -78,10 +85,10 @@ export function useDashboardStopControl({
       } catch (error) {
         clearSettleTimer();
         setStoppingSession(null);
-        onError(getErrorMessage(error));
+        options.onError(getErrorMessage(error));
       }
     },
-    [clearSettleTimer, onError, setShowStopPicker]
+    [clearSettleTimer, options.onError, options.setShowStopPicker, stopSession]
   );
 
   return {

@@ -17,9 +17,11 @@ import { StatusBar } from "./StatusBar";
 import { useDashboardRunControl } from "./use-dashboard-run-control";
 import { useDashboardStopControl } from "./use-dashboard-stop-control";
 
-export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: DashboardProps) {
+export function Dashboard({ projectPath, branch, refreshInterval = 1000, deps }: DashboardProps) {
   const renderer = useRenderer();
-  const state = useWorkspaceState(projectPath, branch, refreshInterval);
+  const resolvedUseWorkspaceState = deps?.useWorkspaceState ?? useWorkspaceState;
+  const ResolvedDashboardOverlays = deps?.DashboardOverlays ?? DashboardOverlays;
+  const state = resolvedUseWorkspaceState(projectPath, branch, refreshInterval);
   const {
     runError,
     startupMode,
@@ -29,7 +31,7 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
     spawnRunProcess,
     spawnFixProcess,
     isStartupSpawning,
-  } = useDashboardRunControl(projectPath);
+  } = useDashboardRunControl(projectPath, { spawn: deps?.spawn });
   const [focusedPane, setFocusedPane] = useState<FocusedPane>("detail");
   const [outputVisible, setOutputVisible] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
@@ -37,11 +39,14 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
   const [showSession, setShowSession] = useState(false);
   const [showReviewModeOverlay, setShowReviewModeOverlay] = useState(false);
   const [showStopPicker, setShowStopPicker] = useState(false);
-  const { isStoppingRun, stopSelectedSession } = useDashboardStopControl({
-    currentSession: state.currentSession,
-    setShowStopPicker,
-    onError: setRunError,
-  });
+  const { isStoppingRun, stopSelectedSession } = useDashboardStopControl(
+    {
+      currentSession: state.currentSession,
+      setShowStopPicker,
+      onError: setRunError,
+    },
+    { stopActiveSession: deps?.stopActiveSession }
+  );
 
   const projectName = basename(projectPath);
   const isExitingRef = useRef(false);
@@ -271,7 +276,7 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000 }: Dashb
           liveRefreshError={state.liveRefreshError}
           configWarning={state.configWarning}
         />
-        <DashboardOverlays
+        <ResolvedDashboardOverlays
           showHelp={showHelp}
           showRunOverlay={showRunOverlay}
           showFixFindings={showFixFindings}

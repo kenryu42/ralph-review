@@ -15,10 +15,18 @@ export interface DashboardRunControl {
   isStartupSpawning: () => boolean;
 }
 
-export function useDashboardRunControl(projectPath: string): DashboardRunControl {
+interface DashboardRunControlDeps {
+  spawn?: typeof Bun.spawn;
+}
+
+export function useDashboardRunControl(
+  projectPath: string,
+  deps?: DashboardRunControlDeps
+): DashboardRunControl {
   const [runError, setRunError] = useState<string | null>(null);
   const [startupMode, setStartupMode] = useState<DashboardStartupMode>(null);
   const isStartupSpawningRef = useRef(false);
+  const spawn = deps?.spawn ?? Bun.spawn;
 
   const clearRunError = useCallback(() => {
     setRunError(null);
@@ -40,7 +48,7 @@ export function useDashboardRunControl(projectPath: string): DashboardRunControl
       setStartupMode(nextStartupMode);
 
       try {
-        const subprocess = Bun.spawn([process.execPath, CLI_PATH, command, ...argv], {
+        const subprocess = spawn([process.execPath, CLI_PATH, command, ...argv], {
           cwd: projectPath,
           stdin: "ignore",
           stdout: "pipe",
@@ -73,7 +81,7 @@ export function useDashboardRunControl(projectPath: string): DashboardRunControl
         setRunError(getErrorMessage(error));
       }
     },
-    [projectPath]
+    [projectPath, spawn]
   );
 
   const spawnRunProcess = useCallback(
