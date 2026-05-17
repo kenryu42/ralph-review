@@ -66,6 +66,24 @@ describe("dashboard fix state", () => {
     });
   });
 
+  test("builds a pending fix target from an interrupted review session with persisted findings", () => {
+    const target = getPendingFixTarget(
+      createSessionStats({
+        status: "interrupted",
+        sessionStatus: "interrupted",
+        reviewOutcome: "findings-pending",
+      }),
+      [createFinding()]
+    );
+
+    expect(target).toEqual({
+      sessionId: "session-123",
+      projectPath: "/repo/project",
+      findings: [createFinding()],
+      commandScope: "artifact",
+    });
+  });
+
   test("builds a pending fix target from a failed session with persisted findings", () => {
     const target = getPendingFixTarget(
       createSessionStats({

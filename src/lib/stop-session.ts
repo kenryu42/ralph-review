@@ -1,5 +1,5 @@
 import { discardSessionWorktree, type GitSessionWorktree } from "@/lib/git";
-import { deleteSessionFiles, readLog } from "@/lib/logger";
+import { appendLog, deleteSessionFiles, readLog } from "@/lib/logger";
 import {
   type ActiveSession,
   readSessionState,
@@ -27,6 +27,7 @@ interface WaitForGracefulStopDeps {
 
 interface StopActiveSessionDeps {
   readLog: typeof readLog;
+  appendLog: typeof appendLog;
   deleteSessionFiles: typeof deleteSessionFiles;
   updateSessionState: typeof updateSessionState;
   sendInterrupt: typeof sendInterrupt;
@@ -41,6 +42,7 @@ interface StopActiveSessionDeps {
 
 const DEFAULT_STOP_ACTIVE_SESSION_DEPS: StopActiveSessionDeps = {
   readLog,
+  appendLog,
   deleteSessionFiles,
   updateSessionState,
   sendInterrupt,
@@ -137,6 +139,7 @@ interface SessionIterationState {
   hasRecordedIteration: boolean;
   hasRecordedReviewProgress: boolean;
   hasSuccessfulReviewIteration: boolean;
+  entries: LogEntry[];
 }
 
 async function resolveSessionIterationState(
@@ -153,10 +156,56 @@ async function resolveSessionIterationState(
       hasRecordedIteration: hasRecordedIteration(entries),
       hasRecordedReviewProgress: hasRecordedReviewProgress(entries),
       hasSuccessfulReviewIteration: hasSuccessfulReviewIteration(entries),
+      entries,
     };
   } catch {
     return null;
   }
+}
+
+function getLatestLifecycleEntry(entries: LogEntry[]): LogEntry | undefined {
+  return [...entries].reverse().find((entry) => entry.type !== "handoff");
+}
+
+function getLatestReviewIteration(entries: LogEntry[]) {
+  return entries.filter((entry) => entry.type === "review_iteration").at(-1);
+}
+
+function getAccumulatedReviewFindings(entries: LogEntry[]) {
+  return entries.flatMap((entry) => (entry.type === "review_iteration" ? entry.findings : []));
+}
+
+async function terminalizeForceStoppedReviewSession(
+  session: ActiveSession,
+  iterationState: SessionIterationState | null,
+  deps: StopActiveSessionDeps
+): Promise<void> {
+  if (!session.sessionPath || !iterationState?.hasRecordedReviewProgress) {
+    return;
+  }
+
+  if (getLatestLifecycleEntry(iterationState.entries)?.type === "session_end") {
+    return;
+  }
+
+  const latestReviewIteration = getLatestReviewIteration(iterationState.entries);
+  if (!latestReviewIteration) {
+    return;
+  }
+
+  await deps.appendLog(session.sessionPath, {
+    type: "session_end",
+    timestamp: Date.now(),
+    status: "interrupted",
+    reason: "Review stopped by user.",
+    iterations: latestReviewIteration.iteration,
+    phase: "review",
+    sessionStatus: "interrupted",
+    reviewOutcome:
+      getAccumulatedReviewFindings(iterationState.entries).length > 0
+        ? "findings-pending"
+        : "incomplete",
+  });
 }
 
 function createCleanupWorktree(
@@ -239,6 +288,15 @@ export async function stopActiveSession(
   }
 
   const finalIterationState = await resolveSessionIterationState(session, stopDeps);
+  let terminalizeSessionError: unknown;
+  if (!stoppedGracefully) {
+    try {
+      await terminalizeForceStoppedReviewSession(session, finalIterationState, stopDeps);
+    } catch (error) {
+      terminalizeSessionError = error;
+    }
+  }
+
   if (finalIterationState?.hasSuccessfulReviewIteration === false) {
     cleanupUnpromotedSessionWorktree(session, stopDeps);
   }
@@ -255,6 +313,10 @@ export async function stopActiveSession(
   await stopDeps.removeSessionState(undefined, session.projectPath, session.sessionId, {
     expectedSessionId: session.sessionId,
   });
+
+  if (terminalizeSessionError) {
+    throw terminalizeSessionError;
+  }
 
   if (deleteSessionFilesError) {
     throw deleteSessionFilesError;
