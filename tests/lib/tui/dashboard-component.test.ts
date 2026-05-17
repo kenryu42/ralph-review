@@ -1,4 +1,4 @@
-import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { KeyEvent } from "@opentui/core";
 import { useKeyboard } from "@opentui/react";
 import { testRender } from "@opentui/react/test-utils";
@@ -6,13 +6,13 @@ import { act, createElement } from "react";
 import { CLI_PATH } from "@/lib/paths";
 import type { StoredFinding } from "@/lib/review-workflow/findings/types";
 import type { ActiveSession } from "@/lib/session-state";
+import { DashboardOverlays } from "@/lib/tui/dashboard/DashboardOverlays";
 import { createInitialWorkspaceState } from "@/lib/tui/workspace/use-workspace-state";
 import type { WorkspaceState } from "@/lib/tui/workspace/workspace-types";
 import type { Config } from "@/lib/types";
 import { createConfig } from "../../helpers/diagnostics";
 import { createActiveSession } from "../../helpers/tui";
 
-const actualStopSession = await import("@/lib/stop-session");
 const actualWorkspaceState = await import("@/lib/tui/workspace/use-workspace-state");
 
 interface SpawnResult {
@@ -88,6 +88,37 @@ function createTextStream(text: string): ReadableStream<Uint8Array> {
   });
 }
 
+const FakeDashboardOverlays: typeof DashboardOverlays = (props) => {
+  useKeyboard((key) => {
+    if (props.showRunOverlay && (key.name === "enter" || key.name === "return")) {
+      props.onSubmitRunOverlay(["--uncommitted"]);
+    }
+
+    if (props.showFixFindings && (key.name === "enter" || key.name === "return")) {
+      const args =
+        props.pendingFixTarget?.commandScope === "visible"
+          ? [
+              "fix",
+              "--session",
+              props.pendingFixTarget.sessionId,
+              ...props.pendingFixTarget.findings.flatMap((finding) => ["--id", finding.id]),
+            ]
+          : ["fix", "--session", props.pendingFixTarget?.sessionId ?? "session-123", "--all"];
+      props.onSubmitFixOverlay(args);
+    }
+  });
+
+  return createElement(
+    "box",
+    { flexDirection: "column" },
+    props.showHelp ? createElement("text", { key: "help" }, "help overlay") : null,
+    props.showRunOverlay ? createElement("text", { key: "run" }, "review overlay") : null,
+    props.showFixFindings ? createElement("text", { key: "fix" }, "fix overlay") : null,
+    props.showSession ? createElement("text", { key: "session" }, "session overlay") : null,
+    props.showStopPicker ? createElement("text", { key: "stop" }, "stop picker") : null
+  );
+};
+
 async function mountDashboardHarness(options: DashboardHarnessOptions = {}) {
   const workspaceState = createInitialWorkspaceState({
     isLoading: false,
@@ -96,9 +127,8 @@ async function mountDashboardHarness(options: DashboardHarnessOptions = {}) {
   });
   const stopCalls: ActiveSession[] = [];
   const spawnCalls: Array<{ cmd: string[]; cwd: string }> = [];
-  const originalSpawn = Bun.spawn;
 
-  Bun.spawn = ((cmd: string[], spawnOptions?: { cwd?: string }) => {
+  const spawn = ((cmd: string[], spawnOptions?: { cwd?: string }) => {
     spawnCalls.push({
       cmd,
       cwd: spawnOptions?.cwd ?? "",
@@ -111,70 +141,6 @@ async function mountDashboardHarness(options: DashboardHarnessOptions = {}) {
     };
   }) as typeof Bun.spawn;
 
-  mock.module("@/lib/tui/workspace/use-workspace-state", () => ({
-    useWorkspaceState: () => workspaceState,
-  }));
-
-  mock.module("@/lib/stop-session", () => ({
-    stopActiveSession: async (session: ActiveSession) => {
-      stopCalls.push(session);
-    },
-  }));
-
-  mock.module("@/lib/tui/dashboard/DashboardOverlays", () => ({
-    DashboardOverlays: ({
-      showHelp,
-      showRunOverlay,
-      showFixFindings,
-      showSession,
-      showStopPicker,
-      pendingFixTarget,
-      onSubmitRunOverlay,
-      onSubmitFixOverlay,
-    }: {
-      showHelp: boolean;
-      showRunOverlay: boolean;
-      showFixFindings: boolean;
-      showSession: boolean;
-      showStopPicker: boolean;
-      pendingFixTarget: {
-        sessionId: string;
-        commandScope: "artifact" | "visible";
-        findings: Array<{ id: `F${string}` }>;
-      } | null;
-      onSubmitRunOverlay: (args: string[]) => void;
-      onSubmitFixOverlay: (args: string[]) => void;
-    }) => {
-      useKeyboard((key) => {
-        if (showRunOverlay && (key.name === "enter" || key.name === "return")) {
-          onSubmitRunOverlay(["--uncommitted"]);
-        }
-
-        if (showFixFindings && (key.name === "enter" || key.name === "return")) {
-          const args = ["fix", "--session", pendingFixTarget?.sessionId ?? "session-123"];
-          if (pendingFixTarget?.commandScope === "visible") {
-            for (const finding of pendingFixTarget.findings) {
-              args.push("--id", finding.id);
-            }
-          } else {
-            args.push("--all");
-          }
-          onSubmitFixOverlay(args);
-        }
-      });
-
-      return createElement(
-        "box",
-        { flexDirection: "column" },
-        showHelp ? createElement("text", { key: "help" }, "help overlay") : null,
-        showRunOverlay ? createElement("text", { key: "run" }, "review overlay") : null,
-        showFixFindings ? createElement("text", { key: "fix" }, "fix overlay") : null,
-        showSession ? createElement("text", { key: "session" }, "session overlay") : null,
-        showStopPicker ? createElement("text", { key: "stop" }, "stop picker") : null
-      );
-    },
-  }));
-
   const { Dashboard } = await import("@/lib/tui/dashboard/Dashboard");
 
   const testSetup = await testRender(
@@ -182,6 +148,14 @@ async function mountDashboardHarness(options: DashboardHarnessOptions = {}) {
       projectPath: "/repo/project",
       branch: "main",
       refreshInterval: 1_000,
+      deps: {
+        useWorkspaceState: () => workspaceState,
+        DashboardOverlays: FakeDashboardOverlays,
+        stopActiveSession: async (session: ActiveSession) => {
+          stopCalls.push(session);
+        },
+        spawn,
+      },
     }),
     {
       width: 120,
@@ -245,7 +219,6 @@ async function mountDashboardHarness(options: DashboardHarnessOptions = {}) {
       await act(async () => {
         testSetup.renderer.destroy();
       });
-      Bun.spawn = originalSpawn;
     },
   };
 }
@@ -269,17 +242,57 @@ async function expectFixOverlayForState(workspaceState: Partial<WorkspaceState>)
   });
 }
 
-afterEach(() => {
-  mock.restore();
-});
-
-afterAll(() => {
-  mock.restore();
-  mock.module("@/lib/stop-session", () => actualStopSession);
-  mock.module("@/lib/tui/workspace/use-workspace-state", () => actualWorkspaceState);
-});
-
 describe("Dashboard component", () => {
+  test("does not replace the workspace state module after mounting", async () => {
+    const originalUseWorkspaceState = actualWorkspaceState.useWorkspaceState;
+
+    await withDashboardHarness({}, async () => {});
+
+    expect((await import("@/lib/tui/workspace/use-workspace-state")).useWorkspaceState).toBe(
+      originalUseWorkspaceState
+    );
+  });
+
+  test("renders the real help overlay through the default overlay wrapper", async () => {
+    const testSetup = await testRender(
+      createElement(DashboardOverlays, {
+        showHelp: true,
+        showRunOverlay: false,
+        showFixFindings: false,
+        showSession: false,
+        showStopPicker: false,
+        pendingFixTarget: null,
+        canShowSession: true,
+        projectPath: "/repo/project",
+        sessions: [],
+        onCloseHelp: () => {},
+        onCloseRunOverlay: () => {},
+        onSubmitRunOverlay: () => {},
+        onCloseFixFindings: () => {},
+        onSubmitFixOverlay: () => {},
+        onCloseSession: () => {},
+        onSelectStopSession: () => {},
+        onCloseStopPicker: () => {},
+      }),
+      {
+        width: 120,
+        height: 40,
+      }
+    );
+
+    try {
+      await act(async () => {
+        await testSetup.renderOnce();
+      });
+
+      expect(testSetup.captureCharFrame()).toContain("Keyboard Shortcuts");
+    } finally {
+      await act(async () => {
+        testSetup.renderer.destroy();
+      });
+    }
+  });
+
   test("opens review mode when idle and ignores the hotkey while a session is active", async () => {
     const idleHarness = await mountDashboardHarness();
 
