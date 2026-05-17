@@ -240,4 +240,80 @@ describe("resolveDashboardKeyAction", () => {
 
     expect(result).toBe("open-fix-findings");
   });
+
+  test("selects the previous group with up arrow when sidebar focused and groups >= 2", () => {
+    const result = resolveDashboardKeyAction({
+      keyName: "up",
+      showStopPicker: false,
+      showHelp: false,
+      showRunOverlay: false,
+      showFixFindings: false,
+      showSession: false,
+      activeSessionCount: 0,
+      hasCurrentSession: false,
+      canFixPendingSession: false,
+      isRunSpawning: false,
+      sidebarFocused: true,
+      sessionGroupCount: 2,
+    });
+
+    expect(result).toBe("select-prev-group");
+  });
+
+  test("selects the next group with j when sidebar focused and groups >= 2", () => {
+    const result = resolveDashboardKeyAction({
+      keyName: "j",
+      showStopPicker: false,
+      showHelp: false,
+      showRunOverlay: false,
+      showFixFindings: false,
+      showSession: false,
+      activeSessionCount: 0,
+      hasCurrentSession: false,
+      canFixPendingSession: false,
+      isRunSpawning: false,
+      sidebarFocused: true,
+      sessionGroupCount: 3,
+    });
+
+    expect(result).toBe("select-next-group");
+  });
+
+  test("ignores group navigation when sidebar is not focused", () => {
+    const result = resolveDashboardKeyAction({
+      keyName: "k",
+      showStopPicker: false,
+      showHelp: false,
+      showRunOverlay: false,
+      showFixFindings: false,
+      showSession: false,
+      activeSessionCount: 0,
+      hasCurrentSession: false,
+      canFixPendingSession: false,
+      isRunSpawning: false,
+      sidebarFocused: false,
+      sessionGroupCount: 4,
+    });
+
+    expect(result).toBe("none");
+  });
+
+  test("ignores group navigation when only one group exists", () => {
+    const result = resolveDashboardKeyAction({
+      keyName: "down",
+      showStopPicker: false,
+      showHelp: false,
+      showRunOverlay: false,
+      showFixFindings: false,
+      showSession: false,
+      activeSessionCount: 1,
+      hasCurrentSession: true,
+      canFixPendingSession: false,
+      isRunSpawning: false,
+      sidebarFocused: true,
+      sessionGroupCount: 1,
+    });
+
+    expect(result).toBe("none");
+  });
 });

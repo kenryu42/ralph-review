@@ -17,7 +17,9 @@ export type DashboardKeyAction =
   | "open-session"
   | "stop-single-session"
   | "open-stop-picker"
-  | "open-review-mode";
+  | "open-review-mode"
+  | "select-prev-group"
+  | "select-next-group";
 
 interface ResolveDashboardCloseActionInput {
   showStopPicker: boolean;
@@ -63,6 +65,8 @@ interface ResolveDashboardKeyActionInput extends ResolveDashboardCloseActionInpu
   hasCurrentSession: boolean;
   canFixPendingSession: boolean;
   isRunSpawning: boolean;
+  sidebarFocused?: boolean;
+  sessionGroupCount?: number;
 }
 
 export function resolveDashboardKeyAction({
@@ -76,6 +80,8 @@ export function resolveDashboardKeyAction({
   hasCurrentSession,
   canFixPendingSession,
   isRunSpawning,
+  sidebarFocused = false,
+  sessionGroupCount = 0,
 }: ResolveDashboardKeyActionInput): DashboardKeyAction {
   if (keyName === "q" || keyName === "escape") {
     return resolveDashboardCloseAction({
@@ -89,6 +95,16 @@ export function resolveDashboardKeyAction({
 
   if (showHelp || showSession || showRunOverlay || showFixFindings || showStopPicker) {
     return "none";
+  }
+
+  if (sidebarFocused && sessionGroupCount >= 2) {
+    if (keyName === "up" || keyName === "k") {
+      return "select-prev-group";
+    }
+
+    if (keyName === "down" || keyName === "j") {
+      return "select-next-group";
+    }
   }
 
   if (keyName === "tab" || keyName === "right") {
