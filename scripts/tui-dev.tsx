@@ -3,24 +3,37 @@
  * Dev script for previewing the detail pane with mock data.
  *
  * Usage:
- *   bun scripts/tui-dev.tsx                    # Default: running state
- *   bun scripts/tui-dev.tsx --state=codex      # Codex review text
- *   bun scripts/tui-dev.tsx --state=completed  # Completed session
- *   bun scripts/tui-dev.tsx --state=many       # Stress test layout
- *   bun scripts/tui-dev.tsx --state=empty      # No session
- *   bun scripts/tui-dev.tsx --state=loading    # Loading state
- *   bun scripts/tui-dev.tsx --state=no-git     # Not a git repo
+ *   bun scripts/tui-dev.tsx                      # Default: running state
+ *   bun scripts/tui-dev.tsx --state=codex        # Codex review text
+ *   bun scripts/tui-dev.tsx --state=completed    # Completed session
+ *   bun scripts/tui-dev.tsx --state=many         # Stress test layout
+ *   bun scripts/tui-dev.tsx --state=empty        # No session
+ *   bun scripts/tui-dev.tsx --state=loading      # Loading state
+ *   bun scripts/tui-dev.tsx --state=no-git       # Not a git repo
+ *   bun scripts/tui-dev.tsx --state=workspace    # Full Workspace with multiple session groups
+ *                                                # (tab cycles focus, up/down or j/k navigate groups)
  */
 import { createCliRenderer } from "@opentui/core";
-import { createRoot } from "@opentui/react";
+import { createRoot, useKeyboard } from "@opentui/react";
+import { useCallback, useMemo, useState } from "react";
 import type {
   FindingFixResult,
   FindingId,
   StoredFinding,
 } from "@/lib/review-workflow/findings/types";
-import type { SessionState } from "@/lib/session-state";
+import type { ActiveSession, SessionState } from "@/lib/session-state";
+import {
+  cycleDashboardFocus,
+  cycleDashboardFocusReverse,
+} from "@/lib/tui/dashboard/dashboard-focus";
+import {
+  resolveSelectedGroupPath,
+  selectAdjacentGroupPath,
+} from "@/lib/tui/dashboard/dashboard-group-selection";
 import { DetailPane } from "@/lib/tui/sessions/detail/DetailPane";
 import { SelectionCopyToastBoundary } from "@/lib/tui/shared/SelectionCopyToastBoundary";
+import { Workspace } from "@/lib/tui/workspace/Workspace";
+import type { FocusedPane, SessionGroupData } from "@/lib/tui/workspace/workspace-types";
 import type {
   AgentRole,
   Finding,
@@ -31,7 +44,15 @@ import type {
   SkippedEntry,
 } from "@/lib/types";
 
-type MockState = "running" | "codex" | "completed" | "many" | "empty" | "loading" | "no-git";
+type MockState =
+  | "running"
+  | "codex"
+  | "completed"
+  | "many"
+  | "empty"
+  | "loading"
+  | "no-git"
+  | "workspace";
 
 const VALID_STATES: MockState[] = [
   "running",
@@ -41,6 +62,7 @@ const VALID_STATES: MockState[] = [
   "empty",
   "loading",
   "no-git",
+  "workspace",
 ];
 
 function parseState(): MockState {
@@ -406,17 +428,208 @@ function getMockData(state: MockState): MockData {
   }
 }
 
+function buildMockActiveSession(overrides: Partial<ActiveSession>): ActiveSession {
+  return {
+    schemaVersion: 2,
+    sessionId: "session-mock",
+    sessionName: "rr-project-main",
+    startTime: Date.now() - 30_000,
+    lastHeartbeat: Date.now(),
+    pid: 0,
+    projectPath: "/Users/dev/project",
+    branch: "main",
+    state: "running",
+    mode: "background",
+    iteration: 1,
+    currentAgent: "reviewer",
+    sessionStatePath: "/tmp/rr-project-main.lock",
+    sessionPath: "/tmp/rr-project-main.jsonl",
+    ...overrides,
+  };
+}
+
+interface WorkspaceMockGroup {
+  group: SessionGroupData;
+  data: MockData;
+}
+
+function buildWorkspaceMockGroups(): WorkspaceMockGroup[] {
+  const currentRunning = buildMockActiveSession({
+    sessionId: "current-running",
+    sessionName: "rr-current-feature",
+    state: "running",
+  });
+  const currentPending = buildMockActiveSession({
+    sessionId: "current-pending",
+    sessionName: "rr-current-hotfix",
+    state: "pending",
+  });
+  const otherRunning = buildMockActiveSession({
+    sessionId: "other-running",
+    sessionName: "rr-api-main",
+    projectPath: "/Users/dev/api-service",
+    state: "running",
+  });
+  const otherCompleted = buildMockActiveSession({
+    sessionId: "other-completed",
+    sessionName: "rr-api-perf",
+    projectPath: "/Users/dev/api-service",
+    state: "completed",
+  });
+  const docsFailed = buildMockActiveSession({
+    sessionId: "docs-failed",
+    sessionName: "rr-docs-typos",
+    projectPath: "/Users/dev/docs",
+    state: "failed",
+  });
+
+  return [
+    {
+      group: {
+        projectPath: "/Users/dev/project",
+        projectName: "project",
+        isCurrentProject: true,
+        sessions: [currentRunning, currentPending],
+      },
+      data: getMockData("running"),
+    },
+    {
+      group: {
+        projectPath: "/Users/dev/api-service",
+        projectName: "api-service",
+        isCurrentProject: false,
+        sessions: [otherRunning, otherCompleted],
+      },
+      data: getMockData("codex"),
+    },
+    {
+      group: {
+        projectPath: "/Users/dev/docs",
+        projectName: "docs",
+        isCurrentProject: false,
+        sessions: [docsFailed],
+      },
+      data: getMockData("completed"),
+    },
+    {
+      group: {
+        projectPath: "/Users/dev/sandbox",
+        projectName: "sandbox",
+        isCurrentProject: false,
+        sessions: [],
+      },
+      data: getMockData("empty"),
+    },
+  ];
+}
+
+function WorkspaceMockApp() {
+  const mockGroups = useMemo(() => buildWorkspaceMockGroups(), []);
+  const groups = useMemo(() => mockGroups.map((entry) => entry.group), [mockGroups]);
+  const currentProjectPath = groups[0]?.projectPath ?? "/Users/dev/project";
+  const [selectedGroupPath, setSelectedGroupPath] = useState(currentProjectPath);
+  const [focusedPane, setFocusedPane] = useState<FocusedPane>("sidebar");
+  const [outputVisible, setOutputVisible] = useState(false);
+
+  const resolvedPath = resolveSelectedGroupPath(groups, selectedGroupPath, currentProjectPath);
+  if (resolvedPath !== selectedGroupPath) {
+    setSelectedGroupPath(resolvedPath);
+  }
+
+  const activeEntry =
+    mockGroups.find((entry) => entry.group.projectPath === resolvedPath) ?? mockGroups[0];
+  const activeData = activeEntry?.data ?? getMockData("empty");
+
+  const handleKey = useCallback(
+    (key: { name: string }) => {
+      if (key.name === "q" || key.name === "escape") {
+        process.exit(0);
+      }
+      if (key.name === "tab" || key.name === "right") {
+        setFocusedPane((current) => cycleDashboardFocus(current, outputVisible));
+        return;
+      }
+      if (key.name === "left") {
+        setFocusedPane((current) => cycleDashboardFocusReverse(current, outputVisible));
+        return;
+      }
+      if (key.name === "o") {
+        setOutputVisible((current) => !current);
+        return;
+      }
+      if (focusedPane === "sidebar" && groups.length >= 2) {
+        if (key.name === "up" || key.name === "k") {
+          setSelectedGroupPath((current) => selectAdjacentGroupPath(groups, current, "prev"));
+          return;
+        }
+        if (key.name === "down" || key.name === "j") {
+          setSelectedGroupPath((current) => selectAdjacentGroupPath(groups, current, "next"));
+          return;
+        }
+      }
+    },
+    [focusedPane, groups, outputVisible]
+  );
+
+  useKeyboard(handleKey);
+
+  return (
+    <Workspace
+      sessionGroups={groups}
+      selectedGroupPath={resolvedPath}
+      session={activeData.session}
+      fixes={activeData.fixes}
+      skipped={activeData.skipped}
+      findings={activeData.findings}
+      storedFindings={activeData.storedFindings}
+      selectedFindingIds={activeData.selectedFindingIds}
+      fixResults={activeData.fixResults}
+      unresolvedSelectedFindings={activeData.unresolvedSelectedFindings}
+      auditRegressionFindings={activeData.auditRegressionFindings}
+      latestReviewIteration={activeData.latestReviewIteration}
+      codexReviewText={activeData.codexReviewText}
+      tmuxOutput={activeData.tmuxOutput}
+      maxIterations={activeData.maxIterations}
+      isLoading={activeData.isLoading}
+      lastSessionStats={activeData.lastSessionStats}
+      projectStats={activeData.projectStats}
+      isGitRepo={activeData.isGitRepo}
+      currentAgent={activeData.currentAgent}
+      reviewOptions={activeData.reviewOptions}
+      startupMode={null}
+      isStopping={false}
+      activeSessionCount={activeEntry?.group.sessions.length ?? 0}
+      outputVisible={outputVisible}
+      focusedPane={focusedPane}
+    />
+  );
+}
+
 async function main() {
   const state = parseState();
-  const mockData = getMockData(state);
 
-  console.log(`Rendering DetailPane with state: ${state}`);
+  console.log(`Rendering TUI dev preview with state: ${state}`);
   console.log("Press 'q' or Ctrl+C to exit\n");
+  if (state === "workspace") {
+    console.log(
+      "Workspace mode: tab cycles focus, up/down or j/k navigate session groups when sidebar is focused.\n"
+    );
+  }
 
   const renderer = await createCliRenderer({
     exitOnCtrlC: true,
   });
 
+  if (state === "workspace") {
+    createRoot(renderer).render(
+      <SelectionCopyToastBoundary>
+        <WorkspaceMockApp />
+      </SelectionCopyToastBoundary>
+    );
+    return;
+  }
+
+  const mockData = getMockData(state);
   createRoot(renderer).render(
     <SelectionCopyToastBoundary>
       <DetailPane
