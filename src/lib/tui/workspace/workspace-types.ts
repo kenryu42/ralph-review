@@ -30,7 +30,7 @@ export interface WorkspaceState {
   sessionGroups: SessionGroupData[];
   allSessions: ActiveSession[];
   projectSessions: ActiveSession[];
-  selectedSessionId: string | null;
+  selectedGroupPath: string | null;
   currentSession: SessionState | null;
   logEntries: LogEntry[];
   fixes: FixEntry[];

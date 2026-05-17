@@ -85,7 +85,7 @@ export function createInitialWorkspaceState(
     sessionGroups: [],
     allSessions: [],
     projectSessions: [],
-    selectedSessionId: null,
+    selectedGroupPath: null,
     currentSession: null,
     logEntries: [],
     fixes: [],
@@ -118,6 +118,36 @@ export function createInitialWorkspaceState(
     reviewOptions: undefined,
     outputVisible: false,
     ...overrides,
+  };
+}
+
+function buildDetailResetState(selectedGroupPath: string): Partial<WorkspaceState> {
+  const initial = createInitialWorkspaceState();
+  return {
+    currentSession: initial.currentSession,
+    logEntries: initial.logEntries,
+    fixes: initial.fixes,
+    skipped: initial.skipped,
+    findings: initial.findings,
+    storedFindings: initial.storedFindings,
+    selectedFindingIds: initial.selectedFindingIds,
+    selectedFindings: initial.selectedFindings,
+    unselectedFindings: initial.unselectedFindings,
+    fixResults: initial.fixResults,
+    unresolvedSelectedFindings: initial.unresolvedSelectedFindings,
+    auditRegressionFindings: initial.auditRegressionFindings,
+    iterationFixes: initial.iterationFixes,
+    iterationSkipped: initial.iterationSkipped,
+    iterationFindings: initial.iterationFindings,
+    latestReviewIteration: initial.latestReviewIteration,
+    codexReviewText: initial.codexReviewText,
+    tmuxOutput: initial.tmuxOutput,
+    elapsed: initial.elapsed,
+    lastSessionStats: initial.lastSessionStats,
+    projectStats: initial.projectStats,
+    currentAgent: initial.currentAgent,
+    reviewOptions: initial.reviewOptions,
+    selectedGroupPath,
   };
 }
 
@@ -163,8 +193,10 @@ export function useWorkspaceState(
   projectPath: string,
   _branch?: string,
   refreshInterval: number = DEFAULT_REFRESH_INTERVAL,
-  deps: WorkspaceStateDeps = defaultWorkspaceStateDeps
+  deps: WorkspaceStateDeps = defaultWorkspaceStateDeps,
+  selectedGroupPath?: string
 ): WorkspaceState {
+  const detailPath = selectedGroupPath ?? projectPath;
   const [state, setState] = useState<WorkspaceState>(() => createInitialWorkspaceState());
 
   const stateRef = useRef(state);
@@ -179,6 +211,23 @@ export function useWorkspaceState(
   const lastLiveMetaRef = useRef<LiveRefreshMeta | null>(null);
   const logIncrementalStateRef = useRef<LogIncrementalState | undefined>(undefined);
   const lastLogSessionPathRef = useRef<string | null>(null);
+  const lastDetailPathRef = useRef<string>(detailPath);
+
+  const detailPathChanged = lastDetailPathRef.current !== detailPath;
+  if (detailPathChanged) {
+    lastDetailPathRef.current = detailPath;
+    logIncrementalStateRef.current = undefined;
+    lastLogSessionPathRef.current = null;
+    lastTmuxOutputRef.current = "";
+    lastTmuxSessionRef.current = null;
+    lastTmuxCaptureRef.current = 0;
+    tmuxCaptureIntervalRef.current = deps.tmuxCaptureMinIntervalMs;
+    lastLiveMetaRef.current = null;
+    setState((prev) => ({
+      ...prev,
+      ...buildDetailResetState(detailPath),
+    }));
+  }
 
   const refreshHeavy = useCallback(async () => {
     if (isHeavyRefreshingRef.current) return;
@@ -190,19 +239,17 @@ export function useWorkspaceState(
           deps.ensureGitRepositoryAsync(projectPath),
           deps.listAllActiveSessions(),
           deps.listProjectActiveSessions(undefined, projectPath),
-          deps.getLatestProjectActiveSession(undefined, projectPath),
-          deps.getLatestProjectLogSession(undefined, projectPath),
+          deps.getLatestProjectActiveSession(undefined, detailPath),
+          deps.getLatestProjectLogSession(undefined, detailPath),
           loadWorkspaceConfigSafe(projectPath, deps.loadEffectiveConfig),
         ]);
 
       const sessionGroups = buildSessionGroups(allSessions, projectPath);
 
-      // Auto-select: prefer current selection if still alive, then latest project session
-      const prevSelectedId = stateRef.current.selectedSessionId;
-      const stillAlive = allSessions.find((s) => s.sessionId === prevSelectedId);
-      const selectedSessionId = stillAlive
-        ? prevSelectedId
-        : (currentSession?.sessionId ?? allSessions[0]?.sessionId ?? null);
+      const selectedGroupExists = sessionGroups.some((group) => group.projectPath === detailPath);
+      const resolvedSelectedGroupPath = selectedGroupExists
+        ? detailPath
+        : (sessionGroups[0]?.projectPath ?? projectPath);
 
       let logEntries = stateRef.current.logEntries;
       let nextLogIncrementalState = logIncrementalStateRef.current;
@@ -251,12 +298,12 @@ export function useWorkspaceState(
       let projectStats: ProjectStats | null = null;
 
       if (!currentSession) {
-        const projectLogSessions = await deps.listProjectLogSessions(undefined, projectPath);
+        const projectLogSessions = await deps.listProjectLogSessions(undefined, detailPath);
         const latestSession = projectLogSessions[0];
         if (latestSession) {
           lastSessionStats = await deps.computeSessionStats(latestSession);
           projectStats = await deps.computeProjectStats(
-            deps.getProjectName(projectPath),
+            deps.getProjectName(detailPath),
             projectLogSessions
           );
         }
@@ -270,7 +317,7 @@ export function useWorkspaceState(
           sessionGroups,
           allSessions,
           projectSessions,
-          selectedSessionId,
+          selectedGroupPath: resolvedSelectedGroupPath,
           currentSession,
           logEntries,
           fixes,
@@ -306,14 +353,14 @@ export function useWorkspaceState(
     } finally {
       isHeavyRefreshingRef.current = false;
     }
-  }, [deps, projectPath]);
+  }, [deps, projectPath, detailPath]);
 
   const refreshLive = useCallback(async () => {
     if (isLiveRefreshingRef.current) return;
     isLiveRefreshingRef.current = true;
 
     try {
-      const currentSession = await deps.getLatestProjectActiveSession(undefined, projectPath);
+      const currentSession = await deps.getLatestProjectActiveSession(undefined, detailPath);
 
       let tmuxOutput = lastTmuxOutputRef.current;
       const liveMeta = getLiveRefreshMeta(currentSession);
@@ -374,7 +421,7 @@ export function useWorkspaceState(
     } finally {
       isLiveRefreshingRef.current = false;
     }
-  }, [deps, projectPath]);
+  }, [deps, detailPath]);
 
   useEffect(() => {
     void refreshHeavy();
