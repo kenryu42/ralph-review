@@ -11,6 +11,7 @@ import type { FocusedPane } from "@/lib/tui/workspace/workspace-types";
 import { DashboardOverlays } from "./DashboardOverlays";
 import { getPendingFixTarget } from "./dashboard-fix-state";
 import { cycleDashboardFocus, cycleDashboardFocusReverse } from "./dashboard-focus";
+import { resolveSelectedGroupPath, selectAdjacentGroupPath } from "./dashboard-group-selection";
 import { isDashboardOverlayBlockingFocus } from "./dashboard-overlay-state";
 import { Header } from "./Header";
 import { StatusBar } from "./StatusBar";
@@ -21,7 +22,14 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000, deps }:
   const renderer = useRenderer();
   const resolvedUseWorkspaceState = deps?.useWorkspaceState ?? useWorkspaceState;
   const ResolvedDashboardOverlays = deps?.DashboardOverlays ?? DashboardOverlays;
-  const state = resolvedUseWorkspaceState(projectPath, branch, refreshInterval);
+  const [selectedGroupPath, setSelectedGroupPath] = useState<string>(projectPath);
+  const state = resolvedUseWorkspaceState(
+    projectPath,
+    branch,
+    refreshInterval,
+    undefined,
+    selectedGroupPath
+  );
   const {
     runError,
     startupMode,
@@ -85,6 +93,15 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000, deps }:
     setShowFixFindings(false);
   }
 
+  const resolvedSelectedGroupPath = resolveSelectedGroupPath(
+    state.sessionGroups,
+    selectedGroupPath,
+    projectPath
+  );
+  if (resolvedSelectedGroupPath !== selectedGroupPath) {
+    setSelectedGroupPath(resolvedSelectedGroupPath);
+  }
+
   const shutdown = useCallback(
     async (after?: () => Promise<void>, exitCode: number = 0) => {
       if (isExitingRef.current) {
@@ -124,6 +141,18 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000, deps }:
     setFocusedPane((current) => cycleDashboardFocusReverse(current, outputVisible));
   }, [outputVisible]);
 
+  const selectPrevGroup = useCallback(() => {
+    setSelectedGroupPath((current) =>
+      selectAdjacentGroupPath(state.sessionGroups, current, "prev")
+    );
+  }, [state.sessionGroups]);
+
+  const selectNextGroup = useCallback(() => {
+    setSelectedGroupPath((current) =>
+      selectAdjacentGroupPath(state.sessionGroups, current, "next")
+    );
+  }, [state.sessionGroups]);
+
   const handleKeyboard = useCallback(
     (key: { name: string }) => {
       const action = resolveDashboardKeyAction({
@@ -137,6 +166,8 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000, deps }:
         hasCurrentSession: Boolean(state.currentSession),
         canFixPendingSession,
         isRunSpawning: isStartupSpawning(),
+        sidebarFocused: focusedPane === "sidebar",
+        sessionGroupCount: state.sessionGroups.length,
       });
 
       switch (action) {
@@ -187,6 +218,12 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000, deps }:
           clearRunError();
           setShowReviewModeOverlay(true);
           return;
+        case "select-prev-group":
+          selectPrevGroup();
+          return;
+        case "select-next-group":
+          selectNextGroup();
+          return;
       }
     },
     [
@@ -194,7 +231,10 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000, deps }:
       clearRunError,
       cycleFocus,
       cycleFocusReverse,
+      focusedPane,
       isStartupSpawning,
+      selectNextGroup,
+      selectPrevGroup,
       showFixFindings,
       showHelp,
       showReviewModeOverlay,
@@ -203,6 +243,7 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000, deps }:
       shutdown,
       state.allSessions,
       state.currentSession,
+      state.sessionGroups.length,
       stopSelectedSession,
     ]
   );
@@ -238,7 +279,7 @@ export function Dashboard({ projectPath, branch, refreshInterval = 1000, deps }:
         ) : (
           <Workspace
             sessionGroups={state.sessionGroups}
-            selectedSessionId={state.selectedSessionId}
+            selectedGroupPath={selectedGroupPath}
             session={state.currentSession}
             fixes={state.fixes}
             skipped={state.skipped}
