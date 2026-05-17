@@ -59,7 +59,9 @@ async function runTestReviewSession(
 }
 
 function createArtifactRecorder() {
-  const savedArtifacts: Array<{ findings: unknown[] }> = [];
+  const savedArtifacts: Array<{
+    findings: Parameters<RunReviewSessionDependencies["saveFindingsArtifact"]>[1]["findings"];
+  }> = [];
 
   return {
     savedArtifacts,
@@ -73,9 +75,39 @@ function createArtifactRecorder() {
   };
 }
 
-function expectSinglePreservedFinding(
+function createCacheReviewFinding() {
+  return createReviewFinding({
+    title: "Avoid stale cache",
+    code_location: {
+      absolute_file_path: "/repo/project/src/cache.ts",
+      line_range: { start: 20, end: 22 },
+    },
+  });
+}
+
+function createTwoFindingParser() {
+  let parseCalls = 0;
+
+  return () => {
+    parseCalls += 1;
+
+    if (parseCalls === 1) {
+      return createReviewParse(createReviewSummary([createReviewFinding()]));
+    }
+
+    if (parseCalls === 2) {
+      return createReviewParse(createReviewSummary([createCacheReviewFinding()]));
+    }
+
+    throw new Error("parse failed after second iteration");
+  };
+}
+
+function expectPreservedFinding(
   result: Awaited<ReturnType<typeof runTestReviewSession>>,
-  savedArtifacts: Array<{ findings: unknown[] }>
+  savedArtifacts: Array<{
+    findings: Parameters<RunReviewSessionDependencies["saveFindingsArtifact"]>[1]["findings"];
+  }>
 ) {
   expect(result.result.artifact).toMatchObject({
     sessionId: "session-123",
@@ -86,8 +118,8 @@ function expectSinglePreservedFinding(
       }),
     ],
   });
-  expect(savedArtifacts).toHaveLength(1);
-  expect(savedArtifacts[0]?.findings).toMatchObject([
+  expect(savedArtifacts.length).toBeGreaterThanOrEqual(1);
+  expect(savedArtifacts.at(-1)?.findings).toMatchObject([
     {
       id: "F001",
       filePath: "src/file.ts",
@@ -184,38 +216,15 @@ describe("review-workflow/review/runReviewSession", () => {
         filePath: "src/file.ts",
       }),
     ]);
-    expectSinglePreservedFinding(result, artifactRecorder.savedArtifacts);
+    expectPreservedFinding(result, artifactRecorder.savedArtifacts);
     expect(deletedSessionRefs).toEqual([]);
   });
 
   test("preserves accumulated findings when reviewer parsing errors after multiple iterations", async () => {
     const artifactRecorder = createArtifactRecorder();
-    let parseCalls = 0;
     const deps = createDependencies({
       runAgent: async () => createAgentResult({ output: "structured output" }),
-      parseReviewSummaryOutput: () => {
-        parseCalls += 1;
-
-        if (parseCalls === 1) {
-          return createReviewParse(createReviewSummary([createReviewFinding()]));
-        }
-
-        if (parseCalls === 2) {
-          return createReviewParse(
-            createReviewSummary([
-              createReviewFinding({
-                title: "Avoid stale cache",
-                code_location: {
-                  absolute_file_path: "/repo/project/src/cache.ts",
-                  line_range: { start: 20, end: 22 },
-                },
-              }),
-            ])
-          );
-        }
-
-        throw new Error("parse failed after second iteration");
-      },
+      parseReviewSummaryOutput: createTwoFindingParser(),
       saveFindingsArtifact: artifactRecorder.saveFindingsArtifact,
     });
 
@@ -223,7 +232,7 @@ describe("review-workflow/review/runReviewSession", () => {
 
     expectPendingFailure(result, 2, "parse failed after second iteration");
     expect(result.result.findings.map((finding) => finding.id)).toEqual(["F001", "F002"]);
-    expect(artifactRecorder.savedArtifacts[0]?.findings).toMatchObject([
+    expect(artifactRecorder.savedArtifacts.at(-1)?.findings).toMatchObject([
       {
         id: "F001",
         filePath: "src/file.ts",
@@ -233,6 +242,62 @@ describe("review-workflow/review/runReviewSession", () => {
         filePath: "src/cache.ts",
       },
     ]);
+  });
+
+  test("saves findings artifact after a successful review iteration before the next reviewer run", async () => {
+    const artifactRecorder = createArtifactRecorder();
+    let runAgentCalls = 0;
+    const deps = createDependencies({
+      runAgent: async () => {
+        runAgentCalls += 1;
+
+        if (runAgentCalls === 2) {
+          expect(artifactRecorder.savedArtifacts).toHaveLength(1);
+          expect(artifactRecorder.savedArtifacts[0]?.findings).toMatchObject([
+            {
+              id: "F001",
+              filePath: "src/file.ts",
+            },
+          ]);
+        }
+
+        return createAgentResult({ output: "structured output" });
+      },
+      parseReviewSummaryOutput: () =>
+        createReviewParse(createReviewSummary([createReviewFinding()])),
+      saveFindingsArtifact: artifactRecorder.saveFindingsArtifact,
+    });
+
+    await runTestReviewSession(
+      deps,
+      { forceMaxIterations: true },
+      createReviewWorkflowConfig({ maxIterations: 2 })
+    );
+
+    expect(artifactRecorder.savedArtifacts.map((artifact) => artifact.findings.length)).toEqual([
+      1, 1, 1,
+    ]);
+  });
+
+  test("updates the same findings artifact with accumulated findings across iterations", async () => {
+    const artifactRecorder = createArtifactRecorder();
+    const deps = createDependencies({
+      runAgent: async () => createAgentResult({ output: "structured output" }),
+      parseReviewSummaryOutput: createTwoFindingParser(),
+      saveFindingsArtifact: artifactRecorder.saveFindingsArtifact,
+    });
+
+    await runTestReviewSession(
+      deps,
+      { forceMaxIterations: true },
+      createReviewWorkflowConfig({ maxIterations: 2 })
+    );
+
+    expect(
+      artifactRecorder.savedArtifacts.map((artifact) =>
+        artifact.findings.map((finding) => finding.id)
+      )
+    ).toEqual([["F001"], ["F001", "F002"], ["F001", "F002"]]);
   });
 
   test("preserves findings artifact when an interrupted reviewer run happens after progress", async () => {
@@ -263,7 +328,7 @@ describe("review-workflow/review/runReviewSession", () => {
     expect(result.result.reviewOutcome).toBe("findings-pending");
     expect(result.result.iterations).toBe(1);
     expect(result.result.reason).toContain("Findings were preserved");
-    expectSinglePreservedFinding(result, artifactRecorder.savedArtifacts);
+    expectPreservedFinding(result, artifactRecorder.savedArtifacts);
     expect(deletedSessionRefs).toEqual([]);
   });
 

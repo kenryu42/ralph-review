@@ -325,6 +325,20 @@ export async function runReviewSession(
     if (entry.type === "review_iteration") {
       latestPersistedFindings = [...latestPersistedFindings, ...entry.findings];
       completedReviewIterations = entry.iteration;
+
+      if (worktree && latestPersistedFindings.length > 0) {
+        await deps.saveFindingsArtifact(
+          CONFIG_DIR,
+          createFindingsArtifact(
+            sessionId,
+            projectPath,
+            sessionPath,
+            worktree,
+            latestPersistedFindings
+          )
+        );
+        shouldDeleteSessionRefs = false;
+      }
     }
   };
 

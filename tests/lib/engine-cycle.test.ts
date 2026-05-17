@@ -326,14 +326,17 @@ describe("runReviewCycle", () => {
     expect(reviewerCalls[1]?.prompt).toContain("KNOWN=F001");
     expect(reviewerCalls[1]?.prompt).toContain("Focus on runtime failures.");
 
-    expect(state.savedArtifacts).toHaveLength(1);
-    expect(state.savedArtifacts[0]?.baselineCommitSha).toBe(TEST_BASELINE_COMMIT_SHA);
-    expect(state.savedArtifacts[0]?.sourceBaselineCommitSha).toBe(TEST_SOURCE_BASELINE_COMMIT_SHA);
-    expect(state.savedArtifacts[0]?.sourceBaselineFingerprint).toBe(
+    expect(
+      state.savedArtifacts.map((artifact) => artifact.findings.map((finding) => finding.id))
+    ).toEqual([["F001"], ["F001"], ["F001"]]);
+    expect(state.savedArtifacts.at(-1)?.baselineCommitSha).toBe(TEST_BASELINE_COMMIT_SHA);
+    expect(state.savedArtifacts.at(-1)?.sourceBaselineCommitSha).toBe(
+      TEST_SOURCE_BASELINE_COMMIT_SHA
+    );
+    expect(state.savedArtifacts.at(-1)?.sourceBaselineFingerprint).toBe(
       TEST_SOURCE_BASELINE_FINGERPRINT
     );
-    expect(state.savedArtifacts[0]?.findings.map((finding) => finding.id)).toEqual(["F001"]);
-    expect(state.savedArtifacts[0]?.selectedFindingIds).toEqual([]);
+    expect(state.savedArtifacts.at(-1)?.selectedFindingIds).toEqual([]);
 
     const reviewEntries = state.appendedEntries.filter(
       (entry) => entry.type === "review_iteration"
