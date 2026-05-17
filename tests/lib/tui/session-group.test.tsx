@@ -42,7 +42,8 @@ describe("SessionGroup and SessionItem", () => {
           isCurrentProject: true,
           sessions: [runningSession, pendingSession],
         },
-        selectedSessionId: runningSession.sessionId,
+        isSelected: true,
+        sidebarFocused: true,
       })
     );
 
@@ -53,6 +54,7 @@ describe("SessionGroup and SessionItem", () => {
     expect(frame).toContain("rr-project-feature");
     expect(frame).toContain("●");
     expect(frame).toContain("◌");
+    expect(frame).toContain("›");
   });
 
   test("renders an empty non-current group with the fallback message", async () => {
@@ -64,13 +66,14 @@ describe("SessionGroup and SessionItem", () => {
           isCurrentProject: false,
           sessions: [],
         },
-        selectedSessionId: null,
+        isSelected: false,
       })
     );
 
     expect(frame).toContain("○");
     expect(frame).toContain("repo-other");
     expect(frame).toContain("No active sessions");
+    expect(frame).not.toContain("›");
   });
 
   test("renders status icons for completed and interrupted item states", async () => {
@@ -80,7 +83,6 @@ describe("SessionGroup and SessionItem", () => {
           sessionName: "rr-complete",
           state: "completed",
         }),
-        isSelected: false,
       })
     );
 
@@ -94,7 +96,6 @@ describe("SessionGroup and SessionItem", () => {
           sessionName: "rr-interrupted",
           state: "interrupted",
         }),
-        isSelected: false,
       })
     );
 

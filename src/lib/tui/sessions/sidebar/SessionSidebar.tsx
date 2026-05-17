@@ -4,13 +4,13 @@ import { SessionGroup } from "./SessionGroup";
 
 interface SessionSidebarProps {
   groups: SessionGroupData[];
-  selectedSessionId: string | null;
+  selectedGroupPath: string | null;
   focused?: boolean;
 }
 
 export function SessionSidebar({
   groups,
-  selectedSessionId,
+  selectedGroupPath,
   focused = false,
 }: SessionSidebarProps) {
   const borderColor = focused ? TUI_COLORS.ui.borderFocused : TUI_COLORS.ui.border;
@@ -38,7 +38,8 @@ export function SessionSidebar({
           <SessionGroup
             key={group.projectPath}
             group={group}
-            selectedSessionId={selectedSessionId}
+            isSelected={group.projectPath === selectedGroupPath}
+            sidebarFocused={focused}
           />
         ))
       )}

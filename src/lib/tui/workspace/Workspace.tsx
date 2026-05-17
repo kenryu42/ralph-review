@@ -7,7 +7,7 @@ import type { FocusedPane, SessionGroupData } from "./workspace-types";
 
 interface WorkspaceProps extends DetailPaneProps {
   sessionGroups: SessionGroupData[];
-  selectedSessionId: string | null;
+  selectedGroupPath: string | null;
   outputVisible: boolean;
   focusedPane: FocusedPane;
   overlayBlocked?: boolean;
@@ -15,7 +15,7 @@ interface WorkspaceProps extends DetailPaneProps {
 
 export function Workspace({
   sessionGroups,
-  selectedSessionId,
+  selectedGroupPath,
   outputVisible,
   focusedPane,
   overlayBlocked = false,
@@ -31,7 +31,7 @@ export function Workspace({
       <box flexDirection="row" flexGrow={1} minHeight={0} gap={1} paddingLeft={1} paddingRight={1}>
         <SessionSidebar
           groups={sessionGroups}
-          selectedSessionId={selectedSessionId}
+          selectedGroupPath={selectedGroupPath}
           focused={sidebarFocused}
         />
         <DetailPane {...detailPaneProps} focused={detailFocused} />

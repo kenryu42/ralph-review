@@ -3,7 +3,6 @@ import { TUI_COLORS } from "@/lib/tui/shared/colors";
 
 interface SessionItemProps {
   session: ActiveSession;
-  isSelected: boolean;
   projectName?: string;
 }
 
@@ -32,16 +31,14 @@ function getStatusIcon(state: string): { icon: string; color: string } {
   }
 }
 
-export function SessionItem({ session, isSelected, projectName }: SessionItemProps) {
+export function SessionItem({ session, projectName }: SessionItemProps) {
   const { icon, color } = getStatusIcon(session.state);
-  const bgColor = isSelected ? "#1e293b" : undefined;
-  const textColor = isSelected ? TUI_COLORS.text.primary : TUI_COLORS.text.muted;
   const label = shortSessionLabel(session.sessionName, projectName);
 
   return (
-    <box flexDirection="row" gap={1} paddingLeft={2} paddingRight={1} backgroundColor={bgColor}>
+    <box flexDirection="row" gap={1} paddingLeft={2} paddingRight={1}>
       <text fg={color}>{icon}</text>
-      <text fg={textColor} wrapMode="none" flexShrink={1}>
+      <text fg={TUI_COLORS.text.muted} wrapMode="none" flexShrink={1}>
         {label}
       </text>
     </box>
